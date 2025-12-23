@@ -1,0 +1,59 @@
+# BC AI Agent - Backend Dependencies
+# Python 3.11+ required
+
+# Web Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Microsoft Integrations
+msal==1.26.0
+msgraph-sdk==1.1.0
+azure-identity==1.15.0
+azure-keyvault-secrets==4.7.0
+azure-storage-blob==12.19.0
+
+# Business Central / HTTP
+requests==2.31.0
+httpx==0.26.0
+
+# AI/ML
+anthropic==0.18.1
+langchain==0.1.4
+langchain-anthropic==0.1.4
+
+# Database
+psycopg2-binary==2.9.9
+SQLAlchemy==2.0.25
+alembic==1.13.1
+
+# Task Queue
+celery==5.3.6
+redis==5.0.1
+
+# Utilities
+python-dotenv==1.0.1
+python-multipart==0.0.6
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+email-validator==2.1.0
+
+# Monitoring & Logging
+azure-monitor-opentelemetry==1.2.0
+opencensus-ext-azure==1.1.13
+
+# Testing
+pytest==7.4.4
+pytest-asyncio==0.23.3
+pytest-cov==4.1.0
+httpx==0.26.0
+
+# Excel Integration (for Option B if needed)
+xlwings==0.30.13
+openpyxl==3.1.2
+
+# Development
+black==24.1.1
+flake8==7.0.0
+mypy==1.8.0
