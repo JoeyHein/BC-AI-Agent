@@ -12,6 +12,7 @@ from app.integrations.ai.client import ai_client
 from app.db.database import SessionLocal
 from app.db.models import EmailLog, QuoteRequest, AIDecision
 from app.config import settings
+from app.services.memory_service import get_memory_service
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,28 @@ class EmailMonitorService:
     def __init__(self):
         self.graph_client = graph_client
         self.ai_client = ai_client
-        self.monitored_inboxes = [settings.EMAIL_INBOX_1, settings.EMAIL_INBOX_2]
+        # Legacy fallback for backward compatibility - supports unlimited EMAIL_INBOX_* variables
+        self.legacy_inboxes = []
+        for i in range(1, 11):  # Support up to 10 legacy inboxes (EMAIL_INBOX_1 through EMAIL_INBOX_10)
+            inbox = getattr(settings, f'EMAIL_INBOX_{i}', None)
+            if inbox:
+                self.legacy_inboxes.append(inbox)
+
+    def _get_email_connections(self, db) -> List[Dict[str, Any]]:
+        """Get active email connections from database"""
+        from app.db.models import EmailConnection
+
+        connections = db.query(EmailConnection).filter(
+            EmailConnection.is_active == True
+        ).all()
+
+        return [{
+            'id': conn.id,
+            'email_address': conn.email_address,
+            'access_token': conn.access_token,
+            'refresh_token': conn.refresh_token,
+            'token_expires_at': conn.token_expires_at
+        } for conn in connections]
 
     def monitor_inboxes(self, hours_back: int = 24, max_emails_per_inbox: int = 50) -> Dict[str, Any]:
         """Monitor all configured inboxes for new emails
@@ -44,24 +66,73 @@ class EmailMonitorService:
             "by_inbox": {}
         }
 
-        for inbox_email in self.monitored_inboxes:
-            if not inbox_email:
-                continue
+        # Get email connections from database
+        db = SessionLocal()
+        try:
+            connections = self._get_email_connections(db)
 
-            logger.info(f"Checking inbox: {inbox_email}")
+            # If no database connections, fall back to legacy settings
+            if not connections:
+                logger.info("No database email connections found, using legacy settings")
+                for inbox_email in self.legacy_inboxes:
+                    if not inbox_email:
+                        continue
 
-            try:
-                inbox_results = self._process_inbox(inbox_email, hours_back, max_emails_per_inbox)
-                results["by_inbox"][inbox_email] = inbox_results
-                results["total_emails_checked"] += inbox_results["emails_checked"]
-                results["new_emails_found"] += inbox_results["new_emails"]
-                results["quote_requests_parsed"] += inbox_results["quotes_parsed"]
-                results["errors"] += inbox_results["errors"]
+                    logger.info(f"Checking inbox (legacy): {inbox_email}")
 
-            except Exception as e:
-                logger.error(f"Error processing inbox {inbox_email}: {e}")
-                results["errors"] += 1
-                results["by_inbox"][inbox_email] = {"error": str(e)}
+                    try:
+                        inbox_results = self._process_inbox(inbox_email, hours_back, max_emails_per_inbox)
+                        results["by_inbox"][inbox_email] = inbox_results
+                        results["total_emails_checked"] += inbox_results["emails_checked"]
+                        results["new_emails_found"] += inbox_results["new_emails"]
+                        results["quote_requests_parsed"] += inbox_results["quotes_parsed"]
+                        results["errors"] += inbox_results["errors"]
+
+                    except Exception as e:
+                        logger.error(f"Error processing inbox {inbox_email}: {e}")
+                        results["errors"] += 1
+                        results["by_inbox"][inbox_email] = {"error": str(e)}
+            else:
+                # Use database connections
+                logger.info(f"Found {len(connections)} active email connections")
+                for conn in connections:
+                    inbox_email = conn['email_address']
+                    logger.info(f"Checking inbox: {inbox_email}")
+
+                    try:
+                        inbox_results = self._process_inbox(inbox_email, hours_back, max_emails_per_inbox)
+                        results["by_inbox"][inbox_email] = inbox_results
+                        results["total_emails_checked"] += inbox_results["emails_checked"]
+                        results["new_emails_found"] += inbox_results["new_emails"]
+                        results["quote_requests_parsed"] += inbox_results["quotes_parsed"]
+                        results["errors"] += inbox_results["errors"]
+
+                        # Update last_checked_at
+                        from app.db.models import EmailConnection
+                        db_conn = db.query(EmailConnection).filter(
+                            EmailConnection.id == conn['id']
+                        ).first()
+                        if db_conn:
+                            db_conn.last_checked_at = datetime.utcnow()
+                            db_conn.last_sync_status = "success"
+                            db.commit()
+
+                    except Exception as e:
+                        logger.error(f"Error processing inbox {inbox_email}: {e}")
+                        results["errors"] += 1
+                        results["by_inbox"][inbox_email] = {"error": str(e)}
+
+                        # Update error status
+                        from app.db.models import EmailConnection
+                        db_conn = db.query(EmailConnection).filter(
+                            EmailConnection.id == conn['id']
+                        ).first()
+                        if db_conn:
+                            db_conn.last_sync_status = "error"
+                            db.commit()
+
+        finally:
+            db.close()
 
         logger.info(f"Monitoring cycle complete. Found {results['new_emails_found']} new emails, "
                    f"parsed {results['quote_requests_parsed']} quote requests")
@@ -138,13 +209,22 @@ class EmailMonitorService:
 
         logger.info(f"Processing new email from {from_name}: {subject[:50]}")
 
-        # Step 1: Categorize email
-        category_result = self.ai_client.analyze_email_category(subject, body)
+        # Step 1: Categorize email with learning system
+        from app.services.email_categorization_service import get_categorization_service
+        categorization_service = get_categorization_service(db)
 
-        category = category_result.get("category", "unknown") if category_result.get("success") else "unknown"
+        category_result = categorization_service.categorize_email(subject, body, from_address)
+
+        category = category_result.get("category", "unknown")
+        confidence = category_result.get("confidence", 0.0)
+        reasoning = category_result.get("reasoning", "")
         is_quote_request = category == "quote_request"
 
-        # Step 2: Log email in database
+        logger.info(f"  -> Categorized as '{category}' (confidence: {confidence:.2f})")
+        if reasoning:
+            logger.debug(f"  -> Reasoning: {reasoning[:100]}")
+
+        # Step 2: Log email in database with AI categorization fields
         email_log = EmailLog(
             message_id=internet_message_id,
             received_at=datetime.fromisoformat(received_at.replace('Z', '+00:00')) if received_at else datetime.utcnow(),
@@ -152,7 +232,11 @@ class EmailMonitorService:
             subject=subject,
             body=body,
             attachments=None,  # TODO: Handle attachments in future
-            status="pending" if is_quote_request else "informational"
+            status="pending" if is_quote_request else "informational",
+            # AI Categorization Learning Fields
+            ai_category=category,
+            ai_category_confidence=confidence,
+            ai_category_reasoning=reasoning
         )
         db.add(email_log)
         db.flush()  # Get the ID
@@ -172,8 +256,17 @@ class EmailMonitorService:
 
         sender_info = {"name": from_name, "email": from_address}
 
-        # Parse with Claude AI
-        parse_result = self.ai_client.parse_email_for_quote(subject, body, sender_info)
+        # MEMORY SYSTEM: Retrieve similar examples for RAG
+        memory_service = get_memory_service(db)
+        examples = memory_service.retrieve_similar_examples(subject, body, max_examples=3)
+        example_context = memory_service.format_examples_for_prompt(examples)
+
+        logger.info(f"  -> Using {len(examples)} examples for enhanced parsing")
+
+        # Parse with Claude AI (with RAG context)
+        parse_result = self.ai_client.parse_email_for_quote(
+            subject, body, sender_info, example_context=example_context
+        )
 
         if not parse_result.get("success"):
             logger.error(f"Failed to parse quote request: {parse_result.get('error')}")
@@ -224,6 +317,16 @@ class EmailMonitorService:
         # Update email log
         email_log.status = "parsed"
         email_log.parsed_at = datetime.utcnow()
+
+        # MEMORY SYSTEM: Auto-add high-confidence parses to example library
+        if confidence >= 0.8:  # High confidence threshold
+            try:
+                memory_service._add_to_example_library(
+                    quote_request, email_log, verified=False, quality_boost=0.1
+                )
+                logger.info(f"  -> Auto-added to example library (high confidence)")
+            except Exception as e:
+                logger.warning(f"Failed to add to example library: {e}")
 
         logger.info(f"  -> Quote request parsed. Confidence: {confidence:.2f}, "
                    f"Customer: {quote_request.customer_name}, "

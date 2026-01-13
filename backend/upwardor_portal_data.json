@@ -1,0 +1,40 @@
+{
+  "api_endpoints": [
+    {
+      "url": "http://195.35.8.196:6100/user/login",
+      "method": "POST"
+    },
+    {
+      "url": "http://195.35.8.196:6100/user/login",
+      "method": "OPTIONS"
+    },
+    {
+      "url": "http://195.35.8.196:6100/socket.io/?EIO=4&transport=polling&t=uyew6d89",
+      "method": "GET"
+    },
+    {
+      "url": "http://195.35.8.196:6100/admin/user/detail?id=U2FsdGVkX1+peanjtFAbpDB7CQ6l0FkFTyizE/UJpL+wrwjZh8DoSJDXO0c0G3YA",
+      "method": "OPTIONS"
+    },
+    {
+      "url": "http://195.35.8.196:6100/admin/user/detail?id=U2FsdGVkX1+peanjtFAbpDB7CQ6l0FkFTyizE/UJpL+wrwjZh8DoSJDXO0c0G3YA",
+      "method": "GET"
+    },
+    {
+      "url": "http://195.35.8.196:6100/socket.io/?EIO=4&transport=polling&t=uyeyhjzj&sid=K37XX4Kk1aLMYloHAACA",
+      "method": "POST"
+    },
+    {
+      "url": "http://195.35.8.196:6100/socket.io/?EIO=4&transport=polling&t=uyeyjia3&sid=K37XX4Kk1aLMYloHAACA",
+      "method": "GET"
+    },
+    {
+      "url": "http://195.35.8.196:6100/socket.io/?EIO=4&transport=polling&t=uyf34y0v&sid=K37XX4Kk1aLMYloHAACA",
+      "method": "GET"
+    },
+    {
+      "url": "http://195.35.8.196:6100/socket.io/?EIO=4&transport=polling&t=uyf35jcj&sid=K37XX4Kk1aLMYloHAACA",
+      "method": "POST"
+    }
+  ]
+}

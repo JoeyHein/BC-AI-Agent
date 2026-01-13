@@ -27,13 +27,15 @@ class ClaudeAIClient:
             logger.warning("Anthropic API key not configured. AI features will not work.")
 
     def parse_email_for_quote(self, email_subject: str, email_body: str,
-                              sender_info: Dict[str, str]) -> Dict[str, Any]:
+                              sender_info: Dict[str, str],
+                              example_context: Optional[str] = None) -> Dict[str, Any]:
         """Parse email to extract quote request information
 
         Args:
             email_subject: Email subject line
             email_body: Email body content (HTML or plain text)
             sender_info: Dict with 'name' and 'email'
+            example_context: Optional RAG examples to inject into prompt
 
         Returns:
             Dict with extracted data and confidence scores
@@ -48,6 +50,8 @@ class ClaudeAIClient:
         prompt = f"""You are an AI assistant helping a garage door manufacturer (Open Distribution Company) process quote requests from emails.
 
 Analyze the following email and extract structured quote request information.
+
+{example_context if example_context else ""}
 
 **Email From:** {sender_info.get('name')} <{sender_info.get('email')}>
 **Subject:** {email_subject}
@@ -89,16 +93,16 @@ Analyze the following email and extract structured quote request information.
 **Output Format:** JSON only, no additional text. Use this structure:
 
 ```json
-{
-  "customer": {
+{{
+  "customer": {{
     "company_name": "Company Name or null",
     "contact_name": "Contact Person or null",
     "phone": "Phone Number or null",
     "email": "Email or null",
     "confidence": 0.0-1.0
-  },
+  }},
   "doors": [
-    {
+    {{
       "model": "Door Model or null",
       "quantity": number or null,
       "width_ft": number or null,
@@ -111,19 +115,19 @@ Analyze the following email and extract structured quote request information.
       "track_type": "2 or 3 or null",
       "special_features": "Any notes or null",
       "confidence": 0.0-1.0
-    }
+    }}
   ],
-  "project": {
+  "project": {{
     "name": "Project name or null",
     "delivery_date": "Date or null",
     "installation_required": true/false/null,
     "special_requirements": "Notes or null",
     "confidence": 0.0-1.0
-  },
+  }},
   "overall_confidence": 0.0-1.0,
   "missing_critical_fields": ["list of missing fields"],
   "parsing_notes": "Any important observations or ambiguities"
-}
+}}
 ```
 
 **Important:**
@@ -135,7 +139,7 @@ Analyze the following email and extract structured quote request information.
 
         try:
             response = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-sonnet-4-5-20250929",
                 max_tokens=4000,
                 messages=[{
                     "role": "user",
@@ -164,7 +168,7 @@ Analyze the following email and extract structured quote request information.
                 "success": True,
                 "data": parsed_data,
                 "confidence": parsed_data.get("overall_confidence", 0.5),
-                "model": "claude-3-5-sonnet-20241022",
+                "model": "claude-sonnet-4-5-20250929",
                 "tokens": {
                     "input": response.usage.input_tokens,
                     "output": response.usage.output_tokens
@@ -228,7 +232,7 @@ Analyze the following email and extract structured quote request information.
 
         try:
             response = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-sonnet-4-5-20250929",
                 max_tokens=500,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -262,3 +266,4 @@ Analyze the following email and extract structured quote request information.
 
 # Global AI client instance
 ai_client = ClaudeAIClient()
+

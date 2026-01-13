@@ -27,8 +27,17 @@ class Settings(BaseSettings):
     GRAPH_TENANT_ID: Optional[str] = None
     GRAPH_CLIENT_ID: Optional[str] = None
     GRAPH_CLIENT_SECRET: Optional[str] = None
+    # Email inboxes (legacy - supports up to 10 inboxes)
     EMAIL_INBOX_1: Optional[str] = None
     EMAIL_INBOX_2: Optional[str] = None
+    EMAIL_INBOX_3: Optional[str] = None
+    EMAIL_INBOX_4: Optional[str] = None
+    EMAIL_INBOX_5: Optional[str] = None
+    EMAIL_INBOX_6: Optional[str] = None
+    EMAIL_INBOX_7: Optional[str] = None
+    EMAIL_INBOX_8: Optional[str] = None
+    EMAIL_INBOX_9: Optional[str] = None
+    EMAIL_INBOX_10: Optional[str] = None
 
     # Anthropic Claude AI
     ANTHROPIC_API_KEY: Optional[str] = None
@@ -52,6 +61,9 @@ class Settings(BaseSettings):
     ENABLE_EMAIL_MONITORING: bool = True
     ENABLE_AI_PARSING: bool = True
     ENABLE_VENDOR_INTELLIGENCE: bool = True
+
+    # Email Monitoring Settings
+    EMAIL_CHECK_INTERVAL_MINUTES: int = 15  # How often to check for new emails
 
     # Logging
     LOG_LEVEL: str = "INFO"
