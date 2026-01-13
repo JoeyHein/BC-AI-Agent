@@ -214,13 +214,19 @@ Body: {body[:1000]}
             )
         ).count()
 
+        # Calculate rates
+        fp_rate = (false_positives / verified * 100) if verified > 0 else 0
+        fn_rate = (false_negatives / verified * 100) if verified > 0 else 0
+        incorrect = verified - correct
+
         return {
-            "total_categorized": total,
-            "user_verified": verified,
-            "correct": correct,
-            "accuracy_percentage": round(accuracy, 1),
-            "false_positives": false_positives,
-            "false_negatives": false_negatives,
+            "total_emails": total,
+            "total_verified": verified,
+            "correct_categorizations": correct,
+            "incorrect_categorizations": incorrect,
+            "accuracy_rate": round(accuracy, 1),
+            "false_positive_rate": round(fp_rate, 1),
+            "false_negative_rate": round(fn_rate, 1),
             "learning_examples_available": verified
         }
 
