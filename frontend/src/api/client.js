@@ -56,6 +56,10 @@ export const quotesApi = {
   // Get quote statistics
   getQuoteStats: () =>
     apiClient.get('/api/quotes/stats/summary'),
+
+  // Get learning progress stats
+  getLearningProgress: () =>
+    apiClient.get('/api/quotes/stats/learning-progress'),
 };
 
 // Email Feedback API (for categorization learning)
