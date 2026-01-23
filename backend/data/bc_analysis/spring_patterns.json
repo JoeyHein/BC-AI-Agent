@@ -1,0 +1,2233 @@
+{
+  "total_count": 229,
+  "by_type": {
+    "SP01": [
+      {
+        "number": "SP01-00000-00",
+        "displayName": "OIL TEMPERED SPRING ASSEMBLY",
+        "parts": [
+          "SP01",
+          "00000",
+          "00"
+        ]
+      }
+    ],
+    "SP02": [
+      {
+        "number": "SP02-00000-00",
+        "displayName": "OIL TEMPERED SPRING ASSEMBLY",
+        "parts": [
+          "SP02",
+          "00000",
+          "00"
+        ]
+      }
+    ],
+    "SP10": [
+      {
+        "number": "SP10-22520-01",
+        "displayName": "SPRINGS, GALVANIZED, .250 X 2\"  LH",
+        "parts": [
+          "SP10",
+          "22520",
+          "01"
+        ]
+      },
+      {
+        "number": "SP10-22520-02",
+        "displayName": "SPRINGS, GALVANIZED, .250 X 2\"  RH",
+        "parts": [
+          "SP10",
+          "22520",
+          "02"
+        ]
+      },
+      {
+        "number": "SP10-25020-01",
+        "displayName": "SPRINGS, GALVANIZED, .225 X 2\"  LH",
+        "parts": [
+          "SP10",
+          "25020",
+          "01"
+        ]
+      },
+      {
+        "number": "SP10-25020-02",
+        "displayName": "SPRINGS, GALVANIZED, .225 X 2\"  RH",
+        "parts": [
+          "SP10",
+          "25020",
+          "02"
+        ]
+      },
+      {
+        "number": "SP10-25025-01",
+        "displayName": "SPRINGS, GALVANIZED, .250 X 2 5/8\"  LH",
+        "parts": [
+          "SP10",
+          "25025",
+          "01"
+        ]
+      },
+      {
+        "number": "SP10-25025-02",
+        "displayName": "SPRINGS, GALVANIZED, .250 X 2 5/8\"  RH",
+        "parts": [
+          "SP10",
+          "25025",
+          "02"
+        ]
+      },
+      {
+        "number": "SP10-26220-01",
+        "displayName": "SPRINGS, GALVANIZED, .262 X 2\"  LH",
+        "parts": [
+          "SP10",
+          "26220",
+          "01"
+        ]
+      },
+      {
+        "number": "SP10-26220-02",
+        "displayName": "SPRINGS, GALVANIZED, .262 X 2\"  RH",
+        "parts": [
+          "SP10",
+          "26220",
+          "02"
+        ]
+      },
+      {
+        "number": "SP10-26236-01",
+        "displayName": "SPRINGS, GALVANIZED, .262 X 3 3/4\"\u00a0 LH",
+        "parts": [
+          "SP10",
+          "26236",
+          "01"
+        ]
+      },
+      {
+        "number": "SP10-26236-02",
+        "displayName": "SPRINGS, GALVANIZED, .262 X 3 3/4\"\u00a0 RH",
+        "parts": [
+          "SP10",
+          "26236",
+          "02"
+        ]
+      },
+      {
+        "number": "SP10-27320-01",
+        "displayName": "SPRINGS, GALVANIZED, .273 X 2\"\u00a0 LH",
+        "parts": [
+          "SP10",
+          "27320",
+          "01"
+        ]
+      },
+      {
+        "number": "SP10-27320-02",
+        "displayName": "SPRINGS, GALVANIZED, .273 X 2\"\u00a0 RH",
+        "parts": [
+          "SP10",
+          "27320",
+          "02"
+        ]
+      },
+      {
+        "number": "SP10-27325-01",
+        "displayName": "SPRINGS, GALVANIZED, .273 X 2 5/8\"   LH",
+        "parts": [
+          "SP10",
+          "27325",
+          "01"
+        ]
+      },
+      {
+        "number": "SP10-27325-02",
+        "displayName": "SPRINGS, GALVANIZED, .273 X 2 5/8\"  RH",
+        "parts": [
+          "SP10",
+          "27325",
+          "02"
+        ]
+      },
+      {
+        "number": "SP10-27336-01",
+        "displayName": "SPRINGS, GALVANIZED, .273 X 3 3/4\"\u00a0 LH",
+        "parts": [
+          "SP10",
+          "27336",
+          "01"
+        ]
+      },
+      {
+        "number": "SP10-27336-02",
+        "displayName": "SPRINGS, GALVANIZED, .273 X 3 3/4\"\u00a0 RH",
+        "parts": [
+          "SP10",
+          "27336",
+          "02"
+        ]
+      },
+      {
+        "number": "SP10-28336-01",
+        "displayName": "SPRINGS, GALVANIZED, .283 X 3 3/4\"  LH",
+        "parts": [
+          "SP10",
+          "28336",
+          "01"
+        ]
+      },
+      {
+        "number": "SP10-28336-02",
+        "displayName": "SPRINGS, GALVANIZED, .283 X 3 3/4\"  RH",
+        "parts": [
+          "SP10",
+          "28336",
+          "02"
+        ]
+      },
+      {
+        "number": "SP10-29525-01",
+        "displayName": "SPRINGS, GALVANIZED, .295 X 2 5/8\"\u00a0 LH",
+        "parts": [
+          "SP10",
+          "29525",
+          "01"
+        ]
+      },
+      {
+        "number": "SP10-29525-02",
+        "displayName": "SPRINGS, GALVANIZED, .295 X 2 5/8\"\u00a0 RH",
+        "parts": [
+          "SP10",
+          "29525",
+          "02"
+        ]
+      },
+      {
+        "number": "SP10-29536-01",
+        "displayName": "SPRINGS, GALVANIZED, .295 X 3 3/4\"\u00a0 LH",
+        "parts": [
+          "SP10",
+          "29536",
+          "01"
+        ]
+      },
+      {
+        "number": "SP10-29536-02",
+        "displayName": "SPRINGS, GALVANIZED, .295 X 3 3/4\"\u00a0 RH",
+        "parts": [
+          "SP10",
+          "29536",
+          "02"
+        ]
+      },
+      {
+        "number": "SP10-30636-01",
+        "displayName": "SPRINGS, GALVANIZED, .306 X 3 3/4\"\u00a0 LH",
+        "parts": [
+          "SP10",
+          "30636",
+          "01"
+        ]
+      },
+      {
+        "number": "SP10-30636-02",
+        "displayName": "SPRINGS, GALVANIZED, .306 X 3 3/4\"\u00a0 RH",
+        "parts": [
+          "SP10",
+          "30636",
+          "02"
+        ]
+      },
+      {
+        "number": "SP10-31225-01",
+        "displayName": "SPRINGS, GALVANIZED, .312 X 2 5/8\"  LH",
+        "parts": [
+          "SP10",
+          "31225",
+          "01"
+        ]
+      },
+      {
+        "number": "SP10-31225-02",
+        "displayName": "SPRINGS, GALVANIZED, .312 X 2 5/8\"  RH",
+        "parts": [
+          "SP10",
+          "31225",
+          "02"
+        ]
+      },
+      {
+        "number": "SP10-31236-01",
+        "displayName": "SPRINGS, GALVANIZED, .312 X 3 3/4\"  LH",
+        "parts": [
+          "SP10",
+          "31236",
+          "01"
+        ]
+      },
+      {
+        "number": "SP10-31236-02",
+        "displayName": "SPRINGS, GALVANIZED, .312 X 3 3/4\"  RH",
+        "parts": [
+          "SP10",
+          "31236",
+          "02"
+        ]
+      },
+      {
+        "number": "SP10-31936-01",
+        "displayName": "SPRINGS, GALVANIZED, .319 X 3 3/4\"\u00a0 LH",
+        "parts": [
+          "SP10",
+          "31936",
+          "01"
+        ]
+      },
+      {
+        "number": "SP10-31936-02",
+        "displayName": "SPRINGS, GALVANIZED, .319 X 3 3/4\"\u00a0 RH",
+        "parts": [
+          "SP10",
+          "31936",
+          "02"
+        ]
+      },
+      {
+        "number": "SP10-33160-01",
+        "displayName": "SPRINGS, GALVANIZED, .331 X 6\"\u00a0 LH",
+        "parts": [
+          "SP10",
+          "33160",
+          "01"
+        ]
+      },
+      {
+        "number": "SP10-33160-02",
+        "displayName": "SPRINGS, GALVANIZED, .331 X 6\"\u00a0 RH",
+        "parts": [
+          "SP10",
+          "33160",
+          "02"
+        ]
+      },
+      {
+        "number": "SP10-34360-01",
+        "displayName": "SPRINGS, GALVANIZED, .343 X 6\"\u00a0 LH",
+        "parts": [
+          "SP10",
+          "34360",
+          "01"
+        ]
+      },
+      {
+        "number": "SP10-34360-02",
+        "displayName": "SPRINGS, GALVANIZED, .343 X 6\"\u00a0 RH",
+        "parts": [
+          "SP10",
+          "34360",
+          "02"
+        ]
+      },
+      {
+        "number": "SP10-36260-01",
+        "displayName": "SPRINGS, GALVANIZED, .362 X 6\"\u00a0 LH",
+        "parts": [
+          "SP10",
+          "36260",
+          "01"
+        ]
+      },
+      {
+        "number": "SP10-36360-02",
+        "displayName": "SPRINGS, GALVANIZED, .363 X 6\" , RH",
+        "parts": [
+          "SP10",
+          "36360",
+          "02"
+        ]
+      },
+      {
+        "number": "SP10-37560-01",
+        "displayName": "SPRINGS, GALVANIZED, .375 X 6\"  LH",
+        "parts": [
+          "SP10",
+          "37560",
+          "01"
+        ]
+      },
+      {
+        "number": "SP10-37560-02",
+        "displayName": "SPRINGS, GALVANIZED, .375 X 6\"  RH",
+        "parts": [
+          "SP10",
+          "37560",
+          "02"
+        ]
+      }
+    ],
+    "SP11": [
+      {
+        "number": "SP11-21820-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .218 X 2\" , LH",
+        "parts": [
+          "SP11",
+          "21820",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-21820-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .218 X 2\" , RH",
+        "parts": [
+          "SP11",
+          "21820",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-22520-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .225 X 2\"  LH",
+        "parts": [
+          "SP11",
+          "22520",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-22520-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .225 X 2\"  RH",
+        "parts": [
+          "SP11",
+          "22520",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-23420-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .234 X 2\" , LH",
+        "parts": [
+          "SP11",
+          "23420",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-23420-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .234 X 2\" , RH",
+        "parts": [
+          "SP11",
+          "23420",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-24320-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .243 X 2\"   LH",
+        "parts": [
+          "SP11",
+          "24320",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-24320-02",
+        "displayName": "SPRINGS, OIL TEMPERED .243 X 2\" , RH",
+        "parts": [
+          "SP11",
+          "24320",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-24325-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .243 X 2-5/8\"   LH",
+        "parts": [
+          "SP11",
+          "24325",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-24325-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .243 X 2-5/8\"   RH",
+        "parts": [
+          "SP11",
+          "24325",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-25020-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .250 X 2\" , LH",
+        "parts": [
+          "SP11",
+          "25020",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-25020-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .250 X 2\" , RH",
+        "parts": [
+          "SP11",
+          "25020",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-25025-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .250 X 2-5/8\"   LH",
+        "parts": [
+          "SP11",
+          "25025",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-25025-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .250 X 2-5/8\"   RH",
+        "parts": [
+          "SP11",
+          "25025",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-26220-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .262 X 2\"  LH",
+        "parts": [
+          "SP11",
+          "26220",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-26220-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .262 X 2\" , RH",
+        "parts": [
+          "SP11",
+          "26220",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-26225-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .262 X 2 5/8\" , LH",
+        "parts": [
+          "SP11",
+          "26225",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-26225-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .262 X 2 5/8\" , RH",
+        "parts": [
+          "SP11",
+          "26225",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-26236-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .262 X 3 3/4\" , LH",
+        "parts": [
+          "SP11",
+          "26236",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-26236-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .262 X 3 3/4\" , RH",
+        "parts": [
+          "SP11",
+          "26236",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-27320-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .273 X 2\"  LH",
+        "parts": [
+          "SP11",
+          "27320",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-27320-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .273 X 2\"  RH",
+        "parts": [
+          "SP11",
+          "27320",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-27325-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .273 X 2 5/8\"  LH",
+        "parts": [
+          "SP11",
+          "27325",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-27325-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .273 X 2 5/8\"  RH",
+        "parts": [
+          "SP11",
+          "27325",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-27336-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .273 X 3 3/4\"  LH",
+        "parts": [
+          "SP11",
+          "27336",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-27336-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .273 X 3 3/4\"  RH",
+        "parts": [
+          "SP11",
+          "27336",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-28325-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .283 X 2 5/8\"  LH",
+        "parts": [
+          "SP11",
+          "28325",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-28325-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .283 X 2 5/8\"  RH",
+        "parts": [
+          "SP11",
+          "28325",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-28336-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .283 X 3 3/4\"  LH",
+        "parts": [
+          "SP11",
+          "28336",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-28336-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .283 X 3 3/4\"  RH",
+        "parts": [
+          "SP11",
+          "28336",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-29525-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .295 X 2 5/8\" , LH",
+        "parts": [
+          "SP11",
+          "29525",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-29525-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .295 X 2 5/8\" , RH",
+        "parts": [
+          "SP11",
+          "29525",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-29536-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .295 X 3 3/4\" LH",
+        "parts": [
+          "SP11",
+          "29536",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-29536-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .295 X 3 3/4\"  RH",
+        "parts": [
+          "SP11",
+          "29536",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-30625-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .306 X 2-5/8\"   LH",
+        "parts": [
+          "SP11",
+          "30625",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-30625-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .306 X 2-5/8\"   RH",
+        "parts": [
+          "SP11",
+          "30625",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-30636-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .306 X 3 3/4\"  LH",
+        "parts": [
+          "SP11",
+          "30636",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-30636-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .306 X 3 3/4\"  RH",
+        "parts": [
+          "SP11",
+          "30636",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-31236-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .312 X 3 3/4\"  LH",
+        "parts": [
+          "SP11",
+          "31236",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-31236-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .312 X 3 3/4\"  RH",
+        "parts": [
+          "SP11",
+          "31236",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-31260-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .312 X 6\" LH",
+        "parts": [
+          "SP11",
+          "31260",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-31260-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .312 X 6\" RH",
+        "parts": [
+          "SP11",
+          "31260",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-31936-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .319 X 3 3/4\"  LH",
+        "parts": [
+          "SP11",
+          "31936",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-31936-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .319 X 3 3/4\"  RH",
+        "parts": [
+          "SP11",
+          "31936",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-31960-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .319 X 6\" , LH",
+        "parts": [
+          "SP11",
+          "31960",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-31960-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .319 X 6\" , RH",
+        "parts": [
+          "SP11",
+          "31960",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-33136-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .331 X 3 3/4\" , LH",
+        "parts": [
+          "SP11",
+          "33136",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-33136-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .331 X 3 3/4\" , RH",
+        "parts": [
+          "SP11",
+          "33136",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-33160-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .331 X 6\" , LH",
+        "parts": [
+          "SP11",
+          "33160",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-33160-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .331 X 6\" , RH",
+        "parts": [
+          "SP11",
+          "33160",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-34336-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .343 X 3 3/4\" LH",
+        "parts": [
+          "SP11",
+          "34336",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-34336-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .343 X 3 3/4\" RH",
+        "parts": [
+          "SP11",
+          "34336",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-34360-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .343 X 6\"  LH",
+        "parts": [
+          "SP11",
+          "34360",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-34360-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .343 X 6\"  RH",
+        "parts": [
+          "SP11",
+          "34360",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-36236-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .362 X 3 3/4\"  LH",
+        "parts": [
+          "SP11",
+          "36236",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-36236-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .362 X 3 3/4\"  RH",
+        "parts": [
+          "SP11",
+          "36236",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-36260-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .362 X 6\"  LH",
+        "parts": [
+          "SP11",
+          "36260",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-36260-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .362 X 6\"  RH",
+        "parts": [
+          "SP11",
+          "36260",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-36360-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .363 X 6\" , RH",
+        "parts": [
+          "SP11",
+          "36360",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-37560-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .375 X 6\" LH",
+        "parts": [
+          "SP11",
+          "37560",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-37560-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .375 X 6\" RH",
+        "parts": [
+          "SP11",
+          "37560",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-39360-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .393 X 6\"  LH",
+        "parts": [
+          "SP11",
+          "39360",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-39360-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .393 X 6\"  RH",
+        "parts": [
+          "SP11",
+          "39360",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-40660-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .406 X 6\" LH",
+        "parts": [
+          "SP11",
+          "40660",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-40660-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .406 X 6\" RH",
+        "parts": [
+          "SP11",
+          "40660",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-42160-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .421 x 6\" LH",
+        "parts": [
+          "SP11",
+          "42160",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-42160-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .421 x 6\" RH",
+        "parts": [
+          "SP11",
+          "42160",
+          "02"
+        ]
+      },
+      {
+        "number": "SP11-43760-01",
+        "displayName": "SPRINGS, OIL TEMPERED, .437 X 6\" , LH",
+        "parts": [
+          "SP11",
+          "43760",
+          "01"
+        ]
+      },
+      {
+        "number": "SP11-43760-02",
+        "displayName": "SPRINGS, OIL TEMPERED, .437 X 6\" , RH",
+        "parts": [
+          "SP11",
+          "43760",
+          "02"
+        ]
+      }
+    ],
+    "SP12": [
+      {
+        "number": "SP12-00003-00",
+        "displayName": "SPRING ASSY ACCESSORIES, CABLE STOPS, 1/8\" CABLE",
+        "parts": [
+          "SP12",
+          "00003",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00004-00",
+        "displayName": "SPRING ASSY ACCESSORIES, CABLE STOPS, 3/16\" CABLE",
+        "parts": [
+          "SP12",
+          "00004",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00005-00",
+        "displayName": "SPRING ASSY ACCESSORIES, CABLE STOPS, 5/32\" CABLE",
+        "parts": [
+          "SP12",
+          "00005",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00014-00",
+        "displayName": "SPRING ASSY ACCESSORIES, OVAL SLEEVES, 1/8\" CABLE",
+        "parts": [
+          "SP12",
+          "00014",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00015-00",
+        "displayName": "SPRING ASSY ACCESSORIES, OVAL SLEEVES, 3/16\" CABLE",
+        "parts": [
+          "SP12",
+          "00015",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00016-00",
+        "displayName": "SPRING ASSY ACCESSORIES, OVAL SLEEVES, 5/32\" CABLE",
+        "parts": [
+          "SP12",
+          "00016",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00019-00",
+        "displayName": "SPRING ASSY CENTRE BEARING/SPRING ANCHOR PLATE, 5\" OFFSET, 10 GA LH",
+        "parts": [
+          "SP12",
+          "00019",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00019-01",
+        "displayName": "SPRING ASSY CENTRE BEARING/SPRING ANCHOR PLATE, 5\" OFFSET, 10 GA RH",
+        "parts": [
+          "SP12",
+          "00019",
+          "01"
+        ]
+      },
+      {
+        "number": "SP12-00019-02",
+        "displayName": "SPRING ASSY CENTRE BEARING/SPRING ANCHOR PLATE, 5\" OFFSET, 10 GA - PC",
+        "parts": [
+          "SP12",
+          "00019",
+          "02"
+        ]
+      },
+      {
+        "number": "SP12-00021-00",
+        "displayName": "SPRING ASSY CENTRE BEARING/SPRING ANCHOR PLATE, 6\" OFFSET, 10 GA LH",
+        "parts": [
+          "SP12",
+          "00021",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00023-00",
+        "displayName": "SPRING ASSY HEAD PLATE, 3 3/8\" OFFSET, 10 GA, LH",
+        "parts": [
+          "SP12",
+          "00023",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00023-01",
+        "displayName": "SPRING ASSY HEAD PLATE, 3 3/8\" OFFSET, 10 GA, RH",
+        "parts": [
+          "SP12",
+          "00023",
+          "01"
+        ]
+      },
+      {
+        "number": "SP12-00023-02",
+        "displayName": "SPRING ASSY HEAD PLATE, 3 3/8\" OFFSET, 10 GA, LH, POWDERCOATED",
+        "parts": [
+          "SP12",
+          "00023",
+          "02"
+        ]
+      },
+      {
+        "number": "SP12-00024-00",
+        "displayName": "SPRING ASSY HEAD PLATE, 5\" OFFSET, 10 GA, RH",
+        "parts": [
+          "SP12",
+          "00024",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00024-01",
+        "displayName": "SPRING ASSY HEAD PLATE, 5\" OFFSET, 10 GA, LH",
+        "parts": [
+          "SP12",
+          "00024",
+          "01"
+        ]
+      },
+      {
+        "number": "SP12-00024-02",
+        "displayName": "SPRING ASSY HEAD PLATE, 5\" OFFSET, 10 GA, RH, POWDERCOATED",
+        "parts": [
+          "SP12",
+          "00024",
+          "02"
+        ]
+      },
+      {
+        "number": "SP12-00024-05",
+        "displayName": "SPRING ASSY HEAD PLATE, 5\" OFFSET, 10 GA, LH, EXTENDED",
+        "parts": [
+          "SP12",
+          "00024",
+          "05"
+        ]
+      },
+      {
+        "number": "SP12-00024-06",
+        "displayName": "SPRING ASSY HEAD PLATE, 5\" OFFSET, 10 GA, RH, EXTENDED",
+        "parts": [
+          "SP12",
+          "00024",
+          "06"
+        ]
+      },
+      {
+        "number": "SP12-00025-00",
+        "displayName": "SPRING ASSY HEAD PLATE, 6\" OFFSET, 10 GA, LH",
+        "parts": [
+          "SP12",
+          "00025",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00025-05",
+        "displayName": "SPRING ASSY HEAD PLATE, 6\" OFFSET, 10 GA, LH, EXTENDED",
+        "parts": [
+          "SP12",
+          "00025",
+          "05"
+        ]
+      },
+      {
+        "number": "SP12-00025-06",
+        "displayName": "SPRING ASSY HEAD PLATE, 6\" OFFSET, 10 GA, RH, EXTENDED",
+        "parts": [
+          "SP12",
+          "00025",
+          "06"
+        ]
+      },
+      {
+        "number": "SP12-00026-00",
+        "displayName": "SPRING ASSY HEAD PLATE, 6\" OFFSET, 10 GA, RH",
+        "parts": [
+          "SP12",
+          "00026",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00036-00",
+        "displayName": "SPRING ASSY END BEARING PLATE/ RES HEAD PLATE, 14GA, LH",
+        "parts": [
+          "SP12",
+          "00036",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00037-00",
+        "displayName": "SPRING ASSY END BEARING PLATE/ RES HEAD PLATE, 14GA, RH",
+        "parts": [
+          "SP12",
+          "00037",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00038-00",
+        "displayName": "SPRING ASSY NYLON BEARING - BLACK, BEARING FOR CENTER BEARING PLATE",
+        "parts": [
+          "SP12",
+          "00038",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00046-00",
+        "displayName": "SPRING ASSY 1 1/4\" FLANGED BALL BEARING, 1-1/4\" BORE",
+        "parts": [
+          "SP12",
+          "00046",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00047-00",
+        "displayName": "SPRING ASSY 1\" FLANGED BALL BEARING, 1\" BORE",
+        "parts": [
+          "SP12",
+          "00047",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00051-00",
+        "displayName": "SPRING ASSY FOOTBALL BEARING, 1\" ASSEMBLY",
+        "parts": [
+          "SP12",
+          "00051",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00052-00",
+        "displayName": "SPRING ASSY FOOTBALL BEARING, 1-1/4\", Assembly",
+        "parts": [
+          "SP12",
+          "00052",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00056-00",
+        "displayName": "SPRING ASSY STEEL BEARING 1 1/4\" BORE, 1-1/4\" BORE",
+        "parts": [
+          "SP12",
+          "00056",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00057-00",
+        "displayName": "SPRING STEEL BEARING 1\" BORE",
+        "parts": [
+          "SP12",
+          "00057",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00060-00",
+        "displayName": "SPRING ASSY CABLES, COMM (7 X 19 GALV), 1/8\"",
+        "parts": [
+          "SP12",
+          "00060",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00061-00",
+        "displayName": "SPRING ASSY CABLES, COMM (7 X 19 GALV), 3/16\"",
+        "parts": [
+          "SP12",
+          "00061",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00062-00",
+        "displayName": "SPRING ASSY CABLES, COMM (7 X 19 GALV), 5/32\"",
+        "parts": [
+          "SP12",
+          "00062",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00077-00",
+        "displayName": "SPRING ASSY CABLES, STAINLESS STEEL (7 X 19), 3/16\"",
+        "parts": [
+          "SP12",
+          "00077",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00078-00",
+        "displayName": "SPRING ASSY CABLES, STAINLESS STEEL (7 X 19), 5/32\"",
+        "parts": [
+          "SP12",
+          "00078",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00079-00",
+        "displayName": "SPRING ASSY CABLES, PREMADE, 8' DOOR",
+        "parts": [
+          "SP12",
+          "00079",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00080-00",
+        "displayName": "SPRING ASSY CABLES, PREMADE, 7' DOOR",
+        "parts": [
+          "SP12",
+          "00080",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00084-00",
+        "displayName": "CHAIN HOIST SHAFT MOUNT 1\" BORE (PART #126684)",
+        "parts": [
+          "SP12",
+          "00084",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00090-00",
+        "displayName": "SPRING ASSY LHW & RHW, H/L, D525-54-125 (PAIR)",
+        "parts": [
+          "SP12",
+          "00090",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00091-00",
+        "displayName": "SPRING ASSY LHW & RHW, H/L, D575-120-100 (PAIR)",
+        "parts": [
+          "SP12",
+          "00091",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00093-00",
+        "displayName": "SPRING ASSY LHW & RHW, H/L, D6375-164-100 (PAIR)",
+        "parts": [
+          "SP12",
+          "00093",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00094-00",
+        "displayName": "SPRING ASSY LHW & RHW, H/L, D6375-164-125 (PAIR)",
+        "parts": [
+          "SP12",
+          "00094",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00098-00",
+        "displayName": "SPRING ASSY LHW & RHW, STD/L, D400-96-100 (PAIR)",
+        "parts": [
+          "SP12",
+          "00098",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00099-00",
+        "displayName": "SPRING ASSY LHW & RHW, STD/L, D525-216-100  (PAIRS)",
+        "parts": [
+          "SP12",
+          "00099",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00102-00",
+        "displayName": "SPRING ASSY LHW & RHW, V/L, D1100-216-100 (PAIR)",
+        "parts": [
+          "SP12",
+          "00102",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00105-00",
+        "displayName": "SPRING ASSY LHW, H/L, D400-54-100",
+        "parts": [
+          "SP12",
+          "00105",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00107-00",
+        "displayName": "SPRING ASSY LHW, H/L, D525-54-100",
+        "parts": [
+          "SP12",
+          "00107",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00109-00",
+        "displayName": "SPRING ASSY LHW, H/L, D575-120-100",
+        "parts": [
+          "SP12",
+          "00109",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00115-00",
+        "displayName": "SPRING ASSY LHW, STD/L, D400-144-100",
+        "parts": [
+          "SP12",
+          "00115",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00123-00",
+        "displayName": "SPRING ASSY LHW, STD/L, D800-384-125",
+        "parts": [
+          "SP12",
+          "00123",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00129-00",
+        "displayName": "SPRING ASSY LHW, V/L, D850-132-100",
+        "parts": [
+          "SP12",
+          "00129",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00133-00",
+        "displayName": "SPRING ASSY RHW, H/L, D525-54-100",
+        "parts": [
+          "SP12",
+          "00133",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00135-00",
+        "displayName": "SPRING ASSY RHW, H/L, D575-120-100",
+        "parts": [
+          "SP12",
+          "00135",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00141-00",
+        "displayName": "SPRING ASSY RHW, STD/L, D400-144-100",
+        "parts": [
+          "SP12",
+          "00141",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00149-00",
+        "displayName": "SPRING ASSY RHW, STD/L, D800-384-125",
+        "parts": [
+          "SP12",
+          "00149",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00155-00",
+        "displayName": "SPRING ASSY RHW, V/L, D850-132-100",
+        "parts": [
+          "SP12",
+          "00155",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00160-00",
+        "displayName": "SPRING ASSY CAST IRON COUPLER BLACK CANIMEX, 1\" BORE",
+        "parts": [
+          "SP12",
+          "00160",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00161-00",
+        "displayName": "SPRING ASSY CAST IRON COUPLER BLACK CANIMEX, 1-1/4\" BORE",
+        "parts": [
+          "SP12",
+          "00161",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00164-00",
+        "displayName": "SPRING ASSY SHAFT COLLAR, 1\" BORE",
+        "parts": [
+          "SP12",
+          "00164",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00172-00",
+        "displayName": "SPRING ASSY PLUGS/STATIONARY, 2 5/8\"  (262), 1\" BORE",
+        "parts": [
+          "SP12",
+          "00172",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00173-00",
+        "displayName": "SPRING ASSY PLUGS/STATIONARY, 2\" (200), 1\" BORE",
+        "parts": [
+          "SP12",
+          "00173",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00174-00",
+        "displayName": "SPRING ASSY PLUGS/STATIONARY, 3 3/4\"  (375), 1\" BORE",
+        "parts": [
+          "SP12",
+          "00174",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00174-03",
+        "displayName": "SPRING ASSY PLUGS/STATIONARY SHORT, 3 3/4\"  (375), 1\" BORE",
+        "parts": [
+          "SP12",
+          "00174",
+          "03"
+        ]
+      },
+      {
+        "number": "SP12-00176-00",
+        "displayName": "SPRING ASSY PLUGS/STATIONARY, 6\"  (P602S) 1\" BORE LHW, CANIMEX",
+        "parts": [
+          "SP12",
+          "00176",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00177-00",
+        "displayName": "SPRING ASSY PLUGS/STATIONARY, 6\"  (P602S) 1\" BORE RHW, CANIMEX",
+        "parts": [
+          "SP12",
+          "00177",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00178-00",
+        "displayName": "SPRING ASSY PLUGS/STATIONARY, 6\" (600) 1 1/4\" BORE LHW, 1-1/4\" BORE",
+        "parts": [
+          "SP12",
+          "00178",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00179-00",
+        "displayName": "SPRING ASSY PLUGS/STATIONARY, 6\" (600) 1 1/4\" BORE RHW, 1-1/4\" BORE",
+        "parts": [
+          "SP12",
+          "00179",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00181-00",
+        "displayName": "SPRING ASSY WINDERS, 2 5/8\"  (262), 1\" BORE",
+        "parts": [
+          "SP12",
+          "00181",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00182-00",
+        "displayName": "SPRING ASSY WINDERS, 2\" (200), 1\" BORE",
+        "parts": [
+          "SP12",
+          "00182",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00183-00",
+        "displayName": "SPRING ASSY WINDERS, 3 3/4\"  (375), 1\" BORE",
+        "parts": [
+          "SP12",
+          "00183",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00185-00",
+        "displayName": "SPRING ASSY WINDERS, 6\"  (P602W) 1\" BORE LHW, CANIMEX",
+        "parts": [
+          "SP12",
+          "00185",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00186-00",
+        "displayName": "SPRING ASSY WINDERS, 6\"  (600) 1\" BORE RHW, CANIMEX",
+        "parts": [
+          "SP12",
+          "00186",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00187-00",
+        "displayName": "SPRING ASSY WINDERS, 6\" (600) 1 1/4\" BORE LHW, 1-1/4\" BORE",
+        "parts": [
+          "SP12",
+          "00187",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00188-00",
+        "displayName": "SPRING ASSY WINDERS, 6\" (600) 1 1/4\" BORE RHW, 1-1/4\" BORE",
+        "parts": [
+          "SP12",
+          "00188",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00198-00",
+        "displayName": "SPRING ASSY WINDERS, 6\" (600) 1\" BORE, UNIVERSAL(CANIMEX)",
+        "parts": [
+          "SP12",
+          "00198",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00199-00",
+        "displayName": "SPRING ASSY STATIONARY, 6\" (600) 1\" BORE, UNIVERSAL(CANIMEX)",
+        "parts": [
+          "SP12",
+          "00199",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00200-01",
+        "displayName": "SPRING ASSY LHW & RHW, H/L, D400-54-100",
+        "parts": [
+          "SP12",
+          "00200",
+          "01"
+        ]
+      },
+      {
+        "number": "SP12-00231-00",
+        "displayName": "SPRING, WINDERS & STATIONARY PLUGS SET, 2\", 1\" BORE, LH",
+        "parts": [
+          "SP12",
+          "00231",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00232-00",
+        "displayName": "SPRING, WINDERS & STATIONARY PLUGS SET, 2-5/8\", 1\" BORE, LH",
+        "parts": [
+          "SP12",
+          "00232",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00233-00",
+        "displayName": "SPRING, WINDERS & STATIONARY SET, 3-3/4\", 1\" BORE, LH",
+        "parts": [
+          "SP12",
+          "00233",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00234-00",
+        "displayName": "SPRING, WINDERS & STATIONARY PLUGS SET, 6\", 1\" BORE, LH",
+        "parts": [
+          "SP12",
+          "00234",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00236-00",
+        "displayName": "SPRING, WINDERS & STATIONARY PLUGS SET, 6\", 1-1/4\" BORE, LH",
+        "parts": [
+          "SP12",
+          "00236",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00237-00",
+        "displayName": "SPRING, WINDERS & STATIONARY PLUGS SET, 2\", 1\" BORE, RH",
+        "parts": [
+          "SP12",
+          "00237",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00238-00",
+        "displayName": "SPRING, WINDERS & STATIONARY PLUGS SET, 2-5/8\", 1\" BORE, RH",
+        "parts": [
+          "SP12",
+          "00238",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00239-00",
+        "displayName": "SPRING, WINDERS & STATIONARY PLUGS SET, 3-3/4\", 1\" BORE, RH",
+        "parts": [
+          "SP12",
+          "00239",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00240-00",
+        "displayName": "SPRING, WINDERS & STATIONARY PLUGS SET, 6\", 1\" BORE, RH",
+        "parts": [
+          "SP12",
+          "00240",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00242-00",
+        "displayName": "SPRING, WINDERS & STATIONARY PLUGS SET, 6\", 1-1/4\" BORE, RH",
+        "parts": [
+          "SP12",
+          "00242",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00254-00",
+        "displayName": "SPRING ASSY (RESIDENTIAL) SPRING ANCHOR PLATE, 3-3/8\" ANCHOR PLATE, 11 GA W/ BEARING",
+        "parts": [
+          "SP12",
+          "00254",
+          "00"
+        ]
+      },
+      {
+        "number": "SP12-00257-00",
+        "displayName": "USA CENTRE BEARING PLATE, 8 GA",
+        "parts": [
+          "SP12",
+          "00257",
+          "00"
+        ]
+      }
+    ],
+    "SP16": [
+      {
+        "number": "SP16-21820-2401",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.218 x 2\" x 24\", LHW",
+        "parts": [
+          "SP16",
+          "21820",
+          "2401"
+        ]
+      },
+      {
+        "number": "SP16-21820-2402",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.218 x 2\" x 24\", RHW",
+        "parts": [
+          "SP16",
+          "21820",
+          "2402"
+        ]
+      },
+      {
+        "number": "SP16-21820-2501",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.218 x 2\" x 25\", LHW",
+        "parts": [
+          "SP16",
+          "21820",
+          "2501"
+        ]
+      },
+      {
+        "number": "SP16-21820-2502",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.218 x 2\" x 25\", RHW",
+        "parts": [
+          "SP16",
+          "21820",
+          "2502"
+        ]
+      },
+      {
+        "number": "SP16-23420-2901",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.234 x 2\" x 29\", LHW",
+        "parts": [
+          "SP16",
+          "23420",
+          "2901"
+        ]
+      },
+      {
+        "number": "SP16-23420-2902",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.234 x 2\" x 29\", RHW",
+        "parts": [
+          "SP16",
+          "23420",
+          "2902"
+        ]
+      },
+      {
+        "number": "SP16-23420-3301",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.234 x 2\" x 33\", LHW",
+        "parts": [
+          "SP16",
+          "23420",
+          "3301"
+        ]
+      },
+      {
+        "number": "SP16-23420-3302",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.234 x 2\" x 33\", RHW",
+        "parts": [
+          "SP16",
+          "23420",
+          "3302"
+        ]
+      },
+      {
+        "number": "SP16-24320-2801",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.243 x 2\" x 28\", LHW",
+        "parts": [
+          "SP16",
+          "24320",
+          "2801"
+        ]
+      },
+      {
+        "number": "SP16-24320-2901",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.243 x 2\" x 29\", LHW",
+        "parts": [
+          "SP16",
+          "24320",
+          "2901"
+        ]
+      },
+      {
+        "number": "SP16-24320-2902",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.243 x 2\" x 29\", RHW",
+        "parts": [
+          "SP16",
+          "24320",
+          "2902"
+        ]
+      },
+      {
+        "number": "SP16-25020-2901",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.250 x 2\" x 29\", LHW",
+        "parts": [
+          "SP16",
+          "25020",
+          "2901"
+        ]
+      },
+      {
+        "number": "SP16-25020-3001",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.250 x 2\" x 30\", LHW",
+        "parts": [
+          "SP16",
+          "25020",
+          "3001"
+        ]
+      },
+      {
+        "number": "SP16-25020-3101",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.250 x 2\" x 31\", LHW",
+        "parts": [
+          "SP16",
+          "25020",
+          "3101"
+        ]
+      },
+      {
+        "number": "SP16-25020-3102",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.250 x 2\" x 31\", RHW",
+        "parts": [
+          "SP16",
+          "25020",
+          "3102"
+        ]
+      },
+      {
+        "number": "SP16-25020-3301",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.250 x 2\" x 33\", LHW",
+        "parts": [
+          "SP16",
+          "25020",
+          "3301"
+        ]
+      },
+      {
+        "number": "SP16-25020-3401",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.250 x 2\" x 34\", LHW",
+        "parts": [
+          "SP16",
+          "25020",
+          "3401"
+        ]
+      },
+      {
+        "number": "SP16-25020-3402",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.250 x 2\" x 34\", RHW",
+        "parts": [
+          "SP16",
+          "25020",
+          "3402"
+        ]
+      },
+      {
+        "number": "SP16-26220-3301",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.262 x 2\" x 33\", LHW",
+        "parts": [
+          "SP16",
+          "26220",
+          "3301"
+        ]
+      },
+      {
+        "number": "SP16-26220-3401",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.262 x 2\" x 34\", LHW",
+        "parts": [
+          "SP16",
+          "26220",
+          "3401"
+        ]
+      },
+      {
+        "number": "SP16-26220-3601",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.262 x 2\" x 36\", LHW",
+        "parts": [
+          "SP16",
+          "26220",
+          "3601"
+        ]
+      },
+      {
+        "number": "SP16-26220-3701",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.262 x 2\" x 37\", LHW",
+        "parts": [
+          "SP16",
+          "26220",
+          "3701"
+        ]
+      },
+      {
+        "number": "SP16-26220-3702",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.262 x 2\" x 37\", RHW",
+        "parts": [
+          "SP16",
+          "26220",
+          "3702"
+        ]
+      },
+      {
+        "number": "SP16-27320-4101",
+        "displayName": "SPRING ASSY, KANATA PRE-PICK, 0.273 x 2\" x 41\", LHW",
+        "parts": [
+          "SP16",
+          "27320",
+          "4101"
+        ]
+      }
+    ],
+    "SPN41": [
+      {
+        "number": "SPN41-21005-0200",
+        "displayName": "SAMPLE, KANATA, [02' 00\"] X 21\", SATIN, BLACK",
+        "parts": [
+          "SPN41",
+          "21005",
+          "0200"
+        ]
+      }
+    ],
+    "SPN60": [
+      {
+        "number": "SPN60-21005-0200",
+        "displayName": "SAMPLE, KANATA, [02' 00\"] X 21\", FLUSH, BLACK",
+        "parts": [
+          "SPN60",
+          "21005",
+          "0200"
+        ]
+      },
+      {
+        "number": "SPN60-21240-0200",
+        "displayName": "SAMPLE, KANATA, [02' 00\"] X 21\", BC, HAZELWOOD",
+        "parts": [
+          "SPN60",
+          "21240",
+          "0200"
+        ]
+      },
+      {
+        "number": "SPN60-21351-0200",
+        "displayName": "SAMPLE, KANATA, [02' 00\"] X 21\", TRAF, WALNUT",
+        "parts": [
+          "SPN60",
+          "21351",
+          "0200"
+        ]
+      },
+      {
+        "number": "SPN60-21530-0402",
+        "displayName": "SAMPLE, KANATA, [04' 02\"] X 21\", BCXL, NEW ALMOND",
+        "parts": [
+          "SPN60",
+          "21530",
+          "0402"
+        ]
+      },
+      {
+        "number": "SPN60-21555-0402",
+        "displayName": "SAMPLE, KANATA, [04' 02\"] X 21\", BCXL, ENGLISH CHESTNUT",
+        "parts": [
+          "SPN60",
+          "21555",
+          "0402"
+        ]
+      }
+    ]
+  },
+  "wire_codes": [
+    "00000",
+    "00003",
+    "00004",
+    "00005",
+    "00014",
+    "00015",
+    "00016",
+    "00019",
+    "00021",
+    "00023",
+    "00024",
+    "00025",
+    "00026",
+    "00036",
+    "00037",
+    "00038",
+    "00046",
+    "00047",
+    "00051",
+    "00052",
+    "00056",
+    "00057",
+    "00060",
+    "00061",
+    "00062",
+    "00077",
+    "00078",
+    "00079",
+    "00080",
+    "00084",
+    "00090",
+    "00091",
+    "00093",
+    "00094",
+    "00098",
+    "00099",
+    "00102",
+    "00105",
+    "00107",
+    "00109",
+    "00115",
+    "00123",
+    "00129",
+    "00133",
+    "00135",
+    "00141",
+    "00149",
+    "00155",
+    "00160",
+    "00161",
+    "00164",
+    "00172",
+    "00173",
+    "00174",
+    "00176",
+    "00177",
+    "00178",
+    "00179",
+    "00181",
+    "00182",
+    "00183",
+    "00185",
+    "00186",
+    "00187",
+    "00188",
+    "00198",
+    "00199",
+    "00200",
+    "00231",
+    "00232",
+    "00233",
+    "00234",
+    "00236",
+    "00237",
+    "00238",
+    "00239",
+    "00240",
+    "00242",
+    "00254",
+    "00257",
+    "21005",
+    "21240",
+    "21351",
+    "21530",
+    "21555",
+    "21820",
+    "22520",
+    "23420",
+    "24320",
+    "24325",
+    "25020",
+    "25025",
+    "26220",
+    "26225",
+    "26236",
+    "27320",
+    "27325",
+    "27336",
+    "28325",
+    "28336",
+    "29525",
+    "29536",
+    "30625",
+    "30636",
+    "31225",
+    "31236",
+    "31260",
+    "31936",
+    "31960",
+    "33136",
+    "33160",
+    "34336",
+    "34360",
+    "36236",
+    "36260",
+    "36360",
+    "37560",
+    "39360",
+    "40660",
+    "42160",
+    "43760"
+  ],
+  "wind_codes": {
+    "00": 80,
+    "01": 57,
+    "02": 57,
+    "05": 2,
+    "06": 2,
+    "03": 1,
+    "2401": 1,
+    "2402": 1,
+    "2501": 1,
+    "2502": 1,
+    "2901": 3,
+    "2902": 2,
+    "3301": 3,
+    "3302": 1,
+    "2801": 1,
+    "3001": 1,
+    "3101": 1,
+    "3102": 1,
+    "3401": 2,
+    "3402": 1,
+    "3601": 1,
+    "3701": 1,
+    "3702": 1,
+    "4101": 1,
+    "0200": 4,
+    "0402": 2
+  }
+}
