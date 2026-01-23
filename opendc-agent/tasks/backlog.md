@@ -35,7 +35,15 @@
 - [ ] [Feature/fix description]
 
 ### Door Configurator
-- [ ] [Feature/fix description]
+- [ ] **Upsell Feature** - Add intelligent upsell suggestions during door configuration
+  - Premium hardware upgrade options
+  - Extended cycle spring options (15k, 25k, 50k, 100k cycles)
+  - Window additions
+  - Insulation upgrades
+  - Opener packages (LiftMaster, POWRDOR)
+  - Implement after core quote generation is stable
+  - **Priority**: P2
+  - **Effort**: M-L
 
 ### Back-Office Automation
 - [ ] [Feature/fix description]

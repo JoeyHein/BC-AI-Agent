@@ -83,9 +83,9 @@ class WindDirection(Enum):
 
 
 class DoorModel(Enum):
+    TX380 = "TX380"
     TX450 = "TX450"
-    TX460 = "TX460"
-    TX470 = "TX470"
+    TX500 = "TX500"
     KANATA = "KANATA"
     CRAFT = "CRAFT"
 
@@ -203,12 +203,28 @@ class BCPartNumberMapper:
         (6.0, 1.25, "RH"): "SP12-00242-00",
     }
 
-    # Panel series codes by model and end cap type
+    # Panel series codes by model
+    # Width determines SEC (Single End Cap, ≤16') vs DEC (Double End Cap, >16')
+    # KANATA and CRAFT use same series code regardless of width
+    PANEL_SERIES_BY_MODEL = {
+        DoorModel.KANATA: ("PN65", "PN65"),    # Same for all widths
+        DoorModel.CRAFT: ("PN95", "PN95"),     # Same for all widths
+        DoorModel.TX380: ("PN35", "PN35"),     # Max width 16', only SEC
+        DoorModel.TX450: ("PN45", "PN46"),     # PN45 for ≤16', PN46 for >16'
+        DoorModel.TX500: ("PN55", "PN56"),     # PN55 for ≤16', PN56 for >16'
+    }
+
+    # Legacy mapping for backwards compatibility
     PANEL_SERIES = {
         (DoorModel.TX450, EndCapType.SINGLE): "PN45",
         (DoorModel.TX450, EndCapType.DOUBLE): "PN46",
-        (DoorModel.KANATA, EndCapType.SINGLE): "PN60",
-        (DoorModel.KANATA, EndCapType.DOUBLE): "PN61",
+        (DoorModel.TX500, EndCapType.SINGLE): "PN55",
+        (DoorModel.TX500, EndCapType.DOUBLE): "PN56",
+        (DoorModel.TX380, EndCapType.SINGLE): "PN35",
+        (DoorModel.KANATA, EndCapType.SINGLE): "PN65",
+        (DoorModel.KANATA, EndCapType.DOUBLE): "PN65",
+        (DoorModel.CRAFT, EndCapType.SINGLE): "PN95",
+        (DoorModel.CRAFT, EndCapType.DOUBLE): "PN95",
     }
 
     # Color codes
@@ -622,11 +638,11 @@ class BCPartNumberMapper:
         Get panel part number.
 
         Args:
-            model: Door model (TX450, KANATA, etc.)
+            model: Door model (TX450, TX500, TX380, KANATA, CRAFT)
             width_feet: Panel width in feet
             height_inches: Panel height in inches (21 or 24)
             color: Color name
-            end_cap_type: Single or double end cap
+            end_cap_type: Single or double end cap (auto-determined by width)
             stamp: Stamp type (UDC, standard, etc.)
 
         Returns:
@@ -636,14 +652,29 @@ class BCPartNumberMapper:
             PN{series}-{height}{stamp}{color}-{width}
             Example: PN45-24400-0900 = TX450 24" white UDC 9' wide
 
+        Panel Series by Model and Width:
+            - KANATA: PN65 (all widths)
+            - CRAFT: PN95 (all widths)
+            - TX380: PN35 (max 16', no DEC)
+            - TX450: PN45 (≤16') / PN46 (>16')
+            - TX500: PN55 (≤16') / PN56 (>16')
+
         Width Format: FFII (feet + inches)
             0900 = 9'0"
             1600 = 16'0"
             2400 = 24'0"
         """
-        # Get series prefix
-        series_key = (model, end_cap_type)
-        prefix = self.PANEL_SERIES.get(series_key, "PN45")
+        # Determine panel series based on model and width
+        # Width > 16' uses DEC (Double End Cap) variant for commercial doors
+        is_wide_door = width_feet > 16
+
+        if model in self.PANEL_SERIES_BY_MODEL:
+            sec_prefix, dec_prefix = self.PANEL_SERIES_BY_MODEL[model]
+            prefix = dec_prefix if is_wide_door else sec_prefix
+        else:
+            # Fallback to legacy lookup
+            series_key = (model, EndCapType.DOUBLE if is_wide_door else EndCapType.SINGLE)
+            prefix = self.PANEL_SERIES.get(series_key, "PN45")
 
         # Height code
         height_code = f"{height_inches:02d}"
@@ -815,36 +846,134 @@ class BCPartNumberMapper:
             strut=strut
         )
 
-    def format_for_quote(self, door_parts: DoorPartNumbers) -> List[dict]:
+    def format_for_quote(
+        self,
+        door_parts: DoorPartNumbers,
+        door_description: Optional[str] = None,
+        door_index: int = 1
+    ) -> List[dict]:
         """
         Format door parts as quote line items for BC.
+
+        Line items are ordered according to BC Quote Format Specification:
+        1. Comment (door description)
+        2. Panels
+        3. Retainer
+        4. Astragal
+        5. Struts
+        6. Windows (if applicable)
+        7. Track (and Highlift track if applicable)
+        8. Hardware box
+        9. Springs parts
+        10. Weather seal
+        11. Accessories
+
+        Args:
+            door_parts: DoorPartNumbers object with all parts
+            door_description: Optional description for comment line
+            door_index: Door number in multi-door quotes
 
         Returns:
             List of dictionaries ready to be sent to BC quote API
         """
         lines = []
 
-        # Panels
+        # 1. COMMENT - Door description (always first)
+        if door_description:
+            lines.append({
+                "lineType": "Comment",
+                "description": f"({door_index}) {door_description}",
+                "category": "COMMENT"
+            })
+
+        # 2. PANELS
         if door_parts.panels:
             panel = door_parts.panels[0]
             lines.append({
-                "itemNumber": panel.part_number,
+                "part_number": panel.part_number,
                 "description": panel.description,
                 "quantity": len(door_parts.panels),
                 "category": "PANEL"
             })
 
-        # Springs (by length)
+        # 3. RETAINER (top and bottom)
+        lines.append({
+            "part_number": door_parts.retainer_top.part_number,
+            "description": door_parts.retainer_top.description,
+            "quantity": 1,
+            "category": "RETAINER"
+        })
+        lines.append({
+            "part_number": door_parts.retainer_bottom.part_number,
+            "description": door_parts.retainer_bottom.description,
+            "quantity": 1,
+            "category": "RETAINER"
+        })
+
+        # 4. ASTRAGAL
+        lines.append({
+            "part_number": door_parts.astragal.part_number,
+            "description": door_parts.astragal.description,
+            "quantity": 1,
+            "category": "ASTRAGAL"
+        })
+
+        # 5. STRUTS
+        if door_parts.strut:
+            lines.append({
+                "part_number": door_parts.strut.part_number,
+                "description": door_parts.strut.description,
+                "quantity": 1,
+                "category": "STRUT"
+            })
+
+        # 6. WINDOWS (if applicable)
+        for item in door_parts.additional_items:
+            if item.category == "WINDOW":
+                lines.append({
+                    "part_number": item.part_number,
+                    "description": item.description,
+                    "quantity": 1,
+                    "category": "WINDOW"
+                })
+
+        # 7. TRACK (and Highlift track if applicable)
+        lines.append({
+            "part_number": door_parts.track_assembly.part_number,
+            "description": door_parts.track_assembly.description,
+            "quantity": 1,
+            "category": "TRACK"
+        })
+        # Add highlift track if present
+        for item in door_parts.additional_items:
+            if item.category == "HIGHLIFT_TRACK":
+                lines.append({
+                    "part_number": item.part_number,
+                    "description": item.description,
+                    "quantity": 1,
+                    "category": "HIGHLIFT_TRACK"
+                })
+
+        # 8. HARDWARE BOX
+        if door_parts.hardware_kit:
+            lines.append({
+                "part_number": door_parts.hardware_kit.part_number,
+                "description": door_parts.hardware_kit.description,
+                "quantity": 1,
+                "category": "HARDWARE"
+            })
+
+        # 9. SPRINGS (springs, winders, shaft)
         springs = door_parts.springs
         lines.append({
-            "itemNumber": springs.spring_lh.part_number,
+            "part_number": springs.spring_lh.part_number,
             "description": springs.spring_lh.description,
             "quantity": springs.spring_length_inches,
             "category": "SPRING",
             "notes": f"Spring length: {springs.spring_length_inches}\""
         })
         lines.append({
-            "itemNumber": springs.spring_rh.part_number,
+            "part_number": springs.spring_rh.part_number,
             "description": springs.spring_rh.description,
             "quantity": springs.spring_length_inches,
             "category": "SPRING"
@@ -852,72 +981,43 @@ class BCPartNumberMapper:
 
         # Winder sets
         lines.append({
-            "itemNumber": springs.winder_set_lh.part_number,
+            "part_number": springs.winder_set_lh.part_number,
             "description": springs.winder_set_lh.description,
             "quantity": springs.quantity_per_side,
             "category": "SPRING_ACCESSORY"
         })
         lines.append({
-            "itemNumber": springs.winder_set_rh.part_number,
+            "part_number": springs.winder_set_rh.part_number,
             "description": springs.winder_set_rh.description,
             "quantity": springs.quantity_per_side,
             "category": "SPRING_ACCESSORY"
         })
 
-        # Weather stripping (quantity = number of panels)
-        lines.append({
-            "itemNumber": door_parts.weather_stripping.part_number,
-            "description": door_parts.weather_stripping.description,
-            "quantity": len(door_parts.panels),
-            "category": "WEATHER_STRIPPING"
-        })
-
-        # Astragal (quantity = door width in inches)
-        lines.append({
-            "itemNumber": door_parts.astragal.part_number,
-            "description": door_parts.astragal.description,
-            "quantity": 1,
-            "category": "ASTRAGAL"
-        })
-
-        # Retainer (top and bottom)
-        lines.append({
-            "itemNumber": door_parts.retainer_top.part_number,
-            "description": door_parts.retainer_top.description + " (TOP)",
-            "quantity": 1,
-            "category": "RETAINER"
-        })
-        lines.append({
-            "itemNumber": door_parts.retainer_bottom.part_number,
-            "description": door_parts.retainer_bottom.description + " (BOTTOM)",
-            "quantity": 1,
-            "category": "RETAINER"
-        })
-
-        # Track assembly
-        lines.append({
-            "itemNumber": door_parts.track_assembly.part_number,
-            "description": door_parts.track_assembly.description,
-            "quantity": 1,
-            "category": "TRACK"
-        })
-
         # Shaft
         lines.append({
-            "itemNumber": door_parts.shaft.part_number,
+            "part_number": door_parts.shaft.part_number,
             "description": door_parts.shaft.description,
             "quantity": 1,
             "category": "SHAFT"
         })
 
-        # Strut
-        if door_parts.strut:
-            lines.append({
-                "itemNumber": door_parts.strut.part_number,
-                "description": door_parts.strut.description,
-                "quantity": 1,
-                "category": "STRUT"
-            })
+        # 10. WEATHER SEAL
+        lines.append({
+            "part_number": door_parts.weather_stripping.part_number,
+            "description": door_parts.weather_stripping.description,
+            "quantity": len(door_parts.panels),
+            "category": "WEATHER_STRIPPING"
+        })
+
+        # 11. ACCESSORIES (pusher springs, bumper springs, etc.)
+        for item in door_parts.additional_items:
+            if item.category in ["ACCESSORY", "PUSHER_SPRING", "BUMPER_SPRING"]:
+                lines.append({
+                    "part_number": item.part_number,
+                    "description": item.description,
+                    "quantity": 1,
+                    "category": item.category
+                })
 
         return lines
 

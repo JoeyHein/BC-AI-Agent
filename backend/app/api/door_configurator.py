@@ -533,6 +533,61 @@ async def calculate_struts(door_width: int, door_height: int = 84, window: str =
     }
 
 
+def _format_door_description(door: DoorConfigRequest) -> str:
+    """
+    Format door description for BC quote comment line.
+
+    Format: ({qty}) {width}'x{height}' {series}, {color}, {design}, {track}" HW, {lift}
+    Example: (1) 10x9 TX450, WHITE, UDC, 2" HW, STD LIFT
+    """
+    # Convert inches to feet for display
+    width_ft = door.doorWidth // 12
+    height_ft = door.doorHeight // 12
+
+    # Get track size display
+    track_display = f"{door.trackThickness}\" HW" if door.trackThickness else "2\" HW"
+
+    # Determine lift type from track radius
+    lift_type = "STD LIFT"
+    if door.trackRadius == "12":
+        lift_type = "LHR"
+
+    # Format: (qty) WxH SERIES, COLOR, DESIGN, TRACK HW, LIFT
+    return f"({door.doorCount}) {width_ft}x{height_ft} {door.doorSeries}, {door.panelColor}, {door.panelDesign}, {track_display}, {lift_type}"
+
+
+# Define the standard line item ordering for BC quotes
+# See docs/BC_QUOTE_FORMAT.md for full specification
+LINE_ORDER = [
+    "COMMENT",       # 1. Door description
+    "PANEL",         # 2. Panels
+    "RETAINER",      # 3. Retainer
+    "ASTRAGAL",      # 4. Astragal
+    "STRUT",         # 5. Struts
+    "WINDOW",        # 6. Windows (if applicable)
+    "TRACK",         # 7. Track
+    "HIGHLIFT_TRACK",# 7b. Highlift track (if applicable)
+    "HARDWARE",      # 8. Hardware box
+    "SPRING",        # 9. Springs
+    "SPRING_ACCESSORY",  # 9b. Winders, plugs
+    "SHAFT",         # 9c. Shaft
+    "WEATHER_STRIPPING", # 10. Weather seal
+    "ACCESSORY",     # 11. Accessories
+]
+
+
+def _sort_parts_by_category(parts: List[dict]) -> List[dict]:
+    """Sort parts list according to BC quote line ordering standard."""
+    def sort_key(part):
+        category = part.get("category", "OTHER")
+        try:
+            return LINE_ORDER.index(category)
+        except ValueError:
+            return len(LINE_ORDER)  # Unknown categories go at end
+
+    return sorted(parts, key=sort_key)
+
+
 @router.post("/generate-quote")
 async def generate_door_quote(request: QuoteGenerationRequest):
     """
@@ -541,15 +596,42 @@ async def generate_door_quote(request: QuoteGenerationRequest):
     This endpoint:
     1. Gets BC part numbers for each door configuration
     2. Creates a sales quote in BC
-    3. Adds all parts as line items to the quote
+    3. Adds all parts as line items (with proper ordering per BC_QUOTE_FORMAT.md)
     4. Returns the BC quote number and details
+
+    Line items are added in the following order for each door:
+    1. Comment (door description)
+    2. Panels
+    3. Retainer
+    4. Astragal
+    5. Struts
+    6. Windows (if applicable)
+    7. Track
+    8. Hardware box
+    9. Springs
+    10. Weather seal
+    11. Accessories
     """
     try:
-        # Step 1: Get parts for all doors
-        all_parts = []
+        # Step 1: Get parts for all doors with proper ordering
+        all_lines = []  # Ordered lines ready for BC
         parts_by_door = []
 
         for i, door in enumerate(request.doors):
+            door_index = i + 1
+
+            # Generate door description for comment line
+            door_desc = _format_door_description(door)
+
+            # Add comment line FIRST (describes this door)
+            all_lines.append({
+                "lineType": "Comment",
+                "description": door_desc,
+                "category": "COMMENT",
+                "door_index": door_index
+            })
+
+            # Get parts for this door configuration
             config_dict = {
                 "doorType": door.doorType,
                 "doorSeries": door.doorSeries,
@@ -568,26 +650,21 @@ async def generate_door_quote(request: QuoteGenerationRequest):
             }
 
             door_parts = get_parts_for_door_config(config_dict)
+            parts_list = door_parts.get("parts_list", [])
+
+            # Sort parts by standard line ordering
+            sorted_parts = _sort_parts_by_category(parts_list)
+
+            # Add door index to each part for tracking
+            for part in sorted_parts:
+                part["door_index"] = door_index
+                all_lines.append(part)
 
             parts_by_door.append({
-                "door_index": i + 1,
-                "door_description": f"{door.doorSeries} {door.doorWidth}\"x{door.doorHeight}\" {door.panelColor}",
+                "door_index": door_index,
+                "door_description": door_desc,
                 "parts": door_parts
             })
-
-            # Add to consolidated list
-            all_parts.extend(door_parts.get("parts_list", []))
-
-        # Consolidate duplicate parts (combine quantities)
-        consolidated = {}
-        for part in all_parts:
-            pn = part["part_number"]
-            if pn in consolidated:
-                consolidated[pn]["quantity"] += part["quantity"]
-            else:
-                consolidated[pn] = part.copy()
-
-        consolidated_parts = list(consolidated.values())
 
         # Step 2: Create BC Quote
         quote_data = {}
@@ -610,37 +687,52 @@ async def generate_door_quote(request: QuoteGenerationRequest):
 
         logger.info(f"Created BC quote: {bc_quote_number} (ID: {bc_quote_id})")
 
-        # Step 3: Add line items to the quote
+        # Step 3: Add line items to the quote in proper order
         lines_added = 0
         lines_failed = []
 
-        for part in consolidated_parts:
+        for line in all_lines:
             try:
-                # BC API uses lineObjectNumber for item number lookup
-                line_data = {
-                    "lineType": "Item",
-                    "lineObjectNumber": part["part_number"],
-                    "description": part.get("description", ""),
-                    "quantity": part["quantity"],
-                }
+                if line.get("lineType") == "Comment":
+                    # Add comment line for door description
+                    line_data = {
+                        "lineType": "Comment",
+                        "description": line["description"]
+                    }
+                else:
+                    # Add item line
+                    line_data = {
+                        "lineType": "Item",
+                        "lineObjectNumber": line["part_number"],
+                        "description": line.get("description", ""),
+                        "quantity": line["quantity"],
+                    }
 
                 bc_client.add_quote_line(bc_quote_id, line_data)
                 lines_added += 1
-                logger.debug(f"Added line: {part['part_number']} x{part['quantity']}")
+                logger.debug(f"Added line: {line.get('part_number', line.get('description', ''))[:30]}")
 
             except Exception as line_error:
-                logger.warning(f"Failed to add line {part['part_number']}: {line_error}")
-                # Try adding as a comment/description line instead
-                try:
-                    comment_line = {
-                        "lineType": "Comment",
-                        "description": f"{part['part_number']} - {part.get('description', '')} (Qty: {part['quantity']})"
-                    }
-                    bc_client.add_quote_line(bc_quote_id, comment_line)
-                    lines_added += 1
-                except Exception:
+                part_id = line.get("part_number", line.get("description", "unknown"))
+                logger.warning(f"Failed to add line {part_id}: {line_error}")
+
+                # For item lines that fail, try adding as comment instead
+                if line.get("lineType") != "Comment" and line.get("part_number"):
+                    try:
+                        comment_line = {
+                            "lineType": "Comment",
+                            "description": f"{line['part_number']} - {line.get('description', '')} (Qty: {line['quantity']})"
+                        }
+                        bc_client.add_quote_line(bc_quote_id, comment_line)
+                        lines_added += 1
+                    except Exception:
+                        lines_failed.append({
+                            "part_number": line.get("part_number", "N/A"),
+                            "error": str(line_error)
+                        })
+                else:
                     lines_failed.append({
-                        "part_number": part["part_number"],
+                        "part_number": part_id,
                         "error": str(line_error)
                     })
 
@@ -654,6 +746,9 @@ async def generate_door_quote(request: QuoteGenerationRequest):
                 "quantity": door.doorCount
             })
 
+        # Count actual parts (excluding comments)
+        total_parts = sum(1 for line in all_lines if line.get("lineType") != "Comment")
+
         return {
             "success": True,
             "data": {
@@ -663,10 +758,10 @@ async def generate_door_quote(request: QuoteGenerationRequest):
                 "tag_name": request.tagName or "Door Configurator Quote",
                 "doors": door_summaries,
                 "total_doors": len(request.doors),
-                "total_parts": len(consolidated_parts),
+                "total_parts": total_parts,
                 "lines_added": lines_added,
                 "lines_failed": lines_failed if lines_failed else None,
-                "parts_summary": consolidated_parts
+                "parts_summary": [l for l in all_lines if l.get("lineType") != "Comment"]
             },
             "message": f"BC Quote {bc_quote_number} created with {lines_added} line items"
         }
