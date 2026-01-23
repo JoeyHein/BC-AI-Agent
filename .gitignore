@@ -82,3 +82,13 @@ yarn-error.log*
 Thumbs.db
 desktop.ini
 tmpclaude-*
+
+# Exploration/temporary files (Upwardor portal research)
+backend/explore_upwardor*.py
+backend/query_*.py
+backend/upwardor_*.png
+backend/upwardor_*.json
+backend/upwardor_*.html
+backend/final_*.png
+backend/dropdown_*.png
+backend/login_page_filled.png
