@@ -7,6 +7,7 @@ import ReviewQueue from './components/ReviewQueue'
 import QuoteDetail from './components/QuoteDetail'
 import Analytics from './components/Analytics'
 import EmailSettings from './components/EmailSettings'
+import DoorConfigurator from './components/DoorConfigurator'
 
 function Navigation() {
   const { user, logout, isAuthenticated } = useAuth()
@@ -62,6 +63,16 @@ function Navigation() {
                 }`}
               >
                 Analytics
+              </Link>
+              <Link
+                to="/door-configurator"
+                className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
+                  isActive('/door-configurator')
+                    ? 'border-indigo-500 text-gray-900'
+                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                }`}
+              >
+                Door Configurator
               </Link>
               <Link
                 to="/settings/email"
@@ -123,6 +134,12 @@ function AppContent() {
           <Route path="/analytics" element={
             <ProtectedRoute>
               <Analytics />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/door-configurator" element={
+            <ProtectedRoute>
+              <DoorConfigurator />
             </ProtectedRoute>
           } />
 
