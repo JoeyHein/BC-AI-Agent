@@ -470,3 +470,216 @@ class BCCustomer(Base):
 
     def __repr__(self):
         return f"<BCCustomer(id={self.bc_customer_id}, name={self.company_name})>"
+
+
+# ============================================================================
+# ORDER LIFECYCLE MODELS (Order-to-Cash Automation)
+# ============================================================================
+
+class OrderStatus(enum.Enum):
+    """Sales order status states"""
+    PENDING = "pending"           # Awaiting conversion from quote
+    CONFIRMED = "confirmed"       # Order confirmed, awaiting production
+    IN_PRODUCTION = "in_production"  # Production orders created
+    READY_TO_SHIP = "ready_to_ship"  # Production complete
+    SHIPPED = "shipped"           # Shipped to customer
+    INVOICED = "invoiced"         # Invoice generated
+    COMPLETED = "completed"       # Fully paid and closed
+    CANCELLED = "cancelled"
+
+
+class ProductionStatus(enum.Enum):
+    """Production order status states"""
+    PLANNED = "planned"           # Production order planned
+    RELEASED = "released"         # Released for production
+    IN_PROGRESS = "in_progress"   # Currently being manufactured
+    FINISHED = "finished"         # Production complete
+    CANCELLED = "cancelled"
+
+
+class InvoiceStatus(enum.Enum):
+    """Invoice status states"""
+    DRAFT = "draft"               # Draft invoice not yet posted
+    POSTED = "posted"             # Posted to general ledger
+    PAID = "paid"                 # Payment received
+    PARTIALLY_PAID = "partially_paid"
+    OVERDUE = "overdue"
+    CANCELLED = "cancelled"
+
+
+class SalesOrder(Base):
+    """Sales orders - converted from quotes, tracked through fulfillment"""
+    __tablename__ = "sales_orders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    quote_request_id = Column(Integer, ForeignKey("quote_requests.id"), index=True)
+
+    # BC Integration
+    bc_order_id = Column(String(100), unique=True, index=True)  # BC sales order GUID
+    bc_order_number = Column(String(50), index=True)  # e.g., "SO-001234"
+    bc_quote_number = Column(String(50))  # Source quote reference
+
+    # Customer
+    customer_id = Column(String(100))  # BC customer ID
+    customer_name = Column(String(255))
+    customer_email = Column(String(255))
+
+    # Order details
+    status = Column(SQLEnum(OrderStatus), default=OrderStatus.PENDING, index=True)
+    total_amount = Column(Numeric(12, 2))
+    currency = Column(String(10), default="CAD")
+
+    # External reference for tracking
+    external_document_number = Column(String(100))  # AI-QR-xxx for AI-generated orders
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    confirmed_at = Column(DateTime)
+    production_started_at = Column(DateTime)
+    production_completed_at = Column(DateTime)
+    shipped_at = Column(DateTime)
+    invoiced_at = Column(DateTime)
+    completed_at = Column(DateTime)
+
+    # Sync tracking
+    last_synced_at = Column(DateTime)
+    bc_last_modified = Column(DateTime)
+
+    # Relationships
+    quote_request = relationship("QuoteRequest", foreign_keys=[quote_request_id])
+    production_orders = relationship("ProductionOrder", back_populates="sales_order", cascade="all, delete-orphan")
+    shipments = relationship("Shipment", back_populates="sales_order", cascade="all, delete-orphan")
+    invoices = relationship("Invoice", back_populates="sales_order", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<SalesOrder(id={self.id}, bc_number={self.bc_order_number}, status={self.status.value})>"
+
+
+class ProductionOrder(Base):
+    """Production orders - created from sales order line items"""
+    __tablename__ = "production_orders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sales_order_id = Column(Integer, ForeignKey("sales_orders.id"), nullable=False, index=True)
+
+    # BC Integration
+    bc_prod_order_id = Column(String(100), unique=True, index=True)
+    bc_prod_order_number = Column(String(50), index=True)  # e.g., "PO-001234"
+
+    # Production details
+    status = Column(SQLEnum(ProductionStatus), default=ProductionStatus.PLANNED, index=True)
+    item_type = Column(String(50), index=True)  # 'door', 'spring', 'hardware', etc.
+    item_code = Column(String(100))  # BC item/product code
+    item_description = Column(Text)
+    quantity = Column(Integer, nullable=False)
+    quantity_completed = Column(Integer, default=0)
+
+    # Specifications (JSON for flexible storage of item-specific details)
+    # For springs: {wire_diameter, coil_diameter, length, ippt, mip_per_spring, turns, cycle_life, drum_model, door_weight}
+    # For doors: {model, size, color, panel_config}
+    specifications = Column(JSON)
+
+    # Inventory allocation
+    inventory_allocated = Column(Boolean, default=False)
+    inventory_allocation_id = Column(String(100))  # BC inventory allocation reference
+    stock_available = Column(Integer)  # Available stock at time of creation
+    stock_reserved = Column(Integer, default=0)  # Reserved for this production order
+
+    # Scheduling
+    due_date = Column(DateTime)
+    start_date = Column(DateTime)
+    end_date = Column(DateTime)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    started_at = Column(DateTime)
+    finished_at = Column(DateTime)
+
+    # Sync tracking
+    last_synced_at = Column(DateTime)
+
+    # Relationships
+    sales_order = relationship("SalesOrder", back_populates="production_orders")
+
+    def __repr__(self):
+        return f"<ProductionOrder(id={self.id}, bc_number={self.bc_prod_order_number}, status={self.status.value})>"
+
+
+class Shipment(Base):
+    """Shipments - tracks shipping of sales orders"""
+    __tablename__ = "shipments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sales_order_id = Column(Integer, ForeignKey("sales_orders.id"), nullable=False, index=True)
+
+    # BC Integration
+    bc_shipment_id = Column(String(100), unique=True, index=True)
+    shipment_number = Column(String(50), index=True)  # e.g., "SS-001234"
+
+    # Shipment details
+    shipped_date = Column(DateTime)
+    tracking_number = Column(String(100))
+    carrier = Column(String(100))  # e.g., "FedEx", "UPS", "Local Delivery"
+    shipping_method = Column(String(100))
+
+    # Destination
+    ship_to_name = Column(String(255))
+    ship_to_address = Column(JSON)  # Full address details
+
+    # Quantities
+    total_packages = Column(Integer)
+    total_weight = Column(Numeric(10, 2))
+    weight_unit = Column(String(10), default="kg")
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    delivered_at = Column(DateTime)
+
+    # Sync tracking
+    last_synced_at = Column(DateTime)
+
+    # Relationships
+    sales_order = relationship("SalesOrder", back_populates="shipments")
+
+    def __repr__(self):
+        return f"<Shipment(id={self.id}, number={self.shipment_number}, tracking={self.tracking_number})>"
+
+
+class Invoice(Base):
+    """Invoices - generated from shipped orders"""
+    __tablename__ = "invoices"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sales_order_id = Column(Integer, ForeignKey("sales_orders.id"), nullable=False, index=True)
+
+    # BC Integration
+    bc_invoice_id = Column(String(100), unique=True, index=True)
+    invoice_number = Column(String(50), index=True)  # e.g., "SI-001234"
+
+    # Invoice details
+    status = Column(SQLEnum(InvoiceStatus), default=InvoiceStatus.DRAFT, index=True)
+    total_amount = Column(Numeric(12, 2))
+    tax_amount = Column(Numeric(10, 2))
+    currency = Column(String(10), default="CAD")
+
+    # Payment terms
+    due_date = Column(DateTime)
+    payment_terms = Column(String(50))  # e.g., "Net 30"
+
+    # Payment tracking
+    amount_paid = Column(Numeric(12, 2), default=0)
+    amount_remaining = Column(Numeric(12, 2))
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    posted_at = Column(DateTime)
+    paid_at = Column(DateTime)
+
+    # Sync tracking
+    last_synced_at = Column(DateTime)
+
+    # Relationships
+    sales_order = relationship("SalesOrder", back_populates="invoices")
+
+    def __repr__(self):
+        return f"<Invoice(id={self.id}, number={self.invoice_number}, status={self.status.value}, amount={self.total_amount})>"

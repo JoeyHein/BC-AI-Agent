@@ -264,6 +264,96 @@ Analyze the following email and extract structured quote request information.
             }
 
 
+
+    def analyze_email_category_with_context(self, email_subject: str, email_body: str, 
+                                            learning_examples: List[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Determine if email is a quote request, using learning examples for context
+        
+        Args:
+            email_subject: Email subject line
+            email_body: Email body text
+            learning_examples: Past verified categorizations for learning
+            
+        Returns:
+            Dict with category, confidence, and reasoning
+        """
+        if not self.client:
+            return {
+                "success": False,
+                "error": "AI client not initialized"
+            }
+
+        # Build examples section
+        examples_text = ""
+        if learning_examples:
+            examples_text = "\n\n**Examples from past categorizations:**\n"
+            for i, ex in enumerate(learning_examples[:5], 1):
+                examples_text += f"\nExample {i}:\n- Subject: {ex.get('subject', 'N/A')}\n- Category: {ex.get('category', 'N/A')}\n- Was correct: {ex.get('was_correct', 'N/A')}\n"
+
+        prompt = f"""Analyze this email and categorize it.
+{examples_text}
+
+**Email to categorize:**
+**Subject:** {email_subject}
+**Body:** {email_body[:2000]}
+
+**Categories:**
+- "quote_request" - Email is requesting a quote for doors/overhead doors/garage doors with specifications
+- "order_confirmation" - Confirming an existing order
+- "inquiry" - General question, sample request, or information request (NOT a quote request)
+- "invoice" - Invoice or payment related
+- "internal" - Internal company communication
+- "other" - Doesn't fit above categories
+
+**Important:** A quote request must include intent to get pricing for new doors. 
+Sample requests, color chart requests, and general inquiries are NOT quote requests.
+
+**Output JSON only:**
+```json
+{{
+  "category": "category_name",
+  "confidence": 0.0-1.0,
+  "reasoning": "Brief explanation",
+  "is_quote_request": true/false
+}}
+```
+"""
+
+        try:
+            response = self.client.messages.create(
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=500,
+                messages=[{"role": "user", "content": prompt}]
+            )
+
+            content = response.content[0].text
+
+            # Extract JSON
+            if "```json" in content:
+                json_start = content.find("```json") + 7
+                json_end = content.find("```", json_start)
+                content = content[json_start:json_end].strip()
+            elif "```" in content:
+                json_start = content.find("```") + 3
+                json_end = content.find("```", json_start)
+                content = content[json_start:json_end].strip()
+
+            result = json.loads(content)
+            result["success"] = True
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Email categorization with context failed: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "category": "unknown",
+                "confidence": 0.0,
+                "is_quote_request": False
+            }
+
+
 # Global AI client instance
 ai_client = ClaudeAIClient()
 

@@ -16,6 +16,8 @@ from app.db.models import (
     FeedbackType, EmailLog
 )
 from app.services.memory_service import get_memory_service
+from app.services.upwardor_service import generate_upwardor_quote_from_request, UpwardorAPIError
+from app.services.bc_quote_service import bc_quote_service
 
 router = APIRouter(prefix="/api/quotes", tags=["feedback"])
 logger = logging.getLogger(__name__)
@@ -84,6 +86,7 @@ class CorrectionRequest(BaseModel):
 class QuoteResponse(BaseModel):
     """Response model for quote request"""
     id: int
+    email_id: Optional[int]  # Email ID for feedback/learning system
     customer_name: Optional[str]
     contact_email: Optional[str]
     contact_phone: Optional[str]
@@ -93,6 +96,7 @@ class QuoteResponse(BaseModel):
     created_at: datetime
     email_subject: Optional[str]
     email_from: Optional[str]
+    bc_quote_id: Optional[str]  # BC quote ID if created
 
     class Config:
         from_attributes = True
@@ -159,6 +163,7 @@ def get_pending_reviews(
         email_log = db.query(EmailLog).filter(EmailLog.id == quote.email_id).first()
         result = QuoteResponse(
             id=quote.id,
+            email_id=quote.email_id,
             customer_name=quote.customer_name,
             contact_email=quote.contact_email,
             contact_phone=quote.contact_phone,
@@ -167,7 +172,8 @@ def get_pending_reviews(
             status=quote.status,
             created_at=quote.created_at,
             email_subject=email_log.subject if email_log else None,
-            email_from=email_log.from_address if email_log else None
+            email_from=email_log.from_address if email_log else None,
+            bc_quote_id=quote.bc_quote_id
         )
         results.append(result)
 
@@ -196,6 +202,7 @@ def get_quote(quote_id: int, db: Session = Depends(get_db)):
 
     return QuoteResponse(
         id=quote.id,
+        email_id=quote.email_id,
         customer_name=quote.customer_name,
         contact_email=quote.contact_email,
         contact_phone=quote.contact_phone,
@@ -204,7 +211,8 @@ def get_quote(quote_id: int, db: Session = Depends(get_db)):
         status=quote.status,
         created_at=quote.created_at,
         email_subject=email_log.subject if email_log else None,
-        email_from=email_log.from_address if email_log else None
+        email_from=email_log.from_address if email_log else None,
+        bc_quote_id=quote.bc_quote_id
     )
 
 
@@ -277,6 +285,33 @@ def submit_feedback(
         message = "Quote rejected"
 
     db.commit()
+
+    # Trigger Upwardor quote generation on approval
+    upwardor_result = None
+    bc_result = None
+    if feedback_type == FeedbackType.APPROVE:
+        # Generate Upwardor quote
+        try:
+            upwardor_result = generate_upwardor_quote_from_request(quote)
+            logger.info(f"Upwardor quote generated for quote {quote_id}")
+        except UpwardorAPIError as e:
+            logger.warning(f"Upwardor quote generation failed: {e}")
+        except Exception as e:
+            logger.warning(f"Upwardor integration error: {e}")
+        
+        # Create BC quote with line items
+        try:
+            bc_result = bc_quote_service.create_quote_in_bc(
+                db=db,
+                quote_request=quote,
+                user_id=user_id
+            )
+            if bc_result.get("success"):
+                logger.info(f"BC quote created for quote {quote_id}: {bc_result.get('bc_quote_number')}")
+            else:
+                logger.warning(f"BC quote creation failed: {bc_result.get('error')}")
+        except Exception as e:
+            logger.warning(f"BC integration error: {e}")
 
     return FeedbackResponse(
         id=parse_feedback.id,

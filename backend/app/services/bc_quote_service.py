@@ -194,13 +194,14 @@ class BCQuoteService:
 
         Note: Manager must select customer during approval if not found
         """
-        quote_data = {
-            "customerName": quote_request.customer_name or "Unknown Customer"
-        }
+        quote_data = {}
 
-        # Add customer ID if found
+        # Must use customerId (customerName is read-only in BC API)
         if bc_customer and bc_customer.get("bc_customer_id"):
             quote_data["customerId"] = bc_customer["bc_customer_id"]
+        else:
+            # Use a default customer if none found
+            quote_data["customerNumber"] = "ABES"  # Default to Abe's Door Service LTD
 
         # Add parsed data as notes/description
         if quote_request.parsed_data:
@@ -212,7 +213,7 @@ class BCQuoteService:
                 doors = quote_request.door_specs.get("doors", [])
                 notes.append(f"Doors requested: {len(doors)}")
 
-            quote_data["salespersonCode"] = "AI-AGENT"  # Track AI-generated quotes
+            quote_data["externalDocumentNumber"] = f"AI-QR-{quote_request.id}"  # Track AI-generated quotes
 
         return quote_data
 

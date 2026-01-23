@@ -212,6 +212,173 @@ def disconnect_email(
     return {"message": "Email disconnected successfully"}
 
 
+@router.get("/monitoring/status")
+def get_monitoring_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get detailed monitoring status for all email connections.
+
+    Returns comprehensive status including:
+    - All active email accounts being monitored
+    - Last check time and status for each
+    - Token expiration warnings
+    - Overall monitoring health
+    """
+    from datetime import timedelta
+
+    connections = db.query(EmailConnection).filter(
+        EmailConnection.is_active == True
+    ).all()
+
+    now = datetime.utcnow()
+    accounts = []
+    warnings = []
+
+    for conn in connections:
+        # Check token expiration
+        token_status = "valid"
+        if conn.token_expires_at:
+            if conn.token_expires_at < now:
+                token_status = "expired"
+                warnings.append(f"{conn.email_address}: Token expired")
+            elif conn.token_expires_at < now + timedelta(hours=1):
+                token_status = "expiring_soon"
+                warnings.append(f"{conn.email_address}: Token expires soon")
+
+        # Check last sync status
+        sync_status = conn.last_sync_status or "never_checked"
+        if conn.last_checked_at:
+            hours_since_check = (now - conn.last_checked_at).total_seconds() / 3600
+            if hours_since_check > 1:
+                sync_status = "stale"
+                warnings.append(f"{conn.email_address}: Not checked in {hours_since_check:.1f} hours")
+
+        accounts.append({
+            "id": conn.id,
+            "email_address": conn.email_address,
+            "is_active": conn.is_active,
+            "token_status": token_status,
+            "sync_status": sync_status,
+            "last_checked_at": conn.last_checked_at.isoformat() if conn.last_checked_at else None,
+            "token_expires_at": conn.token_expires_at.isoformat() if conn.token_expires_at else None,
+            "created_at": conn.created_at.isoformat() if conn.created_at else None
+        })
+
+    # Overall health
+    health = "healthy"
+    if warnings:
+        health = "warning"
+    if any(a["token_status"] == "expired" for a in accounts):
+        health = "critical"
+
+    return {
+        "health": health,
+        "total_accounts": len(accounts),
+        "accounts": accounts,
+        "warnings": warnings,
+        "checked_at": now.isoformat()
+    }
+
+
+@router.post("/monitoring/check-now")
+async def trigger_email_check(
+    hours_back: int = 24,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Manually trigger an email check across all connected accounts.
+
+    This runs the email monitoring cycle immediately instead of waiting
+    for the scheduled 15-minute interval.
+
+    Args:
+        hours_back: How many hours back to check for emails (default 24)
+    """
+    from app.services.email_monitor import email_monitor
+
+    logger.info(f"Manual email check triggered by user {current_user.id}")
+
+    try:
+        results = email_monitor.monitor_inboxes(hours_back=hours_back)
+
+        return {
+            "success": True,
+            "message": f"Email check complete. Found {results['new_emails_found']} new emails.",
+            "results": {
+                "total_emails_checked": results["total_emails_checked"],
+                "new_emails_found": results["new_emails_found"],
+                "quote_requests_parsed": results["quote_requests_parsed"],
+                "errors": results["errors"],
+                "by_inbox": results["by_inbox"]
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Manual email check failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Email check failed: {str(e)}"
+        )
+
+
+@router.post("/{connection_id}/check-now")
+async def trigger_single_inbox_check(
+    connection_id: int,
+    hours_back: int = 24,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Manually trigger an email check for a single inbox.
+
+    Useful for testing a newly connected account.
+    """
+    from app.services.email_monitor import email_monitor
+
+    connection = db.query(EmailConnection).filter(
+        EmailConnection.id == connection_id,
+        EmailConnection.is_active == True
+    ).first()
+
+    if not connection:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Email connection not found"
+        )
+
+    logger.info(f"Single inbox check triggered for {connection.email_address}")
+
+    try:
+        results = email_monitor._process_inbox(
+            connection.email_address,
+            hours_back,
+            max_emails=50
+        )
+
+        # Update last_checked_at
+        connection.last_checked_at = datetime.utcnow()
+        connection.last_sync_status = "success" if results["errors"] == 0 else "partial"
+        db.commit()
+
+        return {
+            "success": True,
+            "email_address": connection.email_address,
+            "results": results
+        }
+
+    except Exception as e:
+        logger.error(f"Single inbox check failed: {e}", exc_info=True)
+        connection.last_sync_status = "error"
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Email check failed: {str(e)}"
+        )
+
+
 @router.post("/{connection_id}/refresh")
 def refresh_email_token(
     connection_id: int,

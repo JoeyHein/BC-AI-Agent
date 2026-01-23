@@ -13,6 +13,7 @@ from datetime import datetime
 from app.db.database import SessionLocal
 from app.db.models import QuoteRequest, User, QuoteItem
 from app.services.bc_quote_service import bc_quote_service
+from app.services.upwardor_service import generate_upwardor_quote_from_request, UpwardorAPIError
 from app.api.auth import get_current_user
 
 router = APIRouter(prefix="/api/quotes", tags=["quotes"])
@@ -69,6 +70,7 @@ class ApproveQuoteRequest(BaseModel):
     notes: Optional[str] = None
     bc_customer_id: Optional[str] = None  # If manager selects a customer
     create_in_bc: bool = False  # Whether to immediately create in BC
+    send_to_upwardor: bool = True  # Whether to send to Upwardor portal
 
 
 class RejectQuoteRequest(BaseModel):
@@ -181,13 +183,30 @@ def approve_quote(
             approved_by=current_user.email
         )
 
+    # Generate Upwardor quote if requested
+    upwardor_result = None
+    if request.send_to_upwardor:
+        try:
+            quote_request = db.query(QuoteRequest).filter(
+                QuoteRequest.id == quote_id
+            ).first()
+            upwardor_result = generate_upwardor_quote_from_request(quote_request)
+            logger.info(f"Upwardor quote generated for quote {quote_id}")
+        except UpwardorAPIError as e:
+            logger.warning(f"Upwardor quote generation failed: {e}")
+            upwardor_result = {"error": str(e)}
+        except Exception as e:
+            logger.warning(f"Upwardor integration error: {e}")
+            upwardor_result = {"error": str(e)}
+
     return {
         "success": True,
         "message": "Quote approved successfully",
         "quote_id": quote_id,
         "status": "approved",
         "bc_quote_created": request.create_in_bc,
-        "bc_quote_result": bc_result
+        "bc_quote_result": bc_result,
+        "upwardor_result": upwardor_result
     }
 
 

@@ -10,7 +10,7 @@ import logging
 from contextlib import asynccontextmanager
 
 # Import API routers
-from app.api import feedback, auth, email_connections, email_feedback, quotes
+from app.api import feedback, auth, email_connections, email_feedback, quotes, orders, analytics, door_configurator
 
 # Import services
 from app.services.scheduler_service import get_scheduler
@@ -78,7 +78,7 @@ app = FastAPI(
 # CORS middleware (configure for production)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://localhost:5173"],  # React dev servers
+    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://localhost:3003", "http://localhost:5173"],  # React dev servers
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -96,6 +96,12 @@ logger.info(f"Including email_feedback router: {email_feedback.router.prefix}")
 app.include_router(email_feedback.router)
 logger.info(f"Including quotes router: {quotes.router.prefix}")
 app.include_router(quotes.router)
+logger.info(f"Including orders router: {orders.router.prefix}")
+app.include_router(orders.router)
+logger.info(f"Including analytics router: {analytics.router.prefix}")
+app.include_router(analytics.router)
+logger.info(f"Including door_configurator router: {door_configurator.router.prefix}")
+app.include_router(door_configurator.router)
 logger.info(f"Total routes after including routers: {len(app.routes)}")
 
 

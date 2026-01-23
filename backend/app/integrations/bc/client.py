@@ -124,7 +124,9 @@ class BusinessCentralClient:
     def search_customers(self, search_term: str, company_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Search customers by name or number"""
         cid = company_id or self.company_id
-        filter_query = f"contains(displayName,'{search_term}') or contains(number,'{search_term}')"
+        # Escape single quotes for OData filter
+        safe_term = search_term.replace("'", "''")
+        filter_query = f"contains(displayName,'{safe_term}')"
         result = self._make_request(
             "GET",
             f"companies({cid})/customers?$filter={filter_query}"
@@ -223,6 +225,307 @@ class BusinessCentralClient:
         cid = company_id or self.company_id
         result = self._make_request("GET", f"companies({cid})/purchaseOrders?$top={top}")
         return result.get("value", [])
+
+    # ==================== Sales Orders ====================
+
+    def get_sales_orders(self, company_id: Optional[str] = None, top: int = 100,
+                         status_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get list of sales orders"""
+        cid = company_id or self.company_id
+        endpoint = f"companies({cid})/salesOrders?$top={top}"
+        if status_filter:
+            endpoint += f"&$filter=status eq '{status_filter}'"
+        result = self._make_request("GET", endpoint)
+        return result.get("value", [])
+
+    def get_sales_order(self, order_id: str, company_id: Optional[str] = None) -> Dict[str, Any]:
+        """Get specific sales order"""
+        cid = company_id or self.company_id
+        result = self._make_request("GET", f"companies({cid})/salesOrders({order_id})")
+        return result
+
+    def get_sales_order_by_number(self, order_number: str, company_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Get sales order by document number"""
+        cid = company_id or self.company_id
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/salesOrders?$filter=number eq '{order_number}'"
+        )
+        orders = result.get("value", [])
+        return orders[0] if orders else None
+
+    def create_sales_order(self, order_data: Dict[str, Any], company_id: Optional[str] = None) -> Dict[str, Any]:
+        """Create new sales order"""
+        cid = company_id or self.company_id
+        result = self._make_request(
+            "POST",
+            f"companies({cid})/salesOrders",
+            json=order_data
+        )
+        logger.info(f"Created sales order: {result.get('number', 'N/A')}")
+        return result
+
+    def update_sales_order(self, order_id: str, order_data: Dict[str, Any],
+                          company_id: Optional[str] = None) -> Dict[str, Any]:
+        """Update existing sales order"""
+        cid = company_id or self.company_id
+        # Need to get etag for PATCH
+        current = self.get_sales_order(order_id, cid)
+        etag = current.get("@odata.etag")
+        headers = {"If-Match": etag} if etag else {}
+        result = self._make_request(
+            "PATCH",
+            f"companies({cid})/salesOrders({order_id})",
+            json=order_data,
+            headers=headers
+        )
+        return result
+
+    # ==================== Sales Order Lines ====================
+
+    def get_order_lines(self, order_id: str, company_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get lines for a sales order"""
+        cid = company_id or self.company_id
+        result = self._make_request("GET", f"companies({cid})/salesOrders({order_id})/salesOrderLines")
+        return result.get("value", [])
+
+    def add_order_line(self, order_id: str, line_data: Dict[str, Any],
+                       company_id: Optional[str] = None) -> Dict[str, Any]:
+        """Add line to sales order"""
+        cid = company_id or self.company_id
+        result = self._make_request(
+            "POST",
+            f"companies({cid})/salesOrders({order_id})/salesOrderLines",
+            json=line_data
+        )
+        return result
+
+    # ==================== Quote to Order Conversion ====================
+
+    def convert_quote_to_order(self, quote_id: str, company_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Convert a sales quote to a sales order using the makeOrder bound action.
+
+        This is a BC bound action that creates a new Sales Order from the Quote.
+        The quote will be archived after conversion.
+
+        Args:
+            quote_id: The BC sales quote ID (GUID)
+            company_id: Optional company ID
+
+        Returns:
+            The newly created sales order
+        """
+        cid = company_id or self.company_id
+
+        # BC bound action: POST salesQuotes({id})/Microsoft.NAV.makeOrder
+        result = self._make_request(
+            "POST",
+            f"companies({cid})/salesQuotes({quote_id})/Microsoft.NAV.makeOrder"
+        )
+        logger.info(f"Converted quote {quote_id} to order: {result.get('number', 'N/A')}")
+        return result
+
+    # ==================== Shipments ====================
+
+    def get_sales_shipments(self, company_id: Optional[str] = None, top: int = 100) -> List[Dict[str, Any]]:
+        """Get list of posted sales shipments"""
+        cid = company_id or self.company_id
+        result = self._make_request("GET", f"companies({cid})/salesShipments?$top={top}")
+        return result.get("value", [])
+
+    def get_sales_shipment(self, shipment_id: str, company_id: Optional[str] = None) -> Dict[str, Any]:
+        """Get specific sales shipment"""
+        cid = company_id or self.company_id
+        result = self._make_request("GET", f"companies({cid})/salesShipments({shipment_id})")
+        return result
+
+    def get_shipments_for_order(self, order_number: str, company_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get shipments related to a sales order"""
+        cid = company_id or self.company_id
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/salesShipments?$filter=orderNumber eq '{order_number}'"
+        )
+        return result.get("value", [])
+
+    def ship_sales_order(self, order_id: str, company_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Ship a sales order using the ship bound action.
+        Creates a posted shipment from the order.
+
+        Args:
+            order_id: The BC sales order ID (GUID)
+            company_id: Optional company ID
+
+        Returns:
+            Result of ship action
+        """
+        cid = company_id or self.company_id
+        result = self._make_request(
+            "POST",
+            f"companies({cid})/salesOrders({order_id})/Microsoft.NAV.ship"
+        )
+        logger.info(f"Shipped order {order_id}")
+        return result
+
+    def ship_and_invoice(self, order_id: str, company_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Ship and invoice a sales order in one action.
+        Creates both posted shipment and posted invoice.
+
+        Args:
+            order_id: The BC sales order ID (GUID)
+            company_id: Optional company ID
+
+        Returns:
+            Result of shipAndInvoice action
+        """
+        cid = company_id or self.company_id
+        result = self._make_request(
+            "POST",
+            f"companies({cid})/salesOrders({order_id})/Microsoft.NAV.shipAndInvoice"
+        )
+        logger.info(f"Shipped and invoiced order {order_id}")
+        return result
+
+    # ==================== Sales Invoices ====================
+
+    def get_sales_invoices(self, company_id: Optional[str] = None, top: int = 100,
+                          status_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get list of sales invoices (draft and posted)"""
+        cid = company_id or self.company_id
+        endpoint = f"companies({cid})/salesInvoices?$top={top}"
+        if status_filter:
+            endpoint += f"&$filter=status eq '{status_filter}'"
+        result = self._make_request("GET", endpoint)
+        return result.get("value", [])
+
+    def get_sales_invoice(self, invoice_id: str, company_id: Optional[str] = None) -> Dict[str, Any]:
+        """Get specific sales invoice"""
+        cid = company_id or self.company_id
+        result = self._make_request("GET", f"companies({cid})/salesInvoices({invoice_id})")
+        return result
+
+    def get_invoices_for_order(self, order_number: str, company_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get invoices related to a sales order"""
+        cid = company_id or self.company_id
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/salesInvoices?$filter=orderNumber eq '{order_number}'"
+        )
+        return result.get("value", [])
+
+    def create_sales_invoice(self, invoice_data: Dict[str, Any], company_id: Optional[str] = None) -> Dict[str, Any]:
+        """Create a draft sales invoice"""
+        cid = company_id or self.company_id
+        result = self._make_request(
+            "POST",
+            f"companies({cid})/salesInvoices",
+            json=invoice_data
+        )
+        logger.info(f"Created sales invoice: {result.get('number', 'N/A')}")
+        return result
+
+    def post_sales_invoice(self, invoice_id: str, company_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Post a draft sales invoice to the general ledger.
+
+        This action finalizes the invoice - it cannot be edited after posting.
+
+        Args:
+            invoice_id: The BC sales invoice ID (GUID)
+            company_id: Optional company ID
+
+        Returns:
+            The posted invoice
+        """
+        cid = company_id or self.company_id
+        result = self._make_request(
+            "POST",
+            f"companies({cid})/salesInvoices({invoice_id})/Microsoft.NAV.post"
+        )
+        logger.info(f"Posted invoice {invoice_id}")
+        return result
+
+    # ==================== API Discovery ====================
+
+    def discover_custom_apis(self, company_id: Optional[str] = None) -> Dict[str, List[str]]:
+        """
+        Discover available API endpoints in BC, including custom APIs.
+
+        Useful for finding production order endpoints and other custom pages.
+
+        Returns:
+            Dict with 'standard' and 'custom' endpoint lists
+        """
+        cid = company_id or self.company_id
+        discovered = {
+            "standard": [],
+            "custom": [],
+            "production": []
+        }
+
+        # Standard v2.0 endpoints to test
+        standard_endpoints = [
+            "companies", "customers", "vendors", "items",
+            "salesQuotes", "salesOrders", "salesInvoices", "salesShipments",
+            "purchaseOrders", "purchaseInvoices",
+            "generalLedgerEntries", "accounts", "dimensions"
+        ]
+
+        # Common production order endpoint patterns
+        production_endpoints = [
+            "productionOrders",
+            "prodOrders",
+            "manufacturingOrders",
+            "productionBOMHeaders",
+            "routings",
+            "workCenters",
+            "machineCenters"
+        ]
+
+        # Test standard endpoints
+        for endpoint in standard_endpoints:
+            try:
+                self._make_request("GET", f"companies({cid})/{endpoint}?$top=1")
+                discovered["standard"].append(endpoint)
+            except Exception:
+                pass  # Endpoint doesn't exist or no access
+
+        # Test production endpoints
+        for endpoint in production_endpoints:
+            try:
+                self._make_request("GET", f"companies({cid})/{endpoint}?$top=1")
+                discovered["production"].append(endpoint)
+                logger.info(f"Found production endpoint: {endpoint}")
+            except Exception:
+                pass
+
+        logger.info(f"API Discovery complete. Standard: {len(discovered['standard'])}, "
+                    f"Production: {len(discovered['production'])}")
+
+        return discovered
+
+    def get_metadata(self, company_id: Optional[str] = None) -> str:
+        """
+        Get API metadata (OData $metadata) which lists all available entities.
+
+        Returns:
+            XML metadata string
+        """
+        token = self._get_access_token()
+        cid = company_id or self.company_id
+        url = f"{self.base_url}/companies({cid})/$metadata"
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/xml"
+        }
+
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        return response.text
 
     # ==================== Test Connection ====================
 

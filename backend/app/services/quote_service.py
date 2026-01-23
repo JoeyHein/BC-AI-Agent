@@ -10,6 +10,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.db.models import QuoteRequest, QuoteItem, PricingRule, BCCustomer
+from app.services.spring_calculator_service import spring_calculator
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +185,11 @@ class QuoteGenerationService:
                 }
             })
 
+        # Spring item - calculated using Canimex methodology
+        spring_item = self._generate_spring_item(door_spec, quantity, context)
+        if spring_item:
+            items.append(spring_item)
+
         return items
 
     def _generate_shipping_item(self, line_items: List[Dict[str, Any]], project: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -274,6 +280,163 @@ class QuoteGenerationService:
         # More glazing for larger doors
         size_factor = Decimal((width * height) / 100)
         return base_price * size_factor
+
+    def _generate_spring_item(
+        self,
+        door_spec: Dict[str, Any],
+        quantity: int,
+        context: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Generate spring line item using Canimex spring calculator.
+
+        Uses exact Canimex methodology:
+        - IPPT = Multiplier × Door Weight
+        - MIP per spring = (IPPT × Turns) / Spring Quantity
+        - Active Coils = (Spring Quantity × Divider) / IPPT
+        - Total Spring Length = Active Coils + Dead Coil Factor
+
+        Args:
+            door_spec: Door specifications from parsed data
+            quantity: Number of doors
+            context: Pricing context
+
+        Returns:
+            Spring line item dict or None if calculation fails
+        """
+        width_ft = door_spec.get("width_ft", 0)
+        height_ft = door_spec.get("height_ft", 0)
+        model = door_spec.get("model", "")
+
+        if not width_ft or not height_ft:
+            return None
+
+        # Convert to inches
+        width_inches = width_ft * 12
+        height_inches = height_ft * 12
+
+        # Estimate door weight based on model and size
+        # Standard insulated doors: ~4 lbs/sq ft, commercial ~5.5 lbs/sq ft
+        sq_ft = width_ft * height_ft
+        door_weight = self._estimate_door_weight(model, sq_ft)
+
+        # Get track radius from spec or default to 15"
+        track_type = door_spec.get("track_type", "2")
+        track_radius = 15 if track_type == "2" else 12  # Standard radius by track type
+
+        # Calculate springs using Canimex methodology
+        spring_qty = 2  # Standard residential = 2 springs
+        target_cycles = 10000  # Default cycle life
+
+        result = spring_calculator.calculate_spring(
+            door_weight=door_weight,
+            door_height=height_inches,
+            track_radius=track_radius,
+            spring_qty=spring_qty,
+            target_cycles=target_cycles
+        )
+
+        if result is None:
+            logger.warning(
+                f"Spring calculator returned no result for {door_weight:.0f} lbs, "
+                f"{height_inches}\" height"
+            )
+            return None
+
+        # Calculate spring price based on wire diameter and length
+        spring_price = self._get_spring_price(
+            result.wire_diameter,
+            result.coil_diameter,
+            result.length
+        )
+        spring_price = self._apply_pricing_rules(spring_price, "spring", result.part_number, context)
+
+        # Total price is per-spring price × spring quantity × door quantity
+        unit_price = float(spring_price)
+        total_price = float(spring_price * spring_qty * quantity)
+
+        return {
+            "item_type": "spring",
+            "product_code": result.part_number,
+            "description": (
+                f"Torsion Spring - {result.wire_diameter}\" wire x "
+                f"{result.coil_diameter}\" ID x {result.length}\" length"
+            ),
+            "quantity": spring_qty * quantity,  # 2 springs per door × door count
+            "unit_price": unit_price,
+            "total_price": total_price,
+            "item_metadata": {
+                "wire_diameter": result.wire_diameter,
+                "coil_diameter": result.coil_diameter,
+                "length": result.length,
+                "ippt": result.ippt,
+                "mip_per_spring": result.mip_per_spring,
+                "turns": result.turns,
+                "cycle_life": result.cycle_life,
+                "drum_model": result.drum_model,
+                "door_weight": door_weight,
+                "door_height_inches": height_inches,
+                "track_radius": track_radius
+            }
+        }
+
+    def _estimate_door_weight(self, model: str, sq_ft: float) -> float:
+        """
+        Estimate door weight based on model and size.
+
+        Weight factors (lbs per sq ft):
+        - TX450: ~4.0 lbs/sq ft (standard insulated)
+        - TX500: ~4.5 lbs/sq ft (thicker insulation)
+        - AL976: ~3.5 lbs/sq ft (aluminum)
+        - Kanata: ~4.2 lbs/sq ft (premium insulated)
+        - Commercial: ~5.5 lbs/sq ft
+        """
+        weight_factors = {
+            "TX450": 4.0,
+            "TX450-20": 4.5,  # 20-gauge heavier
+            "TX500": 4.5,
+            "TX500-20": 5.0,
+            "AL976": 3.5,
+            "AL976-SWD": 4.0,
+            "Kanata": 4.2,
+            "KANATA": 4.2,
+            "Craft": 4.0,
+            "CRAFT": 4.0,
+            "Solalite": 3.8,
+        }
+
+        # Get weight factor for model, default to standard insulated
+        factor = weight_factors.get(model, 4.0)
+
+        # Commercial doors are heavier
+        if "commercial" in model.lower() or sq_ft > 150:
+            factor = max(factor, 5.5)
+
+        return sq_ft * factor
+
+    def _get_spring_price(self, wire_diameter: float, coil_diameter: float, length: float) -> Decimal:
+        """
+        Calculate spring price based on specifications.
+
+        Pricing factors:
+        - Wire diameter: larger wire = more material = higher price
+        - Coil diameter: larger ID = more expensive
+        - Length: longer spring = more material = higher price
+        """
+        # Base price per inch of spring length
+        base_price_per_inch = Decimal("3.50")
+
+        # Wire diameter multiplier (0.250" = baseline)
+        wire_factor = Decimal(str(wire_diameter / 0.250))
+
+        # Coil diameter multiplier (2.0" = baseline)
+        coil_factor = Decimal(str(coil_diameter / 2.0))
+
+        # Calculate price
+        spring_price = base_price_per_inch * Decimal(str(length)) * wire_factor * coil_factor
+
+        # Minimum price floor
+        return max(spring_price, Decimal("75.00"))
 
     def _apply_pricing_rules(self, base_price: Decimal, rule_type: str, entity: str, context: Dict[str, Any]) -> Decimal:
         """
