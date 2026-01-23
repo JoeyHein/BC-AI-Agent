@@ -616,15 +616,14 @@ async def generate_door_quote(request: QuoteGenerationRequest):
 
         for part in consolidated_parts:
             try:
+                # BC API uses lineObjectNumber for item number lookup
                 line_data = {
                     "lineType": "Item",
-                    "itemId": part["part_number"],
+                    "lineObjectNumber": part["part_number"],
                     "description": part.get("description", ""),
                     "quantity": part["quantity"],
                 }
 
-                # Note: BC may use itemId or lineObjectNumber depending on API version
-                # If itemId fails, we can fall back to using description-only lines
                 bc_client.add_quote_line(bc_quote_id, line_data)
                 lines_added += 1
                 logger.debug(f"Added line: {part['part_number']} x{part['quantity']}")
