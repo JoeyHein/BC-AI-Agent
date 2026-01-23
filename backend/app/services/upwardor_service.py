@@ -93,7 +93,7 @@ class UpwardorAPIClient:
             "hardwareKits": "yes", "weatherStripping": "yes", "bottomRetainer": "yes",
             "wrapping": "yes", "angleConfrigation": "BRACKET TO WOOD", "isDoorRequiredStruts": True,
             "isBulk": "no", "insert": "no", "extraStrut": "no", "topRubber": "no",
-            "decorativeHardWareParts": "no", "trackRequest": "NO", "V_W_Qty": [],
+            "decorativeHardWareParts": "no", "trackRequest": "NO",
         }
         config.update(kwargs)
         return config
@@ -118,3 +118,81 @@ def get_upwardor_client() -> UpwardorAPIClient:
         except UpwardorAPIError as e:
             logger.warning(f"Upwardor auth failed: {e}")
     return _upwardor_client
+
+
+# Mapping constants for AI-parsed specs to Upwardor format
+CATEGORY_MAP = {
+    "AL976": {"type": "aluminium", "value": "67f7c1c39cf0ed4a3b00baea"},
+    "TX380": {"type": "commercial", "value": "67ab1db858e8bd835f4898e3"},
+    "TX450": {"type": "commercial", "value": "67ab1db858e8bd835f4898e4"},
+    "TX500": {"type": "commercial", "value": "67ab1db858e8bd835f4898e5"},
+    "TX450-20": {"type": "commercial", "value": "67ab1db858e8bd835f4898e6"},
+    "RESIDENTIAL": {"type": "residential", "value": "678f8f79088796816d501456"},
+}
+
+COLOR_MAP = {
+    "white": "WHITE", "brown": "BROWN", "almond": "ALMOND",
+    "black": "BLACK", "grey": "GREY", "gray": "GREY",
+    "sandstone": "SANDSTONE", "desert tan": "DESERT TAN",
+}
+
+PATTERN_MAP = {
+    "short": "SHXL", "long": "LNXL", "flush": "FLUSH",
+    "shxl": "SHXL", "lnxl": "LNXL", "raised": "SHXL",
+}
+
+TRACK_RADIUS_MAP = {
+    "12": "12", "15": "15", "standard": "15", "low": "12",
+}
+
+
+def map_ai_door_to_upwardor(ai_door: Dict[str, Any], client: UpwardorAPIClient) -> Dict[str, Any]:
+    """Map AI-parsed door specification to Upwardor door config format."""
+    width_ft = ai_door.get("width_ft") or 0
+    width_in = ai_door.get("width_in") or 0
+    height_ft = ai_door.get("height_ft") or 0
+    height_in = ai_door.get("height_in") or 0
+    door_width = int(width_ft) * 12 + int(width_in) if width_ft or width_in else 96
+    door_height = int(height_ft) * 12 + int(height_in) if height_ft or height_in else 84
+    color_raw = (ai_door.get("color") or "white").lower().strip()
+    panel_color = COLOR_MAP.get(color_raw, "WHITE")
+    pattern_raw = (ai_door.get("panel_config") or "short").lower().strip()
+    stamp_pattern = PATTERN_MAP.get(pattern_raw, "SHXL")
+    track_raw = (ai_door.get("track_type") or "15").lower().strip()
+    track_radius = TRACK_RADIUS_MAP.get(track_raw, "15")
+    model_raw = (ai_door.get("model") or "RESIDENTIAL").upper().strip()
+    category_info = CATEGORY_MAP.get(model_raw, CATEGORY_MAP["RESIDENTIAL"])
+    config = client.build_door_config(door_width=door_width, door_height=door_height, panel_color=panel_color, stamp_pattern=stamp_pattern, track_radius=track_radius)
+    config["categoryType"] = category_info["type"]
+    config["categoryValue"] = category_info["value"]
+    glazing = ai_door.get("glazing")
+    if glazing and glazing.lower() not in ["none", "no", ""]:
+        config["window"] = "yes"
+    return config
+
+
+def generate_upwardor_quote_from_request(quote_request, po_number: str = None, tag_name: str = None) -> Dict[str, Any]:
+    """Generate an Upwardor quote from a BC-AI-Agent quote request."""
+    client = get_upwardor_client()
+    parsed_data = quote_request.parsed_data or {}
+    doors_data = parsed_data.get("doors", [])
+    project_data = parsed_data.get("project", {})
+    customer_data = parsed_data.get("customer", {})
+    if not po_number:
+        po_number = f"QR-{quote_request.id}"
+    if not tag_name:
+        tag_name = project_data.get("name") or customer_data.get("company_name") or f"Quote-{quote_request.id}"
+    if not doors_data:
+        logger.warning(f"No door specs found in quote request {quote_request.id}, creating placeholder")
+        doors_data = [{"model": "RESIDENTIAL", "quantity": 1}]
+    upwardor_doors = []
+    for ai_door in doors_data:
+        quantity = ai_door.get("quantity", 1) or 1
+        door_config = map_ai_door_to_upwardor(ai_door, client)
+        door_config["doorCount"] = quantity
+        upwardor_doors.append(door_config)
+    quote_payload = client.create_quote_request(doors=upwardor_doors, po_number=po_number, tag_name=tag_name)
+    logger.info(f"Submitting Upwardor quote for request {quote_request.id}: {len(upwardor_doors)} door config(s)")
+    result = client.generate_quote(quote_payload)
+    logger.info(f"Upwardor quote generated successfully for request {quote_request.id}")
+    return result
