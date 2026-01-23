@@ -78,21 +78,24 @@ def test_line_ordering():
     sys.path.insert(0, str(backend_dir / "app" / "api"))
     from door_configurator import LINE_ORDER
 
+    # Expected order per BC_QUOTE_FORMAT.md (lowercase to match part_number_service)
     expected_order = [
-        "COMMENT",
-        "PANEL",
-        "RETAINER",
-        "ASTRAGAL",
-        "STRUT",
-        "WINDOW",
-        "TRACK",
-        "HIGHLIFT_TRACK",
-        "HARDWARE",
-        "SPRING",
-        "SPRING_ACCESSORY",
-        "SHAFT",
-        "WEATHER_STRIPPING",
-        "ACCESSORY",
+        "comment",           # 1. Door description
+        "door_package",      # 2a. Pre-configured door package
+        "panel",             # 2b. Panels
+        "retainer",          # 3. Retainer
+        "astragal",          # 4. Astragal
+        "strut",             # 5. Struts
+        "window",            # 6. Windows
+        "track",             # 7. Track
+        "highlift_track",    # 7b. Highlift track
+        "hardware",          # 8. Hardware box
+        "spring",            # 9. Springs
+        "spring_accessory",  # 9b. Winders, plugs
+        "shaft",             # 9c. Shaft
+        "weather_stripping", # 10. Weather seal
+        "accessory",         # 11. Accessories
+        "operator",          # 12. Operator
     ]
 
     print("  Line ordering constant:")
@@ -105,6 +108,8 @@ def test_line_ordering():
         return True
     else:
         print("\n  [FAIL] Line ordering doesn't match specification")
+        print(f"    Expected: {expected_order}")
+        print(f"    Got:      {LINE_ORDER}")
         return False
 
 

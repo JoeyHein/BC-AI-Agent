@@ -762,7 +762,7 @@ class PartNumberService:
         )]
 
     def _get_seal_parts(self, config: DoorConfiguration) -> List[PartSelection]:
-        """Get weather stripping/seal part numbers using actual BC parts"""
+        """Get weather stripping part numbers using actual BC parts"""
         mapper = get_bc_mapper()
 
         door_height_feet = config.door_height // 12
@@ -781,38 +781,38 @@ class PartNumberService:
             part_number=weather_strip.part_number,
             description=weather_strip.description,
             quantity=panel_count,
-            category="seal"
+            category="weather_stripping"  # Specific category for ordering
         )]
 
     def _get_bottom_retainer_parts(self, config: DoorConfiguration) -> List[PartSelection]:
-        """Get bottom retainer/astragal part numbers using actual BC parts"""
+        """Get retainer and astragal part numbers using actual BC parts"""
         parts = []
         mapper = get_bc_mapper()
 
         door_width_feet = config.door_width / 12
 
-        # Get astragal (bottom rubber)
-        astragal = mapper.get_astragal(door_width_feet)
-        parts.append(PartSelection(
-            part_number=astragal.part_number,
-            description=astragal.description,
-            quantity=1,  # One per door
-            category="seal"
-        ))
-
-        # Get retainer (top and bottom)
+        # Get retainer FIRST (comes before astragal in line order)
         retainer = mapper.get_retainer()
         parts.append(PartSelection(
             part_number=retainer.part_number,
             description=f"{retainer.description} (TOP)",
             quantity=1,
-            category="seal"
+            category="retainer"  # Specific category for ordering
         ))
         parts.append(PartSelection(
             part_number=retainer.part_number,
             description=f"{retainer.description} (BOTTOM)",
             quantity=1,
-            category="seal"
+            category="retainer"
+        ))
+
+        # Get astragal (bottom rubber) - comes after retainer
+        astragal = mapper.get_astragal(door_width_feet)
+        parts.append(PartSelection(
+            part_number=astragal.part_number,
+            description=astragal.description,
+            quantity=1,  # One per door
+            category="astragal"  # Specific category for ordering
         ))
 
         return parts

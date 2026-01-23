@@ -558,28 +558,31 @@ def _format_door_description(door: DoorConfigRequest) -> str:
 
 # Define the standard line item ordering for BC quotes
 # See docs/BC_QUOTE_FORMAT.md for full specification
+# Categories must match those used in part_number_service.py (lowercase)
 LINE_ORDER = [
-    "COMMENT",       # 1. Door description
-    "PANEL",         # 2. Panels
-    "RETAINER",      # 3. Retainer
-    "ASTRAGAL",      # 4. Astragal
-    "STRUT",         # 5. Struts
-    "WINDOW",        # 6. Windows (if applicable)
-    "TRACK",         # 7. Track
-    "HIGHLIFT_TRACK",# 7b. Highlift track (if applicable)
-    "HARDWARE",      # 8. Hardware box
-    "SPRING",        # 9. Springs
-    "SPRING_ACCESSORY",  # 9b. Winders, plugs
-    "SHAFT",         # 9c. Shaft
-    "WEATHER_STRIPPING", # 10. Weather seal
-    "ACCESSORY",     # 11. Accessories
+    "comment",           # 1. Door description
+    "door_package",      # 2a. Pre-configured door package (if used)
+    "panel",             # 2b. Panels (if not using package)
+    "retainer",          # 3. Retainer (top/bottom)
+    "astragal",          # 4. Astragal (bottom rubber)
+    "strut",             # 5. Struts
+    "window",            # 6. Windows (if applicable)
+    "track",             # 7. Track
+    "highlift_track",    # 7b. Highlift track (if applicable)
+    "hardware",          # 8. Hardware box
+    "spring",            # 9. Springs
+    "spring_accessory",  # 9b. Winders, plugs
+    "shaft",             # 9c. Shaft
+    "weather_stripping", # 10. Weather seal
+    "accessory",         # 11. Accessories
+    "operator",          # 12. Operator (if applicable)
 ]
 
 
 def _sort_parts_by_category(parts: List[dict]) -> List[dict]:
     """Sort parts list according to BC quote line ordering standard."""
     def sort_key(part):
-        category = part.get("category", "OTHER")
+        category = part.get("category", "other").lower()
         try:
             return LINE_ORDER.index(category)
         except ValueError:
