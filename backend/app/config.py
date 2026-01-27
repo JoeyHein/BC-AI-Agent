@@ -57,10 +57,17 @@ class Settings(BaseSettings):
     # OpenPhone (Phase 1+)
     OPENPHONE_API_KEY: Optional[str] = None
 
+    # Customer Portal Notifications
+    NOTIFICATION_SENDER_EMAIL: str = "noreply@opendc.ca"
+    ADMIN_NOTIFICATION_EMAILS: str = "joey@opendc.ca"  # Comma-separated list
+    CUSTOMER_PORTAL_URL: str = "http://localhost:3001/customer.html"
+    ADMIN_PORTAL_URL: str = "http://localhost:3001"
+
     # Feature Flags
     ENABLE_EMAIL_MONITORING: bool = True
     ENABLE_AI_PARSING: bool = True
     ENABLE_VENDOR_INTELLIGENCE: bool = True
+    ENABLE_CUSTOMER_NOTIFICATIONS: bool = True
 
     # Email Monitoring Settings
     EMAIL_CHECK_INTERVAL_MINUTES: int = 15  # How often to check for new emails

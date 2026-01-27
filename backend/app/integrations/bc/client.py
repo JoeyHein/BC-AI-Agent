@@ -539,6 +539,129 @@ class BusinessCentralClient:
             logger.error(f"❌ BC connection failed: {e}")
             return False
 
+    # ==================== Customer-Filtered Queries (Customer Portal) ====================
+
+    def get_customer_quotes(self, bc_customer_id: str, company_id: Optional[str] = None,
+                           top: int = 100) -> List[Dict[str, Any]]:
+        """
+        Get all sales quotes for a specific customer.
+
+        Args:
+            bc_customer_id: The BC customer ID
+            company_id: Optional company ID
+
+        Returns:
+            List of sales quotes for the customer
+        """
+        cid = company_id or self.company_id
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/salesQuotes?$filter=customerId eq '{bc_customer_id}'&$top={top}&$orderby=documentDate desc"
+        )
+        return result.get("value", [])
+
+    def get_customer_orders(self, bc_customer_id: str, company_id: Optional[str] = None,
+                           top: int = 100) -> List[Dict[str, Any]]:
+        """
+        Get all sales orders for a specific customer.
+
+        Args:
+            bc_customer_id: The BC customer ID
+            company_id: Optional company ID
+
+        Returns:
+            List of sales orders for the customer
+        """
+        cid = company_id or self.company_id
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/salesOrders?$filter=customerId eq '{bc_customer_id}'&$top={top}&$orderby=orderDate desc"
+        )
+        return result.get("value", [])
+
+    def get_customer_invoices(self, bc_customer_id: str, company_id: Optional[str] = None,
+                             top: int = 100) -> List[Dict[str, Any]]:
+        """
+        Get all sales invoices for a specific customer.
+
+        Args:
+            bc_customer_id: The BC customer ID
+            company_id: Optional company ID
+
+        Returns:
+            List of sales invoices for the customer
+        """
+        cid = company_id or self.company_id
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/salesInvoices?$filter=customerId eq '{bc_customer_id}'&$top={top}&$orderby=invoiceDate desc"
+        )
+        return result.get("value", [])
+
+    def get_customer_shipments(self, bc_customer_id: str, company_id: Optional[str] = None,
+                              top: int = 100) -> List[Dict[str, Any]]:
+        """
+        Get all sales shipments for a specific customer.
+
+        Args:
+            bc_customer_id: The BC customer ID
+            company_id: Optional company ID
+
+        Returns:
+            List of sales shipments for the customer
+        """
+        cid = company_id or self.company_id
+        # Note: Shipments may need to be filtered differently based on BC setup
+        # This filters by sellToCustomerNumber if available
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/salesShipments?$filter=customerId eq '{bc_customer_id}'&$top={top}&$orderby=shipmentDate desc"
+        )
+        return result.get("value", [])
+
+    def get_customer_order_details(self, order_id: str, bc_customer_id: str,
+                                   company_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Get sales order details with verification that it belongs to the customer.
+
+        Args:
+            order_id: The BC sales order ID (GUID)
+            bc_customer_id: The BC customer ID for verification
+            company_id: Optional company ID
+
+        Returns:
+            Sales order details or None if not found/not owned by customer
+        """
+        cid = company_id or self.company_id
+
+        try:
+            order = self.get_sales_order(order_id, cid)
+
+            # Verify customer ownership
+            if order.get("customerId") != bc_customer_id:
+                logger.warning(f"Customer {bc_customer_id} attempted to access order {order_id} belonging to another customer")
+                return None
+
+            # Get order lines
+            lines = self.get_order_lines(order_id, cid)
+            order["lines"] = lines
+
+            # Get related shipments by order number
+            order_number = order.get("number")
+            if order_number:
+                shipments = self.get_shipments_for_order(order_number, cid)
+                order["shipments"] = shipments
+
+                # Get related invoices
+                invoices = self.get_invoices_for_order(order_number, cid)
+                order["invoices"] = invoices
+
+            return order
+
+        except Exception as e:
+            logger.error(f"Error fetching customer order details: {e}")
+            return None
+
 
 # Global BC client instance
 bc_client = BusinessCentralClient()

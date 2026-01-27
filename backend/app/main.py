@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 
 # Import API routers
 from app.api import feedback, auth, email_connections, email_feedback, quotes, orders, analytics, door_configurator
+from app.api import customer_auth, customer_portal, admin_customers
 
 # Import services
 from app.services.scheduler_service import get_scheduler
@@ -102,6 +103,17 @@ logger.info(f"Including analytics router: {analytics.router.prefix}")
 app.include_router(analytics.router)
 logger.info(f"Including door_configurator router: {door_configurator.router.prefix}")
 app.include_router(door_configurator.router)
+
+# Customer Portal routers
+logger.info(f"Including customer_auth router: {customer_auth.router.prefix}")
+app.include_router(customer_auth.router)
+logger.info(f"Including customer_portal router: {customer_portal.router.prefix}")
+app.include_router(customer_portal.router)
+
+# Admin Customer Management router (customer portal accounts)
+logger.info(f"Including admin_customers router: {admin_customers.router.prefix}")
+app.include_router(admin_customers.router)
+
 logger.info(f"Total routes after including routers: {len(app.routes)}")
 
 

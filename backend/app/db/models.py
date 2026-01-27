@@ -39,6 +39,12 @@ class UserRole(enum.Enum):
     VIEWER = "viewer"        # Read-only access
 
 
+class UserType(enum.Enum):
+    """User types - internal staff vs external customers"""
+    INTERNAL = "internal"    # Internal staff users (admin app)
+    CUSTOMER = "customer"    # External customer users (customer portal)
+
+
 class User(Base):
     """Users - for authentication and permissions"""
     __tablename__ = "users"
@@ -52,11 +58,24 @@ class User(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     last_login_at = Column(DateTime)
 
+    # Customer portal fields
+    # Using String instead of SQLEnum for SQLite compatibility
+    # Valid values: 'INTERNAL', 'CUSTOMER' (matches UserType enum)
+    user_type = Column(String(20), default='INTERNAL', nullable=True)
+    bc_customer_id = Column(String(100), ForeignKey("bc_customers.bc_customer_id"), nullable=True)
+    email_verified = Column(Boolean, default=False)  # For customer self-registration
+    email_verification_token = Column(String(255), nullable=True)
+    email_verification_expires = Column(DateTime, nullable=True)
+    password_reset_token = Column(String(255), nullable=True)
+    password_reset_expires = Column(DateTime, nullable=True)
+
     # Relationships
     email_connections = relationship("EmailConnection", back_populates="user", cascade="all, delete-orphan")
+    bc_customer = relationship("BCCustomer", foreign_keys=[bc_customer_id], primaryjoin="User.bc_customer_id == BCCustomer.bc_customer_id")
+    saved_quote_configs = relationship("SavedQuoteConfig", back_populates="user", cascade="all, delete-orphan")
 
     def __repr__(self):
-        return f"<User(id={self.id}, email={self.email}, role={self.role.value})>"
+        return f"<User(id={self.id}, email={self.email}, role={self.role.value}, type={self.user_type})>"
 
 
 class EmailConnection(Base):
@@ -683,3 +702,36 @@ class Invoice(Base):
 
     def __repr__(self):
         return f"<Invoice(id={self.id}, number={self.invoice_number}, status={self.status.value}, amount={self.total_amount})>"
+
+
+# ============================================================================
+# CUSTOMER PORTAL MODELS
+# ============================================================================
+
+class SavedQuoteConfig(Base):
+    """Saved door configurations - customer drafts for quote building"""
+    __tablename__ = "saved_quote_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+
+    # Configuration details
+    name = Column(String(255))  # Customer-assigned name for this config
+    description = Column(Text)  # Optional notes/description
+    config_data = Column(JSON, nullable=False)  # Full door configuration data
+
+    # Status tracking
+    is_submitted = Column(Boolean, default=False, index=True)
+    bc_quote_number = Column(String(50), nullable=True)  # BC quote number if submitted
+    bc_quote_id = Column(String(100), nullable=True)  # BC quote GUID if submitted
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+    submitted_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    user = relationship("User", back_populates="saved_quote_configs")
+
+    def __repr__(self):
+        return f"<SavedQuoteConfig(id={self.id}, name={self.name}, submitted={self.is_submitted})>"

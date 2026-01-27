@@ -8,6 +8,7 @@ import QuoteDetail from './components/QuoteDetail'
 import Analytics from './components/Analytics'
 import EmailSettings from './components/EmailSettings'
 import DoorConfigurator from './components/DoorConfigurator'
+import CustomerManagement from './components/CustomerManagement'
 
 function Navigation() {
   const { user, logout, isAuthenticated } = useAuth()
@@ -84,6 +85,16 @@ function Navigation() {
               >
                 Email Settings
               </Link>
+              <Link
+                to="/customers"
+                className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
+                  isActive('/customers')
+                    ? 'border-indigo-500 text-gray-900'
+                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                }`}
+              >
+                Customers
+              </Link>
             </div>
           </div>
           <div className="flex items-center">
@@ -146,6 +157,12 @@ function AppContent() {
           <Route path="/settings/email" element={
             <ProtectedRoute>
               <EmailSettings />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/customers" element={
+            <ProtectedRoute>
+              <CustomerManagement />
             </ProtectedRoute>
           } />
         </Routes>
