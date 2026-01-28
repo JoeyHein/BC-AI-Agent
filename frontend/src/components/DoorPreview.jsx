@@ -42,7 +42,7 @@ const PANEL_PATTERNS = {
     style: 'minimal'
   },
   UDC: { // Commercial UDC (Undercoated) - 5 horizontal lines per panel
-    type: 'ribbed',
+    type: 'horizontal_ribbed',
     ribs: 5,
     style: 'commercial'
   },
@@ -178,6 +178,8 @@ function DoorPreview({
         return renderCarriagePanels(sectionY + padding, panelWidth, panelHeight, padding, pattern)
       case 'ribbed':
         return renderRibbedPanels(sectionY + padding, panelWidth, panelHeight, padding, pattern)
+      case 'horizontal_ribbed':
+        return renderHorizontalRibbedPanels(sectionY + padding, panelWidth, panelHeight, padding, pattern)
       case 'flush':
       default:
         return renderFlushPanel(sectionY + padding, panelWidth, panelHeight, padding)
@@ -392,6 +394,38 @@ function DoorPreview({
             y1={y}
             x2={x}
             y2={y + h}
+            stroke={isDark ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.6)'}
+            strokeWidth="1"
+          />
+        </g>
+      )
+    }
+    return lines
+  }
+
+  // Render horizontal ribbed panels (for UDC commercial)
+  const renderHorizontalRibbedPanels = (y, w, h, padding, pattern) => {
+    const { ribs } = pattern
+    const ribSpacing = h / (ribs + 1)
+    const lines = []
+
+    for (let i = 1; i <= ribs; i++) {
+      const lineY = y + ribSpacing * i
+      lines.push(
+        <g key={`h-rib-${i}`}>
+          <line
+            x1={padding}
+            y1={lineY - 1}
+            x2={padding + w}
+            y2={lineY - 1}
+            stroke={shadowColor}
+            strokeWidth="2"
+          />
+          <line
+            x1={padding}
+            y1={lineY}
+            x2={padding + w}
+            y2={lineY}
             stroke={isDark ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.6)'}
             strokeWidth="1"
           />
