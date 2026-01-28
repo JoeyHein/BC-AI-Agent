@@ -719,8 +719,14 @@ function WindowsStep({ door, windowInserts, commercialWindowInserts, glazingOpti
   const hasWindows = door.windowInsert !== 'NONE' && door.windowInsert
   const isCommercial = door.doorType === 'commercial'
 
-  // Calculate panel count based on height
-  const panelCount = door.doorHeight <= 84 ? 4 : door.doorHeight <= 96 ? 5 : 6
+  // Calculate panel count based on height (must match DoorPreview sectionConfig)
+  // <= 84": 4 panels (21" each)
+  // <= 96": 4 panels (24" each)
+  // <= 120": 5 panels
+  // <= 144": 6 panels
+  // <= 168": 7 panels
+  // > 168": 8 panels
+  const panelCount = door.doorHeight <= 96 ? 4 : door.doorHeight <= 120 ? 5 : door.doorHeight <= 144 ? 6 : door.doorHeight <= 168 ? 7 : 8
 
   // Get the appropriate window inserts based on door type
   const availableInserts = isCommercial ? commercialWindowInserts : windowInserts

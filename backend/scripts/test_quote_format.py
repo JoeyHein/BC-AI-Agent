@@ -79,10 +79,10 @@ def test_line_ordering():
     from door_configurator import LINE_ORDER
 
     # Expected order per BC_QUOTE_FORMAT.md (lowercase to match part_number_service)
+    # NOTE: door_package removed - always use individual panel part numbers
     expected_order = [
         "comment",           # 1. Door description
-        "door_package",      # 2a. Pre-configured door package
-        "panel",             # 2b. Panels
+        "panel",             # 2. Panels (PN45, PN46, PN65, PN95, etc.)
         "retainer",          # 3. Retainer
         "astragal",          # 4. Astragal
         "strut",             # 5. Struts

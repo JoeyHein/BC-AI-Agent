@@ -184,51 +184,8 @@ PANEL_RULES = {
     },
 }
 
-# Pre-configured Door Package SKUs (complete door assemblies)
-# These are for standard sizes that have pre-built packages in BC
-PRECONFIGURED_DOORS = {
-    "TX450": {
-        # Format: (width_ft, height_ft) -> base_sku
-        (8, 7): "TX450-0807",
-        (9, 7): "TX450-0907",
-        (10, 7): "TX450-1007",
-        (12, 7): "TX450-1207",
-        (16, 7): "TX450-1607",
-        (8, 8): "TX450-0808",
-        (9, 8): "TX450-0908",
-        (10, 8): "TX450-1008",
-        (12, 8): "TX450-1208",
-        (16, 8): "TX450-1608",
-        (10, 10): "TX450-1010",
-        (12, 10): "TX450-1210",
-        (14, 10): "TX450-1410",
-        (12, 12): "TX450-1212",
-        (14, 12): "TX450-1412",
-        (16, 12): "TX450-1612",
-        (14, 14): "TX450-1414",
-        (16, 14): "TX450-1614",
-    },
-    "TX500": {
-        (8, 7): "TX500-0807",
-        (9, 7): "TX500-0907",
-        (12, 7): "TX500-1207",
-        (16, 7): "TX500-1607",
-        (10, 10): "TX500-1010",
-        (12, 12): "TX500-1212",
-        (14, 14): "TX500-1414",
-    },
-}
-
-# Color code suffix for pre-configured doors
-DOOR_COLOR_SUFFIX = {
-    "WHITE": "-01",
-    "BRIGHT_WHITE": "-01",
-    "NEW_BROWN": "-02",
-    "BLACK": "-03",
-    "STEEL_GREY": "-04",
-    "ALMOND": "-05",
-    "SANDTONE": "-06",
-}
+# NOTE: Pre-configured door packages (TX450-0907-01, etc.) have been removed.
+# Always use individual panel part numbers (PN45, PN46, PN65, PN95, etc.)
 
 # Track Part Numbers
 TRACK_RULES = {
@@ -267,14 +224,11 @@ TRACK_RULES = {
 }
 
 # Hardware Kit Part Numbers
+# NOTE: Actual hardware box part numbers are now generated via bc_part_number_mapper
+# - Residential 2" track: HK10-0HHSS-WWWW pattern
+# - Commercial 3" track: HWww-hhhhh-00 pattern
+# Future: HK02, HK03, HK12, HK13, HK22, HK23, HK32, HK33 for extended sizes
 HARDWARE_RULES = {
-    "kit": {
-        # Based on door width ranges
-        "small": {"max_width": 108, "part": "HK-SM"},   # Up to 9'
-        "medium": {"max_width": 144, "part": "HK-MD"},  # Up to 12'
-        "large": {"max_width": 192, "part": "HK-LG"},   # Up to 16'
-        "xlarge": {"max_width": 288, "part": "HK-XL"},  # Up to 24'
-    },
     "hinges": {
         "residential": "HW-HNG-RES",
         "commercial": "HW-HNG-COM",
@@ -394,7 +348,6 @@ class PartNumberService:
 
     def __init__(self):
         self.panel_rules = PANEL_RULES
-        self.preconfigured = PRECONFIGURED_DOORS
         self.track_rules = TRACK_RULES
         self.hardware_rules = HARDWARE_RULES
         self.spring_rules = SPRING_RULES
@@ -412,15 +365,9 @@ class PartNumberService:
         """
         parts = []
 
-        # 1. Check for pre-configured door package first
-        preconfigured = self._get_preconfigured_door(config)
-        if preconfigured:
-            parts.append(preconfigured)
-            # Pre-configured includes panels, so skip panel selection
-        else:
-            # 2. Get panel part numbers
-            panel_parts = self._get_panel_parts(config)
-            parts.extend(panel_parts)
+        # 1. Get panel part numbers (always use individual panels, not door packages)
+        panel_parts = self._get_panel_parts(config)
+        parts.extend(panel_parts)
 
         # 3. Get hardware if needed
         hardware = config.hardware or {}
@@ -487,31 +434,6 @@ class PartNumberService:
         elif inches == 6:
             return f"{feet:02d}6"
         return f"{feet:02d}{inches:02d}"
-
-    def _get_preconfigured_door(self, config: DoorConfiguration) -> Optional[PartSelection]:
-        """Check if this configuration matches a pre-configured door package"""
-        series = config.door_series
-        if series not in self.preconfigured:
-            return None
-
-        width_ft = config.door_width // 12
-        height_ft = config.door_height // 12
-
-        base_sku = self.preconfigured[series].get((width_ft, height_ft))
-        if not base_sku:
-            return None
-
-        # Add color suffix
-        color_suffix = DOOR_COLOR_SUFFIX.get(config.panel_color, "-01")
-        full_sku = f"{base_sku}{color_suffix}"
-
-        return PartSelection(
-            part_number=full_sku,
-            description=f"{series} {width_ft}'x{height_ft}' Door Package - {config.panel_color}",
-            quantity=1,
-            category="door_package",
-            notes="Pre-configured door package includes panels"
-        )
 
     def _get_panel_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get panel part numbers using actual BC parts"""
@@ -741,22 +663,31 @@ class PartNumberService:
         )]
 
     def _get_hardware_kit_parts(self, config: DoorConfiguration) -> List[PartSelection]:
-        """Get hardware kit part numbers"""
-        width = config.door_width
+        """Get hardware box part numbers using actual BC part numbers.
 
-        for size, spec in sorted(self.hardware_rules["kit"].items(), key=lambda x: x[1]["max_width"]):
-            if width <= spec["max_width"]:
-                return [PartSelection(
-                    part_number=spec["part"],
-                    description=f"Hardware Kit - {size.title()}",
-                    quantity=1,
-                    category="hardware"
-                )]
+        Uses bc_part_number_mapper to generate correct part numbers:
+        - Residential (2" track): HK10-0HHSS-WWWW pattern
+        - Commercial (3" track): HWww-hhhhh-00 pattern
+        """
+        mapper = get_bc_mapper()
 
-        # Default to XL
+        door_width_feet = int(config.door_width / 12)
+        door_height_feet = int(config.door_height / 12)
+        is_commercial = config.door_type == "commercial"
+
+        # Calculate number of sections based on door height
+        num_sections = self._calculate_panel_count(config.door_height)
+
+        hardware = mapper.get_hardware_box(
+            door_width_feet=door_width_feet,
+            door_height_feet=door_height_feet,
+            num_sections=num_sections,
+            commercial=is_commercial
+        )
+
         return [PartSelection(
-            part_number="HK-XL",
-            description="Hardware Kit - Extra Large",
+            part_number=hardware.part_number,
+            description=hardware.description,
             quantity=1,
             category="hardware"
         )]

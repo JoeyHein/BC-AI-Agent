@@ -1,0 +1,2631 @@
+{
+  "hk_items": [
+    {
+      "number": "HK01-00000-AL",
+      "displayName": "COMPLETE ALUM HARDWARE KIT",
+      "unitPrice": 276.2
+    },
+    {
+      "number": "HK01-00000-RC",
+      "displayName": "COMPLETE STANDARD HARDWARE KIT",
+      "unitPrice": 276.17
+    },
+    {
+      "number": "HK02-00000-RC",
+      "displayName": "COMPLETE STANDARD HARDWARE KIT",
+      "unitPrice": 344.15
+    },
+    {
+      "number": "HK02-11080-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 6'-11'2\" X 6'- 8'2\", SEC",
+      "unitPrice": 146.51
+    },
+    {
+      "number": "HK02-11100-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 6'-11'2\" X 8'-3\"-10'2\", SEC",
+      "unitPrice": 162.16
+    },
+    {
+      "number": "HK02-11120-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 6'-11'2\" X 10'3\"-12'2\", SEC",
+      "unitPrice": 181.44
+    },
+    {
+      "number": "HK02-11140-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 6'-11'2\" X 12'3\"-14'2\", SEC",
+      "unitPrice": 294.57
+    },
+    {
+      "number": "HK02-11160-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 6'-11'2\" X 14'3\"-16'2\", SEC",
+      "unitPrice": 311.9
+    },
+    {
+      "number": "HK02-11180-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 6'-11'2\" X 16'3\"-18'2\", SEC",
+      "unitPrice": 329.43
+    },
+    {
+      "number": "HK02-14080-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 11'3\"-14'2\" X 6'-8'2\", SEC",
+      "unitPrice": 153.97
+    },
+    {
+      "number": "HK02-14100-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 11'3\"-14'2\" X 8'-3\"-10'2\", SEC",
+      "unitPrice": 197.17
+    },
+    {
+      "number": "HK02-14120-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 11'3\"-14'2\" X 10'3\"-12'2\", SEC",
+      "unitPrice": 218.84
+    },
+    {
+      "number": "HK02-14140-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 11'3\"-14'2\" X 12'3\"-14'2\", SEC",
+      "unitPrice": 274.96
+    },
+    {
+      "number": "HK02-14160-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 11'3\"-14'2\" X 14'3\"-16'2\", SEC",
+      "unitPrice": 294.67
+    },
+    {
+      "number": "HK02-14180-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 11'3\"-14'2\" X 16'3\"-18'2\", SEC",
+      "unitPrice": 314.6
+    },
+    {
+      "number": "HK02-16080-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 14'3\"-16'2\" X 6'-10'2\", SEC",
+      "unitPrice": 161.9
+    },
+    {
+      "number": "HK02-16100-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 14'3\"-16'2\" X 8'-3\"-10'2\", SEC",
+      "unitPrice": 207.49
+    },
+    {
+      "number": "HK02-16120-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 14'3\"-16'2\" X 10'3\"-12'2\", SEC",
+      "unitPrice": 231.54
+    },
+    {
+      "number": "HK02-16140-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 14'3\"-16'2\" X 12'3\"-14'2\", SEC",
+      "unitPrice": 290.06
+    },
+    {
+      "number": "HK02-16160-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 14'3\"-16'2\" X 14'3\"-16'2\", SEC",
+      "unitPrice": 312.17
+    },
+    {
+      "number": "HK02-16180-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 14'3\"-16'2\" X 16'3\"-18'2\", SEC",
+      "unitPrice": 334.5
+    },
+    {
+      "number": "HK02-18080-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 16'3\"-18'2\" X 6'- 8'2\", SEC",
+      "unitPrice": 196.4
+    },
+    {
+      "number": "HK02-18100-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 16'3\"-18'2\" X 8'-3\"-10'2\", SEC",
+      "unitPrice": 226.67
+    },
+    {
+      "number": "HK02-18120-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 16'3\"-18'2\" X 10'3\"-12'2\", SEC",
+      "unitPrice": 253.13
+    },
+    {
+      "number": "HK02-18140-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 16'3\"-18'2\" X 12'3\"-14'2\", SEC",
+      "unitPrice": 316.44
+    },
+    {
+      "number": "HK02-18160-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 16'3\"-18'2\" X 14'3\"-16'2\", SEC",
+      "unitPrice": 340.94
+    },
+    {
+      "number": "HK02-18180-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 16'3\"-18'2\" X 16'3\"-18'2\", SEC",
+      "unitPrice": 368.07
+    },
+    {
+      "number": "HK02-20080-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 18'3\"-20'2\" X 6'-8'2\", SEC",
+      "unitPrice": 141.4
+    },
+    {
+      "number": "HK02-20081-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 2\", 18'3\"-20'2\" X 6'-8'2\", DEC",
+      "unitPrice": 159.63
+    },
+    {
+      "number": "HK03-00000-AL",
+      "displayName": "COMPLETE ALUM HARDWARE KIT",
+      "unitPrice": 462.83
+    },
+    {
+      "number": "HK03-00000-RC",
+      "displayName": "COMPLETE STANDARD HARDWARE KIT",
+      "unitPrice": 476.78
+    },
+    {
+      "number": "HK03-11080-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 6'-11'2\" X 6'-8'2\", SEC",
+      "unitPrice": 277.23
+    },
+    {
+      "number": "HK03-11100-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 6'-11'2\" X 8'-3\"-10'2\", SEC",
+      "unitPrice": 299
+    },
+    {
+      "number": "HK03-11120-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 6'-11'2\" X 10'3\"-12'2\", SEC",
+      "unitPrice": 323.04
+    },
+    {
+      "number": "HK03-11140-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 6'-11'2\" X 12'3\"-14'2\", SEC",
+      "unitPrice": 349.57
+    },
+    {
+      "number": "HK03-11160-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 6'-11'2\" X 14'3\"-16'2\", SEC",
+      "unitPrice": 374.27
+    },
+    {
+      "number": "HK03-11180-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 6'-11'2\" X 16'3\"-18'2\", SEC",
+      "unitPrice": 419.13
+    },
+    {
+      "number": "HK03-11200-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 6'-11'2\" X 18'3\"-20'2\", SEC",
+      "unitPrice": 767.76
+    },
+    {
+      "number": "HK03-11210-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 6'-11'2\" X 20'3\"-21'2\", SEC",
+      "unitPrice": 827.19
+    },
+    {
+      "number": "HK03-11220-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 6'-11'2\" X 21'3\"-22'0\", SEC",
+      "unitPrice": 827.19
+    },
+    {
+      "number": "HK03-11240-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 6'-11'2\" X 22'3\"-24'0\", SEC",
+      "unitPrice": 881.63
+    },
+    {
+      "number": "HK03-11260-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 6'-11'2\" X 24'3\"-26'0\", SEC",
+      "unitPrice": 901.94
+    },
+    {
+      "number": "HK03-14080-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 11'3\"-14'2\" X 6'-8'2\", SEC",
+      "unitPrice": 300.71
+    },
+    {
+      "number": "HK03-14100-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 11'3\"-14'2\" X 8'-3\"-10'2\", SEC",
+      "unitPrice": 324.61
+    },
+    {
+      "number": "HK03-14120-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 11'3\"-14'2\" X 10'3\"-12'2\", SEC",
+      "unitPrice": 351.04
+    },
+    {
+      "number": "HK03-14140-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 11'3\"-14'2\" X 12'3\"-14'2\", SEC",
+      "unitPrice": 379.97
+    },
+    {
+      "number": "HK03-14160-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 11'3\"-14'2\" X 14'3\"-16'2\", SEC",
+      "unitPrice": 407.07
+    },
+    {
+      "number": "HK03-14180-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 11'3\"-14'2\" X 16'3\"-18'2\", SEC",
+      "unitPrice": 456.09
+    },
+    {
+      "number": "HK03-14200-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 11'3\"-14'2\" X 18'3\"-20'2\", SEC",
+      "unitPrice": 805.36
+    },
+    {
+      "number": "HK03-14210-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 11'3\"-14'2\" X 20'3\"-21'2\", SEC",
+      "unitPrice": 885.23
+    },
+    {
+      "number": "HK03-14220-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 11'3\"-14'2\" X 21'3\"-22'0\", SEC",
+      "unitPrice": 885.23
+    },
+    {
+      "number": "HK03-14240-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 11'3\"-14'2\" X 22'3\"-24'0\", SEC",
+      "unitPrice": 943.77
+    },
+    {
+      "number": "HK03-14260-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 11'3\"-14'2\" X 24'3\"-26'0\", SEC",
+      "unitPrice": 969.41
+    },
+    {
+      "number": "HK03-16080-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", SEC",
+      "unitPrice": 307.91
+    },
+    {
+      "number": "HK03-16081-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", DEC",
+      "unitPrice": 338.4
+    },
+    {
+      "number": "HK03-16100-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 8'-3\"-10'2\", SEC",
+      "unitPrice": 334.2
+    },
+    {
+      "number": "HK03-16101-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 8'-3\"-10'2\", DEC",
+      "unitPrice": 371.84
+    },
+    {
+      "number": "HK03-16120-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 10'3\"-12'2\", SEC",
+      "unitPrice": 363.03
+    },
+    {
+      "number": "HK03-16121-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 10'3\"-12'2\", DEC",
+      "unitPrice": 408.04
+    },
+    {
+      "number": "HK03-16140-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 12'3\"-14'2\", SEC",
+      "unitPrice": 404.34
+    },
+    {
+      "number": "HK03-16141-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 12'3\"-14'2\", DEC",
+      "unitPrice": 460.94
+    },
+    {
+      "number": "HK03-16160-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 14'3\"-16'2\", SEC",
+      "unitPrice": 433.84
+    },
+    {
+      "number": "HK03-16161-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 14'3\"-16'2\", DEC",
+      "unitPrice": 498.21
+    },
+    {
+      "number": "HK03-16180-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 16'3\"-18'2\", SEC",
+      "unitPrice": 487.26
+    },
+    {
+      "number": "HK03-16181-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 16'3\"-18'2\", DEC",
+      "unitPrice": 582.11
+    },
+    {
+      "number": "HK03-16200-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 18'3\"-20'2\", SEC",
+      "unitPrice": 838.81
+    },
+    {
+      "number": "HK03-16201-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 18'3\"-20'2\", DEC",
+      "unitPrice": 968.97
+    },
+    {
+      "number": "HK03-16210-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 20'3\"-21'2\", SEC",
+      "unitPrice": 929.89
+    },
+    {
+      "number": "HK03-16211-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 20'3\"-21'2\", DEC",
+      "unitPrice": 1090.51
+    },
+    {
+      "number": "HK03-16220-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 21'3\"-22'0\", SEC",
+      "unitPrice": 929.89
+    },
+    {
+      "number": "HK03-16221-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 21'3\"-22'0\", DEC",
+      "unitPrice": 1090.51
+    },
+    {
+      "number": "HK03-16240-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 22'3\"-24'0\", SEC",
+      "unitPrice": 990.94
+    },
+    {
+      "number": "HK03-16241-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 22'3\"-24'0\", DEC",
+      "unitPrice": 1155.91
+    },
+    {
+      "number": "HK03-16260-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 24'3\"-26'0\", SEC",
+      "unitPrice": 1052
+    },
+    {
+      "number": "HK03-16261-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 14'3\"-16'2\" X 24'3\"-26'0\", DEC",
+      "unitPrice": 1255.67
+    },
+    {
+      "number": "HK03-17081-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 16'3\"-17'2\" X 6'-8'2\", DEC",
+      "unitPrice": 356.73
+    },
+    {
+      "number": "HK03-17101-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 16'3\"-17'2\" X 8'-3\"-10'2\", DEC",
+      "unitPrice": 396.01
+    },
+    {
+      "number": "HK03-17121-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 16'3\"-17'2\" X 10'3\"-12'2\", DEC",
+      "unitPrice": 434.86
+    },
+    {
+      "number": "HK03-17141-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 16'3\"-17'2\" X 12'3\"-14'2\", DEC",
+      "unitPrice": 477.31
+    },
+    {
+      "number": "HK03-17161-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 16'3\"-17'2\" X 14'3\"-16'2\", DEC",
+      "unitPrice": 517
+    },
+    {
+      "number": "HK03-17181-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 16'3\"-17'2\" X 16'3\"-18'2\", DEC",
+      "unitPrice": 603.69
+    },
+    {
+      "number": "HK03-17201-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 16'3\"-17'2\" X 18'3\"-20'2\", DEC",
+      "unitPrice": 959.33
+    },
+    {
+      "number": "HK03-17211-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 16'3\"-17'2\" X 20'3\"-21'2\", DEC",
+      "unitPrice": 1118.93
+    },
+    {
+      "number": "HK03-17221-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 16'3\"-17'2\" X 21'3\"-22'0\", DEC",
+      "unitPrice": 1118.93
+    },
+    {
+      "number": "HK03-17241-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 16'3\"-17'2\" X 22'3\"-24'0\", DEC",
+      "unitPrice": 1187.47
+    },
+    {
+      "number": "HK03-17261-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 16'3\"-17'2\" X 24'3\"-26'0\", DEC",
+      "unitPrice": 1289
+    },
+    {
+      "number": "HK03-19081-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 17'3\"-19'5\" X 6'-8'2\", DEC",
+      "unitPrice": 356.73
+    },
+    {
+      "number": "HK03-19101-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 17'3\"-19'5\" X 8'-3\"-10'2\", DEC",
+      "unitPrice": 396.01
+    },
+    {
+      "number": "HK03-19121-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 17'3\"-19'5\" X 10'3\"-12'2\", DEC",
+      "unitPrice": 434.86
+    },
+    {
+      "number": "HK03-19141-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 17'3\"-19'5\" X 12'3\"-14'2\", DEC",
+      "unitPrice": 477.31
+    },
+    {
+      "number": "HK03-19161-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 17'3\"-19'5\" X 14'3\"-16'2\", DEC",
+      "unitPrice": 517
+    },
+    {
+      "number": "HK03-19181-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 17'3\"-19'5\" X 16'3\"-18'2\", DEC",
+      "unitPrice": 603.69
+    },
+    {
+      "number": "HK03-19201-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 17'3\"-19'5\" X 18'3\"-20'2\", DEC",
+      "unitPrice": 959.33
+    },
+    {
+      "number": "HK03-19211-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 17'3\"-19'5\" X 20'3\"-21'2\", DEC",
+      "unitPrice": 1118.93
+    },
+    {
+      "number": "HK03-19221-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 17'3\"-19'5\" X 21'3\"-22'0\", DEC",
+      "unitPrice": 1118.93
+    },
+    {
+      "number": "HK03-19241-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 17'3\"-19'5\" X 22'3\"-24'0\", DEC",
+      "unitPrice": 1187.47
+    },
+    {
+      "number": "HK03-19261-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 17'3\"-19'5\" X 24'3\"-26'0\", DEC",
+      "unitPrice": 1289
+    },
+    {
+      "number": "HK03-20081-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 19'6\"-20'0\" X 6'-8'2\", DEC",
+      "unitPrice": 356.73
+    },
+    {
+      "number": "HK03-20101-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 19'6\"-20'0\" X 8'-3\"-10'2\", DEC",
+      "unitPrice": 396.01
+    },
+    {
+      "number": "HK03-20121-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 19'6\"-20'0\" X 10'3\"-12'2\", DEC",
+      "unitPrice": 434.86
+    },
+    {
+      "number": "HK03-20141-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 19'6\"-20'0\" X 12'3\"-14'2\", DEC",
+      "unitPrice": 477.31
+    },
+    {
+      "number": "HK03-20161-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 19'6\"-20'0\" X 14'3\"-16'2\", DEC",
+      "unitPrice": 517
+    },
+    {
+      "number": "HK03-20181-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 19'6\"-20'0\" X 16'3\"-18'2\", DEC",
+      "unitPrice": 603.69
+    },
+    {
+      "number": "HK03-20201-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 19'6\"-20'0\" X 18'3\"-20'2\", DEC",
+      "unitPrice": 945.73
+    },
+    {
+      "number": "HK03-20211-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 19'6\"-20'0\" X 20'3\"-21'2\", DEC",
+      "unitPrice": 1118.93
+    },
+    {
+      "number": "HK03-20221-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 19'6\"-20'0\" X 21'3\"-22'0\", DEC",
+      "unitPrice": 1118.93
+    },
+    {
+      "number": "HK03-20241-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 19'6\"-20'0\" X 22'3\"-24'0\", DEC",
+      "unitPrice": 1187.47
+    },
+    {
+      "number": "HK03-20261-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 19'6\"-20'0\" X 24'3\"-26'0\", DEC",
+      "unitPrice": 1289
+    },
+    {
+      "number": "HK03-22081-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 20'1\"-22'0\" X 6'-8'2\", DEC",
+      "unitPrice": 368.71
+    },
+    {
+      "number": "HK03-22101-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 20'1\"-22'0\" X 8'-3\"-10'2\", DEC",
+      "unitPrice": 410.8
+    },
+    {
+      "number": "HK03-22121-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 20'1\"-22'0\" X 10'3\"-12'2\", DEC",
+      "unitPrice": 455.64
+    },
+    {
+      "number": "HK03-22141-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 20'1\"-22'0\" X 12'3\"-14'2\", DEC",
+      "unitPrice": 535.89
+    },
+    {
+      "number": "HK03-22161-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 20'1\"-22'0\" X 14'3\"-16'2\", DEC",
+      "unitPrice": 581.56
+    },
+    {
+      "number": "HK03-22181-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 20'1\"-22'0\" X 16'3\"-18'2\", DEC",
+      "unitPrice": 637.06
+    },
+    {
+      "number": "HK03-22201-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 20'1\"-22'0\" X 18'3\"-20'2\", DEC",
+      "unitPrice": 1023.79
+    },
+    {
+      "number": "HK03-22211-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 20'1\"-22'0\" X 20'3\"-21'2\", DEC",
+      "unitPrice": 1113.7
+    },
+    {
+      "number": "HK03-22221-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 20'1\"-22'0\" X 21'3\"-22'0\", DEC",
+      "unitPrice": 1113.7
+    },
+    {
+      "number": "HK03-22241-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 20'1\"-22'0\" X 22'3\"-24'0\", DEC",
+      "unitPrice": 1227.74
+    },
+    {
+      "number": "HK03-22261-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 20'1\"-22'0\" X 24'3\"-26'0\", DEC",
+      "unitPrice": 1333.09
+    },
+    {
+      "number": "HK03-24081-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 22'1\"-24'0\" X 6'-8'2\", DEC",
+      "unitPrice": 368.71
+    },
+    {
+      "number": "HK03-24101-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 22'1\"-24'0\" X 8'-3\"-10'2\", DEC",
+      "unitPrice": 410.8
+    },
+    {
+      "number": "HK03-24121-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 22'1\"-24'0\" X 10'3\"-12'2\", DEC",
+      "unitPrice": 455.64
+    },
+    {
+      "number": "HK03-24141-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 22'1\"-24'0\" X 12'3\"-14'2\", DEC",
+      "unitPrice": 535.89
+    },
+    {
+      "number": "HK03-24161-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 22'1\"-24'0\" X 14'3\"-16'2\", DEC",
+      "unitPrice": 581.56
+    },
+    {
+      "number": "HK03-24181-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 22'1\"-24'0\" X 16'3\"-18'2\", DEC",
+      "unitPrice": 637.06
+    },
+    {
+      "number": "HK03-24201-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 22'1\"-24'0\" X 18'3\"-20'2\", DEC",
+      "unitPrice": 1023.79
+    },
+    {
+      "number": "HK03-24211-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 22'1\"-24'0\" X 20'3\"-21'2\", DEC",
+      "unitPrice": 1113.7
+    },
+    {
+      "number": "HK03-24221-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 22'1\"-24'0\" X 21'3\"-22'0\", DEC",
+      "unitPrice": 1113.7
+    },
+    {
+      "number": "HK03-24241-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 22'1\"-24'0\" X 22'3\"-24'0\", DEC",
+      "unitPrice": 1227.74
+    },
+    {
+      "number": "HK03-24261-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 22'1\"-24'0\" X 24'3\"-26'0\", DEC",
+      "unitPrice": 1333.09
+    },
+    {
+      "number": "HK03-26081-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 24'1\"-26'2\" X 6'-8'2\", DEC",
+      "unitPrice": 381.51
+    },
+    {
+      "number": "HK03-26101-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 24'1\"-26'2\" X 8'-3\"-10'2\", DEC",
+      "unitPrice": 426.39
+    },
+    {
+      "number": "HK03-26121-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 24'1\"-26'2\" X 10'3\"-12'2\", DEC",
+      "unitPrice": 509.01
+    },
+    {
+      "number": "HK03-26141-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 24'1\"-26'2\" X 12'3\"-14'2\", DEC",
+      "unitPrice": 523.07
+    },
+    {
+      "number": "HK03-26161-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 24'1\"-26'2\" X 14'3\"-16'2\", DEC",
+      "unitPrice": 571.54
+    },
+    {
+      "number": "HK03-26181-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 24'1\"-26'2\" X 16'3\"-18'2\", DEC",
+      "unitPrice": 663.81
+    },
+    {
+      "number": "HK03-26201-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 24'1\"-26'2\" X 18'3\"-20'2\", DEC",
+      "unitPrice": 1053.34
+    },
+    {
+      "number": "HK03-26211-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 24'1\"-26'2\" X 20'3\"-21'2\", DEC",
+      "unitPrice": 1151.17
+    },
+    {
+      "number": "HK03-26221-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 24'1\"-26'2\" X 21'3\"-22'0\", DEC",
+      "unitPrice": 1151.17
+    },
+    {
+      "number": "HK03-26241-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 24'1\"-26'2\" X 22'3\"-24'0\", DEC",
+      "unitPrice": 1259.3
+    },
+    {
+      "number": "HK03-26261-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 24'1\"-26'2\" X 24'3\"-26'0\", DEC",
+      "unitPrice": 1367.44
+    },
+    {
+      "number": "HK03-28081-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 26'3\"-28'0\" X 6'-8'2\", DEC",
+      "unitPrice": 361.51
+    },
+    {
+      "number": "HK03-28101-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 26'3\"-28'0\" X 8'-3\"-10'2\", DEC",
+      "unitPrice": 437.37
+    },
+    {
+      "number": "HK03-28121-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 26'3\"-28'0\" X 10'3\"-12'2\", DEC",
+      "unitPrice": 416.94
+    },
+    {
+      "number": "HK03-28141-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 26'3\"-28'0\" X 12'3\"-14'2\", DEC",
+      "unitPrice": 491.07
+    },
+    {
+      "number": "HK03-28161-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 26'3\"-28'0\" X 14'3\"-16'2\", DEC",
+      "unitPrice": 836.56
+    },
+    {
+      "number": "HK03-28181-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 26'3\"-28'0\" X 16'3\"-18'2\", DEC",
+      "unitPrice": 918.49
+    },
+    {
+      "number": "HK03-28201-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 26'3\"-28'0\" X 18'3\"-20'2\", DEC",
+      "unitPrice": 1010.71
+    },
+    {
+      "number": "HK03-28211-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 26'3\"-28'0\" X 20'3\"-21'2\", DEC",
+      "unitPrice": 1282.61
+    },
+    {
+      "number": "HK03-28221-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 26'3\"-28'0\" X 21'3\"-22'0\", DEC",
+      "unitPrice": 1282.61
+    },
+    {
+      "number": "HK03-28241-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 26'3\"-28'0\" X 22'3\"-24'0\", DEC",
+      "unitPrice": 1387.26
+    },
+    {
+      "number": "HK03-28261-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 26'3\"-28'0\" X 24'3\"-26'0\", DEC",
+      "unitPrice": 1477.07
+    },
+    {
+      "number": "HK03-29081-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 28'1\"-29' X 6'-8'2\", DEC",
+      "unitPrice": 368.7
+    },
+    {
+      "number": "HK03-29101-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 28'1\"-29' X 8'-3\"-10'2\", DEC",
+      "unitPrice": 412.96
+    },
+    {
+      "number": "HK03-29121-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 28'1\"-29' X 10'3\"-12'2\", DEC",
+      "unitPrice": 459
+    },
+    {
+      "number": "HK03-29141-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 28'1\"-29' X 12'3\"-14'2\", DEC",
+      "unitPrice": 505.44
+    },
+    {
+      "number": "HK03-29161-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 28'1\"-29' X 14'3\"-16'2\", DEC",
+      "unitPrice": 853.47
+    },
+    {
+      "number": "HK03-29181-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 28'1\"-29' X 16'3\"-18'2\", DEC",
+      "unitPrice": 937.67
+    },
+    {
+      "number": "HK03-29201-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 28'1\"-29' X 18'3\"-20'2\", DEC",
+      "unitPrice": 1032.27
+    },
+    {
+      "number": "HK03-29211-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 28'1\"-29' X 20'3\"-21'2\", DEC",
+      "unitPrice": 1306.57
+    },
+    {
+      "number": "HK03-29221-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 28'1\"-29' X 21'3\"-22'0\", DEC",
+      "unitPrice": 1306.57
+    },
+    {
+      "number": "HK03-29241-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 28'1\"-29' X 22'3\"-24'0\", DEC",
+      "unitPrice": 1400.06
+    },
+    {
+      "number": "HK03-29261-RC",
+      "displayName": "HARDWARE KIT, STD LIFT 3\", 28'1\"-29' X 24'3\"-26'0\", DEC",
+      "unitPrice": 1505.83
+    },
+    {
+      "number": "HK04-00000-AL",
+      "displayName": "COMPLETE ALUM HARDWARE KIT",
+      "unitPrice": 887.68
+    },
+    {
+      "number": "HK04-00000-RC",
+      "displayName": "COMPLETE HARDWARE KIT",
+      "unitPrice": 534.92
+    },
+    {
+      "number": "HK05-00000-RC",
+      "displayName": "COMPLETE STANDARD HARDWARE KIT",
+      "unitPrice": 734.4
+    },
+    {
+      "number": "HK06-00000-AL",
+      "displayName": "COMPLETE ALUM HARDWARE KIT",
+      "unitPrice": 1166.91
+    },
+    {
+      "number": "HK06-00000-RC",
+      "displayName": "COMPLETE STANDARD HARDWARE KIT",
+      "unitPrice": 763.74
+    },
+    {
+      "number": "HK10-00704-0809",
+      "displayName": "PURCHASED HARDWARE BOX, 2R 8'-10' X 7', STANDARD, 4S3HW, 4 SECTIONS",
+      "unitPrice": 110.57
+    },
+    {
+      "number": "HK10-00704-1316",
+      "displayName": "PURCHASED HARDWARE BOX, 2R 12'-18' X 7', STANDARD, 4S5HW, 4 SECTIONS",
+      "unitPrice": 125.85
+    },
+    {
+      "number": "HK10-00804-0809",
+      "displayName": "PURCHASED HARDWARE BOX, 2R 8'-10' X 8', STANDARD, 4S3HW, 4 SECTIONS",
+      "unitPrice": 122.12
+    },
+    {
+      "number": "HK10-00804-1316",
+      "displayName": "PURCHASED HARDWARE BOX, 2R 12'-18' X 8', STANDARD, 4S5HW, 4 SECTIONS",
+      "unitPrice": 137.85
+    },
+    {
+      "number": "HK12-1108002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 6'-11'2\" X 6'-8'2\", SEC, 2' EXT",
+      "unitPrice": 244.9
+    },
+    {
+      "number": "HK12-1108003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 6'-11'2\" X 6'-8'2\", SEC, 3' EXT",
+      "unitPrice": 245.21
+    },
+    {
+      "number": "HK12-1108004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 6'-11'2\" X 6'-8'2\", SEC, 4' EXT",
+      "unitPrice": 245.53
+    },
+    {
+      "number": "HK12-1110002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 6'-11'2\" X 8'-3\"-10'2\", SEC, 2' EXT",
+      "unitPrice": 277.09
+    },
+    {
+      "number": "HK12-1110003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 6'-11'2\" X 8'-3\"-10'2\", SEC, 3' EXT",
+      "unitPrice": 277.4
+    },
+    {
+      "number": "HK12-1110004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 6'-11'2\" X 8'-3\"-10'2\", SEC, 4' EXT",
+      "unitPrice": 277.71
+    },
+    {
+      "number": "HK12-1112002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 6'-11'2\" X 10'3\"-12'2\", SEC, 2' EXT",
+      "unitPrice": 311
+    },
+    {
+      "number": "HK12-1112003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 6'-11'2\" X 10'3\"-12'2\", SEC, 3' EXT",
+      "unitPrice": 311.31
+    },
+    {
+      "number": "HK12-1112004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 6'-11'2\" X 10'3\"-12'2\", SEC, 4' EXT",
+      "unitPrice": 311.63
+    },
+    {
+      "number": "HK12-1408002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 11'3\"-14'2\" X 6'-8'2\", SEC, 2' EXT",
+      "unitPrice": 254.39
+    },
+    {
+      "number": "HK12-1408003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 11'3\"-14'2\" X 6'-8'2\", SEC, 3' EXT",
+      "unitPrice": 254.7
+    },
+    {
+      "number": "HK12-1408004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 11'3\"-14'2\" X 6'-8'2\", SEC, 4' EXT",
+      "unitPrice": 255.01
+    },
+    {
+      "number": "HK12-1410002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 11'3\"-14'2\" X 8'-3\"-10'2\", SEC, 2' EXT",
+      "unitPrice": 305.89
+    },
+    {
+      "number": "HK12-1410003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 11'3\"-14'2\" X 8'-3\"-10'2\", SEC, 3' EXT",
+      "unitPrice": 306.2
+    },
+    {
+      "number": "HK12-1410004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 11'3\"-14'2\" X 8'-3\"-10'2\", SEC, 4' EXT",
+      "unitPrice": 306.51
+    },
+    {
+      "number": "HK12-1412002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 11'3\"-14'2\" X 10'3\"-12'2\", SEC, 2' EXT",
+      "unitPrice": 342.77
+    },
+    {
+      "number": "HK12-1412003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 11'3\"-14'2\" X 10'3\"-12'2\", SEC, 3' EXT",
+      "unitPrice": 343.09
+    },
+    {
+      "number": "HK12-1412004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 11'3\"-14'2\" X 10'3\"-12'2\", SEC, 4' EXT",
+      "unitPrice": 343.4
+    },
+    {
+      "number": "HK12-1608002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 14'3\"-16'2\" X 6'-8'2\", SEC, 2' EXT",
+      "unitPrice": 264.51
+    },
+    {
+      "number": "HK12-1608003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 14'3\"-16'2\" X 6'-8'2\", SEC, 3' EXT",
+      "unitPrice": 264.83
+    },
+    {
+      "number": "HK12-1608004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 14'3\"-16'2\" X 6'-8'2\", SEC, 4' EXT",
+      "unitPrice": 265.14
+    },
+    {
+      "number": "HK12-1610002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 14'3\"-16'2\" X 8'-3\"-10'2\", SEC, 2' EXT",
+      "unitPrice": 319
+    },
+    {
+      "number": "HK12-1610003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 14'3\"-16'2\" X 8'-3\"-10'2\", SEC, 3' EXT",
+      "unitPrice": 319.31
+    },
+    {
+      "number": "HK12-1610004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 14'3\"-16'2\" X 8'-3\"-10'2\", SEC, 4' EXT",
+      "unitPrice": 319.63
+    },
+    {
+      "number": "HK12-1612002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 14'3\"-16'2\" X 10'3\"-12'2\", SEC, 2' EXT",
+      "unitPrice": 358.86
+    },
+    {
+      "number": "HK12-1612003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 14'3\"-16'2\" X 10'3\"-12'2\", SEC, 3' EXT",
+      "unitPrice": 359.17
+    },
+    {
+      "number": "HK12-1612004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 14'3\"-16'2\" X 10'3\"-12'2\", SEC, 4' EXT",
+      "unitPrice": 359.49
+    },
+    {
+      "number": "HK12-1808002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 16'3\"-18'2\" X 6'-8'2\", SEC, 2' EXT",
+      "unitPrice": 289.76
+    },
+    {
+      "number": "HK12-1808003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 16'3\"-18'2\" X 6'-8'2\", SEC, 3' EXT",
+      "unitPrice": 290.07
+    },
+    {
+      "number": "HK12-1808004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 16'3\"-18'2\" X 6'-8'2\", SEC, 4' EXT",
+      "unitPrice": 290.39
+    },
+    {
+      "number": "HK12-1810002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 16'3\"-18'2\" X 8'-3\"-10'2\", SEC, 2' EXT",
+      "unitPrice": 340.03
+    },
+    {
+      "number": "HK12-1810003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 16'3\"-18'2\" X 8'-3\"-10'2\", SEC, 3' EXT",
+      "unitPrice": 340.34
+    },
+    {
+      "number": "HK12-1810004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 16'3\"-18'2\" X 8'-3\"-10'2\", SEC, 4' EXT",
+      "unitPrice": 340.66
+    },
+    {
+      "number": "HK12-1812002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 16'3\"-18'2\" X 10'3\"-12'2\", SEC, 2' EXT",
+      "unitPrice": 382.86
+    },
+    {
+      "number": "HK12-1812003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 16'3\"-18'2\" X 10'3\"-12'2\", SEC, 3' EXT",
+      "unitPrice": 383.17
+    },
+    {
+      "number": "HK12-1812004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 2\", 16'3\"-18'2\" X 10'3\"-12'2\", SEC, 4' EXT",
+      "unitPrice": 383.49
+    },
+    {
+      "number": "HK13-1108002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 6'-8'2\", SEC, 2' EXT",
+      "unitPrice": 335.33
+    },
+    {
+      "number": "HK13-1108003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 6'-8'2\", SEC, 3' EXT",
+      "unitPrice": 335.71
+    },
+    {
+      "number": "HK13-1108004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 6'-8'2\", SEC, 4' EXT",
+      "unitPrice": 336.1
+    },
+    {
+      "number": "HK13-1108005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 6'-8'2\", SEC, 5' EXT",
+      "unitPrice": 374.64
+    },
+    {
+      "number": "HK13-1108006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 6'-8'2\", SEC, 6' EXT",
+      "unitPrice": 375.03
+    },
+    {
+      "number": "HK13-1108007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 6'-8'2\", SEC, 7' EXT",
+      "unitPrice": 375.41
+    },
+    {
+      "number": "HK13-1108008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 6'-8'2\", SEC, 8' EXT",
+      "unitPrice": 375.8
+    },
+    {
+      "number": "HK13-1108009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 6'-8'2\", SEC, 9' EXT",
+      "unitPrice": 376.19
+    },
+    {
+      "number": "HK13-1108010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 6'-8'2\", SEC, 10' EXT",
+      "unitPrice": 376.57
+    },
+    {
+      "number": "HK13-1108011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 6'-8'2\", SEC, 11' EXT",
+      "unitPrice": 414.51
+    },
+    {
+      "number": "HK13-1108012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 6'-8'2\", SEC, 12' EXT",
+      "unitPrice": 414.9
+    },
+    {
+      "number": "HK13-1108013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 6'-8'2\", SEC, 13' EXT",
+      "unitPrice": 415.29
+    },
+    {
+      "number": "HK13-1110002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 8'-3\"-10'2\", SEC, 2' EXT",
+      "unitPrice": 374.47
+    },
+    {
+      "number": "HK13-1110003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 8'-3\"-10'2\", SEC, 3' EXT",
+      "unitPrice": 374.86
+    },
+    {
+      "number": "HK13-1110004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 8'-3\"-10'2\", SEC, 4' EXT",
+      "unitPrice": 375.24
+    },
+    {
+      "number": "HK13-1110005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 8'-3\"-10'2\", SEC, 5' EXT",
+      "unitPrice": 413.79
+    },
+    {
+      "number": "HK13-1110006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 8'-3\"-10'2\", SEC, 6' EXT",
+      "unitPrice": 414.17
+    },
+    {
+      "number": "HK13-1110007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 8'-3\"-10'2\", SEC, 7' EXT",
+      "unitPrice": 414.56
+    },
+    {
+      "number": "HK13-1110008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 8'-3\"-10'2\", SEC, 8' EXT",
+      "unitPrice": 414.94
+    },
+    {
+      "number": "HK13-1110009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 8'-3\"-10'2\", SEC, 9' EXT",
+      "unitPrice": 415.33
+    },
+    {
+      "number": "HK13-1110010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 8'-3\"-10'2\", SEC, 10' EXT",
+      "unitPrice": 415.71
+    },
+    {
+      "number": "HK13-1110011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 8'-3\"-10'2\", SEC, 11' EXT",
+      "unitPrice": 453.66
+    },
+    {
+      "number": "HK13-1110012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 8'-3\"-10'2\", SEC, 12' EXT",
+      "unitPrice": 454.04
+    },
+    {
+      "number": "HK13-1110013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 8'-3\"-10'2\", SEC, 13' EXT",
+      "unitPrice": 454.43
+    },
+    {
+      "number": "HK13-1112002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 10'3\"-12'2\", SEC, 2' EXT",
+      "unitPrice": 415.57
+    },
+    {
+      "number": "HK13-1112003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 10'3\"-12'2\", SEC, 3' EXT",
+      "unitPrice": 415.96
+    },
+    {
+      "number": "HK13-1112004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 10'3\"-12'2\", SEC, 4' EXT",
+      "unitPrice": 416.34
+    },
+    {
+      "number": "HK13-1112005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 10'3\"-12'2\", SEC, 5' EXT",
+      "unitPrice": 454.89
+    },
+    {
+      "number": "HK13-1112006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 10'3\"-12'2\", SEC, 6' EXT",
+      "unitPrice": 455.27
+    },
+    {
+      "number": "HK13-1112007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 10'3\"-12'2\", SEC, 7' EXT",
+      "unitPrice": 455.66
+    },
+    {
+      "number": "HK13-1112008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 10'3\"-12'2\", SEC, 8' EXT",
+      "unitPrice": 456.04
+    },
+    {
+      "number": "HK13-1112009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 10'3\"-12'2\", SEC, 9' EXT",
+      "unitPrice": 456.43
+    },
+    {
+      "number": "HK13-1112010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 10'3\"-12'2\", SEC, 10' EXT",
+      "unitPrice": 456.81
+    },
+    {
+      "number": "HK13-1112011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 10'3\"-12'2\", SEC, 11' EXT",
+      "unitPrice": 494.76
+    },
+    {
+      "number": "HK13-1112012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 10'3\"-12'2\", SEC, 12' EXT",
+      "unitPrice": 495.14
+    },
+    {
+      "number": "HK13-1112013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 10'3\"-12'2\", SEC, 13' EXT",
+      "unitPrice": 495.53
+    },
+    {
+      "number": "HK13-1114002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 12'3\"-14'2\", SEC, 2' EXT",
+      "unitPrice": 621.39
+    },
+    {
+      "number": "HK13-1114003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 12'3\"-14'2\", SEC, 3' EXT",
+      "unitPrice": 621.89
+    },
+    {
+      "number": "HK13-1114004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 12'3\"-14'2\", SEC, 4' EXT",
+      "unitPrice": 622.4
+    },
+    {
+      "number": "HK13-1114005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 12'3\"-14'2\", SEC, 5' EXT",
+      "unitPrice": 661.1
+    },
+    {
+      "number": "HK13-1114006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 12'3\"-14'2\", SEC, 6' EXT",
+      "unitPrice": 661.6
+    },
+    {
+      "number": "HK13-1114007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 12'3\"-14'2\", SEC, 7' EXT",
+      "unitPrice": 662.11
+    },
+    {
+      "number": "HK13-1114008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 12'3\"-14'2\", SEC, 8' EXT",
+      "unitPrice": 662.61
+    },
+    {
+      "number": "HK13-1114009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 12'3\"-14'2\", SEC, 9' EXT",
+      "unitPrice": 663.13
+    },
+    {
+      "number": "HK13-1114010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 12'3\"-14'2\", SEC, 10' EXT",
+      "unitPrice": 663.64
+    },
+    {
+      "number": "HK13-1114011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 12'3\"-14'2\", SEC, 11' EXT",
+      "unitPrice": 701.74
+    },
+    {
+      "number": "HK13-1114012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 12'3\"-14'2\", SEC, 12' EXT",
+      "unitPrice": 702.26
+    },
+    {
+      "number": "HK13-1114013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 12'3\"-14'2\", SEC, 13' EXT",
+      "unitPrice": 702.76
+    },
+    {
+      "number": "HK13-1116002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 14'3\"-16'2\", SEC, 2' EXT",
+      "unitPrice": 683.53
+    },
+    {
+      "number": "HK13-1116003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 14'3\"-16'2\", SEC, 3' EXT",
+      "unitPrice": 684.03
+    },
+    {
+      "number": "HK13-1116004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 14'3\"-16'2\", SEC, 4' EXT",
+      "unitPrice": 684.03
+    },
+    {
+      "number": "HK13-1116005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 14'3\"-16'2\", SEC, 5' EXT",
+      "unitPrice": 723.24
+    },
+    {
+      "number": "HK13-1116006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 14'3\"-16'2\", SEC, 6' EXT",
+      "unitPrice": 723.74
+    },
+    {
+      "number": "HK13-1116007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 14'3\"-16'2\", SEC, 7' EXT",
+      "unitPrice": 724.26
+    },
+    {
+      "number": "HK13-1116008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 14'3\"-16'2\", SEC, 8' EXT",
+      "unitPrice": 724.76
+    },
+    {
+      "number": "HK13-1116009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 14'3\"-16'2\", SEC, 9' EXT",
+      "unitPrice": 725.27
+    },
+    {
+      "number": "HK13-1116010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 14'3\"-16'2\", SEC, 10' EXT",
+      "unitPrice": 725.79
+    },
+    {
+      "number": "HK13-1116011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 14'3\"-16'2\", SEC, 11' EXT",
+      "unitPrice": 763.89
+    },
+    {
+      "number": "HK13-1116012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 14'3\"-16'2\", SEC, 12' EXT",
+      "unitPrice": 764.4
+    },
+    {
+      "number": "HK13-1116013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 14'3\"-16'2\", SEC, 13' EXT",
+      "unitPrice": 764.9
+    },
+    {
+      "number": "HK13-1118002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 16'3\"-18'2\", SEC, 2' EXT",
+      "unitPrice": 855.2
+    },
+    {
+      "number": "HK13-1118003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 16'3\"-18'2\", SEC, 3' EXT",
+      "unitPrice": 855.71
+    },
+    {
+      "number": "HK13-1118004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 16'3\"-18'2\", SEC, 4' EXT",
+      "unitPrice": 780.46
+    },
+    {
+      "number": "HK13-1118005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 16'3\"-18'2\", SEC, 5' EXT",
+      "unitPrice": 856.76
+    },
+    {
+      "number": "HK13-1118006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 16'3\"-18'2\", SEC, 6' EXT",
+      "unitPrice": 819.66
+    },
+    {
+      "number": "HK13-1118007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 16'3\"-18'2\", SEC, 7' EXT",
+      "unitPrice": 820.17
+    },
+    {
+      "number": "HK13-1118008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 16'3\"-18'2\", SEC, 8' EXT",
+      "unitPrice": 820.67
+    },
+    {
+      "number": "HK13-1118009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 16'3\"-18'2\", SEC, 9' EXT",
+      "unitPrice": 821.19
+    },
+    {
+      "number": "HK13-1118010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 16'3\"-18'2\", SEC, 10' EXT",
+      "unitPrice": 821.7
+    },
+    {
+      "number": "HK13-1118011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 16'3\"-18'2\", SEC, 11' EXT",
+      "unitPrice": 859.8
+    },
+    {
+      "number": "HK13-1118012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 16'3\"-18'2\", SEC, 12' EXT",
+      "unitPrice": 860.31
+    },
+    {
+      "number": "HK13-1118013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 16'3\"-18'2\", SEC, 13' EXT",
+      "unitPrice": 860.81
+    },
+    {
+      "number": "HK13-1120002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 18'3\"-20'2\", SEC, 2' EXT",
+      "unitPrice": 792.84
+    },
+    {
+      "number": "HK13-1120003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 18'3\"-20'2\", SEC, 3' EXT",
+      "unitPrice": 793.34
+    },
+    {
+      "number": "HK13-1120004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 18'3\"-20'2\", SEC, 4' EXT",
+      "unitPrice": 793.86
+    },
+    {
+      "number": "HK13-1120005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 18'3\"-20'2\", SEC, 5' EXT",
+      "unitPrice": 794.39
+    },
+    {
+      "number": "HK13-1120006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 18'3\"-20'2\", SEC, 6' EXT",
+      "unitPrice": 794.89
+    },
+    {
+      "number": "HK13-1120007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 18'3\"-20'2\", SEC, 7' EXT",
+      "unitPrice": 795.4
+    },
+    {
+      "number": "HK13-1120008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 18'3\"-20'2\", SEC, 8' EXT",
+      "unitPrice": 758.31
+    },
+    {
+      "number": "HK13-1120009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 18'3\"-20'2\", SEC, 9' EXT",
+      "unitPrice": 758.81
+    },
+    {
+      "number": "HK13-1120010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 18'3\"-20'2\", SEC, 10' EXT",
+      "unitPrice": 759.33
+    },
+    {
+      "number": "HK13-1120011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 18'3\"-20'2\", SEC, 11' EXT",
+      "unitPrice": 797.43
+    },
+    {
+      "number": "HK13-1120012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 18'3\"-20'2\", SEC, 12' EXT",
+      "unitPrice": 797.94
+    },
+    {
+      "number": "HK13-1120013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 18'3\"-20'2\", SEC, 13' EXT",
+      "unitPrice": 798.44
+    },
+    {
+      "number": "HK13-1121002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 20'3\"-21'2\", SEC, 2' EXT",
+      "unitPrice": 884.66
+    },
+    {
+      "number": "HK13-1121003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 20'3\"-21'2\", SEC, 3' EXT",
+      "unitPrice": 885.17
+    },
+    {
+      "number": "HK13-1121004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 20'3\"-21'2\", SEC, 4' EXT",
+      "unitPrice": 885.67
+    },
+    {
+      "number": "HK13-1121005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 20'3\"-21'2\", SEC, 5' EXT",
+      "unitPrice": 886.2
+    },
+    {
+      "number": "HK13-1121006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 20'3\"-21'2\", SEC, 6' EXT",
+      "unitPrice": 886.71
+    },
+    {
+      "number": "HK13-1121007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 20'3\"-21'2\", SEC, 7' EXT",
+      "unitPrice": 887.21
+    },
+    {
+      "number": "HK13-1121008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 20'3\"-21'2\", SEC, 8' EXT",
+      "unitPrice": 887.73
+    },
+    {
+      "number": "HK13-1121009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 20'3\"-21'2\", SEC, 9' EXT",
+      "unitPrice": 888.24
+    },
+    {
+      "number": "HK13-1121010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 20'3\"-21'2\", SEC, 10' EXT",
+      "unitPrice": 888.74
+    },
+    {
+      "number": "HK13-1121011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 20'3\"-21'2\", SEC, 11' EXT",
+      "unitPrice": 889.26
+    },
+    {
+      "number": "HK13-1121012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 20'3\"-21'2\", SEC, 12' EXT",
+      "unitPrice": 889.76
+    },
+    {
+      "number": "HK13-1121013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 20'3\"-21'2\", SEC, 13' EXT",
+      "unitPrice": 890.27
+    },
+    {
+      "number": "HK13-1122002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 21'3\"-22'0\", SEC, 2' EXT",
+      "unitPrice": 1096.04
+    },
+    {
+      "number": "HK13-1122003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 21'3\"-22'0\", SEC, 3' EXT",
+      "unitPrice": 1096.54
+    },
+    {
+      "number": "HK13-1122004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 21'3\"-22'0\", SEC, 4' EXT",
+      "unitPrice": 1097.06
+    },
+    {
+      "number": "HK13-1122005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 21'3\"-22'0\", SEC, 5' EXT",
+      "unitPrice": 1090.79
+    },
+    {
+      "number": "HK13-1122006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 21'3\"-22'0\", SEC, 6' EXT",
+      "unitPrice": 1091.3
+    },
+    {
+      "number": "HK13-1122007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 21'3\"-22'0\", SEC, 7' EXT",
+      "unitPrice": 1091.8
+    },
+    {
+      "number": "HK13-1122008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 21'3\"-22'0\", SEC, 8' EXT",
+      "unitPrice": 1092.31
+    },
+    {
+      "number": "HK13-1122009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 21'3\"-22'0\", SEC, 9' EXT",
+      "unitPrice": 1092.81
+    },
+    {
+      "number": "HK13-1122010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 21'3\"-22'0\", SEC, 10' EXT",
+      "unitPrice": 1093.33
+    },
+    {
+      "number": "HK13-1122011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 21'3\"-22'0\", SEC, 11' EXT",
+      "unitPrice": 1093.83
+    },
+    {
+      "number": "HK13-1122012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 21'3\"-22'0\", SEC, 12' EXT",
+      "unitPrice": 1094.34
+    },
+    {
+      "number": "HK13-1122013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 21'3\"-22'0\", SEC, 13' EXT",
+      "unitPrice": 1094.86
+    },
+    {
+      "number": "HK13-1124002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 22'3\"-24'0\", SEC, 2' EXT",
+      "unitPrice": 1123.16
+    },
+    {
+      "number": "HK13-1124003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 22'3\"-24'0\", SEC, 3' EXT",
+      "unitPrice": 1123.66
+    },
+    {
+      "number": "HK13-1124004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 22'3\"-24'0\", SEC, 4' EXT",
+      "unitPrice": 1124.17
+    },
+    {
+      "number": "HK13-1124005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 22'3\"-24'0\", SEC, 5' EXT",
+      "unitPrice": 1121.3
+    },
+    {
+      "number": "HK13-1124006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 22'3\"-24'0\", SEC, 6' EXT",
+      "unitPrice": 1121.81
+    },
+    {
+      "number": "HK13-1124007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 22'3\"-24'0\", SEC, 7' EXT",
+      "unitPrice": 1122.31
+    },
+    {
+      "number": "HK13-1124008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 22'3\"-24'0\", SEC, 8' EXT",
+      "unitPrice": 1122.83
+    },
+    {
+      "number": "HK13-1124009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 22'3\"-24'0\", SEC, 9' EXT",
+      "unitPrice": 1123.33
+    },
+    {
+      "number": "HK13-1124010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 22'3\"-24'0\", SEC, 10' EXT",
+      "unitPrice": 1123.84
+    },
+    {
+      "number": "HK13-1124011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 22'3\"-24'0\", SEC, 11' EXT",
+      "unitPrice": 1124.34
+    },
+    {
+      "number": "HK13-1124012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 22'3\"-24'0\", SEC, 12' EXT",
+      "unitPrice": 1124.86
+    },
+    {
+      "number": "HK13-1124013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 22'3\"-24'0\", SEC, 13' EXT",
+      "unitPrice": 1125.37
+    },
+    {
+      "number": "HK13-1126004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 24'3\"-26'0\", SEC, 4' EXT",
+      "unitPrice": 1215.8
+    },
+    {
+      "number": "HK13-1126005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 24'3\"-26'0\", SEC, 5' EXT",
+      "unitPrice": 1216.33
+    },
+    {
+      "number": "HK13-1126006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 24'3\"-26'0\", SEC, 6' EXT",
+      "unitPrice": 1216.83
+    },
+    {
+      "number": "HK13-1126007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 24'3\"-26'0\", SEC, 7' EXT",
+      "unitPrice": 1210.54
+    },
+    {
+      "number": "HK13-1126008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 24'3\"-26'0\", SEC, 8' EXT",
+      "unitPrice": 1211.06
+    },
+    {
+      "number": "HK13-1126009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 24'3\"-26'0\", SEC, 9' EXT",
+      "unitPrice": 1211.56
+    },
+    {
+      "number": "HK13-1126010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 24'3\"-26'0\", SEC, 10' EXT",
+      "unitPrice": 1212.07
+    },
+    {
+      "number": "HK13-1126011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 24'3\"-26'0\", SEC, 11' EXT",
+      "unitPrice": 1212.57
+    },
+    {
+      "number": "HK13-1126012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 24'3\"-26'0\", SEC, 12' EXT",
+      "unitPrice": 1213.09
+    },
+    {
+      "number": "HK13-1126013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 6'-11'2\" X 24'3\"-26'0\", SEC, 13' EXT",
+      "unitPrice": 1213.59
+    },
+    {
+      "number": "HK13-1408002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 6'-8'2\", SEC, 2' EXT",
+      "unitPrice": 372.14
+    },
+    {
+      "number": "HK13-1408003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 6'-8'2\", SEC, 3' EXT",
+      "unitPrice": 372.53
+    },
+    {
+      "number": "HK13-1408004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 6'-8'2\", SEC, 4' EXT",
+      "unitPrice": 372.91
+    },
+    {
+      "number": "HK13-1408005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 6'-8'2\", SEC, 5' EXT",
+      "unitPrice": 411.46
+    },
+    {
+      "number": "HK13-1408006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 6'-8'2\", SEC, 6' EXT",
+      "unitPrice": 411.84
+    },
+    {
+      "number": "HK13-1408007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 6'-8'2\", SEC, 7' EXT",
+      "unitPrice": 412.23
+    },
+    {
+      "number": "HK13-1408008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 6'-8'2\", SEC, 8' EXT",
+      "unitPrice": 412.61
+    },
+    {
+      "number": "HK13-1408009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 6'-8'2\", SEC, 9' EXT",
+      "unitPrice": 413
+    },
+    {
+      "number": "HK13-1408010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 6'-8'2\", SEC, 10' EXT",
+      "unitPrice": 413.39
+    },
+    {
+      "number": "HK13-1408011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 6'-8'2\", SEC, 11' EXT",
+      "unitPrice": 451.33
+    },
+    {
+      "number": "HK13-1408012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 6'-8'2\", SEC, 12' EXT",
+      "unitPrice": 451.71
+    },
+    {
+      "number": "HK13-1408013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 6'-8'2\", SEC, 13' EXT",
+      "unitPrice": 452.1
+    },
+    {
+      "number": "HK13-1410002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 8'-3\"-10'2\", SEC, 2' EXT",
+      "unitPrice": 413.7
+    },
+    {
+      "number": "HK13-1410003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 8'-3\"-10'2\", SEC, 3' EXT",
+      "unitPrice": 414.09
+    },
+    {
+      "number": "HK13-1410004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 8'-3\"-10'2\", SEC, 4' EXT",
+      "unitPrice": 414.47
+    },
+    {
+      "number": "HK13-1410005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 8'-3\"-10'2\", SEC, 5' EXT",
+      "unitPrice": 453.01
+    },
+    {
+      "number": "HK13-1410006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 8'-3\"-10'2\", SEC, 6' EXT",
+      "unitPrice": 453.4
+    },
+    {
+      "number": "HK13-1410007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 8'-3\"-10'2\", SEC, 7' EXT",
+      "unitPrice": 453.79
+    },
+    {
+      "number": "HK13-1410008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 8'-3\"-10'2\", SEC, 8' EXT",
+      "unitPrice": 454.17
+    },
+    {
+      "number": "HK13-1410009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 8'-3\"-10'2\", SEC, 9' EXT",
+      "unitPrice": 454.56
+    },
+    {
+      "number": "HK13-1410010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 8'-3\"-10'2\", SEC, 10' EXT",
+      "unitPrice": 454.94
+    },
+    {
+      "number": "HK13-1410011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 8'-3\"-10'2\", SEC, 11' EXT",
+      "unitPrice": 492.89
+    },
+    {
+      "number": "HK13-1410012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 8'-3\"-10'2\", SEC, 12' EXT",
+      "unitPrice": 493.27
+    },
+    {
+      "number": "HK13-1410013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 8'-3\"-10'2\", SEC, 13' EXT",
+      "unitPrice": 493.66
+    },
+    {
+      "number": "HK13-1412002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 10'3\"-12'2\", SEC, 2' EXT",
+      "unitPrice": 457.77
+    },
+    {
+      "number": "HK13-1412003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 10'3\"-12'2\", SEC, 3' EXT",
+      "unitPrice": 458.16
+    },
+    {
+      "number": "HK13-1412004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 10'3\"-12'2\", SEC, 4' EXT",
+      "unitPrice": 458.54
+    },
+    {
+      "number": "HK13-1412005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 10'3\"-12'2\", SEC, 5' EXT",
+      "unitPrice": 497.09
+    },
+    {
+      "number": "HK13-1412006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 10'3\"-12'2\", SEC, 6' EXT",
+      "unitPrice": 497.47
+    },
+    {
+      "number": "HK13-1412007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 10'3\"-12'2\", SEC, 7' EXT",
+      "unitPrice": 497.86
+    },
+    {
+      "number": "HK13-1412008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 10'3\"-12'2\", SEC, 8' EXT",
+      "unitPrice": 498.24
+    },
+    {
+      "number": "HK13-1412009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 10'3\"-12'2\", SEC, 9' EXT",
+      "unitPrice": 498.63
+    },
+    {
+      "number": "HK13-1412010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 10'3\"-12'2\", SEC, 10' EXT",
+      "unitPrice": 499.01
+    },
+    {
+      "number": "HK13-1412011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 10'3\"-12'2\", SEC, 11' EXT",
+      "unitPrice": 536.96
+    },
+    {
+      "number": "HK13-1412012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 10'3\"-12'2\", SEC, 12' EXT",
+      "unitPrice": 537.34
+    },
+    {
+      "number": "HK13-1412013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 10'3\"-12'2\", SEC, 13' EXT",
+      "unitPrice": 537.73
+    },
+    {
+      "number": "HK13-1414002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 12'3\"-14'2\", SEC, 2' EXT",
+      "unitPrice": 666.56
+    },
+    {
+      "number": "HK13-1414003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 12'3\"-14'2\", SEC, 3' EXT",
+      "unitPrice": 667.06
+    },
+    {
+      "number": "HK13-1414004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 12'3\"-14'2\", SEC, 4' EXT",
+      "unitPrice": 667.57
+    },
+    {
+      "number": "HK13-1414005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 12'3\"-14'2\", SEC, 5' EXT",
+      "unitPrice": 706.27
+    },
+    {
+      "number": "HK13-1414006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 12'3\"-14'2\", SEC, 6' EXT",
+      "unitPrice": 706.77
+    },
+    {
+      "number": "HK13-1414007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 12'3\"-14'2\", SEC, 7' EXT",
+      "unitPrice": 707.29
+    },
+    {
+      "number": "HK13-1414008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 12'3\"-14'2\", SEC, 8' EXT",
+      "unitPrice": 707.79
+    },
+    {
+      "number": "HK13-1414009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 12'3\"-14'2\", SEC, 9' EXT",
+      "unitPrice": 708.3
+    },
+    {
+      "number": "HK13-1414010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 12'3\"-14'2\", SEC, 10' EXT",
+      "unitPrice": 708.81
+    },
+    {
+      "number": "HK13-1414011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 12'3\"-14'2\", SEC, 11' EXT",
+      "unitPrice": 746.91
+    },
+    {
+      "number": "HK13-1414012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 12'3\"-14'2\", SEC, 12' EXT",
+      "unitPrice": 747.43
+    },
+    {
+      "number": "HK13-1414013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 12'3\"-14'2\", SEC, 13' EXT",
+      "unitPrice": 747.93
+    },
+    {
+      "number": "HK13-1416002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 14'3\"-16'2\", SEC, 2' EXT",
+      "unitPrice": 731.69
+    },
+    {
+      "number": "HK13-1416003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 14'3\"-16'2\", SEC, 3' EXT",
+      "unitPrice": 732.19
+    },
+    {
+      "number": "HK13-1416004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 14'3\"-16'2\", SEC, 4' EXT",
+      "unitPrice": 732.19
+    },
+    {
+      "number": "HK13-1416005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 14'3\"-16'2\", SEC, 5' EXT",
+      "unitPrice": 771.4
+    },
+    {
+      "number": "HK13-1416006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 14'3\"-16'2\", SEC, 6' EXT",
+      "unitPrice": 771.9
+    },
+    {
+      "number": "HK13-1416007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 14'3\"-16'2\", SEC, 7' EXT",
+      "unitPrice": 772.41
+    },
+    {
+      "number": "HK13-1416008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 14'3\"-16'2\", SEC, 8' EXT",
+      "unitPrice": 772.91
+    },
+    {
+      "number": "HK13-1416009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 14'3\"-16'2\", SEC, 9' EXT",
+      "unitPrice": 773.43
+    },
+    {
+      "number": "HK13-1416010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 14'3\"-16'2\", SEC, 10' EXT",
+      "unitPrice": 773.94
+    },
+    {
+      "number": "HK13-1416011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 14'3\"-16'2\", SEC, 11' EXT",
+      "unitPrice": 812.04
+    },
+    {
+      "number": "HK13-1416012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 14'3\"-16'2\", SEC, 12' EXT",
+      "unitPrice": 812.56
+    },
+    {
+      "number": "HK13-1416013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 14'3\"-16'2\", SEC, 13' EXT",
+      "unitPrice": 813.06
+    },
+    {
+      "number": "HK13-1418002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 16'3\"-18'2\", SEC, 2' EXT",
+      "unitPrice": 908.81
+    },
+    {
+      "number": "HK13-1418003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 16'3\"-18'2\", SEC, 3' EXT",
+      "unitPrice": 909.33
+    },
+    {
+      "number": "HK13-1418004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 16'3\"-18'2\", SEC, 4' EXT",
+      "unitPrice": 834.07
+    },
+    {
+      "number": "HK13-1418005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 16'3\"-18'2\", SEC, 5' EXT",
+      "unitPrice": 910.37
+    },
+    {
+      "number": "HK13-1418006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 16'3\"-18'2\", SEC, 6' EXT",
+      "unitPrice": 873.27
+    },
+    {
+      "number": "HK13-1418007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 16'3\"-18'2\", SEC, 7' EXT",
+      "unitPrice": 873.79
+    },
+    {
+      "number": "HK13-1418008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 16'3\"-18'2\", SEC, 8' EXT",
+      "unitPrice": 874.29
+    },
+    {
+      "number": "HK13-1418009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 16'3\"-18'2\", SEC, 9' EXT",
+      "unitPrice": 874.8
+    },
+    {
+      "number": "HK13-1418010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 16'3\"-18'2\", SEC, 10' EXT",
+      "unitPrice": 875.31
+    },
+    {
+      "number": "HK13-1418011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 16'3\"-18'2\", SEC, 11' EXT",
+      "unitPrice": 913.41
+    },
+    {
+      "number": "HK13-1418012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 16'3\"-18'2\", SEC, 12' EXT",
+      "unitPrice": 913.93
+    },
+    {
+      "number": "HK13-1418013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 16'3\"-18'2\", SEC, 13' EXT",
+      "unitPrice": 914.43
+    },
+    {
+      "number": "HK13-1420002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 18'3\"-20'2\", SEC, 2' EXT",
+      "unitPrice": 846.96
+    },
+    {
+      "number": "HK13-1420003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 18'3\"-20'2\", SEC, 3' EXT",
+      "unitPrice": 847.46
+    },
+    {
+      "number": "HK13-1420004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 18'3\"-20'2\", SEC, 4' EXT",
+      "unitPrice": 847.97
+    },
+    {
+      "number": "HK13-1420005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 18'3\"-20'2\", SEC, 5' EXT",
+      "unitPrice": 848.5
+    },
+    {
+      "number": "HK13-1420006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 18'3\"-20'2\", SEC, 6' EXT",
+      "unitPrice": 849
+    },
+    {
+      "number": "HK13-1420007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 18'3\"-20'2\", SEC, 7' EXT",
+      "unitPrice": 849.51
+    },
+    {
+      "number": "HK13-1420008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 18'3\"-20'2\", SEC, 8' EXT",
+      "unitPrice": 812.43
+    },
+    {
+      "number": "HK13-1420009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 18'3\"-20'2\", SEC, 9' EXT",
+      "unitPrice": 812.93
+    },
+    {
+      "number": "HK13-1420010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 18'3\"-20'2\", SEC, 10' EXT",
+      "unitPrice": 813.44
+    },
+    {
+      "number": "HK13-1420011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 18'3\"-20'2\", SEC, 11' EXT",
+      "unitPrice": 851.54
+    },
+    {
+      "number": "HK13-1420012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 18'3\"-20'2\", SEC, 12' EXT",
+      "unitPrice": 852.06
+    },
+    {
+      "number": "HK13-1420013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 18'3\"-20'2\", SEC, 13' EXT",
+      "unitPrice": 852.56
+    },
+    {
+      "number": "HK13-1421002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 20'3\"-21'2\", SEC, 2' EXT",
+      "unitPrice": 965.41
+    },
+    {
+      "number": "HK13-1421003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 20'3\"-21'2\", SEC, 3' EXT",
+      "unitPrice": 965.93
+    },
+    {
+      "number": "HK13-1421004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 20'3\"-21'2\", SEC, 4' EXT",
+      "unitPrice": 966.43
+    },
+    {
+      "number": "HK13-1421005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 20'3\"-21'2\", SEC, 5' EXT",
+      "unitPrice": 966.96
+    },
+    {
+      "number": "HK13-1421006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 20'3\"-21'2\", SEC, 6' EXT",
+      "unitPrice": 967.47
+    },
+    {
+      "number": "HK13-1421007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 20'3\"-21'2\", SEC, 7' EXT",
+      "unitPrice": 967.97
+    },
+    {
+      "number": "HK13-1421008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 20'3\"-21'2\", SEC, 8' EXT",
+      "unitPrice": 968.49
+    },
+    {
+      "number": "HK13-1421009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 20'3\"-21'2\", SEC, 9' EXT",
+      "unitPrice": 969
+    },
+    {
+      "number": "HK13-1421010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 20'3\"-21'2\", SEC, 10' EXT",
+      "unitPrice": 969.5
+    },
+    {
+      "number": "HK13-1421011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 20'3\"-21'2\", SEC, 11' EXT",
+      "unitPrice": 970.01
+    },
+    {
+      "number": "HK13-1421012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 20'3\"-21'2\", SEC, 12' EXT",
+      "unitPrice": 970.51
+    },
+    {
+      "number": "HK13-1421013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 20'3\"-21'2\", SEC, 13' EXT",
+      "unitPrice": 971.03
+    },
+    {
+      "number": "HK13-1422002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 21'3\"-22'0\", SEC, 2' EXT",
+      "unitPrice": 1176.8
+    },
+    {
+      "number": "HK13-1422003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 21'3\"-22'0\", SEC, 3' EXT",
+      "unitPrice": 1177.3
+    },
+    {
+      "number": "HK13-1422004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 21'3\"-22'0\", SEC, 4' EXT",
+      "unitPrice": 1177.81
+    },
+    {
+      "number": "HK13-1422005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 21'3\"-22'0\", SEC, 5' EXT",
+      "unitPrice": 1171.54
+    },
+    {
+      "number": "HK13-1422006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 21'3\"-22'0\", SEC, 6' EXT",
+      "unitPrice": 1172.06
+    },
+    {
+      "number": "HK13-1422007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 21'3\"-22'0\", SEC, 7' EXT",
+      "unitPrice": 1172.56
+    },
+    {
+      "number": "HK13-1422008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 21'3\"-22'0\", SEC, 8' EXT",
+      "unitPrice": 1173.07
+    },
+    {
+      "number": "HK13-1422009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 21'3\"-22'0\", SEC, 9' EXT",
+      "unitPrice": 1173.57
+    },
+    {
+      "number": "HK13-1422010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 21'3\"-22'0\", SEC, 10' EXT",
+      "unitPrice": 1174.09
+    },
+    {
+      "number": "HK13-1422011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 21'3\"-22'0\", SEC, 11' EXT",
+      "unitPrice": 1174.59
+    },
+    {
+      "number": "HK13-1422012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 21'3\"-22'0\", SEC, 12' EXT",
+      "unitPrice": 1175.1
+    },
+    {
+      "number": "HK13-1422013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 21'3\"-22'0\", SEC, 13' EXT",
+      "unitPrice": 1175.61
+    },
+    {
+      "number": "HK13-1424002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 22'3\"-24'0\", SEC, 2' EXT",
+      "unitPrice": 1243.74
+    },
+    {
+      "number": "HK13-1424003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 22'3\"-24'0\", SEC, 3' EXT",
+      "unitPrice": 1244.24
+    },
+    {
+      "number": "HK13-1424004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 22'3\"-24'0\", SEC, 4' EXT",
+      "unitPrice": 1244.76
+    },
+    {
+      "number": "HK13-1424005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 22'3\"-24'0\", SEC, 5' EXT",
+      "unitPrice": 1241.89
+    },
+    {
+      "number": "HK13-1424006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 22'3\"-24'0\", SEC, 6' EXT",
+      "unitPrice": 1242.39
+    },
+    {
+      "number": "HK13-1424007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 22'3\"-24'0\", SEC, 7' EXT",
+      "unitPrice": 1242.9
+    },
+    {
+      "number": "HK13-1424008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 22'3\"-24'0\", SEC, 8' EXT",
+      "unitPrice": 1243.41
+    },
+    {
+      "number": "HK13-1424009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 22'3\"-24'0\", SEC, 9' EXT",
+      "unitPrice": 1243.91
+    },
+    {
+      "number": "HK13-1424010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 22'3\"-24'0\", SEC, 10' EXT",
+      "unitPrice": 1244.43
+    },
+    {
+      "number": "HK13-1424011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 22'3\"-24'0\", SEC, 11' EXT",
+      "unitPrice": 1244.93
+    },
+    {
+      "number": "HK13-1424012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 22'3\"-24'0\", SEC, 12' EXT",
+      "unitPrice": 1245.44
+    },
+    {
+      "number": "HK13-1424013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 22'3\"-24'0\", SEC, 13' EXT",
+      "unitPrice": 1245.94
+    },
+    {
+      "number": "HK13-1426004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 24'3\"-26'0\", SEC, 4' EXT",
+      "unitPrice": 1309.84
+    },
+    {
+      "number": "HK13-1426005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 24'3\"-26'0\", SEC, 5' EXT",
+      "unitPrice": 1310.37
+    },
+    {
+      "number": "HK13-1426006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 24'3\"-26'0\", SEC, 6' EXT",
+      "unitPrice": 1310.87
+    },
+    {
+      "number": "HK13-1426007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 24'3\"-26'0\", SEC, 7' EXT",
+      "unitPrice": 1304.59
+    },
+    {
+      "number": "HK13-1426008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 24'3\"-26'0\", SEC, 8' EXT",
+      "unitPrice": 1305.1
+    },
+    {
+      "number": "HK13-1426009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 24'3\"-26'0\", SEC, 9' EXT",
+      "unitPrice": 1305.6
+    },
+    {
+      "number": "HK13-1426010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 24'3\"-26'0\", SEC, 10' EXT",
+      "unitPrice": 1306.11
+    },
+    {
+      "number": "HK13-1426011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 24'3\"-26'0\", SEC, 11' EXT",
+      "unitPrice": 1306.61
+    },
+    {
+      "number": "HK13-1426012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 24'3\"-26'0\", SEC, 12' EXT",
+      "unitPrice": 1307.13
+    },
+    {
+      "number": "HK13-1426013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 11'3\"-14'2\" X 24'3\"-26'0\", SEC, 13' EXT",
+      "unitPrice": 1307.63
+    },
+    {
+      "number": "HK13-1608002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", SEC, 2' EXT",
+      "unitPrice": 381.07
+    },
+    {
+      "number": "HK13-1608003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", SEC, 3' EXT",
+      "unitPrice": 381.46
+    },
+    {
+      "number": "HK13-1608004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", SEC, 4' EXT",
+      "unitPrice": 381.84
+    },
+    {
+      "number": "HK13-1608005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", SEC, 5' EXT",
+      "unitPrice": 420.39
+    },
+    {
+      "number": "HK13-1608006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", SEC, 6' EXT",
+      "unitPrice": 420.77
+    },
+    {
+      "number": "HK13-1608007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", SEC, 7' EXT",
+      "unitPrice": 421.16
+    },
+    {
+      "number": "HK13-1608008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", SEC, 8' EXT",
+      "unitPrice": 421.54
+    },
+    {
+      "number": "HK13-1608009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", SEC, 9' EXT",
+      "unitPrice": 421.93
+    },
+    {
+      "number": "HK13-1608010-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", SEC, 10' EXT",
+      "unitPrice": 422.31
+    },
+    {
+      "number": "HK13-1608011-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", SEC, 11' EXT",
+      "unitPrice": 460.26
+    },
+    {
+      "number": "HK13-1608012-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", SEC, 12' EXT",
+      "unitPrice": 460.64
+    },
+    {
+      "number": "HK13-1608013-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", SEC, 13' EXT",
+      "unitPrice": 461.03
+    },
+    {
+      "number": "HK13-1608102-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", DEC, 2' EXT",
+      "unitPrice": 447.93
+    },
+    {
+      "number": "HK13-1608103-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", DEC, 3' EXT",
+      "unitPrice": 448.31
+    },
+    {
+      "number": "HK13-1608104-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", DEC, 4' EXT",
+      "unitPrice": 448.7
+    },
+    {
+      "number": "HK13-1608105-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", DEC, 5' EXT",
+      "unitPrice": 487.24
+    },
+    {
+      "number": "HK13-1608106-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", DEC, 6' EXT",
+      "unitPrice": 487.63
+    },
+    {
+      "number": "HK13-1608107-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", DEC, 7' EXT",
+      "unitPrice": 488.01
+    },
+    {
+      "number": "HK13-1608108-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", DEC, 8' EXT",
+      "unitPrice": 488.4
+    },
+    {
+      "number": "HK13-1608109-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", DEC, 9' EXT",
+      "unitPrice": 488.79
+    },
+    {
+      "number": "HK13-1608110-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", DEC, 10' EXT",
+      "unitPrice": 489.17
+    },
+    {
+      "number": "HK13-1608111-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", DEC, 11' EXT",
+      "unitPrice": 527.11
+    },
+    {
+      "number": "HK13-1608112-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", DEC, 12' EXT",
+      "unitPrice": 527.5
+    },
+    {
+      "number": "HK13-1608113-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 6'-8'2\", DEC, 13' EXT",
+      "unitPrice": 527.89
+    },
+    {
+      "number": "HK13-1610002-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 8'-3\"-10'2\", SEC, 2' EXT",
+      "unitPrice": 425.61
+    },
+    {
+      "number": "HK13-1610003-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 8'-3\"-10'2\", SEC, 3' EXT",
+      "unitPrice": 426
+    },
+    {
+      "number": "HK13-1610004-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 8'-3\"-10'2\", SEC, 4' EXT",
+      "unitPrice": 426.39
+    },
+    {
+      "number": "HK13-1610005-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 8'-3\"-10'2\", SEC, 5' EXT",
+      "unitPrice": 464.93
+    },
+    {
+      "number": "HK13-1610006-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 8'-3\"-10'2\", SEC, 6' EXT",
+      "unitPrice": 465.31
+    },
+    {
+      "number": "HK13-1610007-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 8'-3\"-10'2\", SEC, 7' EXT",
+      "unitPrice": 465.7
+    },
+    {
+      "number": "HK13-1610008-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 8'-3\"-10'2\", SEC, 8' EXT",
+      "unitPrice": 466.09
+    },
+    {
+      "number": "HK13-1610009-RC",
+      "displayName": "HARDWARE KIT, HIGH LIFT 3\", 14'3\"-16'2\" X 8'-3\"-10'2\", SEC, 9' EXT",
+      "unitPrice": 466.47
+    }
+  ],
+  "hw_items": [
+    {
+      "number": "HW08-08000-00",
+      "displayName": "HARDWARE BOX, 08 X 08, 3\"",
+      "unitPrice": 423.12
+    },
+    {
+      "number": "HW08-10000-00",
+      "displayName": "HARDWARE BOX, 08 X 10, 3\"",
+      "unitPrice": 474.92
+    },
+    {
+      "number": "HW10-12000-00",
+      "displayName": "HARDWARE BOX, 10 X 12, 3\"",
+      "unitPrice": 518.97
+    },
+    {
+      "number": "HW12-10000-00",
+      "displayName": "HARDWARE BOX, 12 X 10, 3\"",
+      "unitPrice": 509.38
+    },
+    {
+      "number": "HW12-12000-00",
+      "displayName": "HARDWARE BOX, 12 X 12, 3\"",
+      "unitPrice": 545.97
+    },
+    {
+      "number": "HW12-14000-00",
+      "displayName": "HARDWARE BOX, 12 X 14, 3\"",
+      "unitPrice": 641.97
+    },
+    {
+      "number": "HW12-16000-00",
+      "displayName": "HARDWARE BOX, 12 X 16, 3\"",
+      "unitPrice": 1648.18
+    },
+    {
+      "number": "HW12-18000-00",
+      "displayName": "HARDWARE BOX, 12 X 18, 3\"",
+      "unitPrice": 815.32
+    },
+    {
+      "number": "HW14-10000-00",
+      "displayName": "HARDWARE BOX, 14 X 10, 3\"",
+      "unitPrice": 509.38
+    },
+    {
+      "number": "HW14-12000-00",
+      "displayName": "HARDWARE BOX, 14 X 12, 3\"",
+      "unitPrice": 545.97
+    },
+    {
+      "number": "HW14-14000-00",
+      "displayName": "HARDWARE BOX, 14 X 14, 3\"",
+      "unitPrice": 641.97
+    },
+    {
+      "number": "HW14-16000-00",
+      "displayName": "HARDWARE BOX, 14 X 16, 3\"",
+      "unitPrice": 1648.18
+    },
+    {
+      "number": "HW14-18000-00",
+      "displayName": "HARDWARE BOX, 14 X 18, 3\"",
+      "unitPrice": 815.32
+    },
+    {
+      "number": "HW16-08000-00",
+      "displayName": "HARDWARE BOX, 16 X 8, 3\"",
+      "unitPrice": 523.31
+    },
+    {
+      "number": "HW16-10000-00",
+      "displayName": "HARDWARE BOX, 16 X 10, 3\"",
+      "unitPrice": 539.23
+    },
+    {
+      "number": "HW16-12000-00",
+      "displayName": "HARDWARE BOX, 16 X 12, 3\"",
+      "unitPrice": 599.74
+    },
+    {
+      "number": "HW16-14000-00",
+      "displayName": "HARDWARE BOX, 16 X 14, 3\"",
+      "unitPrice": 689.82
+    },
+    {
+      "number": "HW16-16000-00",
+      "displayName": "HARDWARE BOX, 16 X 16, 3\"",
+      "unitPrice": 1700.42
+    },
+    {
+      "number": "HW16-18000-00",
+      "displayName": "HARDWARE BOX, 16 X 18, 3\"",
+      "unitPrice": 815.32
+    },
+    {
+      "number": "HW18-08000-00",
+      "displayName": "HARDWARE BOX, 18 X 8, 3\"",
+      "unitPrice": 615.11
+    },
+    {
+      "number": "HW18-10000-00",
+      "displayName": "HARDWARE BOX, 18 X 10, 3\"",
+      "unitPrice": 681.97
+    },
+    {
+      "number": "HW18-12000-00",
+      "displayName": "HARDWARE BOX, 18 X 12, 3\"",
+      "unitPrice": 779.6
+    },
+    {
+      "number": "HW18-14000-00",
+      "displayName": "HARDWARE BOX, 18 X 14, 3\"",
+      "unitPrice": 898.22
+    },
+    {
+      "number": "HW18-16000-00",
+      "displayName": "HARDWARE BOX, 18 X 16, 3\"",
+      "unitPrice": 1055.05
+    },
+    {
+      "number": "HW18-18000-00",
+      "displayName": "HARDWARE BOX, 18 X 18, 3\"",
+      "unitPrice": 1148.86
+    }
+  ]
+}
