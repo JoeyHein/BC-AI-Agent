@@ -226,12 +226,26 @@ WINDOW_INSERTS = {
 }
 
 # Commercial window inserts (different from residential)
+# Commercial windows: width x height, frame colors available
+# Inside frame is always white, outside can be white or black
 COMMERCIAL_WINDOW_INSERTS = {
     "THERMOPANE": [
-        {"id": "18X8_THERMOPANE", "name": "18\" x 8\" Thermopane", "sectionType": "21\" or 24\""},
-        {"id": "24X12_THERMOPANE", "name": "24\" x 12\" Thermopane", "sectionType": "24\" only"},
-        {"id": "34X16_THERMOPANE", "name": "34\" x 16\" Thermopane", "sectionType": "24\" only"},
+        {"id": "24X12_THERMOPANE", "name": "24\" x 12\" Thermopane", "width": 24, "height": 12, "sectionType": "24\" section"},
+        {"id": "34X16_THERMOPANE", "name": "34\" x 16\" Thermopane", "width": 34, "height": 16, "sectionType": "24\" section"},
+        {"id": "18X8_THERMOPANE", "name": "18\" x 8\" Thermopane", "width": 18, "height": 8, "sectionType": "21\" or 24\" section"},
     ],
+}
+
+COMMERCIAL_WINDOW_FRAME_COLORS = [
+    {"id": "WHITE", "name": "White Frame", "hex": "#FFFFFF", "description": "White outside, white inside"},
+    {"id": "BLACK", "name": "Black Frame", "hex": "#1a1a1a", "description": "Black outside, white inside"},
+]
+
+# Commercial window sizes lookup for spacing calculator
+COMMERCIAL_WINDOW_SIZES = {
+    "24X12_THERMOPANE": {"width": 24, "height": 12},
+    "34X16_THERMOPANE": {"width": 34, "height": 16},
+    "18X8_THERMOPANE": {"width": 18, "height": 8},
 }
 
 GLAZING_OPTIONS = {
@@ -457,6 +471,8 @@ async def get_full_configuration():
             "panelDesigns": PANEL_DESIGNS,
             "windowInserts": WINDOW_INSERTS,
             "commercialWindowInserts": COMMERCIAL_WINDOW_INSERTS,
+            "commercialWindowFrameColors": COMMERCIAL_WINDOW_FRAME_COLORS,
+            "commercialWindowSizes": COMMERCIAL_WINDOW_SIZES,
             "glazingOptions": GLAZING_OPTIONS,
             "trackOptions": TRACK_OPTIONS,
             "hardwareOptions": HARDWARE_OPTIONS,
@@ -1103,11 +1119,142 @@ async def get_drum_models():
 async def get_commercial_window_types():
     """Get commercial window types with weights"""
     window_types = [
-        {"id": "18x8", "name": "18\" x 8\" Thermopane", "section": "21\" or 24\""},
-        {"id": "24x12", "name": "24\" x 12\" Thermopane", "section": "24\" only"},
-        {"id": "34x16", "name": "34\" x 16\" Thermopane", "section": "24\" only"},
+        {"id": "24X12_THERMOPANE", "name": "24\" x 12\" Thermopane", "width": 24, "height": 12, "section": "24\" only"},
+        {"id": "34X16_THERMOPANE", "name": "34\" x 16\" Thermopane", "width": 34, "height": 16, "section": "24\" only"},
+        {"id": "18X8_THERMOPANE", "name": "18\" x 8\" Thermopane", "width": 18, "height": 8, "section": "21\" or 24\""},
     ]
     return {"success": True, "data": window_types}
+
+
+class CommercialWindowSpacingRequest(BaseModel):
+    """Request for commercial window spacing calculation"""
+    doorWidthInches: int  # Total door width in inches
+    windowType: str  # 24X12_THERMOPANE, 34X16_THERMOPANE, 18X8_THERMOPANE
+    windowQty: int  # Number of windows
+
+
+@router.post("/calculate-window-spacing")
+async def calculate_commercial_window_spacing(request: CommercialWindowSpacingRequest):
+    """
+    Calculate window spacing for commercial doors (TX450, TX450-20, TX500, TX500-20, TX380).
+
+    Based on COMMERCIAL WINDOW SPACING CALCULATOR:
+    - Panel width = Door width (the width that windows span)
+    - Window spaces = Window Qty + 1 (space on each end + between windows)
+    - Space between = (Panel Width - Total Window Width) / Window Spaces
+
+    Args:
+        doorWidthInches: Total door width in inches
+        windowType: Type of window (determines width)
+        windowQty: Number of windows to place
+
+    Returns:
+        Window spacing calculation including recommended quantity and spacing
+    """
+    # Get window dimensions
+    window_size = COMMERCIAL_WINDOW_SIZES.get(request.windowType)
+    if not window_size:
+        raise HTTPException(status_code=400, detail=f"Unknown window type: {request.windowType}")
+
+    window_width = window_size["width"]
+    window_height = window_size["height"]
+
+    # Calculate spacing
+    # Panel width is approximately door width minus frame (using door width as reference)
+    panel_width = request.doorWidthInches - 4  # Account for side rails/frames
+
+    # Calculate with requested quantity
+    total_window_width = window_width * request.windowQty
+    window_spaces = request.windowQty + 1  # Spaces on ends and between
+
+    if total_window_width >= panel_width:
+        # Too many windows
+        max_windows = int((panel_width - 6) / (window_width + 3))  # Min 3" spacing
+        return {
+            "success": False,
+            "error": "Too many windows for door width",
+            "data": {
+                "maxWindows": max_windows,
+                "doorWidth": request.doorWidthInches,
+                "windowType": request.windowType,
+                "windowWidth": window_width,
+            }
+        }
+
+    space_between = (panel_width - total_window_width) / window_spaces
+
+    # Calculate recommended window quantity (optimal spacing around 8-12 inches)
+    # Start with max that gives at least 6" spacing
+    optimal_spacing = 10  # Target spacing
+    recommended_qty = int((panel_width - optimal_spacing) / (window_width + optimal_spacing))
+    recommended_qty = max(1, recommended_qty)
+
+    # Recalculate spacing for recommended qty
+    rec_total_width = window_width * recommended_qty
+    rec_spaces = recommended_qty + 1
+    rec_spacing = (panel_width - rec_total_width) / rec_spaces
+
+    return {
+        "success": True,
+        "data": {
+            "doorWidth": request.doorWidthInches,
+            "panelWidth": panel_width,
+            "windowType": request.windowType,
+            "windowWidth": window_width,
+            "windowHeight": window_height,
+            "requestedQty": request.windowQty,
+            "spaceBetween": round(space_between, 2),
+            "totalWindowWidth": total_window_width,
+            "recommended": {
+                "windowQty": recommended_qty,
+                "spaceBetween": round(rec_spacing, 2),
+            },
+            "frameColors": COMMERCIAL_WINDOW_FRAME_COLORS,
+        }
+    }
+
+
+@router.get("/calculate-default-windows/{door_width_inches}")
+async def get_default_window_count(door_width_inches: int, window_type: str = "24X12_THERMOPANE"):
+    """
+    Get the default/recommended window count for a commercial door width.
+
+    Args:
+        door_width_inches: Door width in inches
+        window_type: Type of window (default 24x12)
+
+    Returns:
+        Recommended window count and spacing
+    """
+    window_size = COMMERCIAL_WINDOW_SIZES.get(window_type)
+    if not window_size:
+        window_size = {"width": 24, "height": 12}  # Default to 24x12
+
+    window_width = window_size["width"]
+    panel_width = door_width_inches - 4
+
+    # Calculate recommended quantity (target 8-12" spacing)
+    optimal_spacing = 10
+    recommended_qty = int((panel_width - optimal_spacing) / (window_width + optimal_spacing))
+    recommended_qty = max(0, recommended_qty)
+
+    # Calculate actual spacing
+    if recommended_qty > 0:
+        total_width = window_width * recommended_qty
+        spaces = recommended_qty + 1
+        spacing = (panel_width - total_width) / spaces
+    else:
+        spacing = panel_width
+
+    return {
+        "success": True,
+        "data": {
+            "doorWidth": door_width_inches,
+            "windowType": window_type,
+            "recommendedQty": recommended_qty,
+            "spacing": round(spacing, 2),
+        }
+    }
 
 
 @router.post("/calculate-spring")

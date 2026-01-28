@@ -79,6 +79,8 @@ function QuoteBuilder() {
       panelDesign: '',
       windowInsert: 'NONE',
       windowSection: 1,
+      windowQty: 0,  // For commercial doors
+      windowFrameColor: 'WHITE',  // For commercial doors (WHITE or BLACK)
       glazingType: 'NONE',
       trackRadius: '15',
       trackThickness: '2',
@@ -379,6 +381,7 @@ function QuoteBuilder() {
             windowInserts={config.windowInserts}
             commercialWindowInserts={config.commercialWindowInserts}
             glazingOptions={config.glazingOptions}
+            config={config}
             onChange={updateCurrentDoor}
           />
         )}
@@ -639,6 +642,8 @@ function DesignStep({ door, colors, panelDesigns, onChange }) {
             panelDesign={door.panelDesign || 'FLUSH'}
             windowInsert={door.windowInsert}
             windowSection={door.windowSection}
+            windowQty={door.windowQty || 0}
+            windowFrameColor={door.windowFrameColor || 'WHITE'}
             doorType={door.doorType}
             showDimensions={false}
             scale={0.5}
@@ -702,7 +707,7 @@ function DesignStep({ door, colors, panelDesigns, onChange }) {
   )
 }
 
-function WindowsStep({ door, windowInserts, commercialWindowInserts, glazingOptions, onChange }) {
+function WindowsStep({ door, windowInserts, commercialWindowInserts, glazingOptions, config, onChange }) {
   const hasWindows = door.windowInsert !== 'NONE' && door.windowInsert
   const isCommercial = door.doorType === 'commercial'
 
@@ -713,7 +718,70 @@ function WindowsStep({ door, windowInserts, commercialWindowInserts, glazingOpti
   const availableInserts = isCommercial ? commercialWindowInserts : windowInserts
 
   // Default window for toggle
-  const defaultWindow = isCommercial ? '18X8_THERMOPANE' : 'STOCKTON_STANDARD'
+  const defaultWindow = isCommercial ? '24X12_THERMOPANE' : 'STOCKTON_STANDARD'
+
+  // Calculate recommended window quantity for commercial doors
+  const calculateRecommendedWindows = () => {
+    if (!isCommercial || !door.windowInsert || door.windowInsert === 'NONE') return 0
+    const windowSize = config?.commercialWindowSizes?.[door.windowInsert]
+    if (!windowSize) return 0
+    const windowWidth = windowSize.width
+    const panelWidth = door.doorWidth - 4  // Account for frame
+    const optimalSpacing = 10
+    const recommended = Math.floor((panelWidth - optimalSpacing) / (windowWidth + optimalSpacing))
+    return Math.max(0, recommended)
+  }
+
+  // Calculate spacing based on current quantity
+  const calculateSpacing = () => {
+    if (!isCommercial || !door.windowInsert || door.windowInsert === 'NONE' || !door.windowQty) return null
+    const windowSize = config?.commercialWindowSizes?.[door.windowInsert]
+    if (!windowSize) return null
+    const windowWidth = windowSize.width
+    const panelWidth = door.doorWidth - 4
+    const totalWindowWidth = windowWidth * door.windowQty
+    const spaces = door.windowQty + 1
+    if (totalWindowWidth >= panelWidth) return null
+    return ((panelWidth - totalWindowWidth) / spaces).toFixed(1)
+  }
+
+  const recommendedQty = calculateRecommendedWindows()
+  const spacing = calculateSpacing()
+
+  // Handle window toggle with default quantity for commercial
+  const handleWindowToggle = (checked) => {
+    if (checked) {
+      const updates = { windowInsert: defaultWindow }
+      if (isCommercial) {
+        // Set recommended quantity for commercial
+        const windowSize = config?.commercialWindowSizes?.[defaultWindow]
+        if (windowSize) {
+          const windowWidth = windowSize.width
+          const panelWidth = door.doorWidth - 4
+          const optimalSpacing = 10
+          const qty = Math.max(1, Math.floor((panelWidth - optimalSpacing) / (windowWidth + optimalSpacing)))
+          updates.windowQty = qty
+        }
+      }
+      onChange(updates)
+    } else {
+      onChange({ windowInsert: 'NONE', windowQty: 0 })
+    }
+  }
+
+  // Handle window type change for commercial (recalculate quantity)
+  const handleCommercialWindowChange = (windowType) => {
+    const windowSize = config?.commercialWindowSizes?.[windowType]
+    if (windowSize) {
+      const windowWidth = windowSize.width
+      const panelWidth = door.doorWidth - 4
+      const optimalSpacing = 10
+      const qty = Math.max(1, Math.floor((panelWidth - optimalSpacing) / (windowWidth + optimalSpacing)))
+      onChange({ windowInsert: windowType, windowQty: qty })
+    } else {
+      onChange({ windowInsert: windowType })
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -723,7 +791,7 @@ function WindowsStep({ door, windowInserts, commercialWindowInserts, glazingOpti
           type="checkbox"
           id="hasWindows"
           checked={hasWindows}
-          onChange={(e) => onChange({ windowInsert: e.target.checked ? defaultWindow : 'NONE' })}
+          onChange={(e) => handleWindowToggle(e.target.checked)}
           className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
         />
         <label htmlFor="hasWindows" className="text-sm font-medium text-gray-700">
@@ -742,18 +810,18 @@ function WindowsStep({ door, windowInserts, commercialWindowInserts, glazingOpti
               {availableInserts && Object.entries(availableInserts).map(([style, inserts]) => (
                 <div key={style}>
                   <h4 className="text-sm font-medium text-gray-600 mb-2">{style}</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                     {inserts.map((insert) => (
                       <button
                         key={insert.id}
-                        onClick={() => onChange({ windowInsert: insert.id })}
-                        className={`px-3 py-2 text-sm rounded-md border ${
+                        onClick={() => isCommercial ? handleCommercialWindowChange(insert.id) : onChange({ windowInsert: insert.id })}
+                        className={`px-3 py-2 text-sm rounded-md border text-left ${
                           door.windowInsert === insert.id
                             ? 'border-blue-500 bg-blue-50 text-blue-700'
                             : 'border-gray-300 hover:border-gray-400'
                         }`}
                       >
-                        <span>{insert.name}</span>
+                        <span className="font-medium">{insert.name}</span>
                         {insert.sectionType && (
                           <span className="block text-xs text-gray-400">{insert.sectionType}</span>
                         )}
@@ -765,30 +833,110 @@ function WindowsStep({ door, windowInserts, commercialWindowInserts, glazingOpti
             </div>
           </div>
 
-          {/* Window Section */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Window Section (1 = Top)
-            </label>
-            <div className="flex space-x-2">
-              {[...Array(panelCount)].map((_, i) => (
+          {/* Commercial Window Quantity */}
+          {isCommercial && (
+            <div className="bg-blue-50 rounded-lg p-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Window Quantity
+              </label>
+              <div className="flex items-center space-x-4">
                 <button
-                  key={i + 1}
-                  onClick={() => onChange({ windowSection: i + 1 })}
-                  className={`w-12 h-12 rounded-md border-2 text-sm font-medium ${
-                    door.windowSection === i + 1
-                      ? 'border-blue-500 bg-blue-50 text-blue-700'
-                      : 'border-gray-300 hover:border-gray-400'
-                  }`}
+                  onClick={() => onChange({ windowQty: Math.max(0, (door.windowQty || 0) - 1) })}
+                  className="w-10 h-10 rounded-md border border-gray-300 bg-white hover:bg-gray-50 text-xl font-bold"
                 >
-                  {i + 1}
+                  -
                 </button>
-              ))}
+                <input
+                  type="number"
+                  value={door.windowQty || 0}
+                  onChange={(e) => onChange({ windowQty: Math.max(0, parseInt(e.target.value) || 0) })}
+                  className="w-20 text-center border border-gray-300 rounded-md shadow-sm px-3 py-2"
+                  min={0}
+                />
+                <button
+                  onClick={() => onChange({ windowQty: (door.windowQty || 0) + 1 })}
+                  className="w-10 h-10 rounded-md border border-gray-300 bg-white hover:bg-gray-50 text-xl font-bold"
+                >
+                  +
+                </button>
+                <button
+                  onClick={() => onChange({ windowQty: recommendedQty })}
+                  className="px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                >
+                  Use Recommended ({recommendedQty})
+                </button>
+              </div>
+              {spacing && (
+                <p className="mt-2 text-sm text-blue-700">
+                  Spacing between windows: <strong>{spacing}"</strong>
+                </p>
+              )}
+              {door.windowQty > 0 && !spacing && (
+                <p className="mt-2 text-sm text-red-600">
+                  Too many windows for this door width. Please reduce quantity.
+                </p>
+              )}
             </div>
-            <p className="mt-1 text-xs text-gray-500">
-              This door has {panelCount} panels. Section 1 is the top.
-            </p>
-          </div>
+          )}
+
+          {/* Commercial Frame Color */}
+          {isCommercial && config?.commercialWindowFrameColors && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Frame Color (Outside)
+              </label>
+              <p className="text-xs text-gray-500 mb-2">Inside frame is always white</p>
+              <div className="grid grid-cols-2 gap-3">
+                {config.commercialWindowFrameColors.map((color) => (
+                  <button
+                    key={color.id}
+                    onClick={() => onChange({ windowFrameColor: color.id })}
+                    className={`p-3 rounded-lg border-2 flex items-center space-x-3 ${
+                      door.windowFrameColor === color.id
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <div
+                      className="w-8 h-8 rounded-full border border-gray-300"
+                      style={{ backgroundColor: color.hex }}
+                    />
+                    <div className="text-left">
+                      <span className="text-sm font-medium text-gray-900">{color.name}</span>
+                      <span className="block text-xs text-gray-500">{color.description}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Window Section (Residential only) */}
+          {!isCommercial && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Window Section (1 = Top)
+              </label>
+              <div className="flex space-x-2">
+                {[...Array(panelCount)].map((_, i) => (
+                  <button
+                    key={i + 1}
+                    onClick={() => onChange({ windowSection: i + 1 })}
+                    className={`w-12 h-12 rounded-md border-2 text-sm font-medium ${
+                      door.windowSection === i + 1
+                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                        : 'border-gray-300 hover:border-gray-400'
+                    }`}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                This door has {panelCount} panels. Section 1 is the top.
+              </p>
+            </div>
+          )}
 
           {/* Glazing Type */}
           <div>
@@ -1008,6 +1156,8 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, onNameChange, 
                   panelDesign={door.panelDesign}
                   windowInsert={door.windowInsert}
                   windowSection={door.windowSection}
+                  windowQty={door.windowQty || 0}
+                  windowFrameColor={door.windowFrameColor || 'WHITE'}
                   doorType={door.doorType}
                   showDimensions={true}
                   scale={0.6}
@@ -1042,7 +1192,11 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, onNameChange, 
                   <div>
                     <span className="text-gray-500">Windows:</span>
                     <span className="ml-2 text-gray-900">
-                      {door.windowInsert !== 'NONE' ? `Yes (Section ${door.windowSection})` : 'No'}
+                      {door.windowInsert !== 'NONE'
+                        ? (door.doorType === 'commercial'
+                            ? `${door.windowQty || 0} windows (${door.windowFrameColor || 'WHITE'} frame)`
+                            : `Yes (Section ${door.windowSection})`)
+                        : 'No'}
                     </span>
                   </div>
                   <div>

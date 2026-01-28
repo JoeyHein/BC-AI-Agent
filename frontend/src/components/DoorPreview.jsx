@@ -103,10 +103,13 @@ function DoorPreview({
   panelDesign = 'SHXL',
   windowInsert = null,
   windowSection = 1,
+  windowQty = 0,  // For commercial doors
+  windowFrameColor = 'WHITE',  // For commercial doors (WHITE or BLACK)
   doorType = 'residential',
   showDimensions = true,
   scale = 1,
 }) {
+  const isCommercial = doorType === 'commercial'
   // Calculate display dimensions (max 400px width for preview)
   const maxDisplayWidth = 400 * scale
   const aspectRatio = height / width
@@ -153,9 +156,18 @@ function DoorPreview({
     const panelHeight = sectionHeight - padding * 2
 
     // Check if this section has windows
-    const hasWindow = windowInsert && windowInsert !== 'NONE' && sectionIndex === windowSection - 1
+    // For commercial doors: windows in top section (section 0) based on windowQty
+    // For residential doors: single window in specified section
+    const hasWindow = windowInsert && windowInsert !== 'NONE' && (
+      isCommercial
+        ? (sectionIndex === 0 && windowQty > 0)  // Commercial: top section with quantity
+        : (sectionIndex === windowSection - 1)   // Residential: specified section
+    )
 
     if (hasWindow) {
+      if (isCommercial) {
+        return renderCommercialWindows(sectionY + padding, panelWidth, panelHeight, padding)
+      }
       return renderWindowSection(sectionY + padding, panelWidth, panelHeight, padding)
     }
 
@@ -170,6 +182,74 @@ function DoorPreview({
       default:
         return renderFlushPanel(sectionY + padding, panelWidth, panelHeight, padding)
     }
+  }
+
+  // Render commercial windows (multiple windows across top section)
+  const renderCommercialWindows = (y, w, h, padding) => {
+    const elements = []
+    const frameColor = windowFrameColor === 'BLACK' ? '#1a1a1a' : '#FFFFFF'
+    const frameStroke = windowFrameColor === 'BLACK' ? '#000' : '#888'
+
+    // Get window dimensions based on type
+    const windowSizes = {
+      '24X12_THERMOPANE': { width: 24, height: 12 },
+      '34X16_THERMOPANE': { width: 34, height: 16 },
+      '18X8_THERMOPANE': { width: 18, height: 8 },
+    }
+    const windowSize = windowSizes[windowInsert] || { width: 24, height: 12 }
+
+    // Calculate scaled window dimensions
+    const scaleRatio = displayWidth / width
+    const scaledWindowWidth = windowSize.width * scaleRatio * 0.9
+    const scaledWindowHeight = Math.min(h * 0.7, windowSize.height * scaleRatio * 1.5)
+
+    // Calculate spacing
+    const totalWindowWidth = scaledWindowWidth * windowQty
+    const spaces = windowQty + 1
+    const spacing = (w - totalWindowWidth) / spaces
+
+    // Render each window
+    for (let i = 0; i < windowQty; i++) {
+      const windowX = padding + spacing + i * (scaledWindowWidth + spacing)
+      const windowY = y + (h - scaledWindowHeight) / 2
+
+      elements.push(
+        <g key={`commercial-window-${i}`}>
+          {/* Window frame (outside color) */}
+          <rect
+            x={windowX - 3}
+            y={windowY - 3}
+            width={scaledWindowWidth + 6}
+            height={scaledWindowHeight + 6}
+            fill={frameColor}
+            stroke={frameStroke}
+            strokeWidth="2"
+            rx="1"
+          />
+          {/* Glass */}
+          <rect
+            x={windowX}
+            y={windowY}
+            width={scaledWindowWidth}
+            height={scaledWindowHeight}
+            fill="#87CEEB"
+            stroke="#666"
+            strokeWidth="1"
+          />
+          {/* Glass reflection */}
+          <rect
+            x={windowX + 2}
+            y={windowY + 2}
+            width={scaledWindowWidth * 0.3}
+            height={scaledWindowHeight * 0.4}
+            fill="url(#glassReflection)"
+            opacity="0.4"
+          />
+        </g>
+      )
+    }
+
+    return elements
   }
 
   const renderRaisedPanels = (y, w, h, padding, pattern) => {
