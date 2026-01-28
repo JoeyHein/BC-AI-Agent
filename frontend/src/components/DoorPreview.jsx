@@ -41,9 +41,9 @@ const PANEL_PATTERNS = {
     type: 'flush',
     style: 'minimal'
   },
-  UDC: { // Commercial UDC (Undercoated) - similar to ribbed but lighter
+  UDC: { // Commercial UDC (Undercoated) - 5 horizontal lines per panel
     type: 'ribbed',
-    ribs: 6,
+    ribs: 5,
     style: 'commercial'
   },
   MUSKOKA: {
