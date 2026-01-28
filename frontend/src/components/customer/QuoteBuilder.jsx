@@ -630,6 +630,14 @@ function DesignStep({ door, colors, panelDesigns, onChange }) {
   const designKey = designMap[door.doorSeries] || 'KANATA'
   const availableDesigns = panelDesigns?.[designKey] || []
 
+  // Auto-select panel design if there's only one option and none selected
+  useEffect(() => {
+    if (availableDesigns.length === 1 && !door.panelDesign) {
+      const design = availableDesigns[0]
+      onChange({ panelDesign: design.code || design.id })
+    }
+  }, [availableDesigns, door.panelDesign, onChange])
+
   return (
     <div className="space-y-6">
       {/* Live Door Preview */}
