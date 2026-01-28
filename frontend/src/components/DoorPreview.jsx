@@ -156,11 +156,11 @@ function DoorPreview({
     const panelHeight = sectionHeight - padding * 2
 
     // Check if this section has windows
-    // For commercial doors: windows in top section (section 0) based on windowQty
+    // For commercial doors: windows in selected section based on windowQty
     // For residential doors: single window in specified section
     const hasWindow = windowInsert && windowInsert !== 'NONE' && (
       isCommercial
-        ? (sectionIndex === 0 && windowQty > 0)  // Commercial: top section with quantity
+        ? (sectionIndex === (windowSection - 1) && windowQty > 0)  // Commercial: selected section with quantity
         : (sectionIndex === windowSection - 1)   // Residential: specified section
     )
 

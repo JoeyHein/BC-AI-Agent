@@ -887,6 +887,33 @@ function WindowsStep({ door, windowInserts, commercialWindowInserts, glazingOpti
             </div>
           )}
 
+          {/* Commercial Window Section Selection */}
+          {isCommercial && door.windowQty > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Window Section (1 = Top)
+              </label>
+              <div className="flex space-x-2">
+                {[...Array(panelCount)].map((_, i) => (
+                  <button
+                    key={i + 1}
+                    onClick={() => onChange({ windowSection: i + 1 })}
+                    className={`w-12 h-12 rounded-md border-2 text-sm font-medium ${
+                      door.windowSection === i + 1
+                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                        : 'border-gray-300 hover:border-gray-400'
+                    }`}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                This door has {panelCount} panels. Select which panel to place the {door.windowQty} window{door.windowQty > 1 ? 's' : ''} in.
+              </p>
+            </div>
+          )}
+
           {/* Commercial Frame Color */}
           {isCommercial && config?.commercialWindowFrameColors && (
             <div>
