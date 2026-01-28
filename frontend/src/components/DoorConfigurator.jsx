@@ -549,10 +549,15 @@ function DesignStep({ door, colors, panelDesigns, onChange }) {
   const availableColors = colors[colorKey] || colors['KANATA'] || []
 
   // Get panel designs for current series
+  // Commercial doors: TX450/TX500 = UDC only, TX450-20/TX500-20 = Flush + UDC
   const designMap = {
     'KANATA': 'KANATA',
     'CRAFT': 'CRAFT',
     'KANATA_EXECUTIVE': 'EXECUTIVE',
+    'TX450': 'COMMERCIAL',
+    'TX500': 'COMMERCIAL',
+    'TX450-20': 'COMMERCIAL_20',
+    'TX500-20': 'COMMERCIAL_20',
   }
   const designKey = designMap[door.doorSeries] || 'KANATA'
   const availableDesigns = panelDesigns[designKey] || []
@@ -1313,9 +1318,30 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult 
             <span className="text-green-800 font-medium">Quote Generated Successfully!</span>
           </div>
           {quoteResult.data && (
-            <div className="mt-3 text-sm text-green-700">
-              <p>Quote ID: {quoteResult.data.quoteId || quoteResult.data._id}</p>
-              {quoteResult.data.total && <p>Total: ${quoteResult.data.total}</p>}
+            <div className="mt-3 space-y-2">
+              <p className="text-sm text-green-700">
+                <span className="font-medium">BC Quote #:</span> {quoteResult.data.bc_quote_number}
+              </p>
+              <p className="text-sm text-green-700">
+                <span className="font-medium">Lines Added:</span> {quoteResult.data.lines_added} items
+              </p>
+              {quoteResult.data.pricing && (
+                <div className="mt-3 pt-3 border-t border-green-200">
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <span className="text-green-600">Subtotal:</span>
+                    <span className="text-right font-medium">${quoteResult.data.pricing.subtotal?.toLocaleString('en-CA', { minimumFractionDigits: 2 })}</span>
+                    <span className="text-green-600">Tax (GST):</span>
+                    <span className="text-right font-medium">${quoteResult.data.pricing.tax?.toLocaleString('en-CA', { minimumFractionDigits: 2 })}</span>
+                    <span className="text-green-700 font-semibold">Total:</span>
+                    <span className="text-right font-bold text-lg text-green-800">${quoteResult.data.pricing.total?.toLocaleString('en-CA', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                </div>
+              )}
+              {quoteResult.data.lines_failed && quoteResult.data.lines_failed.length > 0 && (
+                <div className="mt-2 text-xs text-yellow-700 bg-yellow-50 p-2 rounded">
+                  <span className="font-medium">Note:</span> {quoteResult.data.lines_failed.length} items could not be added (not in BC inventory)
+                </div>
+              )}
             </div>
           )}
         </div>

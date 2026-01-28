@@ -185,6 +185,15 @@ PANEL_DESIGNS = {
         {"id": "DENISON", "code": "DENISON", "name": "Denison", "type": "Carriage House"},
         {"id": "GRANVILLE", "code": "GRANVILLE", "name": "Granville", "type": "Carriage House"},
     ],
+    "COMMERCIAL": [
+        # Standard commercial (TX450, TX500): UDC only
+        {"id": "UDC", "code": "UDC", "name": "UDC (Undercoated)", "type": "Commercial Standard"},
+    ],
+    "COMMERCIAL_20": [
+        # TX450-20 and TX500-20: Flush and UDC designs
+        {"id": "FLUSH", "code": "FLUSH", "name": "Flush", "type": "Flush/Flat"},
+        {"id": "UDC", "code": "UDC", "name": "UDC (Undercoated)", "type": "Commercial Standard"},
+    ],
     "EXECUTIVE": [
         {"id": "F01", "code": "F01", "name": "Flush Basic", "base": "Flush"},
         {"id": "F01A", "code": "F01A", "name": "Flush Arched Top", "base": "Flush"},
@@ -200,6 +209,7 @@ PANEL_DESIGNS = {
 }
 
 WINDOW_INSERTS = {
+    # Residential window inserts
     "STOCKTON": [
         {"id": "STOCKTON_STANDARD", "name": "Standard Stockton"},
         {"id": "STOCKTON_TEN_SQUARE_XL", "name": "Ten Square XL - Stockton"},
@@ -212,6 +222,15 @@ WINDOW_INSERTS = {
         {"id": "STOCKBRIDGE_STRAIGHT_XL", "name": "Straight XL - Stockbridge"},
         {"id": "STOCKBRIDGE_ARCHED_XL", "name": "Arched XL - Stockbridge"},
         {"id": "STOCKBRIDGE_ARCHED", "name": "Arched"},
+    ],
+}
+
+# Commercial window inserts (different from residential)
+COMMERCIAL_WINDOW_INSERTS = {
+    "THERMOPANE": [
+        {"id": "18X8_THERMOPANE", "name": "18\" x 8\" Thermopane", "sectionType": "21\" or 24\""},
+        {"id": "24X12_THERMOPANE", "name": "24\" x 12\" Thermopane", "sectionType": "24\" only"},
+        {"id": "34X16_THERMOPANE", "name": "34\" x 16\" Thermopane", "sectionType": "24\" only"},
     ],
 }
 
@@ -374,6 +393,10 @@ async def get_panel_designs(series_id: str):
         "KANATA": "KANATA",
         "CRAFT": "CRAFT",
         "KANATA_EXECUTIVE": "EXECUTIVE",
+        "TX450": "COMMERCIAL",
+        "TX500": "COMMERCIAL",
+        "TX450-20": "COMMERCIAL_20",
+        "TX500-20": "COMMERCIAL_20",
     }
     design_key = design_map.get(series_id, "KANATA")
     designs = PANEL_DESIGNS.get(design_key, [])
@@ -381,8 +404,10 @@ async def get_panel_designs(series_id: str):
 
 
 @router.get("/window-inserts")
-async def get_window_inserts():
-    """Get available window insert styles"""
+async def get_window_inserts(door_type: Optional[str] = None):
+    """Get available window insert styles, optionally filtered by door type"""
+    if door_type == "commercial":
+        return {"success": True, "data": COMMERCIAL_WINDOW_INSERTS}
     return {"success": True, "data": WINDOW_INSERTS}
 
 
@@ -431,6 +456,7 @@ async def get_full_configuration():
             "colors": COLORS,
             "panelDesigns": PANEL_DESIGNS,
             "windowInserts": WINDOW_INSERTS,
+            "commercialWindowInserts": COMMERCIAL_WINDOW_INSERTS,
             "glazingOptions": GLAZING_OPTIONS,
             "trackOptions": TRACK_OPTIONS,
             "hardwareOptions": HARDWARE_OPTIONS,
@@ -561,8 +587,7 @@ def _format_door_description(door: DoorConfigRequest) -> str:
 # Categories must match those used in part_number_service.py (lowercase)
 LINE_ORDER = [
     "comment",           # 1. Door description
-    "door_package",      # 2a. Pre-configured door package (if used)
-    "panel",             # 2b. Panels (if not using package)
+    "panel",             # 2. Panels (PN45, PN46, PN65, PN95, etc.)
     "retainer",          # 3. Retainer (top/bottom)
     "astragal",          # 4. Astragal (bottom rubber)
     "strut",             # 5. Struts
@@ -752,6 +777,43 @@ async def generate_door_quote(request: QuoteGenerationRequest):
         # Count actual parts (excluding comments)
         total_parts = sum(1 for line in all_lines if line.get("lineType") != "Comment")
 
+        # Step 4: Fetch quote with pricing from BC
+        pricing = None
+        line_pricing = []
+        try:
+            # Get the quote with totals
+            updated_quote = bc_client.get_sales_quote(bc_quote_id)
+
+            # Get line items with pricing
+            quote_lines = bc_client.get_quote_lines(bc_quote_id)
+
+            subtotal = updated_quote.get("totalAmountExcludingTax", 0)
+            total_with_tax = updated_quote.get("totalAmountIncludingTax", 0)
+            tax_amount = total_with_tax - subtotal
+
+            pricing = {
+                "subtotal": round(subtotal, 2),
+                "tax": round(tax_amount, 2),
+                "total": round(total_with_tax, 2),
+                "currency": "CAD"
+            }
+
+            # Build line-level pricing for display
+            for line in quote_lines:
+                if line.get("lineType") == "Item":
+                    line_pricing.append({
+                        "part_number": line.get("lineObjectNumber"),
+                        "description": line.get("description", ""),
+                        "quantity": line.get("quantity", 0),
+                        "unit_price": line.get("unitPrice", 0),
+                        "line_total": line.get("netAmount", 0)
+                    })
+
+            logger.info(f"Quote {bc_quote_number} total: ${total_with_tax:.2f}")
+
+        except Exception as pricing_error:
+            logger.warning(f"Could not fetch pricing for quote {bc_quote_number}: {pricing_error}")
+
         return {
             "success": True,
             "data": {
@@ -764,7 +826,9 @@ async def generate_door_quote(request: QuoteGenerationRequest):
                 "total_parts": total_parts,
                 "lines_added": lines_added,
                 "lines_failed": lines_failed if lines_failed else None,
-                "parts_summary": [l for l in all_lines if l.get("lineType") != "Comment"]
+                "parts_summary": [l for l in all_lines if l.get("lineType") != "Comment"],
+                "pricing": pricing,
+                "line_pricing": line_pricing if line_pricing else None
             },
             "message": f"BC Quote {bc_quote_number} created with {lines_added} line items"
         }

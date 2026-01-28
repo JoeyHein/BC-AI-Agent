@@ -41,6 +41,11 @@ const PANEL_PATTERNS = {
     type: 'flush',
     style: 'minimal'
   },
+  UDC: { // Commercial UDC (Undercoated) - similar to ribbed but lighter
+    type: 'ribbed',
+    ribs: 6,
+    style: 'commercial'
+  },
   MUSKOKA: {
     type: 'carriage',
     rows: 2,

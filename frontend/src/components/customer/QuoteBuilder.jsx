@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { savedQuotesApi, customerDoorConfigApi } from '../../api/customerClient'
+import DoorPreview from '../DoorPreview'
 
 const STEPS = [
   { id: 'type', title: 'Door Type', description: 'Select door category' },
@@ -376,6 +377,7 @@ function QuoteBuilder() {
           <WindowsStep
             door={currentDoor}
             windowInserts={config.windowInserts}
+            commercialWindowInserts={config.commercialWindowInserts}
             glazingOptions={config.glazingOptions}
             onChange={updateCurrentDoor}
           />
@@ -612,75 +614,106 @@ function DesignStep({ door, colors, panelDesigns, onChange }) {
   const availableColors = colors?.[colorKey] || colors?.['KANATA'] || []
 
   // Get panel designs for current series
+  // Commercial doors: TX450/TX500 = UDC only, TX450-20/TX500-20 = Flush + UDC
   const designMap = {
     'KANATA': 'KANATA',
     'CRAFT': 'CRAFT',
     'KANATA_EXECUTIVE': 'EXECUTIVE',
+    'TX450': 'COMMERCIAL',
+    'TX500': 'COMMERCIAL',
+    'TX450-20': 'COMMERCIAL_20',
+    'TX500-20': 'COMMERCIAL_20',
   }
   const designKey = designMap[door.doorSeries] || 'KANATA'
   const availableDesigns = panelDesigns?.[designKey] || []
 
   return (
     <div className="space-y-6">
-      {/* Colors */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Panel Color
-        </label>
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-          {availableColors.map((color) => (
-            <button
-              key={color.id}
-              onClick={() => onChange({ panelColor: color.id })}
-              className={`p-3 rounded-lg border-2 text-center transition-all ${
-                door.panelColor === color.id
-                  ? 'border-blue-500 ring-2 ring-blue-200'
-                  : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <div
-                className="w-8 h-8 rounded-full mx-auto border border-gray-300"
-                style={{ backgroundColor: color.hex || '#ccc' }}
-              />
-              <span className="mt-1 block text-xs text-gray-700">{color.name}</span>
-              {color.note && <span className="text-xs text-gray-400">{color.note}</span>}
-            </button>
-          ))}
+      {/* Live Door Preview */}
+      <div className="flex flex-col md:flex-row gap-6">
+        <div className="flex-shrink-0 flex justify-center md:justify-start">
+          <DoorPreview
+            width={door.doorWidth}
+            height={door.doorHeight}
+            color={door.panelColor || 'WHITE'}
+            panelDesign={door.panelDesign || 'FLUSH'}
+            windowInsert={door.windowInsert}
+            windowSection={door.windowSection}
+            doorType={door.doorType}
+            showDimensions={false}
+            scale={0.5}
+          />
         </div>
-      </div>
 
-      {/* Panel Designs */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Panel Design
-        </label>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          {availableDesigns.map((design) => (
-            <button
-              key={design.id}
-              onClick={() => onChange({ panelDesign: design.code || design.id })}
-              className={`p-4 rounded-lg border-2 text-left transition-all ${
-                door.panelDesign === (design.code || design.id)
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <h4 className="font-medium text-gray-900">{design.name}</h4>
-              <p className="mt-1 text-xs text-gray-500">{design.type}</p>
-              {design.code && <p className="mt-1 text-xs text-gray-400">Code: {design.code}</p>}
-            </button>
-          ))}
+        <div className="flex-grow space-y-6">
+          {/* Colors */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Panel Color
+            </label>
+            <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
+              {availableColors.map((color) => (
+                <button
+                  key={color.id}
+                  onClick={() => onChange({ panelColor: color.id })}
+                  className={`p-3 rounded-lg border-2 text-center transition-all ${
+                    door.panelColor === color.id
+                      ? 'border-blue-500 ring-2 ring-blue-200'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <div
+                    className="w-8 h-8 rounded-full mx-auto border border-gray-300"
+                    style={{ backgroundColor: color.hex || '#ccc' }}
+                  />
+                  <span className="mt-1 block text-xs text-gray-700">{color.name}</span>
+                  {color.note && <span className="text-xs text-gray-400">{color.note}</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Panel Designs */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Panel Design
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              {availableDesigns.map((design) => (
+                <button
+                  key={design.id}
+                  onClick={() => onChange({ panelDesign: design.code || design.id })}
+                  className={`p-4 rounded-lg border-2 text-left transition-all ${
+                    door.panelDesign === (design.code || design.id)
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <h4 className="font-medium text-gray-900">{design.name}</h4>
+                  <p className="mt-1 text-xs text-gray-500">{design.type}</p>
+                  {design.code && <p className="mt-1 text-xs text-gray-400">Code: {design.code}</p>}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </div>
   )
 }
 
-function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
+function WindowsStep({ door, windowInserts, commercialWindowInserts, glazingOptions, onChange }) {
   const hasWindows = door.windowInsert !== 'NONE' && door.windowInsert
+  const isCommercial = door.doorType === 'commercial'
 
   // Calculate panel count based on height
   const panelCount = door.doorHeight <= 84 ? 4 : door.doorHeight <= 96 ? 5 : 6
+
+  // Get the appropriate window inserts based on door type
+  const availableInserts = isCommercial ? commercialWindowInserts : windowInserts
+
+  // Default window for toggle
+  const defaultWindow = isCommercial ? '18X8_THERMOPANE' : 'STOCKTON_STANDARD'
 
   return (
     <div className="space-y-6">
@@ -690,7 +723,7 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
           type="checkbox"
           id="hasWindows"
           checked={hasWindows}
-          onChange={(e) => onChange({ windowInsert: e.target.checked ? 'STOCKTON_STANDARD' : 'NONE' })}
+          onChange={(e) => onChange({ windowInsert: e.target.checked ? defaultWindow : 'NONE' })}
           className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
         />
         <label htmlFor="hasWindows" className="text-sm font-medium text-gray-700">
@@ -703,10 +736,10 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
           {/* Window Style */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Window Insert Style
+              {isCommercial ? 'Window Type' : 'Window Insert Style'}
             </label>
             <div className="space-y-4">
-              {windowInserts && Object.entries(windowInserts).map(([style, inserts]) => (
+              {availableInserts && Object.entries(availableInserts).map(([style, inserts]) => (
                 <div key={style}>
                   <h4 className="text-sm font-medium text-gray-600 mb-2">{style}</h4>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -720,7 +753,10 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
                             : 'border-gray-300 hover:border-gray-400'
                         }`}
                       >
-                        {insert.name}
+                        <span>{insert.name}</span>
+                        {insert.sectionType && (
+                          <span className="block text-xs text-gray-400">{insert.sectionType}</span>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -960,54 +996,76 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, onNameChange, 
             <h4 className="text-sm font-medium text-blue-600 mb-2">
               Door {index + 1} {door.doorCount > 1 && `(Qty: ${door.doorCount})`}
             </h4>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div>
-                <span className="text-gray-500">Type:</span>
-                <span className="ml-2 text-gray-900 capitalize">{door.doorType}</span>
-              </div>
-              <div>
-                <span className="text-gray-500">Series:</span>
-                <span className="ml-2 text-gray-900">{getSeriesName(door.doorType, door.doorSeries)}</span>
-              </div>
-              <div>
-                <span className="text-gray-500">Size:</span>
-                <span className="ml-2 text-gray-900">
-                  {Math.floor(door.doorWidth / 12)}'{door.doorWidth % 12}" × {Math.floor(door.doorHeight / 12)}'{door.doorHeight % 12}"
-                </span>
-              </div>
-              <div>
-                <span className="text-gray-500">Color:</span>
-                <span className="ml-2 text-gray-900">{getColorName(door.doorSeries, door.panelColor)}</span>
-              </div>
-              <div>
-                <span className="text-gray-500">Design:</span>
-                <span className="ml-2 text-gray-900">{door.panelDesign || 'Not selected'}</span>
-              </div>
-              <div>
-                <span className="text-gray-500">Windows:</span>
-                <span className="ml-2 text-gray-900">
-                  {door.windowInsert !== 'NONE' ? `Yes (Section ${door.windowSection})` : 'No'}
-                </span>
-              </div>
-              <div>
-                <span className="text-gray-500">Track:</span>
-                <span className="ml-2 text-gray-900">{door.trackRadius}" / {door.trackThickness}"</span>
-              </div>
-              <div>
-                <span className="text-gray-500">Operator:</span>
-                <span className="ml-2 text-gray-900">{door.operator === 'NONE' ? 'None' : door.operator}</span>
-              </div>
-            </div>
 
-            {/* Hardware Summary */}
-            <div className="mt-3">
-              <span className="text-sm text-gray-500">Hardware: </span>
-              <span className="text-sm text-gray-700">
-                {Object.entries(door.hardware)
-                  .filter(([_, v]) => v)
-                  .map(([k]) => k.replace(/([A-Z])/g, ' $1').trim())
-                  .join(', ')}
-              </span>
+            {/* Door Preview + Details */}
+            <div className="flex flex-col md:flex-row gap-6">
+              {/* SVG Preview */}
+              <div className="flex-shrink-0">
+                <DoorPreview
+                  width={door.doorWidth}
+                  height={door.doorHeight}
+                  color={door.panelColor}
+                  panelDesign={door.panelDesign}
+                  windowInsert={door.windowInsert}
+                  windowSection={door.windowSection}
+                  doorType={door.doorType}
+                  showDimensions={true}
+                  scale={0.6}
+                />
+              </div>
+
+              {/* Details Grid */}
+              <div className="flex-grow">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-500">Type:</span>
+                    <span className="ml-2 text-gray-900 capitalize">{door.doorType}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Series:</span>
+                    <span className="ml-2 text-gray-900">{getSeriesName(door.doorType, door.doorSeries)}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Size:</span>
+                    <span className="ml-2 text-gray-900">
+                      {Math.floor(door.doorWidth / 12)}'{door.doorWidth % 12}" × {Math.floor(door.doorHeight / 12)}'{door.doorHeight % 12}"
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Color:</span>
+                    <span className="ml-2 text-gray-900">{getColorName(door.doorSeries, door.panelColor)}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Design:</span>
+                    <span className="ml-2 text-gray-900">{door.panelDesign || 'Not selected'}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Windows:</span>
+                    <span className="ml-2 text-gray-900">
+                      {door.windowInsert !== 'NONE' ? `Yes (Section ${door.windowSection})` : 'No'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Track:</span>
+                    <span className="ml-2 text-gray-900">{door.trackRadius}" / {door.trackThickness}"</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Operator:</span>
+                    <span className="ml-2 text-gray-900">{door.operator === 'NONE' ? 'None' : door.operator}</span>
+                  </div>
+                </div>
+
+                {/* Hardware Summary */}
+                <div className="mt-3">
+                  <span className="text-sm text-gray-500">Hardware: </span>
+                  <span className="text-sm text-gray-700">
+                    {Object.entries(door.hardware)
+                      .filter(([_, v]) => v)
+                      .map(([k]) => k.replace(/([A-Z])/g, ' $1').trim())
+                      .join(', ')}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         ))}
