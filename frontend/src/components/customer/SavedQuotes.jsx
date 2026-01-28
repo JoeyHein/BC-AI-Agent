@@ -199,20 +199,47 @@ function SavedQuotes() {
                   {/* Config preview */}
                   {quote.config_data && (
                     <div className="mt-2 flex flex-wrap gap-2">
-                      {quote.config_data.door_type && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
-                          {quote.config_data.door_type}
-                        </span>
-                      )}
-                      {quote.config_data.width && quote.config_data.height && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
-                          {quote.config_data.width}" x {quote.config_data.height}"
-                        </span>
-                      )}
-                      {quote.config_data.color && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
-                          {quote.config_data.color}
-                        </span>
+                      {/* New multi-door format */}
+                      {quote.config_data.doors ? (
+                        <>
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                            {quote.config_data.doors.length} door{quote.config_data.doors.length > 1 ? 's' : ''}
+                          </span>
+                          {quote.config_data.doors[0]?.doorSeries && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                              {quote.config_data.doors[0].doorSeries}
+                            </span>
+                          )}
+                          {quote.config_data.doors[0]?.doorWidth && quote.config_data.doors[0]?.doorHeight && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                              {Math.floor(quote.config_data.doors[0].doorWidth / 12)}' x {Math.floor(quote.config_data.doors[0].doorHeight / 12)}'
+                            </span>
+                          )}
+                          {quote.config_data.doors[0]?.panelColor && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                              {quote.config_data.doors[0].panelColor}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          {/* Legacy single door format */}
+                          {quote.config_data.door_type && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                              {quote.config_data.door_type}
+                            </span>
+                          )}
+                          {quote.config_data.width && quote.config_data.height && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                              {quote.config_data.width}" x {quote.config_data.height}"
+                            </span>
+                          )}
+                          {quote.config_data.color && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                              {quote.config_data.color}
+                            </span>
+                          )}
+                        </>
                       )}
                     </div>
                   )}
