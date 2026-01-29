@@ -1,0 +1,399 @@
+{
+  "summary": {
+    "hk_kits": "Complete hardware kits (HK01-HK06) - full kit with all components",
+    "hk_boxes": "Purchased hardware boxes (HK10) - residential 2-inch track",
+    "hw_boxes": "Commercial hardware boxes (HW) - 3-inch track"
+  },
+  "hk_complete_kits": {
+    "HK01": [
+      {
+        "number": "HK01-00000-AL",
+        "displayName": "COMPLETE ALUM HARDWARE KIT",
+        "unitPrice": 276.2,
+        "material": "Aluminum"
+      },
+      {
+        "number": "HK01-00000-RC",
+        "displayName": "COMPLETE STANDARD HARDWARE KIT",
+        "unitPrice": 276.17,
+        "material": "Standard/Steel"
+      }
+    ],
+    "HK02": [
+      {
+        "number": "HK02-00000-RC",
+        "displayName": "COMPLETE STANDARD HARDWARE KIT",
+        "unitPrice": 344.15,
+        "material": "Standard/Steel"
+      }
+    ],
+    "HK03": [
+      {
+        "number": "HK03-00000-AL",
+        "displayName": "COMPLETE ALUM HARDWARE KIT",
+        "unitPrice": 462.83,
+        "material": "Aluminum"
+      },
+      {
+        "number": "HK03-00000-RC",
+        "displayName": "COMPLETE STANDARD HARDWARE KIT",
+        "unitPrice": 476.78,
+        "material": "Standard/Steel"
+      }
+    ],
+    "HK04": [
+      {
+        "number": "HK04-00000-AL",
+        "displayName": "COMPLETE ALUM HARDWARE KIT",
+        "unitPrice": 887.68,
+        "material": "Aluminum"
+      },
+      {
+        "number": "HK04-00000-RC",
+        "displayName": "COMPLETE HARDWARE KIT",
+        "unitPrice": 534.92,
+        "material": "Standard/Steel"
+      }
+    ],
+    "HK05": [
+      {
+        "number": "HK05-00000-RC",
+        "displayName": "COMPLETE STANDARD HARDWARE KIT",
+        "unitPrice": 734.4,
+        "material": "Standard/Steel"
+      }
+    ],
+    "HK06": [
+      {
+        "number": "HK06-00000-AL",
+        "displayName": "COMPLETE ALUM HARDWARE KIT",
+        "unitPrice": 1166.91,
+        "material": "Aluminum"
+      },
+      {
+        "number": "HK06-00000-RC",
+        "displayName": "COMPLETE STANDARD HARDWARE KIT",
+        "unitPrice": 763.74,
+        "material": "Standard/Steel"
+      }
+    ]
+  },
+  "hk_purchased_boxes": [
+    {
+      "number": "HK10-00704-0809",
+      "displayName": "PURCHASED HARDWARE BOX, 2R 8'-10' X 7', STANDARD, 4S3HW, 4 SECTIONS",
+      "unitPrice": 110.57,
+      "height_code": "70",
+      "sections": "4",
+      "width_code": "0809",
+      "track_type": "2R (2-inch Residential)"
+    },
+    {
+      "number": "HK10-00704-1316",
+      "displayName": "PURCHASED HARDWARE BOX, 2R 12'-18' X 7', STANDARD, 4S5HW, 4 SECTIONS",
+      "unitPrice": 125.85,
+      "height_code": "70",
+      "sections": "4",
+      "width_code": "1316",
+      "track_type": "2R (2-inch Residential)"
+    },
+    {
+      "number": "HK10-00804-0809",
+      "displayName": "PURCHASED HARDWARE BOX, 2R 8'-10' X 8', STANDARD, 4S3HW, 4 SECTIONS",
+      "unitPrice": 122.12,
+      "height_code": "80",
+      "sections": "4",
+      "width_code": "0809",
+      "track_type": "2R (2-inch Residential)"
+    },
+    {
+      "number": "HK10-00804-1316",
+      "displayName": "PURCHASED HARDWARE BOX, 2R 12'-18' X 8', STANDARD, 4S5HW, 4 SECTIONS",
+      "unitPrice": 137.85,
+      "height_code": "80",
+      "sections": "4",
+      "width_code": "1316",
+      "track_type": "2R (2-inch Residential)"
+    }
+  ],
+  "hw_commercial_boxes": [
+    {
+      "number": "HW08-08000-00",
+      "displayName": "HARDWARE BOX, 08 X 08, 3\"",
+      "unitPrice": 423.12,
+      "width_ft": "08",
+      "height_ft": "08",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW08-10000-00",
+      "displayName": "HARDWARE BOX, 08 X 10, 3\"",
+      "unitPrice": 474.92,
+      "width_ft": "08",
+      "height_ft": "10",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW10-12000-00",
+      "displayName": "HARDWARE BOX, 10 X 12, 3\"",
+      "unitPrice": 518.97,
+      "width_ft": "10",
+      "height_ft": "12",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW12-10000-00",
+      "displayName": "HARDWARE BOX, 12 X 10, 3\"",
+      "unitPrice": 509.38,
+      "width_ft": "12",
+      "height_ft": "10",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW12-12000-00",
+      "displayName": "HARDWARE BOX, 12 X 12, 3\"",
+      "unitPrice": 545.97,
+      "width_ft": "12",
+      "height_ft": "12",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW12-14000-00",
+      "displayName": "HARDWARE BOX, 12 X 14, 3\"",
+      "unitPrice": 641.97,
+      "width_ft": "12",
+      "height_ft": "14",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW12-16000-00",
+      "displayName": "HARDWARE BOX, 12 X 16, 3\"",
+      "unitPrice": 1648.18,
+      "width_ft": "12",
+      "height_ft": "16",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW12-18000-00",
+      "displayName": "HARDWARE BOX, 12 X 18, 3\"",
+      "unitPrice": 815.32,
+      "width_ft": "12",
+      "height_ft": "18",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW14-10000-00",
+      "displayName": "HARDWARE BOX, 14 X 10, 3\"",
+      "unitPrice": 509.38,
+      "width_ft": "14",
+      "height_ft": "10",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW14-12000-00",
+      "displayName": "HARDWARE BOX, 14 X 12, 3\"",
+      "unitPrice": 545.97,
+      "width_ft": "14",
+      "height_ft": "12",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW14-14000-00",
+      "displayName": "HARDWARE BOX, 14 X 14, 3\"",
+      "unitPrice": 641.97,
+      "width_ft": "14",
+      "height_ft": "14",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW14-16000-00",
+      "displayName": "HARDWARE BOX, 14 X 16, 3\"",
+      "unitPrice": 1648.18,
+      "width_ft": "14",
+      "height_ft": "16",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW14-18000-00",
+      "displayName": "HARDWARE BOX, 14 X 18, 3\"",
+      "unitPrice": 815.32,
+      "width_ft": "14",
+      "height_ft": "18",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW16-08000-00",
+      "displayName": "HARDWARE BOX, 16 X 8, 3\"",
+      "unitPrice": 523.31,
+      "width_ft": "16",
+      "height_ft": "08",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW16-10000-00",
+      "displayName": "HARDWARE BOX, 16 X 10, 3\"",
+      "unitPrice": 539.23,
+      "width_ft": "16",
+      "height_ft": "10",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW16-12000-00",
+      "displayName": "HARDWARE BOX, 16 X 12, 3\"",
+      "unitPrice": 599.74,
+      "width_ft": "16",
+      "height_ft": "12",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW16-14000-00",
+      "displayName": "HARDWARE BOX, 16 X 14, 3\"",
+      "unitPrice": 689.82,
+      "width_ft": "16",
+      "height_ft": "14",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW16-16000-00",
+      "displayName": "HARDWARE BOX, 16 X 16, 3\"",
+      "unitPrice": 1700.42,
+      "width_ft": "16",
+      "height_ft": "16",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW16-18000-00",
+      "displayName": "HARDWARE BOX, 16 X 18, 3\"",
+      "unitPrice": 815.32,
+      "width_ft": "16",
+      "height_ft": "18",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW18-08000-00",
+      "displayName": "HARDWARE BOX, 18 X 8, 3\"",
+      "unitPrice": 615.11,
+      "width_ft": "18",
+      "height_ft": "08",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW18-10000-00",
+      "displayName": "HARDWARE BOX, 18 X 10, 3\"",
+      "unitPrice": 681.97,
+      "width_ft": "18",
+      "height_ft": "10",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW18-12000-00",
+      "displayName": "HARDWARE BOX, 18 X 12, 3\"",
+      "unitPrice": 779.6,
+      "width_ft": "18",
+      "height_ft": "12",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW18-14000-00",
+      "displayName": "HARDWARE BOX, 18 X 14, 3\"",
+      "unitPrice": 898.22,
+      "width_ft": "18",
+      "height_ft": "14",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW18-16000-00",
+      "displayName": "HARDWARE BOX, 18 X 16, 3\"",
+      "unitPrice": 1055.05,
+      "width_ft": "18",
+      "height_ft": "16",
+      "track_type": "3-inch (Commercial)"
+    },
+    {
+      "number": "HW18-18000-00",
+      "displayName": "HARDWARE BOX, 18 X 18, 3\"",
+      "unitPrice": 1148.86,
+      "width_ft": "18",
+      "height_ft": "18",
+      "track_type": "3-inch (Commercial)"
+    }
+  ],
+  "patterns": {
+    "HK_complete_kits": {
+      "format": "HKnn-00000-XX",
+      "nn_meaning": "Kit tier/size (01=smallest, 06=largest)",
+      "XX_codes": {
+        "AL": "Aluminum hardware",
+        "RC": "Standard/Steel (Residential-Commercial)"
+      },
+      "price_range": "$276 - $1167"
+    },
+    "HK10_purchased_boxes": {
+      "format": "HK10-0HHSS-WWWW",
+      "HH_meaning": "Door height in feet (07=7ft, 08=8ft)",
+      "SS_meaning": "Number of sections (04=4 sections)",
+      "WWWW_codes": {
+        "0809": "8-10 feet wide (narrow residential, 3 hinges per section)",
+        "1316": "12-18 feet wide (wide/double, 5 hinges per section)"
+      },
+      "track_type": "2R (2-inch Residential track)",
+      "description_codes": {
+        "4S3HW": "4 Sections, 3 Hinges Width (narrow doors)",
+        "4S5HW": "4 Sections, 5 Hinges Width (wide doors)"
+      },
+      "price_range": "$110 - $138"
+    },
+    "HW_commercial_boxes": {
+      "format": "HWww-hhhhh-00",
+      "ww_meaning": "Door width in feet (08, 10, 12, 14, 16, 18)",
+      "hhhhh_meaning": "Door height encoded (08000=8ft, 10000=10ft, etc.)",
+      "track_type": "3-inch (Commercial track)",
+      "available_widths": [
+        8,
+        10,
+        12,
+        14,
+        16,
+        18
+      ],
+      "available_heights": [
+        8,
+        10,
+        12,
+        14,
+        16,
+        18
+      ],
+      "price_range": "$423 - $1700"
+    }
+  },
+  "market_classification": {
+    "residential": {
+      "prefixes": [
+        "HK01",
+        "HK02",
+        "HK03",
+        "HK04",
+        "HK05",
+        "HK06",
+        "HK10"
+      ],
+      "track_size": "2-inch",
+      "typical_sizes": "8-18 ft wide, 7-8 ft tall",
+      "notes": "HK01-HK06 are complete kits, HK10 are purchased boxes"
+    },
+    "commercial": {
+      "prefixes": [
+        "HW08",
+        "HW10",
+        "HW12",
+        "HW14",
+        "HW16",
+        "HW18"
+      ],
+      "track_size": "3-inch",
+      "typical_sizes": "8-18 ft wide, 8-18 ft tall",
+      "notes": "Larger, heavier-duty hardware for commercial applications"
+    }
+  }
+}

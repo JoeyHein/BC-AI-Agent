@@ -1,0 +1,100 @@
+{
+  "HK01": [
+    {
+      "number": "HK01-00000-AL",
+      "displayName": "COMPLETE ALUM HARDWARE KIT",
+      "unitPrice": 276.2,
+      "unitCost": 190.3
+    },
+    {
+      "number": "HK01-00000-RC",
+      "displayName": "COMPLETE STANDARD HARDWARE KIT",
+      "unitPrice": 276.17,
+      "unitCost": 190.28
+    }
+  ],
+  "HK02": [
+    {
+      "number": "HK02-00000-RC",
+      "displayName": "COMPLETE STANDARD HARDWARE KIT",
+      "unitPrice": 344.15,
+      "unitCost": 237.12
+    }
+  ],
+  "HK03": [
+    {
+      "number": "HK03-00000-AL",
+      "displayName": "COMPLETE ALUM HARDWARE KIT",
+      "unitPrice": 462.83,
+      "unitCost": 318.89
+    },
+    {
+      "number": "HK03-00000-RC",
+      "displayName": "COMPLETE STANDARD HARDWARE KIT",
+      "unitPrice": 476.78,
+      "unitCost": 328.5
+    }
+  ],
+  "HK04": [
+    {
+      "number": "HK04-00000-AL",
+      "displayName": "COMPLETE ALUM HARDWARE KIT",
+      "unitPrice": 887.68,
+      "unitCost": 611.61
+    },
+    {
+      "number": "HK04-00000-RC",
+      "displayName": "COMPLETE HARDWARE KIT",
+      "unitPrice": 534.92,
+      "unitCost": 347.7
+    }
+  ],
+  "HK05": [
+    {
+      "number": "HK05-00000-RC",
+      "displayName": "COMPLETE STANDARD HARDWARE KIT",
+      "unitPrice": 734.4,
+      "unitCost": 506
+    }
+  ],
+  "HK06": [
+    {
+      "number": "HK06-00000-AL",
+      "displayName": "COMPLETE ALUM HARDWARE KIT",
+      "unitPrice": 1166.91,
+      "unitCost": 804
+    },
+    {
+      "number": "HK06-00000-RC",
+      "displayName": "COMPLETE STANDARD HARDWARE KIT",
+      "unitPrice": 763.74,
+      "unitCost": 496.43
+    }
+  ],
+  "HK10": [
+    {
+      "number": "HK10-00704-0809",
+      "displayName": "PURCHASED HARDWARE BOX, 2R 8'-10' X 7', STANDARD, 4S3HW, 4 SECTIONS",
+      "unitPrice": 110.57,
+      "unitCost": 69.10389
+    },
+    {
+      "number": "HK10-00704-1316",
+      "displayName": "PURCHASED HARDWARE BOX, 2R 12'-18' X 7', STANDARD, 4S5HW, 4 SECTIONS",
+      "unitPrice": 125.85,
+      "unitCost": 80.04
+    },
+    {
+      "number": "HK10-00804-0809",
+      "displayName": "PURCHASED HARDWARE BOX, 2R 8'-10' X 8', STANDARD, 4S3HW, 4 SECTIONS",
+      "unitPrice": 122.12,
+      "unitCost": 77.67
+    },
+    {
+      "number": "HK10-00804-1316",
+      "displayName": "PURCHASED HARDWARE BOX, 2R 12'-18' X 8', STANDARD, 4S5HW, 4 SECTIONS",
+      "unitPrice": 137.85,
+      "unitCost": 87.41269
+    }
+  ]
+}

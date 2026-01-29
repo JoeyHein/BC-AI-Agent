@@ -9,6 +9,8 @@ import Analytics from './components/Analytics'
 import EmailSettings from './components/EmailSettings'
 import DoorConfigurator from './components/DoorConfigurator'
 import CustomerManagement from './components/CustomerManagement'
+import ProductionCalendar from './components/ProductionCalendar'
+import OrderManagement from './components/OrderManagement'
 
 function Navigation() {
   const { user, logout, isAuthenticated } = useAuth()
@@ -95,6 +97,26 @@ function Navigation() {
               >
                 Customers
               </Link>
+              <Link
+                to="/orders"
+                className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
+                  isActive('/orders')
+                    ? 'border-indigo-500 text-gray-900'
+                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                }`}
+              >
+                Orders
+              </Link>
+              <Link
+                to="/production"
+                className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
+                  isActive('/production')
+                    ? 'border-indigo-500 text-gray-900'
+                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                }`}
+              >
+                Production
+              </Link>
             </div>
           </div>
           <div className="flex items-center">
@@ -163,6 +185,18 @@ function AppContent() {
           <Route path="/customers" element={
             <ProtectedRoute>
               <CustomerManagement />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/orders" element={
+            <ProtectedRoute>
+              <OrderManagement />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/production" element={
+            <ProtectedRoute>
+              <ProductionCalendar />
             </ProtectedRoute>
           } />
         </Routes>

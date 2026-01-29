@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     BC_CLIENT_SECRET: Optional[str] = None
     BC_ENVIRONMENT: str = "Sandbox"
     BC_COMPANY_ID: Optional[str] = None
+    BC_COMPANY_NAME: str = "Open Distribution Company Inc."  # For OData endpoints
     BC_BASE_URL: str = "https://api.businesscentral.dynamics.com/v2.0"
 
     # Microsoft Graph API
@@ -88,6 +89,13 @@ class Settings(BaseSettings):
         if not all([self.BC_TENANT_ID, self.BC_ENVIRONMENT]):
             return ""
         return f"{self.BC_BASE_URL}/{self.BC_TENANT_ID}/{self.BC_ENVIRONMENT}/api/v2.0"
+
+    @property
+    def bc_odata_url(self) -> str:
+        """Construct BC OData URL for web services"""
+        if not all([self.BC_TENANT_ID, self.BC_ENVIRONMENT]):
+            return ""
+        return f"{self.BC_BASE_URL}/{self.BC_TENANT_ID}/{self.BC_ENVIRONMENT}/ODataV4"
 
     @property
     def is_production(self) -> bool:

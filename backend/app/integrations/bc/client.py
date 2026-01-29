@@ -148,9 +148,22 @@ class BusinessCentralClient:
         return result
 
     def search_items(self, search_term: str, company_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Search items by number or description"""
+        """Search items by number (exact match)"""
         cid = company_id or self.company_id
-        filter_query = f"contains(displayName,'{search_term}') or contains(number,'{search_term}')"
+        # BC doesn't support OR on distinct fields, so search by number first
+        safe_term = search_term.replace("'", "''")
+        filter_query = f"number eq '{safe_term}'"
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/items?$filter={filter_query}"
+        )
+        return result.get("value", [])
+
+    def search_items_by_name(self, search_term: str, company_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Search items by display name (partial match)"""
+        cid = company_id or self.company_id
+        safe_term = search_term.replace("'", "''")
+        filter_query = f"contains(displayName,'{safe_term}')"
         result = self._make_request(
             "GET",
             f"companies({cid})/items?$filter={filter_query}"

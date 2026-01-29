@@ -55,13 +55,72 @@ class PipelineStats(BaseModel):
 
 # ==================== Order Management ====================
 
-@router.get("", response_model=List[OrderResponse])
+@router.get("")
 async def list_orders(
+    status: Optional[str] = Query(None, description="Filter by status"),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db)
+):
+    """
+    List all sales orders from Business Central (source of truth).
+
+    BC is the primary data source - we read directly from BC API.
+    """
+    try:
+        # Get orders directly from BC
+        bc_orders = bc_client.get_sales_orders(top=limit, status_filter=status)
+
+        return {
+            "count": len(bc_orders),
+            "source": "bc",
+            "orders": [
+                {
+                    "id": o.get("id"),
+                    "order_number": o.get("number"),
+                    "bc_order_number": o.get("number"),
+                    "customer_id": o.get("customerId"),
+                    "customer_name": o.get("customerName"),
+                    "status": o.get("status", "Open"),
+                    "total_amount": o.get("totalAmountIncludingTax", 0),
+                    "order_date": o.get("orderDate"),
+                    "requested_delivery_date": o.get("requestedDeliveryDate"),
+                    "external_document_number": o.get("externalDocumentNumber"),
+                    "shipment_method": o.get("shipmentMethodCode"),
+                    "salesperson": o.get("salesperson"),
+                }
+                for o in bc_orders
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error fetching orders from BC: {e}")
+        # Fallback to local DB if BC unavailable
+        logger.warning("Falling back to local database")
+        orders = order_lifecycle_service.get_sales_orders(db, status=None, limit=limit)
+        return {
+            "count": len(orders),
+            "source": "local_fallback",
+            "orders": [
+                {
+                    "id": o.id,
+                    "order_number": o.bc_order_number,
+                    "bc_order_number": o.bc_order_number,
+                    "customer_name": o.customer_name,
+                    "status": o.status.value if o.status else "unknown",
+                    "total_amount": o.total_amount,
+                    "order_date": o.created_at.isoformat() if o.created_at else None,
+                }
+                for o in orders
+            ]
+        }
+
+
+@router.get("/legacy", response_model=List[OrderResponse])
+async def list_orders_legacy(
     status: Optional[str] = Query(None, description="Filter by status"),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db)
 ):
-    """List all sales orders with optional filtering"""
+    """Legacy endpoint - reads from local database. Use GET /api/orders for BC data."""
     status_enum = None
     if status:
         try:
@@ -614,6 +673,41 @@ async def list_bc_shipments(
             ]
         }
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/bc/quotes/{quote_id}/convert-to-order")
+async def convert_bc_quote_to_order(quote_id: str):
+    """
+    Convert a BC sales quote directly to a sales order.
+
+    Uses BC's makeOrder bound action to create the order.
+    The quote will be archived/deleted in BC after conversion.
+
+    Args:
+        quote_id: The BC quote GUID (from /bc/quotes endpoint)
+
+    Returns:
+        The newly created sales order details
+    """
+    try:
+        # Call BC's makeOrder action
+        result = bc_client.convert_quote_to_order(quote_id)
+
+        return {
+            "success": True,
+            "message": f"Quote converted to order {result.get('number', 'N/A')}",
+            "order": {
+                "id": result.get("id"),
+                "number": result.get("number"),
+                "customerName": result.get("customerName"),
+                "status": result.get("status"),
+                "totalAmountIncludingTax": result.get("totalAmountIncludingTax"),
+                "orderDate": result.get("orderDate")
+            }
+        }
+    except Exception as e:
+        logger.error(f"Failed to convert BC quote to order: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
