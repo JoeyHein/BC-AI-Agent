@@ -405,17 +405,148 @@ class BCProductionService:
         Finish a production order (mark as completed).
 
         This updates inventory with produced quantity.
+        Uses the BC OData bound action Microsoft.NAV.finish
         """
         if not self._check_api_available():
+            logger.warning(f"Cannot finish production order {order_no} - API not available")
             return False
 
         try:
-            # TODO: Implement when API available
-            # This typically uses a bound action: Microsoft.NAV.finish
-            return False
+            # Build the URL for the finish action
+            # POST /companies({companyId})/releasedProductionOrders(No='{order_no}')/Microsoft.NAV.finish
+            encoded_company = urllib.parse.quote(self.company_name)
+            url = f"{self.odata_base}/Company('{encoded_company}')/ReleasedProductionOrders(No='{order_no}')/Microsoft.NAV.finish"
+
+            token = self.client._get_access_token()
+            if not token:
+                logger.error("No access token available for finish action")
+                return False
+
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+                "Content-Type": "application/json"
+            }
+
+            response = requests.post(url, headers=headers, timeout=30)
+
+            if response.status_code in [200, 204]:
+                logger.info(f"Successfully finished production order {order_no}")
+                return True
+            elif response.status_code == 404:
+                logger.warning(f"Production order not found: {order_no}")
+                return False
+            else:
+                logger.error(f"Failed to finish production order {order_no}: {response.status_code} - {response.text[:200]}")
+                return False
+
         except Exception as e:
             logger.error(f"Error finishing production order {order_no}: {e}")
             return False
+
+    async def ship_sales_order(self, sales_order_id: str) -> Dict[str, Any]:
+        """
+        Ship a sales order in BC.
+
+        Uses the BC OData bound action Microsoft.NAV.ship
+        Returns shipment details including the shipment number.
+        """
+        if not self._check_api_available():
+            logger.warning(f"Cannot ship sales order {sales_order_id} - API not available")
+            return {"success": False, "error": "API not available"}
+
+        try:
+            # Build the URL for the ship action
+            # POST /companies({companyId})/salesOrders({id})/Microsoft.NAV.ship
+            encoded_company = urllib.parse.quote(self.company_name)
+            url = f"{self.odata_base}/Company('{encoded_company}')/salesOrders({sales_order_id})/Microsoft.NAV.ship"
+
+            token = self.client._get_access_token()
+            if not token:
+                logger.error("No access token available for ship action")
+                return {"success": False, "error": "No access token"}
+
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+                "Content-Type": "application/json"
+            }
+
+            response = requests.post(url, headers=headers, timeout=30)
+
+            if response.status_code in [200, 201, 204]:
+                result = response.json() if response.text else {}
+                shipment_number = result.get("number", result.get("shipmentNumber", f"SS-{sales_order_id}"))
+                logger.info(f"Successfully shipped sales order {sales_order_id}, shipment: {shipment_number}")
+                return {
+                    "success": True,
+                    "shipmentNumber": shipment_number,
+                    "data": result
+                }
+            elif response.status_code == 404:
+                logger.warning(f"Sales order not found: {sales_order_id}")
+                return {"success": False, "error": "Sales order not found"}
+            else:
+                logger.error(f"Failed to ship sales order {sales_order_id}: {response.status_code} - {response.text[:200]}")
+                return {"success": False, "error": f"BC API error: {response.status_code}"}
+
+        except Exception as e:
+            logger.error(f"Error shipping sales order {sales_order_id}: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def get_components_with_availability(
+        self,
+        prod_order_no: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Get production order components with inventory availability.
+
+        Combines component data with current inventory levels.
+        """
+        components = await self.get_production_order_components(prod_order_no=prod_order_no)
+
+        for comp in components:
+            item_no = comp.get("itemNo", "")
+            if item_no:
+                # Get inventory for this item
+                inventory = await self._get_item_inventory(item_no)
+                comp["inventoryAvailable"] = inventory.get("available", 0)
+                comp["inventoryNeeded"] = comp.get("quantityPer", 0)
+
+                # Calculate availability status
+                available = comp["inventoryAvailable"]
+                needed = comp["inventoryNeeded"]
+                if available >= needed:
+                    comp["availabilityStatus"] = "sufficient"
+                elif available > 0:
+                    comp["availabilityStatus"] = "partial"
+                else:
+                    comp["availabilityStatus"] = "unavailable"
+            else:
+                comp["inventoryAvailable"] = 0
+                comp["availabilityStatus"] = "unknown"
+
+        return components
+
+    async def _get_item_inventory(self, item_no: str) -> Dict[str, Any]:
+        """Get inventory level for a specific item from BC."""
+        try:
+            # Query items endpoint for inventory
+            encoded_company = urllib.parse.quote(self.company_name)
+            url = f"{self.odata_base}/Company('{encoded_company}')/items"
+            query_params = {"$filter": f"number eq '{item_no}'", "$select": "number,inventory"}
+
+            response = self._make_odata_request("items", query_params=query_params)
+
+            if response and "value" in response and len(response["value"]) > 0:
+                item = response["value"][0]
+                return {"available": float(item.get("inventory", 0))}
+
+            return {"available": 0}
+
+        except Exception as e:
+            logger.error(f"Error getting inventory for {item_no}: {e}")
+            return {"available": 0}
 
     # ==================== Scheduling ====================
 

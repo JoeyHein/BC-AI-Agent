@@ -265,6 +265,82 @@ export const productionApi = {
   // Get lead times
   getLeadTimes: () =>
     apiClient.get('/production/schedule/lead-times'),
+
+  // ==================== Task Completion API ====================
+
+  // Get tasks by date (for shop floor view)
+  getTasksByDate: (date, includeMaterials = true) =>
+    apiClient.get(`/production/tasks/by-date/${date}`, {
+      params: { include_materials: includeMaterials }
+    }),
+
+  // Get tasks for a specific production order
+  getTasksByOrder: (productionOrderId) =>
+    apiClient.get(`/production/tasks/order/${productionOrderId}`),
+
+  // Mark a task as complete
+  completeTask: (taskId, userId = null, quantityCompleted = null) =>
+    apiClient.post('/production/tasks/complete', {
+      taskId,
+      userId,
+      quantityCompleted
+    }),
+
+  // Ship a completed order
+  shipOrder: (productionOrderId, userId = null) =>
+    apiClient.post(`/production/tasks/order/${productionOrderId}/ship`, {
+      userId
+    }),
+
+  // Get order components with material availability
+  getComponentsWithAvailability: (productionOrderId, orderNo) =>
+    apiClient.get(`/production/tasks/order/${productionOrderId}/components`, {
+      params: { order_no: orderNo }
+    }),
+
+  // Get daily summary for dashboard
+  getDailySummary: (date) =>
+    apiClient.get(`/production/tasks/summary/${date}`),
+
+  // ==================== Scheduling API ====================
+
+  // Get all open sales orders with work orders for the side panel
+  getOpenOrders: () =>
+    apiClient.get('/production/tasks/open-orders'),
+
+  // Get unscheduled orders for the side panel (legacy)
+  getUnscheduledOrders: () =>
+    apiClient.get('/production/tasks/unscheduled'),
+
+  // Schedule a sales order to a specific date (drag & drop)
+  scheduleOrder: (salesOrderId, scheduledDate) =>
+    apiClient.post('/production/tasks/schedule', {
+      salesOrderId,
+      scheduledDate
+    }),
+
+  // Schedule a single production order (for orphan orders)
+  scheduleProductionOrder: (productionOrderId, scheduledDate) =>
+    apiClient.post('/production/tasks/schedule-production-order', null, {
+      params: { productionOrderId, scheduledDate }
+    }),
+
+  // Remove an order from the schedule
+  unscheduleOrder: (salesOrderId) =>
+    apiClient.delete(`/production/tasks/unschedule/${salesOrderId}`),
+
+  // ==================== Work Order Linking API ====================
+
+  // Link a work order to a sales order
+  linkWorkOrder: (workOrderId, salesOrderId) =>
+    apiClient.post('/production/tasks/link-work-order', {
+      workOrderId,
+      salesOrderId
+    }),
+
+  // Unlink a work order from its sales order
+  unlinkWorkOrder: (workOrderId) =>
+    apiClient.post(`/production/tasks/unlink-work-order/${workOrderId}`),
 };
 
 // Inventory API

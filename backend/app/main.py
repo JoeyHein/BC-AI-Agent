@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 
 # Import API routers
 from app.api import feedback, auth, email_connections, email_feedback, quotes, orders, analytics, door_configurator
-from app.api import customer_auth, customer_portal, admin_customers, inventory, production
+from app.api import customer_auth, customer_portal, admin_customers, inventory, production, production_tasks
 
 # Import services
 from app.services.scheduler_service import get_scheduler
@@ -121,6 +121,10 @@ app.include_router(inventory.router)
 # Production Management router
 logger.info(f"Including production router: {production.router.prefix}")
 app.include_router(production.router)
+
+# Production Tasks router (task completion for shop floor)
+logger.info(f"Including production_tasks router: {production_tasks.router.prefix}")
+app.include_router(production_tasks.router)
 
 logger.info(f"Total routes after including routers: {len(app.routes)}")
 

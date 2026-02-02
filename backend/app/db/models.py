@@ -566,6 +566,7 @@ class SalesOrder(Base):
 
     # Relationships
     quote_request = relationship("QuoteRequest", foreign_keys=[quote_request_id])
+    line_items = relationship("SalesOrderLineItem", back_populates="sales_order", cascade="all, delete-orphan")
     production_orders = relationship("ProductionOrder", back_populates="sales_order", cascade="all, delete-orphan")
     shipments = relationship("Shipment", back_populates="sales_order", cascade="all, delete-orphan")
     invoices = relationship("Invoice", back_populates="sales_order", cascade="all, delete-orphan")
@@ -574,12 +575,62 @@ class SalesOrder(Base):
         return f"<SalesOrder(id={self.id}, bc_number={self.bc_order_number}, status={self.status.value})>"
 
 
+class SalesOrderLineItem(Base):
+    """Line items within a sales order - synced from BC"""
+    __tablename__ = "sales_order_line_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sales_order_id = Column(Integer, ForeignKey("sales_orders.id"), nullable=False, index=True)
+
+    # BC Integration
+    bc_line_no = Column(Integer, nullable=False)  # BC line number (10000, 20000, etc.)
+    bc_document_no = Column(String(50), index=True)  # BC sales order number
+
+    # Line item details
+    item_no = Column(String(100), index=True)  # BC item number
+    description = Column(Text)
+    quantity = Column(Float, default=1)
+    unit_of_measure = Column(String(20))
+    unit_price = Column(Numeric(12, 2))
+    line_amount = Column(Numeric(12, 2))
+
+    # Type indicator
+    line_type = Column(String(20))  # 'Item', 'Resource', 'G/L Account', etc.
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_synced_at = Column(DateTime)
+
+    # Relationships
+    sales_order = relationship("SalesOrder", back_populates="line_items")
+    production_orders = relationship("ProductionOrder", back_populates="line_item")
+
+    def __repr__(self):
+        return f"<SalesOrderLineItem(id={self.id}, item_no={self.item_no}, qty={self.quantity})>"
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "salesOrderId": self.sales_order_id,
+            "bcLineNo": self.bc_line_no,
+            "bcDocumentNo": self.bc_document_no,
+            "itemNo": self.item_no,
+            "description": self.description,
+            "quantity": self.quantity,
+            "unitOfMeasure": self.unit_of_measure,
+            "unitPrice": float(self.unit_price) if self.unit_price else None,
+            "lineAmount": float(self.line_amount) if self.line_amount else None,
+            "lineType": self.line_type,
+        }
+
+
 class ProductionOrder(Base):
     """Production orders - created from sales order line items"""
     __tablename__ = "production_orders"
 
     id = Column(Integer, primary_key=True, index=True)
-    sales_order_id = Column(Integer, ForeignKey("sales_orders.id"), nullable=False, index=True)
+    sales_order_id = Column(Integer, ForeignKey("sales_orders.id"), nullable=True, index=True)  # Nullable for orphan BC orders
+    line_item_id = Column(Integer, ForeignKey("sales_order_line_items.id"), nullable=True, index=True)  # Link to source line item
 
     # BC Integration
     bc_prod_order_id = Column(String(100), unique=True, index=True)
@@ -619,6 +670,7 @@ class ProductionOrder(Base):
 
     # Relationships
     sales_order = relationship("SalesOrder", back_populates="production_orders")
+    line_item = relationship("SalesOrderLineItem", back_populates="production_orders")
 
     def __repr__(self):
         return f"<ProductionOrder(id={self.id}, bc_number={self.bc_prod_order_number}, status={self.status.value})>"
@@ -735,3 +787,78 @@ class SavedQuoteConfig(Base):
 
     def __repr__(self):
         return f"<SavedQuoteConfig(id={self.id}, name={self.name}, submitted={self.is_submitted})>"
+
+
+# ============================================================================
+# PRODUCTION TASK COMPLETION MODELS
+# ============================================================================
+
+class TaskCompletionStatus(enum.Enum):
+    """Task completion status states"""
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    BLOCKED = "blocked"
+
+
+class ProductionTask(Base):
+    """Production tasks - line items within production orders for shop floor tracking"""
+    __tablename__ = "production_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    production_order_id = Column(Integer, ForeignKey("production_orders.id"), nullable=True, index=True)
+
+    # BC Reference
+    bc_prod_order_no = Column(String(50), index=True)
+    bc_line_no = Column(Integer)
+
+    # Item details
+    item_no = Column(String(100), index=True)
+    description = Column(Text)
+    quantity_required = Column(Float, default=1)
+    quantity_completed = Column(Float, default=0)
+    unit_of_measure = Column(String(20))
+
+    # Material availability (display only - no BC reservation)
+    material_available = Column(Float, default=0)
+    material_needed = Column(Float, default=0)
+
+    # Status tracking
+    status = Column(SQLEnum(TaskCompletionStatus), default=TaskCompletionStatus.PENDING, index=True)
+    scheduled_date = Column(DateTime, index=True)
+    completed_at = Column(DateTime)
+    completed_by = Column(String(50))  # User ID who completed the task
+
+    # BC sync tracking
+    bc_synced = Column(Boolean, default=False)
+    bc_sync_error = Column(Text)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+
+    # Relationships
+    production_order = relationship("ProductionOrder", foreign_keys=[production_order_id])
+
+    def __repr__(self):
+        return f"<ProductionTask(id={self.id}, item={self.item_no}, status={self.status.value})>"
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "productionOrderId": self.production_order_id,
+            "bcProdOrderNo": self.bc_prod_order_no,
+            "bcLineNo": self.bc_line_no,
+            "itemNo": self.item_no,
+            "description": self.description,
+            "quantityRequired": self.quantity_required,
+            "quantityCompleted": self.quantity_completed,
+            "unitOfMeasure": self.unit_of_measure,
+            "materialAvailable": self.material_available,
+            "materialNeeded": self.material_needed,
+            "status": self.status.value,
+            "scheduledDate": self.scheduled_date.isoformat() if self.scheduled_date else None,
+            "completedAt": self.completed_at.isoformat() if self.completed_at else None,
+            "completedBy": self.completed_by,
+            "bcSynced": self.bc_synced,
+        }
