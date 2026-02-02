@@ -534,12 +534,15 @@ class SalesOrder(Base):
     quote_request_id = Column(Integer, ForeignKey("quote_requests.id"), index=True)
 
     # BC Integration
-    bc_order_id = Column(String(100), unique=True, index=True)  # BC sales order GUID
+    bc_id = Column(String(100), index=True)  # BC order GUID (id field from API)
+    bc_order_id = Column(String(100), unique=True, index=True)  # Legacy - BC sales order GUID
     bc_order_number = Column(String(50), index=True)  # e.g., "SO-001234"
     bc_quote_number = Column(String(50))  # Source quote reference
 
     # Customer
-    customer_id = Column(String(100))  # BC customer ID
+    customer_id = Column(String(100))  # BC customer ID (legacy)
+    bc_customer_id = Column(String(100), index=True)  # BC customer GUID
+    customer_number = Column(String(50))  # BC customer number (e.g., "C00123")
     customer_name = Column(String(255))
     customer_email = Column(String(255))
 
@@ -547,6 +550,14 @@ class SalesOrder(Base):
     status = Column(SQLEnum(OrderStatus), default=OrderStatus.PENDING, index=True)
     total_amount = Column(Numeric(12, 2))
     currency = Column(String(10), default="CAD")
+
+    # Dates
+    order_date = Column(DateTime)  # BC order date
+    requested_delivery_date = Column(DateTime)  # Requested delivery
+
+    # Addresses
+    shipping_address = Column(Text)  # Full shipping address
+    billing_address = Column(Text)  # Full billing address
 
     # External reference for tracking
     external_document_number = Column(String(100))  # AI-QR-xxx for AI-generated orders

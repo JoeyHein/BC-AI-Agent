@@ -528,10 +528,10 @@ async def get_open_sales_orders(
     db: Session = Depends(get_db)
 ):
     """
-    Get all open sales orders with their work orders (production orders).
+    Get all open sales orders with their line items and work orders (production orders).
 
     Returns all sales orders that are not completed/cancelled, with expandable
-    work orders inside. Used for the scheduling side panel.
+    line items and work orders inside. Used for the scheduling side panel.
     """
     try:
         from app.db.models import OrderStatus
@@ -543,7 +543,49 @@ async def get_open_sales_orders(
 
         result = []
         for so in sales_orders:
-            # Get production orders (work orders) for this sales order
+            # Get line items for this sales order
+            line_items_data = []
+            line_items = db.query(SalesOrderLineItem).filter(
+                SalesOrderLineItem.sales_order_id == so.id
+            ).order_by(SalesOrderLineItem.bc_line_no).all()
+
+            for line in line_items:
+                # Get production orders linked to this specific line item
+                linked_prod_orders = db.query(ProductionOrder).filter(
+                    ProductionOrder.line_item_id == line.id
+                ).all()
+
+                linked_work_orders = []
+                for po in linked_prod_orders:
+                    tasks = db.query(ProductionTask).filter(
+                        ProductionTask.production_order_id == po.id
+                    ).all()
+                    po_total = len(tasks)
+                    po_completed = sum(1 for t in tasks if t.status.value == "completed")
+
+                    linked_work_orders.append({
+                        "id": po.id,
+                        "bcProdOrderNumber": po.bc_prod_order_number,
+                        "quantity": po.quantity,
+                        "status": po.status.value if po.status else "unknown",
+                        "taskCount": po_total,
+                        "completedTasks": po_completed
+                    })
+
+                line_items_data.append({
+                    "id": line.id,
+                    "bcLineNo": line.bc_line_no,
+                    "lineType": line.line_type or "Item",
+                    "itemNo": line.item_no,
+                    "description": line.description,
+                    "quantity": line.quantity,
+                    "unitPrice": float(line.unit_price) if line.unit_price else 0,
+                    "lineAmount": float(line.line_amount) if line.line_amount else 0,
+                    "linkedWorkOrders": linked_work_orders,
+                    "hasLinkedWorkOrder": len(linked_work_orders) > 0
+                })
+
+            # Get all production orders (work orders) for this sales order
             prod_orders = db.query(ProductionOrder).filter(
                 ProductionOrder.sales_order_id == so.id
             ).all()
@@ -575,6 +617,7 @@ async def get_open_sales_orders(
                     "quantity": po.quantity,
                     "status": po.status.value if po.status else "unknown",
                     "dueDate": po.due_date.isoformat() if po.due_date else None,
+                    "lineItemId": po.line_item_id,
                     "taskCount": po_total,
                     "completedTasks": po_completed,
                     "scheduledTasks": po_scheduled,
@@ -588,10 +631,14 @@ async def get_open_sales_orders(
                 "id": so.id,
                 "bcOrderNumber": so.bc_order_number,
                 "customerName": so.customer_name,
+                "customerNumber": so.customer_number,
                 "customerEmail": so.customer_email,
                 "totalAmount": float(so.total_amount) if so.total_amount else None,
                 "status": so.status.value if so.status else "unknown",
+                "orderDate": so.order_date.isoformat() if so.order_date else None,
                 "createdAt": so.created_at.isoformat() if so.created_at else None,
+                "lineItems": line_items_data,
+                "lineItemCount": len(line_items_data),
                 "workOrders": work_orders,
                 "workOrderCount": len(work_orders),
                 "totalTasks": total_tasks,
@@ -618,10 +665,14 @@ async def get_open_sales_orders(
                 "id": None,
                 "bcOrderNumber": po.bc_prod_order_number,  # Just the WO number
                 "customerName": po.item_description[:50] if po.item_description else "Work Order",  # Show item desc as "customer"
+                "customerNumber": None,
                 "customerEmail": None,
                 "totalAmount": None,
-                "status": "unknown",
+                "status": "orphan",
+                "orderDate": None,
                 "createdAt": po.created_at.isoformat() if po.created_at else None,
+                "lineItems": [],
+                "lineItemCount": 0,
                 "workOrders": [{
                     "id": po.id,
                     "bcProdOrderNumber": po.bc_prod_order_number,
@@ -630,6 +681,7 @@ async def get_open_sales_orders(
                     "quantity": po.quantity,
                     "status": po.status.value if po.status else "unknown",
                     "dueDate": po.due_date.isoformat() if po.due_date else None,
+                    "lineItemId": None,
                     "taskCount": po_total,
                     "completedTasks": po_completed,
                     "scheduledTasks": po_scheduled,
@@ -1006,4 +1058,115 @@ async def unlink_work_order_from_sales_order(
         raise
     except Exception as e:
         db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== BC Sync Endpoints ====================
+
+@router.post("/sync/full")
+async def sync_all_bc_data(
+    order_limit: int = Query(default=200, description="Max orders to sync"),
+    db: Session = Depends(get_db)
+):
+    """
+    Perform a full sync of BC data:
+    1. Sync all sales orders with line items
+    2. Sync all production orders
+    3. Auto-link production orders to sales order lines by item number
+    """
+    from app.services.bc_sync_service import bc_sync_service
+
+    try:
+        results = await bc_sync_service.full_sync(db=db, order_limit=order_limit)
+
+        return {
+            "success": True,
+            "results": results,
+            "message": f"Sync complete in {results['total_time_seconds']}s"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/sync/sales-orders")
+async def sync_sales_orders(
+    order_numbers: Optional[List[str]] = Query(default=None, description="Specific order numbers to sync"),
+    sync_all: bool = Query(default=False, description="Sync all open orders"),
+    limit: int = Query(default=100, description="Max orders to sync"),
+    db: Session = Depends(get_db)
+):
+    """
+    Sync sales orders and their line items from BC.
+
+    Either provide specific order numbers or set sync_all=true.
+    """
+    from app.services.bc_sync_service import bc_sync_service
+
+    if not order_numbers and not sync_all:
+        raise HTTPException(
+            status_code=400,
+            detail="Either provide order_numbers or set sync_all=true"
+        )
+
+    try:
+        results = await bc_sync_service.sync_sales_orders_with_lines(
+            db=db,
+            order_numbers=order_numbers,
+            sync_all=sync_all,
+            limit=limit
+        )
+
+        return {
+            "success": True,
+            "results": results,
+            "message": f"Synced {results['orders_synced']} orders, {results['lines_synced']} lines"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/sync/production-orders")
+async def sync_production_orders_endpoint(
+    limit: int = Query(default=100, description="Max orders to sync"),
+    db: Session = Depends(get_db)
+):
+    """
+    Sync production orders from BC.
+    """
+    from app.services.bc_sync_service import bc_sync_service
+
+    try:
+        results = await bc_sync_service.sync_production_orders(db=db, limit=limit)
+
+        return {
+            "success": True,
+            "results": results,
+            "message": f"Synced {results['orders_synced']} production orders"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/sync/auto-link")
+async def auto_link_production_orders_endpoint(
+    db: Session = Depends(get_db)
+):
+    """
+    Attempt to auto-link production orders to sales order lines by matching item numbers.
+    """
+    from app.services.bc_sync_service import bc_sync_service
+
+    try:
+        results = await bc_sync_service.auto_link_production_orders(db=db)
+
+        return {
+            "success": True,
+            "results": results,
+            "message": f"Linked {results['linked']} orders, {results['no_match']} no match, {results['multiple_matches']} multiple matches"
+        }
+
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

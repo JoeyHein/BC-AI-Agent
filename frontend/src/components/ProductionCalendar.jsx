@@ -534,6 +534,8 @@ function OpenOrdersPanel({ orders, isLoading, onDragStart, onDragEnd }) {
                           </div>
                         </div>
                         <div className="flex items-center mt-1 ml-6 text-xs text-gray-500">
+                          <span>{order.lineItemCount || 0} line{order.lineItemCount !== 1 ? 's' : ''}</span>
+                          <span className="mx-1">•</span>
                           <span>{order.workOrderCount} WO{order.workOrderCount !== 1 ? 's' : ''}</span>
                           <span className="mx-1">•</span>
                           <span>{order.completedTasks}/{order.totalTasks} tasks</span>
@@ -542,60 +544,128 @@ function OpenOrdersPanel({ orders, isLoading, onDragStart, onDragEnd }) {
                     </div>
                   </div>
 
-                  {/* Work Orders - Expanded */}
-                  {isExpanded && order.workOrders && order.workOrders.length > 0 && (
-                    <div className="border-t border-gray-200 bg-white divide-y divide-gray-100">
-                      {order.workOrders.map((wo, woIdx) => {
-                        const woStatus = wo.isFullyScheduled ? 'green' : wo.scheduledTasks > 0 ? 'yellow' : 'red'
-                        const isOrphan = !order.id // This is an orphan work order
-                        return (
-                          <div
-                            key={wo.id || woIdx}
-                            draggable={true}
-                            onDragStart={(e) => handleWorkOrderDragStart(e, wo, order)}
-                            onDragEnd={handleWorkOrderDragEnd}
-                            className={`px-4 py-2 hover:bg-gray-50 cursor-grab active:cursor-grabbing ${
-                              isOrphan ? 'bg-yellow-50' : ''
-                            }`}
-                            title={isOrphan ? 'Drag to link to a sales order' : 'Drag to move to another sales order'}
-                          >
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center flex-1 min-w-0">
-                                {/* Drag handle */}
-                                <svg className="w-4 h-4 text-gray-300 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                                  <path d="M7 2a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 2zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 14zm6-8a2 2 0 1 0-.001-4.001A2 2 0 0 0 13 6zm0 2a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 14z"/>
-                                </svg>
-                                <svg className="w-4 h-4 text-indigo-500 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                                </svg>
-                                <div className="min-w-0">
-                                  <div className="font-medium text-gray-800 text-sm truncate">
-                                    {wo.bcProdOrderNumber || `WO-${wo.id}`}
+                  {/* Line Items - Expanded */}
+                  {isExpanded && order.lineItems && order.lineItems.length > 0 && (
+                    <div className="border-t border-gray-200 bg-white">
+                      <div className="px-3 py-1 bg-gray-100 text-xs font-medium text-gray-600 border-b">
+                        Line Items ({order.lineItems.length})
+                      </div>
+                      <div className="divide-y divide-gray-100 max-h-64 overflow-y-auto">
+                        {order.lineItems.map((line, lineIdx) => {
+                          const isComment = line.lineType === 'Comment'
+                          const hasWorkOrder = line.hasLinkedWorkOrder
+
+                          return (
+                            <div
+                              key={line.id || lineIdx}
+                              className={`px-3 py-2 text-sm ${isComment ? 'bg-gray-50 italic' : ''}`}
+                            >
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center">
+                                    {isComment ? (
+                                      <svg className="w-3 h-3 text-gray-400 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                                      </svg>
+                                    ) : (
+                                      <svg className="w-3 h-3 text-blue-500 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                                      </svg>
+                                    )}
+                                    <span className={`truncate ${isComment ? 'text-gray-500' : 'text-gray-700'}`}>
+                                      {line.description || line.itemNo || '(No description)'}
+                                    </span>
                                   </div>
-                                  <div className="text-xs text-gray-500 truncate">
-                                    {wo.itemCode} - {wo.itemDescription || 'Item'}
-                                  </div>
+                                  {!isComment && line.itemNo && (
+                                    <div className="ml-5 text-xs text-gray-500">
+                                      {line.itemNo} • Qty: {line.quantity}
+                                    </div>
+                                  )}
                                 </div>
+                                {hasWorkOrder && (
+                                  <span className="ml-2 px-1.5 py-0.5 text-xs bg-green-100 text-green-700 rounded flex-shrink-0">
+                                    WO
+                                  </span>
+                                )}
                               </div>
-                              <div className="flex items-center space-x-2 ml-2">
-                                <span className="text-xs text-gray-500">
-                                  {wo.completedTasks}/{wo.taskCount}
-                                </span>
-                                <span className={`w-2 h-2 rounded-full ${
-                                  woStatus === 'green' ? 'bg-green-500' :
-                                  woStatus === 'yellow' ? 'bg-yellow-500' : 'bg-red-500'
-                                }`}></span>
-                              </div>
+                              {/* Show linked work orders */}
+                              {line.linkedWorkOrders && line.linkedWorkOrders.length > 0 && (
+                                <div className="ml-5 mt-1 space-y-1">
+                                  {line.linkedWorkOrders.map((wo, woIdx) => (
+                                    <div key={woIdx} className="flex items-center text-xs text-indigo-600 bg-indigo-50 px-2 py-1 rounded">
+                                      <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                                      </svg>
+                                      {wo.bcProdOrderNumber} ({wo.completedTasks}/{wo.taskCount})
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
-                          </div>
-                        )
-                      })}
+                          )
+                        })}
+                      </div>
                     </div>
                   )}
 
-                  {isExpanded && (!order.workOrders || order.workOrders.length === 0) && (
+                  {/* Unlinked Work Orders - Expanded (orphans or WOs not linked to specific lines) */}
+                  {isExpanded && order.workOrders && order.workOrders.filter(wo => !wo.lineItemId).length > 0 && (
+                    <div className="border-t border-gray-200 bg-white">
+                      <div className="px-3 py-1 bg-yellow-100 text-xs font-medium text-yellow-700 border-b">
+                        Unlinked Work Orders ({order.workOrders.filter(wo => !wo.lineItemId).length})
+                      </div>
+                      <div className="divide-y divide-gray-100">
+                        {order.workOrders.filter(wo => !wo.lineItemId).map((wo, woIdx) => {
+                          const woStatus = wo.isFullyScheduled ? 'green' : wo.scheduledTasks > 0 ? 'yellow' : 'red'
+                          const isOrphan = !order.id
+                          return (
+                            <div
+                              key={wo.id || woIdx}
+                              draggable={true}
+                              onDragStart={(e) => handleWorkOrderDragStart(e, wo, order)}
+                              onDragEnd={handleWorkOrderDragEnd}
+                              className={`px-4 py-2 hover:bg-gray-50 cursor-grab active:cursor-grabbing ${
+                                isOrphan ? 'bg-yellow-50' : ''
+                              }`}
+                              title={isOrphan ? 'Drag to link to a sales order' : 'Drag to move to another sales order'}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center flex-1 min-w-0">
+                                  <svg className="w-4 h-4 text-gray-300 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M7 2a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 2zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 14zm6-8a2 2 0 1 0-.001-4.001A2 2 0 0 0 13 6zm0 2a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 14z"/>
+                                  </svg>
+                                  <svg className="w-4 h-4 text-indigo-500 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                                  </svg>
+                                  <div className="min-w-0">
+                                    <div className="font-medium text-gray-800 text-sm truncate">
+                                      {wo.bcProdOrderNumber || `WO-${wo.id}`}
+                                    </div>
+                                    <div className="text-xs text-gray-500 truncate">
+                                      {wo.itemCode} - {wo.itemDescription || 'Item'}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center space-x-2 ml-2">
+                                  <span className="text-xs text-gray-500">
+                                    {wo.completedTasks}/{wo.taskCount}
+                                  </span>
+                                  <span className={`w-2 h-2 rounded-full ${
+                                    woStatus === 'green' ? 'bg-green-500' :
+                                    woStatus === 'yellow' ? 'bg-yellow-500' : 'bg-red-500'
+                                  }`}></span>
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {isExpanded && (!order.lineItems || order.lineItems.length === 0) && (!order.workOrders || order.workOrders.length === 0) && (
                     <div className="px-4 py-3 text-center text-sm text-gray-500 bg-gray-50">
-                      No work orders
+                      No line items or work orders
                     </div>
                   )}
                 </div>
