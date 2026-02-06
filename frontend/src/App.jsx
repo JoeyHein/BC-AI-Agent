@@ -11,6 +11,7 @@ import DoorConfigurator from './components/DoorConfigurator'
 import CustomerManagement from './components/CustomerManagement'
 import ProductionCalendar from './components/ProductionCalendar'
 import OrderManagement from './components/OrderManagement'
+import ChatBox from './components/Chat/ChatBox'
 
 function Navigation() {
   const { user, logout, isAuthenticated } = useAuth()
@@ -137,6 +138,16 @@ function Navigation() {
 }
 
 function AppContent() {
+  const { isAuthenticated } = useAuth()
+
+  // Handler for when chat actions are taken (refresh data as needed)
+  const handleChatAction = (actions) => {
+    // Actions like scheduling might need data refresh
+    // Components using react-query will auto-refresh on focus
+    // This handler can be extended for additional refresh logic
+    console.log('Chat actions taken:', actions)
+  }
+
   return (
     <div className="min-h-screen bg-gray-100">
       <Navigation />
@@ -201,6 +212,9 @@ function AppContent() {
           } />
         </Routes>
       </main>
+
+      {/* Global AI Chat Box - only visible when authenticated */}
+      {isAuthenticated && <ChatBox onAction={handleChatAction} />}
     </div>
   )
 }

@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.services.task_completion_service import task_completion_service
 from app.services.bc_production_service import bc_production_service, PRODUCTION_API_AVAILABLE
-from app.db.models import ProductionTask, ProductionOrder, SalesOrder, SalesOrderLineItem
+from app.db.models import ProductionTask, ProductionOrder, SalesOrder, SalesOrderLineItem, OrderStatus, TaskCompletionStatus
 
 router = APIRouter(prefix="/production/tasks", tags=["Production Tasks"])
 
@@ -47,6 +47,13 @@ class LinkWorkOrderRequest(BaseModel):
     """Request to link a work order to a sales order"""
     workOrderId: int = Field(..., description="ID of the work order (production order) to link")
     salesOrderId: int = Field(..., description="ID of the sales order to link to")
+
+
+class PickLineItemRequest(BaseModel):
+    """Request to mark a line item as picked"""
+    lineItemId: int = Field(..., description="ID of the line item to mark as picked")
+    quantityPicked: Optional[float] = Field(None, description="Quantity picked (defaults to full quantity)")
+    userId: Optional[str] = Field(default="shop_floor", description="User completing the pick")
 
 
 class TaskResponse(BaseModel):
@@ -109,6 +116,22 @@ async def get_tasks_by_date(
         prod_orders_data = {}
         line_items_data = {}
         sales_orders_data = {}
+
+        # Also get pick/pack orders (sales orders scheduled for this date without production orders)
+        from sqlalchemy import func
+        pick_pack_orders = db.query(SalesOrder).filter(
+            func.date(SalesOrder.scheduled_date) == target_date,
+            SalesOrder.status != OrderStatus.SHIPPED  # Exclude shipped orders
+        ).all()
+
+        # Add pick/pack orders to sales_orders_data
+        for so in pick_pack_orders:
+            if so.id not in sales_orders_data:
+                sales_orders_data[so.id] = so
+                # Fetch line items
+                for li in so.line_items:
+                    if li.id not in line_items_data:
+                        line_items_data[li.id] = li
 
         for po_id in prod_order_ids:
             po = db.query(ProductionOrder).filter(ProductionOrder.id == po_id).first()
@@ -254,6 +277,51 @@ async def get_tasks_by_date(
             if task.get("status") == "completed":
                 so_group["completedTasks"] += 1
 
+        # Add pick/pack orders (orders without production tasks) that aren't already in the groups
+        for so_id, so in sales_orders_data.items():
+            if so_id not in sales_order_groups:
+                # This is a pick/pack order without production tasks
+                so_group = sales_order_groups[so_id]
+                so_group["salesOrderId"] = so.id
+                so_group["bcOrderNumber"] = so.bc_order_number
+                so_group["customerName"] = so.customer_name or "Unknown Customer"
+                so_group["status"] = so.status.value if so.status else "unknown"
+                so_group["orderType"] = "pick_pack"
+                so_group["totalTasks"] = 0
+                so_group["completedTasks"] = 0
+                so_group["allComplete"] = True  # No tasks means ready to ship
+
+                # Add line items without production orders (with pick status)
+                all_items_picked = True
+                for li in so.line_items:
+                    li_key = li.id
+                    li_group = so_group["lineItems"][li_key]
+                    li_group["lineItemId"] = li.id
+                    li_group["bcLineNo"] = li.bc_line_no
+                    li_group["itemNo"] = li.item_no
+                    li_group["description"] = li.description
+                    li_group["quantity"] = li.quantity
+                    li_group["unitOfMeasure"] = li.unit_of_measure
+                    li_group["lineType"] = li.line_type
+                    li_group["hasProductionOrder"] = False
+                    li_group["totalTasks"] = 0
+                    li_group["completedTasks"] = 0
+                    # Add pick tracking for pick/pack orders
+                    li_group["quantityPicked"] = li.quantity_picked or 0
+                    li_group["pickedAt"] = li.picked_at.isoformat() if li.picked_at else None
+                    li_group["pickedBy"] = li.picked_by
+                    # Line is "complete" if picked (for items) or if it's a comment
+                    is_comment = li.line_type == "Comment" or (li.quantity or 0) == 0
+                    is_picked = (li.quantity_picked or 0) >= (li.quantity or 0)
+                    li_group["isPicked"] = is_picked or is_comment
+                    li_group["allComplete"] = li_group["isPicked"]
+                    # Track if all items are picked for the order
+                    if not is_comment and not is_picked:
+                        all_items_picked = False
+
+                # Order is complete if all items are picked (for pick/pack orders)
+                so_group["allComplete"] = all_items_picked
+
         # Convert to list and calculate completion status
         sales_orders = []
         for so_key, so_group in sales_order_groups.items():
@@ -267,11 +335,14 @@ async def get_tasks_by_date(
                     prod_orders_list.append(dict(po_group))
 
                 li_group["productionOrders"] = prod_orders_list
-                li_group["allComplete"] = li_group["completedTasks"] == li_group["totalTasks"] and li_group["totalTasks"] > 0
+                # Line item complete if all tasks done, or no tasks (pick/pack)
+                li_group["allComplete"] = li_group["completedTasks"] == li_group["totalTasks"]
                 line_items_list.append(dict(li_group))
 
             so_group["lineItems"] = line_items_list
-            so_group["allComplete"] = so_group["completedTasks"] == so_group["totalTasks"] and so_group["totalTasks"] > 0
+            # Order complete if all tasks done, or no tasks (pick/pack order)
+            is_pick_pack = so_group.get("orderType") == "pick_pack"
+            so_group["allComplete"] = so_group["completedTasks"] == so_group["totalTasks"] or is_pick_pack
             sales_orders.append(dict(so_group))
 
         # Sort by customer name
@@ -361,6 +432,118 @@ async def complete_task(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/pick-item")
+async def pick_line_item(
+    request: PickLineItemRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Mark a sales order line item as picked (for pick/pack orders without production orders).
+
+    This will:
+    1. Update the line item's quantity_picked, picked_at, and picked_by fields
+    2. Check if all line items in the order are now picked
+
+    Returns completion status and whether the entire order is now ready to ship.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        # Get the line item
+        line_item = db.query(SalesOrderLineItem).filter(
+            SalesOrderLineItem.id == request.lineItemId
+        ).first()
+
+        if not line_item:
+            raise HTTPException(status_code=404, detail=f"Line item {request.lineItemId} not found")
+
+        # Set quantity picked (default to full quantity if not specified)
+        quantity_to_pick = request.quantityPicked if request.quantityPicked is not None else line_item.quantity
+        line_item.quantity_picked = quantity_to_pick
+        line_item.picked_at = datetime.utcnow()
+        line_item.picked_by = request.userId or "shop_floor"
+
+        # Check if all line items in the sales order are now picked
+        sales_order = line_item.sales_order
+        all_line_items = db.query(SalesOrderLineItem).filter(
+            SalesOrderLineItem.sales_order_id == sales_order.id
+        ).all()
+
+        all_picked = True
+        for li in all_line_items:
+            # Skip comment lines (no quantity to pick)
+            if li.line_type == "Comment" or (li.quantity or 0) == 0:
+                continue
+            # Check if picked quantity meets required quantity
+            if (li.quantity_picked or 0) < (li.quantity or 0):
+                all_picked = False
+                break
+
+        db.commit()
+
+        logger.info(f"Picked line item {request.lineItemId}: qty={quantity_to_pick}, all_picked={all_picked}")
+
+        return {
+            "success": True,
+            "lineItemId": line_item.id,
+            "itemNo": line_item.item_no,
+            "description": line_item.description,
+            "quantityPicked": line_item.quantity_picked,
+            "quantityRequired": line_item.quantity,
+            "pickedAt": line_item.picked_at.isoformat() if line_item.picked_at else None,
+            "pickedBy": line_item.picked_by,
+            "allItemsPicked": all_picked,
+            "salesOrderId": sales_order.id,
+            "bcOrderNumber": sales_order.bc_order_number,
+            "message": f"Marked {line_item.item_no or 'item'} as picked" + (" - All items picked, ready to ship!" if all_picked else "")
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/unpick-item")
+async def unpick_line_item(
+    request: PickLineItemRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Unmark a sales order line item as picked (reset pick status).
+    """
+    try:
+        # Get the line item
+        line_item = db.query(SalesOrderLineItem).filter(
+            SalesOrderLineItem.id == request.lineItemId
+        ).first()
+
+        if not line_item:
+            raise HTTPException(status_code=404, detail=f"Line item {request.lineItemId} not found")
+
+        # Reset pick status
+        line_item.quantity_picked = 0
+        line_item.picked_at = None
+        line_item.picked_by = None
+
+        db.commit()
+
+        return {
+            "success": True,
+            "lineItemId": line_item.id,
+            "itemNo": line_item.item_no,
+            "message": f"Reset pick status for {line_item.item_no or 'item'}"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/order/{production_order_id}/ship")
 async def ship_completed_order(
     production_order_id: int,
@@ -403,6 +586,128 @@ async def ship_completed_order(
         return {
             "success": True,
             "productionOrderId": production_order_id,
+            "shipmentNumber": result.get("shipmentNumber"),
+            "packingSlipGenerated": result.get("packingSlipGenerated", True),
+            "message": result.get("message", "Order shipped successfully")
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/sales-order/{sales_order_id}/ship")
+async def ship_sales_order(
+    sales_order_id: int,
+    request: Optional[ShipOrderRequest] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Ship a sales order directly (for pick/pack orders without production orders).
+
+    This will:
+    1. Ship the sales order in BC (Microsoft.NAV.ship)
+    2. Update the order status to Shipped
+    3. Generate packing slip automatically
+
+    Returns shipment number and confirmation.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Ship sales order endpoint called for sales_order_id: {sales_order_id}")
+
+    try:
+        user_id = request.userId if request else "shop_floor"
+        logger.info(f"User ID: {user_id}")
+
+        # Get the sales order
+        sales_order = db.query(SalesOrder).filter(SalesOrder.id == sales_order_id).first()
+        if not sales_order:
+            logger.error(f"Sales order {sales_order_id} not found")
+            raise HTTPException(status_code=404, detail=f"Sales order {sales_order_id} not found")
+
+        # Check if this order has production orders - if so, use the other endpoint
+        prod_orders = db.query(ProductionOrder).filter(
+            ProductionOrder.sales_order_id == sales_order_id
+        ).all()
+
+        if prod_orders:
+            # Has production orders - check if all tasks are complete
+            incomplete = False
+            logger.info(f"Checking {len(prod_orders)} production orders for completion")
+            for po in prod_orders:
+                all_tasks = db.query(ProductionTask).filter(
+                    ProductionTask.production_order_id == po.id
+                ).all()
+                logger.info(f"PO {po.id} has {len(all_tasks)} tasks")
+                for t in all_tasks:
+                    logger.info(f"  Task {t.id}: status={t.status}, is_completed={t.status == TaskCompletionStatus.COMPLETED}")
+
+                incomplete_tasks = db.query(ProductionTask).filter(
+                    ProductionTask.production_order_id == po.id,
+                    ProductionTask.status != TaskCompletionStatus.COMPLETED
+                ).count()
+                logger.info(f"PO {po.id} incomplete count: {incomplete_tasks}")
+                if incomplete_tasks > 0:
+                    incomplete = True
+                    break
+
+            if incomplete:
+                logger.error(f"Cannot ship: found incomplete tasks")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot ship: Some production tasks are not completed"
+                )
+            logger.info("All tasks complete, proceeding to ship")
+        else:
+            # Pick/pack order - check if all items are picked
+            logger.info(f"This is a pick/pack order, checking if all items are picked")
+            line_items = db.query(SalesOrderLineItem).filter(
+                SalesOrderLineItem.sales_order_id == sales_order_id
+            ).all()
+
+            unpicked_items = []
+            for li in line_items:
+                # Skip comment lines
+                if li.line_type == "Comment" or (li.quantity or 0) == 0:
+                    continue
+                # Check if picked
+                if (li.quantity_picked or 0) < (li.quantity or 0):
+                    unpicked_items.append({
+                        "id": li.id,
+                        "itemNo": li.item_no,
+                        "description": li.description,
+                        "quantityRequired": li.quantity,
+                        "quantityPicked": li.quantity_picked or 0
+                    })
+
+            if unpicked_items:
+                logger.error(f"Cannot ship: {len(unpicked_items)} items not picked")
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "message": f"Cannot ship: {len(unpicked_items)} items have not been picked",
+                        "unpickedItems": unpicked_items
+                    }
+                )
+            logger.info("All items picked, proceeding to ship")
+
+        # Ship the sales order
+        success, result = await task_completion_service.ship_sales_order_direct(
+            db=db,
+            sales_order_id=sales_order_id,
+            user_id=user_id
+        )
+
+        if not success:
+            error_msg = result.get("error", "Failed to ship order")
+            raise HTTPException(status_code=500, detail=result)
+
+        return {
+            "success": True,
+            "salesOrderId": sales_order_id,
+            "bcOrderNumber": sales_order.bc_order_number,
             "shipmentNumber": result.get("shipmentNumber"),
             "packingSlipGenerated": result.get("packingSlipGenerated", True),
             "message": result.get("message", "Order shipped successfully")
@@ -525,6 +830,7 @@ async def get_daily_summary(
 
 @router.get("/open-orders")
 async def get_open_sales_orders(
+    only_unscheduled: bool = Query(default=True, description="Only show orders with unscheduled tasks"),
     db: Session = Depends(get_db)
 ):
     """
@@ -532,6 +838,8 @@ async def get_open_sales_orders(
 
     Returns all sales orders that are not completed/cancelled, with expandable
     line items and work orders inside. Used for the scheduling side panel.
+
+    If only_unscheduled=True (default), filters to only orders that have unscheduled tasks.
     """
     try:
         from app.db.models import OrderStatus
@@ -625,7 +933,19 @@ async def get_open_sales_orders(
                 })
 
             # Calculate scheduling status
-            is_fully_scheduled = scheduled_tasks == total_tasks and total_tasks > 0
+            # For orders with work orders: check if all tasks are scheduled OR if sales_order.scheduled_date is set
+            # For orders without work orders (pick/pack): check if scheduled_date is set
+            if len(work_orders) > 0:
+                # Order is fully scheduled if:
+                # 1. All tasks have scheduled_date, OR
+                # 2. The sales order itself has scheduled_date set (even if tasks don't)
+                tasks_scheduled = scheduled_tasks == total_tasks and total_tasks > 0
+                order_scheduled = so.scheduled_date is not None
+                is_fully_scheduled = tasks_scheduled or order_scheduled
+                order_type = "production"
+            else:
+                is_fully_scheduled = so.scheduled_date is not None
+                order_type = "pick_pack"
 
             result.append({
                 "id": so.id,
@@ -637,6 +957,7 @@ async def get_open_sales_orders(
                 "status": so.status.value if so.status else "unknown",
                 "orderDate": so.order_date.isoformat() if so.order_date else None,
                 "createdAt": so.created_at.isoformat() if so.created_at else None,
+                "scheduledDate": so.scheduled_date.isoformat() if so.scheduled_date else None,
                 "lineItems": line_items_data,
                 "lineItemCount": len(line_items_data),
                 "workOrders": work_orders,
@@ -644,7 +965,8 @@ async def get_open_sales_orders(
                 "totalTasks": total_tasks,
                 "completedTasks": completed_tasks,
                 "scheduledTasks": scheduled_tasks,
-                "isFullyScheduled": is_fully_scheduled
+                "isFullyScheduled": is_fully_scheduled,
+                "orderType": order_type
             })
 
         # Also include orphan production orders (no sales order)
@@ -694,9 +1016,14 @@ async def get_open_sales_orders(
                 "isFullyScheduled": po_scheduled == po_total and po_total > 0
             })
 
+        # Filter to only unscheduled if requested
+        if only_unscheduled:
+            result = [so for so in result if not so["isFullyScheduled"]]
+
         return {
             "count": len(result),
-            "salesOrders": result
+            "salesOrders": result,
+            "filter": "unscheduled_only" if only_unscheduled else "all"
         }
 
     except Exception as e:
@@ -829,8 +1156,12 @@ async def schedule_order(
     This updates the scheduled_date for all tasks under all production orders
     linked to the sales order.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     try:
         scheduled_date_dt = datetime.combine(request.scheduledDate, datetime.min.time())
+        logger.info(f"Scheduling sales order {request.salesOrderId} to {request.scheduledDate}")
 
         # Get the sales order
         sales_order = db.query(SalesOrder).filter(
@@ -840,26 +1171,40 @@ async def schedule_order(
         if not sales_order:
             raise HTTPException(status_code=404, detail="Sales order not found")
 
+        # Always set the scheduled_date on the sales order itself
+        sales_order.scheduled_date = scheduled_date_dt
+        logger.info(f"Set sales_order.scheduled_date = {scheduled_date_dt}")
+
         # Get all production orders for this sales order
         prod_orders = db.query(ProductionOrder).filter(
             ProductionOrder.sales_order_id == request.salesOrderId
         ).all()
+        logger.info(f"Found {len(prod_orders)} production orders linked to sales order {request.salesOrderId}")
 
-        if not prod_orders:
-            raise HTTPException(status_code=404, detail="No production orders found for this sales order")
-
-        # Update all tasks under all production orders
+        # Update all tasks under all production orders (if any)
         tasks_updated = 0
         for po in prod_orders:
             tasks = db.query(ProductionTask).filter(
                 ProductionTask.production_order_id == po.id
             ).all()
+            logger.info(f"  PO {po.id} ({po.bc_prod_order_number}): {len(tasks)} tasks")
 
             for task in tasks:
                 task.scheduled_date = scheduled_date_dt
                 tasks_updated += 1
 
         db.commit()
+        logger.info(f"Committed. Updated {tasks_updated} tasks total.")
+
+        # Build appropriate message
+        if prod_orders:
+            message = f"Scheduled {len(prod_orders)} work orders ({tasks_updated} tasks) to {request.scheduledDate}"
+        else:
+            # Pick/pack order without work orders
+            line_count = db.query(SalesOrderLineItem).filter(
+                SalesOrderLineItem.sales_order_id == request.salesOrderId
+            ).count()
+            message = f"Scheduled for picking/packing ({line_count} line items) on {request.scheduledDate}"
 
         return {
             "success": True,
@@ -868,7 +1213,8 @@ async def schedule_order(
             "scheduledDate": request.scheduledDate.isoformat(),
             "productionOrdersUpdated": len(prod_orders),
             "tasksUpdated": tasks_updated,
-            "message": f"Scheduled {len(prod_orders)} work orders ({tasks_updated} tasks) to {request.scheduledDate}"
+            "hasWorkOrders": len(prod_orders) > 0,
+            "message": message
         }
 
     except HTTPException:
@@ -924,6 +1270,217 @@ async def schedule_production_order(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/unschedule-all")
+async def unschedule_all_orders(
+    db: Session = Depends(get_db)
+):
+    """
+    Remove ALL orders from the schedule (clear all scheduled_date values).
+    """
+    try:
+        # Clear scheduled_date for all tasks
+        tasks_updated = db.query(ProductionTask).filter(
+            ProductionTask.scheduled_date != None
+        ).update({ProductionTask.scheduled_date: None})
+
+        db.commit()
+
+        return {
+            "success": True,
+            "tasksUpdated": tasks_updated,
+            "message": f"Unscheduled {tasks_updated} tasks"
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/scheduled-summary")
+async def get_scheduled_summary(
+    date_from: str = Query(..., description="Start date (YYYY-MM-DD)"),
+    date_to: str = Query(..., description="End date (YYYY-MM-DD)"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all scheduled sales orders grouped by date for a date range.
+    Efficient endpoint to load SO# for calendar display.
+
+    Includes:
+    - Orders with production tasks scheduled (via task.scheduled_date)
+    - Pick/pack orders scheduled directly (via sales_order.scheduled_date)
+    """
+    try:
+        from datetime import datetime, timedelta
+
+        start_date = datetime.strptime(date_from, "%Y-%m-%d").date()
+        end_date = datetime.strptime(date_to, "%Y-%m-%d").date()
+
+        # Group by date -> sales order
+        date_orders = {}
+
+        # 1. Get orders with production tasks scheduled in this date range
+        scheduled_tasks = db.query(ProductionTask).filter(
+            ProductionTask.scheduled_date >= start_date,
+            ProductionTask.scheduled_date <= end_date
+        ).all()
+
+        for task in scheduled_tasks:
+            if not task.scheduled_date:
+                continue
+
+            date_str = task.scheduled_date.strftime("%Y-%m-%d")
+            if date_str not in date_orders:
+                date_orders[date_str] = {}
+
+            if task.production_order_id:
+                prod_order = db.query(ProductionOrder).filter(
+                    ProductionOrder.id == task.production_order_id
+                ).first()
+
+                if prod_order and prod_order.sales_order_id:
+                    sales_order = db.query(SalesOrder).filter(
+                        SalesOrder.id == prod_order.sales_order_id
+                    ).first()
+
+                    if sales_order:
+                        so_key = sales_order.id
+                        if so_key not in date_orders[date_str]:
+                            date_orders[date_str][so_key] = {
+                                "id": sales_order.id,
+                                "bcOrderNumber": sales_order.bc_order_number,
+                                "customerName": sales_order.customer_name,
+                                "taskCount": 0,
+                                "completedTasks": 0,
+                                "orderType": "production"
+                            }
+                        date_orders[date_str][so_key]["taskCount"] += 1
+                        if task.status and task.status.value == "completed":
+                            date_orders[date_str][so_key]["completedTasks"] += 1
+
+        # 2. Get ALL orders scheduled directly via sales_order.scheduled_date
+        # This catches both pick/pack orders AND orders with production orders
+        # whose tasks may not have scheduled_date set
+        direct_scheduled = db.query(SalesOrder).filter(
+            SalesOrder.scheduled_date >= start_date,
+            SalesOrder.scheduled_date <= end_date,
+            SalesOrder.status.notin_([OrderStatus.COMPLETED, OrderStatus.CANCELLED])
+        ).all()
+
+        for so in direct_scheduled:
+            date_str = so.scheduled_date.strftime("%Y-%m-%d")
+            if date_str not in date_orders:
+                date_orders[date_str] = {}
+
+            # Check if this order is already in the list (from task-based scheduling)
+            if so.id in date_orders[date_str]:
+                continue  # Already added via production tasks
+
+            # Check if this order has production orders
+            prod_count = db.query(ProductionOrder).filter(
+                ProductionOrder.sales_order_id == so.id
+            ).count()
+
+            line_count = db.query(SalesOrderLineItem).filter(
+                SalesOrderLineItem.sales_order_id == so.id
+            ).count()
+
+            if prod_count == 0:
+                # Pure pick/pack order
+                date_orders[date_str][so.id] = {
+                    "id": so.id,
+                    "bcOrderNumber": so.bc_order_number,
+                    "customerName": so.customer_name,
+                    "taskCount": 0,
+                    "completedTasks": 0,
+                    "lineItemCount": line_count,
+                    "orderType": "pick_pack"
+                }
+            else:
+                # Has production orders but tasks weren't found above
+                # (production orders may not be linked properly)
+                date_orders[date_str][so.id] = {
+                    "id": so.id,
+                    "bcOrderNumber": so.bc_order_number,
+                    "customerName": so.customer_name,
+                    "taskCount": 0,
+                    "completedTasks": 0,
+                    "lineItemCount": line_count,
+                    "workOrderCount": prod_count,
+                    "orderType": "production"
+                }
+
+        # Convert to final format
+        result = {}
+        for date_str, orders_dict in date_orders.items():
+            result[date_str] = list(orders_dict.values())
+
+        return {
+            "dateFrom": date_from,
+            "dateTo": date_to,
+            "scheduledDays": len(result),
+            "byDate": result
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/scheduled-by-date/{target_date}")
+async def get_scheduled_orders_by_date(
+    target_date: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get all sales orders scheduled for a specific date.
+    Returns sales order numbers for display on the calendar.
+    """
+    try:
+        from datetime import datetime
+        target = datetime.strptime(target_date, "%Y-%m-%d").date()
+
+        # Get all tasks scheduled for this date
+        scheduled_tasks = db.query(ProductionTask).filter(
+            ProductionTask.scheduled_date == target
+        ).all()
+
+        # Group by sales order
+        sales_orders_map = {}
+        for task in scheduled_tasks:
+            if task.production_order_id:
+                prod_order = db.query(ProductionOrder).filter(
+                    ProductionOrder.id == task.production_order_id
+                ).first()
+
+                if prod_order and prod_order.sales_order_id:
+                    sales_order = db.query(SalesOrder).filter(
+                        SalesOrder.id == prod_order.sales_order_id
+                    ).first()
+
+                    if sales_order:
+                        so_key = sales_order.id
+                        if so_key not in sales_orders_map:
+                            sales_orders_map[so_key] = {
+                                "id": sales_order.id,
+                                "bcOrderNumber": sales_order.bc_order_number,
+                                "customerName": sales_order.customer_name,
+                                "taskCount": 0,
+                                "completedTasks": 0
+                            }
+                        sales_orders_map[so_key]["taskCount"] += 1
+                        if task.status and task.status.value == "completed":
+                            sales_orders_map[so_key]["completedTasks"] += 1
+
+        return {
+            "date": target_date,
+            "salesOrders": list(sales_orders_map.values()),
+            "totalOrders": len(sales_orders_map)
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/unschedule/{sales_order_id}")
 async def unschedule_order(
     sales_order_id: int,
@@ -931,17 +1488,26 @@ async def unschedule_order(
 ):
     """
     Remove a sales order from the schedule (set scheduled_date to null).
+    Works for orders with or without production orders.
     """
     try:
+        # Get the sales order
+        sales_order = db.query(SalesOrder).filter(
+            SalesOrder.id == sales_order_id
+        ).first()
+
+        if not sales_order:
+            raise HTTPException(status_code=404, detail="Sales order not found")
+
+        # Clear scheduled_date on the sales order itself
+        sales_order.scheduled_date = None
+
         # Get all production orders for this sales order
         prod_orders = db.query(ProductionOrder).filter(
             ProductionOrder.sales_order_id == sales_order_id
         ).all()
 
-        if not prod_orders:
-            raise HTTPException(status_code=404, detail="No production orders found for this sales order")
-
-        # Clear scheduled_date for all tasks
+        # Clear scheduled_date for all tasks (if any)
         tasks_updated = 0
         for po in prod_orders:
             tasks = db.query(ProductionTask).filter(
@@ -954,11 +1520,17 @@ async def unschedule_order(
 
         db.commit()
 
+        if prod_orders:
+            message = f"Removed {tasks_updated} tasks from schedule"
+        else:
+            message = f"Removed {sales_order.bc_order_number} from picking/packing schedule"
+
         return {
             "success": True,
             "salesOrderId": sales_order_id,
+            "bcOrderNumber": sales_order.bc_order_number,
             "tasksUpdated": tasks_updated,
-            "message": f"Removed {tasks_updated} tasks from schedule"
+            "message": message
         }
 
     except HTTPException:

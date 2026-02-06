@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 # Import API routers
 from app.api import feedback, auth, email_connections, email_feedback, quotes, orders, analytics, door_configurator
 from app.api import customer_auth, customer_portal, admin_customers, inventory, production, production_tasks
+from app.api import chat
 
 # Import services
 from app.services.scheduler_service import get_scheduler
@@ -79,7 +80,7 @@ app = FastAPI(
 # CORS middleware (configure for production)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://localhost:3003", "http://localhost:5173"],  # React dev servers
+    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://localhost:3003", "http://localhost:3004", "http://localhost:5173"],  # React dev servers
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -125,6 +126,10 @@ app.include_router(production.router)
 # Production Tasks router (task completion for shop floor)
 logger.info(f"Including production_tasks router: {production_tasks.router.prefix}")
 app.include_router(production_tasks.router)
+
+# AI Chat router
+logger.info(f"Including chat router: {chat.router.prefix}")
+app.include_router(chat.router)
 
 logger.info(f"Total routes after including routers: {len(app.routes)}")
 

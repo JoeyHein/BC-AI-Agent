@@ -230,6 +230,54 @@ class TaskCompletionService:
             "message": f"Order shipped successfully. Shipment: {ship_result.get('shipmentNumber')}"
         }
 
+    async def ship_sales_order_direct(
+        self,
+        db: Session,
+        sales_order_id: int,
+        user_id: str
+    ) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Ship a sales order directly without requiring a production order.
+        Used for pick/pack orders that don't have production orders.
+
+        Args:
+            db: Database session
+            sales_order_id: ID of the sales order
+            user_id: ID of the user initiating the shipment
+
+        Returns:
+            Tuple of (success, result_data)
+        """
+        from app.db.models import SalesOrder, OrderStatus
+
+        # Get the sales order
+        sales_order = db.query(SalesOrder).filter(
+            SalesOrder.id == sales_order_id
+        ).first()
+
+        if not sales_order:
+            return False, {"error": "Sales order not found"}
+
+        # Ship the sales order in BC
+        ship_result = await self._ship_sales_order_bc(sales_order_id)
+        if not ship_result.get("success"):
+            return False, {
+                "error": "Failed to ship sales order in BC",
+                "bcError": ship_result.get("error")
+            }
+
+        # Update the sales order status
+        sales_order.status = OrderStatus.SHIPPED
+        sales_order.scheduled_date = None  # Clear scheduled date
+        db.commit()
+
+        return True, {
+            "success": True,
+            "shipmentNumber": ship_result.get("shipmentNumber"),
+            "packingSlipGenerated": True,
+            "message": f"Order shipped successfully. Shipment: {ship_result.get('shipmentNumber')}"
+        }
+
     async def _sync_tasks_from_bc(
         self,
         db: Session,

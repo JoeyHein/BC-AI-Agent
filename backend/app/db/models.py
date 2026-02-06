@@ -554,6 +554,7 @@ class SalesOrder(Base):
     # Dates
     order_date = Column(DateTime)  # BC order date
     requested_delivery_date = Column(DateTime)  # Requested delivery
+    scheduled_date = Column(DateTime, index=True)  # Production/picking scheduled date
 
     # Addresses
     shipping_address = Column(Text)  # Full shipping address
@@ -608,6 +609,11 @@ class SalesOrderLineItem(Base):
     # Type indicator
     line_type = Column(String(20))  # 'Item', 'Resource', 'G/L Account', etc.
 
+    # Pick/Pack tracking (for orders without production orders)
+    quantity_picked = Column(Float, default=0)  # How many have been picked
+    picked_at = Column(DateTime)  # When the pick was confirmed
+    picked_by = Column(String(100))  # User who confirmed the pick
+
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     last_synced_at = Column(DateTime)
@@ -632,6 +638,10 @@ class SalesOrderLineItem(Base):
             "unitPrice": float(self.unit_price) if self.unit_price else None,
             "lineAmount": float(self.line_amount) if self.line_amount else None,
             "lineType": self.line_type,
+            "quantityPicked": self.quantity_picked or 0,
+            "pickedAt": self.picked_at.isoformat() if self.picked_at else None,
+            "pickedBy": self.picked_by,
+            "isPicked": self.quantity_picked is not None and self.quantity_picked >= (self.quantity or 0),
         }
 
 
@@ -872,4 +882,73 @@ class ProductionTask(Base):
             "completedAt": self.completed_at.isoformat() if self.completed_at else None,
             "completedBy": self.completed_by,
             "bcSynced": self.bc_synced,
+        }
+
+
+# ============================================================================
+# AI CHAT MODELS
+# ============================================================================
+
+class Conversation(Base):
+    """AI Chat conversations - groups messages into sessions"""
+    __tablename__ = "conversations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+
+    # Conversation metadata
+    title = Column(String(255))  # Auto-generated from first message
+    is_active = Column(Boolean, default=True, index=True)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    user = relationship("User", foreign_keys=[user_id])
+    messages = relationship("ChatMessage", back_populates="conversation", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<Conversation(id={self.id}, title={self.title}, active={self.is_active})>"
+
+
+class ChatMessage(Base):
+    """Individual chat messages within a conversation"""
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False, index=True)
+
+    # Message content
+    role = Column(String(20), nullable=False)  # 'user', 'assistant', 'tool_result'
+    content = Column(Text, nullable=False)
+
+    # Context when message was sent
+    context = Column(JSON)  # { page: 'production_calendar', selectedDate: '2026-02-10', ... }
+
+    # Actions taken (for assistant messages)
+    actions_taken = Column(JSON)  # [{ tool: 'schedule_order', params: {...}, result: {...} }, ...]
+
+    # Token usage tracking
+    tokens_used = Column(Integer)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relationships
+    conversation = relationship("Conversation", back_populates="messages")
+
+    def __repr__(self):
+        return f"<ChatMessage(id={self.id}, role={self.role}, conv={self.conversation_id})>"
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "conversationId": self.conversation_id,
+            "role": self.role,
+            "content": self.content,
+            "context": self.context,
+            "actionsTaken": self.actions_taken,
+            "tokensUsed": self.tokens_used,
+            "createdAt": self.created_at.isoformat() if self.created_at else None,
         }

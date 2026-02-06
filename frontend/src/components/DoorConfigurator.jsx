@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { doorConfigApi } from '../api/client'
 import DoorDrawings from './DoorDrawings'
+import DoorPreview from './DoorPreview'
 
 const STEPS = [
   { id: 'type', title: 'Door Type', description: 'Select door category' },
@@ -619,6 +620,7 @@ function DesignStep({ door, colors, panelDesigns, onChange }) {
 }
 
 function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
+  const [hoveredSection, setHoveredSection] = useState(null)
   const hasWindows = door.windowInsert !== 'NONE' && door.windowInsert
 
   // Calculate panel count based on height
@@ -671,29 +673,67 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
             </div>
           </div>
 
-          {/* Window Section */}
+          {/* Window Section - Interactive Door Preview */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Window Section (1 = Top)
+              Click a section to place windows (1 = Top)
             </label>
-            <div className="flex space-x-2">
-              {[...Array(panelCount)].map((_, i) => (
-                <button
-                  key={i + 1}
-                  onClick={() => onChange({ windowSection: i + 1 })}
-                  className={`w-12 h-12 rounded-md border-2 text-sm font-medium ${
-                    door.windowSection === i + 1
-                      ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                      : 'border-gray-300 hover:border-gray-400'
-                  }`}
-                >
-                  {i + 1}
-                </button>
-              ))}
+            <div className="flex flex-col md:flex-row gap-6">
+              {/* Interactive Door Preview */}
+              <div className="flex-shrink-0">
+                <DoorPreview
+                  width={door.doorWidth}
+                  height={door.doorHeight}
+                  color={door.panelColor || 'WHITE'}
+                  panelDesign={door.panelDesign || 'SHXL'}
+                  windowInsert={door.windowInsert}
+                  windowSection={door.windowSection}
+                  showDimensions={false}
+                  scale={0.6}
+                  interactive={true}
+                  onSectionClick={(section) => onChange({ windowSection: section })}
+                  highlightSection={hoveredSection || door.windowSection}
+                  onSectionHover={setHoveredSection}
+                />
+                <p className="mt-2 text-xs text-center text-gray-500">
+                  Click a section to place window
+                </p>
+              </div>
+
+              {/* Section Buttons (alternative selection) */}
+              <div className="flex-1">
+                <p className="text-sm text-gray-600 mb-2">Or select section number:</p>
+                <div className="flex flex-wrap gap-2">
+                  {[...Array(panelCount)].map((_, i) => (
+                    <button
+                      key={i + 1}
+                      onClick={() => onChange({ windowSection: i + 1 })}
+                      onMouseEnter={() => setHoveredSection(i + 1)}
+                      onMouseLeave={() => setHoveredSection(null)}
+                      className={`w-12 h-12 rounded-md border-2 text-sm font-medium transition-all ${
+                        door.windowSection === i + 1
+                          ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                          : hoveredSection === i + 1
+                            ? 'border-blue-300 bg-blue-50'
+                            : 'border-gray-300 hover:border-gray-400'
+                      }`}
+                    >
+                      {i + 1}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-gray-500">
+                  This door has {panelCount} panels. Section 1 is the top.
+                </p>
+                <div className="mt-3 p-3 bg-indigo-50 rounded-md">
+                  <p className="text-sm text-indigo-700">
+                    <strong>Selected:</strong> Section {door.windowSection}
+                    {door.windowSection === 1 && ' (Top panel)'}
+                    {door.windowSection === panelCount && ' (Bottom panel)'}
+                  </p>
+                </div>
+              </div>
             </div>
-            <p className="mt-1 text-xs text-gray-500">
-              This door has {panelCount} panels. Section 1 is the top.
-            </p>
           </div>
 
           {/* Glazing Type */}

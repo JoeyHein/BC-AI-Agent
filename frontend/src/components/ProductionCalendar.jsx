@@ -31,11 +31,23 @@ function ProductionCalendar() {
     }
   })
 
+  // State for showing all orders or just unscheduled
+  const [showAllOrders, setShowAllOrders] = useState(false)
+
   // Fetch all open sales orders for the side panel
   const { data: openOrdersData, isLoading: openOrdersLoading } = useQuery({
-    queryKey: ['openOrders'],
+    queryKey: ['openOrders', showAllOrders],
     queryFn: async () => {
-      const response = await productionApi.getOpenOrders()
+      const response = await productionApi.getOpenOrders(!showAllOrders) // true = only unscheduled
+      return response.data
+    }
+  })
+
+  // Fetch scheduled summary for the month (SO# display on calendar)
+  const { data: scheduledSummary } = useQuery({
+    queryKey: ['scheduledSummary', startDate, endDate],
+    queryFn: async () => {
+      const response = await productionApi.getScheduledSummary(startDate, endDate)
       return response.data
     }
   })
@@ -49,7 +61,7 @@ function ProductionCalendar() {
     }
   })
 
-  // Schedule order mutation (drag & drop)
+  // Schedule sales order mutation (drag & drop)
   const scheduleMutation = useMutation({
     mutationFn: async ({ salesOrderId, scheduledDate }) => {
       const response = await productionApi.scheduleOrder(salesOrderId, scheduledDate)
@@ -59,6 +71,29 @@ function ProductionCalendar() {
       queryClient.invalidateQueries({ queryKey: ['productionCapacity'] })
       queryClient.invalidateQueries({ queryKey: ['openOrders'] })
       queryClient.invalidateQueries({ queryKey: ['productionTasks'] })
+      queryClient.invalidateQueries({ queryKey: ['scheduledSummary'] })
+    },
+    onError: (error) => {
+      console.error('Schedule error:', error)
+      alert(`Failed to schedule order: ${error.message || 'Unknown error'}`)
+    }
+  })
+
+  // Schedule production order mutation (for orphan work orders)
+  const scheduleProductionOrderMutation = useMutation({
+    mutationFn: async ({ productionOrderId, scheduledDate }) => {
+      const response = await productionApi.scheduleProductionOrder(productionOrderId, scheduledDate)
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['productionCapacity'] })
+      queryClient.invalidateQueries({ queryKey: ['openOrders'] })
+      queryClient.invalidateQueries({ queryKey: ['productionTasks'] })
+      queryClient.invalidateQueries({ queryKey: ['scheduledSummary'] })
+    },
+    onError: (error) => {
+      console.error('Schedule production order error:', error)
+      alert(`Failed to schedule work order: ${error.message || 'Unknown error'}`)
     }
   })
 
@@ -88,9 +123,13 @@ function ProductionCalendar() {
       })
     }
 
+    // Create scheduled orders map for quick lookup
+    const scheduledMap = scheduledSummary?.byDate || {}
+
     return days.map(day => {
       const dateStr = format(day, 'yyyy-MM-dd')
       const capacity = capacityMap[dateStr]
+      const scheduledOrders = scheduledMap[dateStr] || []
       return {
         date: day,
         dateStr,
@@ -99,10 +138,11 @@ function ProductionCalendar() {
         capacity: capacity?.availableHours || 0,
         scheduled: capacity?.scheduledHours || 0,
         utilization: capacity ? (capacity.scheduledHours / capacity.availableHours * 100) : 0,
-        orders: capacity?.orders || []
+        orders: capacity?.orders || [],
+        scheduledOrders: scheduledOrders // SO# for display
       }
     })
-  }, [currentMonth, capacityData])
+  }, [currentMonth, capacityData, scheduledSummary])
 
   const prevMonth = () => setCurrentMonth(subMonths(currentMonth, 1))
   const nextMonth = () => setCurrentMonth(addMonths(currentMonth, 1))
@@ -131,22 +171,52 @@ function ProductionCalendar() {
   }
 
   const handleDragOver = (e, day) => {
-    if (day.isWeekend) return
-    e.preventDefault()
+    e.preventDefault()  // Must call preventDefault first to allow drop
+    if (day.isWeekend) {
+      e.dataTransfer.dropEffect = 'none'
+      return
+    }
     e.dataTransfer.dropEffect = 'move'
   }
 
   const handleDrop = (e, day) => {
     e.preventDefault()
-    if (day.isWeekend || !draggedOrder) return
+    if (day.isWeekend) return
+
+    // Read from dataTransfer in case draggedOrder state was cleared by dragEnd
+    let orderData = draggedOrder
+    if (!orderData) {
+      try {
+        const data = e.dataTransfer.getData('text/plain')
+        if (data) {
+          orderData = JSON.parse(data)
+        }
+      } catch (err) {
+        console.error('Failed to parse drag data:', err)
+        return
+      }
+    }
+
+    if (!orderData) return
 
     const dateStr = format(day.date, 'yyyy-MM-dd')
+    const salesOrderId = orderData.salesOrderId || orderData.id
 
-    if (draggedOrder.salesOrderId) {
+    if (salesOrderId) {
+      // Regular sales order - schedule via sales order
       scheduleMutation.mutate({
-        salesOrderId: draggedOrder.salesOrderId,
+        salesOrderId: salesOrderId,
         scheduledDate: dateStr
       })
+    } else if (orderData.workOrders && orderData.workOrders.length > 0) {
+      // Orphan work order - schedule via production order
+      const productionOrderId = orderData.workOrders[0].id
+      if (productionOrderId) {
+        scheduleProductionOrderMutation.mutate({
+          productionOrderId: productionOrderId,
+          scheduledDate: dateStr
+        })
+      }
     }
 
     setDraggedOrder(null)
@@ -270,7 +340,7 @@ function ProductionCalendar() {
                       selectedDate?.dateStr === day.dateStr ? 'ring-2 ring-indigo-600' : ''
                     } ${draggedOrder && !day.isWeekend ? 'ring-2 ring-dashed ring-indigo-300' : ''}`}
                   >
-                    <div className="p-2 h-full flex flex-col">
+                    <div className="p-2 h-full flex flex-col pointer-events-none">
                       <div className={`text-sm font-medium ${
                         day.isToday ? 'text-indigo-600' : day.isWeekend ? 'text-gray-400' : 'text-gray-900'
                       }`}>
@@ -281,11 +351,23 @@ function ProductionCalendar() {
                           <div className={`text-xs mt-1 ${getUtilizationTextColor(day.utilization)}`}>
                             {day.utilization > 0 ? `${Math.round(day.utilization)}%` : '-'}
                           </div>
-                          {day.orders.length > 0 && (
-                            <div className="mt-auto">
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-800">
-                                {day.orders.length} order{day.orders.length > 1 ? 's' : ''}
-                              </span>
+                          {/* Display scheduled SO# */}
+                          {day.scheduledOrders && day.scheduledOrders.length > 0 && (
+                            <div className="mt-1 space-y-0.5 overflow-hidden flex-1">
+                              {day.scheduledOrders.slice(0, 3).map((so, idx) => (
+                                <div
+                                  key={so.id || idx}
+                                  className="text-xs truncate px-1 py-0.5 bg-blue-100 text-blue-800 rounded font-medium"
+                                  title={`${so.bcOrderNumber} - ${so.customerName}`}
+                                >
+                                  {so.bcOrderNumber}
+                                </div>
+                              ))}
+                              {day.scheduledOrders.length > 3 && (
+                                <div className="text-xs text-gray-500 px-1">
+                                  +{day.scheduledOrders.length - 3} more
+                                </div>
+                              )}
                             </div>
                           )}
                         </>
@@ -356,6 +438,9 @@ function ProductionCalendar() {
         isLoading={openOrdersLoading}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
+        showAllOrders={showAllOrders}
+        onToggleShowAll={() => setShowAllOrders(!showAllOrders)}
+        totalCount={openOrdersData?.count || 0}
       />
 
       {/* Schedule Modal */}
@@ -371,11 +456,52 @@ function ProductionCalendar() {
   )
 }
 
-function OpenOrdersPanel({ orders, isLoading, onDragStart, onDragEnd }) {
+function OpenOrdersPanel({ orders, isLoading, onDragStart, onDragEnd, showAllOrders, onToggleShowAll, totalCount }) {
   const [expandedOrders, setExpandedOrders] = useState({})
   const [draggedWorkOrder, setDraggedWorkOrder] = useState(null)
   const [dropTargetOrderId, setDropTargetOrderId] = useState(null)
+  const [selectedDates, setSelectedDates] = useState({})  // Track selected date per order
   const queryClient = useQueryClient()
+
+  // Schedule order mutation (date picker method)
+  const scheduleOrderMutation = useMutation({
+    mutationFn: async ({ salesOrderId, scheduledDate }) => {
+      const response = await productionApi.scheduleOrder(salesOrderId, scheduledDate)
+      return response.data
+    },
+    onSuccess: (data, variables) => {
+      // Clear the selected date for this order
+      setSelectedDates(prev => {
+        const newDates = { ...prev }
+        delete newDates[variables.salesOrderId]
+        return newDates
+      })
+      queryClient.invalidateQueries({ queryKey: ['productionCapacity'] })
+      queryClient.invalidateQueries({ queryKey: ['openOrders'] })
+      queryClient.invalidateQueries({ queryKey: ['productionTasks'] })
+      queryClient.invalidateQueries({ queryKey: ['scheduledSummary'] })
+    },
+    onError: (error) => {
+      alert(`Failed to schedule order: ${error.message || 'Unknown error'}`)
+    }
+  })
+
+  // Unschedule order mutation
+  const unscheduleOrderMutation = useMutation({
+    mutationFn: async (salesOrderId) => {
+      const response = await productionApi.unscheduleOrder(salesOrderId)
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['productionCapacity'] })
+      queryClient.invalidateQueries({ queryKey: ['openOrders'] })
+      queryClient.invalidateQueries({ queryKey: ['productionTasks'] })
+      queryClient.invalidateQueries({ queryKey: ['scheduledSummary'] })
+    },
+    onError: (error) => {
+      alert(`Failed to unschedule order: ${error.message || 'Unknown error'}`)
+    }
+  })
 
   // Link work order mutation
   const linkWorkOrderMutation = useMutation({
@@ -388,6 +514,22 @@ function OpenOrdersPanel({ orders, isLoading, onDragStart, onDragEnd }) {
       queryClient.invalidateQueries({ queryKey: ['productionTasks'] })
     }
   })
+
+  const handleScheduleOrder = (orderId) => {
+    const selectedDate = selectedDates[orderId]
+    if (!selectedDate) {
+      alert('Please select a date first')
+      return
+    }
+    scheduleOrderMutation.mutate({
+      salesOrderId: orderId,
+      scheduledDate: selectedDate
+    })
+  }
+
+  const handleDateChange = (orderId, date) => {
+    setSelectedDates(prev => ({ ...prev, [orderId]: date }))
+  }
 
   const toggleOrder = (orderId) => {
     setExpandedOrders(prev => ({ ...prev, [orderId]: !prev[orderId] }))
@@ -456,9 +598,19 @@ function OpenOrdersPanel({ orders, isLoading, onDragStart, onDragEnd }) {
     <div className="w-96 flex-shrink-0">
       <div className="bg-white shadow rounded-lg h-fit max-h-[calc(100vh-200px)] flex flex-col">
         <div className="px-4 py-3 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">Open Orders</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-medium text-gray-900">
+              {showAllOrders ? 'All Orders' : 'Open Orders'}
+            </h3>
+            <button
+              onClick={onToggleShowAll}
+              className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+            >
+              {showAllOrders ? 'Show Unscheduled' : 'Show All'}
+            </button>
+          </div>
           <p className="text-xs text-gray-500 mt-1">
-            Drag orders to calendar to schedule • Drag work orders between sales orders to link
+            {totalCount} orders • Select date and click Schedule
           </p>
         </div>
 
@@ -474,7 +626,7 @@ function OpenOrdersPanel({ orders, isLoading, onDragStart, onDragEnd }) {
 
               return (
                 <div
-                  key={order.id || idx}
+                  key={`order-${order.id}-${order.bcOrderNumber || idx}`}
                   className={`border rounded-lg overflow-hidden ${
                     dropTargetOrderId === order.id
                       ? 'border-indigo-500 border-2 ring-2 ring-indigo-200'
@@ -542,6 +694,45 @@ function OpenOrdersPanel({ orders, isLoading, onDragStart, onDragEnd }) {
                         </div>
                       </div>
                     </div>
+
+                    {/* Scheduling UI */}
+                    {order.id && (
+                      <div className="px-3 py-2 bg-gray-100 border-t border-gray-200">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="date"
+                            value={selectedDates[order.id] || order.scheduledDate?.split('T')[0] || ''}
+                            onChange={(e) => handleDateChange(order.id, e.target.value)}
+                            className="flex-1 text-sm border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+                            min={format(new Date(), 'yyyy-MM-dd')}
+                          />
+                          <button
+                            onClick={() => handleScheduleOrder(order.id)}
+                            disabled={scheduleOrderMutation.isPending || !selectedDates[order.id]}
+                            className="px-3 py-1 text-sm font-medium text-white bg-indigo-600 rounded hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {scheduleOrderMutation.isPending ? '...' : order.scheduledDate ? 'Update' : 'Schedule'}
+                          </button>
+                          {order.scheduledDate && (
+                            <button
+                              onClick={() => unscheduleOrderMutation.mutate(order.id)}
+                              disabled={unscheduleOrderMutation.isPending}
+                              className="px-2 py-1 text-sm text-red-600 hover:bg-red-50 rounded"
+                              title="Remove from schedule"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+                        {order.scheduledDate && (
+                          <div className="mt-1 text-xs text-green-600">
+                            Currently scheduled: {format(new Date(order.scheduledDate), 'MMM d, yyyy')}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Line Items - Expanded */}
@@ -557,7 +748,7 @@ function OpenOrdersPanel({ orders, isLoading, onDragStart, onDragEnd }) {
 
                           return (
                             <div
-                              key={line.id || lineIdx}
+                              key={`line-${line.id}-${line.bcLineNo || lineIdx}`}
                               className={`px-3 py-2 text-sm ${isComment ? 'bg-gray-50 italic' : ''}`}
                             >
                               <div className="flex items-start justify-between">
@@ -620,7 +811,7 @@ function OpenOrdersPanel({ orders, isLoading, onDragStart, onDragEnd }) {
                           const isOrphan = !order.id
                           return (
                             <div
-                              key={wo.id || woIdx}
+                              key={`wo-${wo.id}-${wo.bcProdOrderNumber || woIdx}`}
                               draggable={true}
                               onDragStart={(e) => handleWorkOrderDragStart(e, wo, order)}
                               onDragEnd={handleWorkOrderDragEnd}
@@ -760,6 +951,32 @@ function SelectedDayDetail({ day, onClose }) {
     onSuccess: (data) => {
       refetchTasks()
       queryClient.invalidateQueries({ queryKey: ['productionCapacity'] })
+      queryClient.invalidateQueries({ queryKey: ['scheduledSummary'] })
+      queryClient.invalidateQueries({ queryKey: ['openOrders'] })
+    }
+  })
+
+  // Pick line item mutation (for pick/pack orders)
+  const pickLineItemMutation = useMutation({
+    mutationFn: async ({ lineItemId, quantityPicked, userId }) => {
+      const response = await productionApi.pickLineItem(lineItemId, quantityPicked, userId)
+      return response.data
+    },
+    onSuccess: (data) => {
+      refetchTasks()
+      queryClient.invalidateQueries({ queryKey: ['productionCapacity'] })
+    }
+  })
+
+  // Unpick line item mutation
+  const unpickLineItemMutation = useMutation({
+    mutationFn: async ({ lineItemId, userId }) => {
+      const response = await productionApi.unpickLineItem(lineItemId, userId)
+      return response.data
+    },
+    onSuccess: (data) => {
+      refetchTasks()
+      queryClient.invalidateQueries({ queryKey: ['productionCapacity'] })
     }
   })
 
@@ -812,6 +1029,16 @@ function SelectedDayDetail({ day, onClose }) {
   const handleShipOrder = (salesOrderId) => {
     if (window.confirm('Ship this order? This will finish the production order and create a shipment in BC.')) {
       shipOrderMutation.mutate({ salesOrderId })
+    }
+  }
+
+  const handlePickLineItem = (lineItemId, isPicked, quantity) => {
+    if (isPicked) {
+      // Unpick the item
+      unpickLineItemMutation.mutate({ lineItemId, userId: 'shop_floor' })
+    } else {
+      // Pick the item
+      pickLineItemMutation.mutate({ lineItemId, quantityPicked: quantity, userId: 'shop_floor' })
     }
   }
 
@@ -883,13 +1110,26 @@ function SelectedDayDetail({ day, onClose }) {
                   </div>
                 </div>
                 <div className="flex items-center space-x-4">
-                  <span className="text-xs text-gray-500 bg-white px-2 py-1 rounded">
-                    {salesOrder.completedTasks}/{salesOrder.totalTasks} tasks
-                  </span>
-                  {salesOrder.allComplete && salesOrder.salesOrderId && (
+                  {salesOrder.orderType === 'pick_pack' ? (
+                    <span className="text-xs text-gray-500 bg-white px-2 py-1 rounded">
+                      {salesOrder.lineItems?.filter(li => li.isPicked || li.lineType === 'Comment' || !li.quantity).length || 0}/{salesOrder.lineItems?.filter(li => li.lineType !== 'Comment' && li.quantity > 0).length || 0} picked
+                    </span>
+                  ) : (
+                    <span className="text-xs text-gray-500 bg-white px-2 py-1 rounded">
+                      {salesOrder.completedTasks}/{salesOrder.totalTasks} tasks
+                    </span>
+                  )}
+                  {salesOrder.status === 'shipped' ? (
+                    <span className="inline-flex items-center px-3 py-1 rounded-md text-sm font-medium text-green-700 bg-green-100">
+                      <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                      Shipped
+                    </span>
+                  ) : salesOrder.allComplete && salesOrder.salesOrderId && (
                     <span
                       onClick={(e) => { e.stopPropagation(); handleShipOrder(salesOrder.salesOrderId); }}
-                      className="inline-flex items-center px-3 py-1 border border-transparent rounded-md text-sm font-medium text-white bg-green-600 hover:bg-green-700"
+                      className="inline-flex items-center px-3 py-1 border border-transparent rounded-md text-sm font-medium text-white bg-green-600 hover:bg-green-700 cursor-pointer"
                     >
                       <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
@@ -939,7 +1179,26 @@ function SelectedDayDetail({ day, onClose }) {
                               {lineItem.completedTasks}/{lineItem.totalTasks} tasks
                             </span>
                           )}
-                          {!lineItem.hasProductionOrder && (
+                          {!lineItem.hasProductionOrder && salesOrder.orderType === 'pick_pack' && lineItem.lineType === 'Item' && lineItem.quantity > 0 && (
+                            <div className="flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                checked={lineItem.isPicked}
+                                onChange={() => handlePickLineItem(lineItem.lineItemId, lineItem.isPicked, lineItem.quantity)}
+                                disabled={pickLineItemMutation.isPending || unpickLineItemMutation.isPending}
+                                className="h-5 w-5 text-green-600 rounded border-gray-300 focus:ring-green-500 disabled:opacity-50"
+                              />
+                              <span className={`text-xs px-2 py-1 rounded ${lineItem.isPicked ? 'text-green-700 bg-green-100' : 'text-orange-700 bg-orange-100'}`}>
+                                {lineItem.isPicked ? 'Picked' : 'To Pick'}
+                              </span>
+                            </div>
+                          )}
+                          {!lineItem.hasProductionOrder && (lineItem.lineType === 'Comment' || !lineItem.quantity || lineItem.quantity === 0) && (
+                            <span className="text-xs text-gray-400 bg-gray-200 px-2 py-1 rounded">
+                              Comment
+                            </span>
+                          )}
+                          {!lineItem.hasProductionOrder && salesOrder.orderType !== 'pick_pack' && lineItem.lineType === 'Item' && lineItem.quantity > 0 && (
                             <span className="text-xs text-gray-400 bg-gray-200 px-2 py-1 rounded">
                               No WO
                             </span>

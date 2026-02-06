@@ -7,62 +7,112 @@
 import { useMemo } from 'react'
 
 // Panel design patterns as SVG patterns
+// Based on Upwardor stamp layouts
+
+// Calculate number of stamp columns based on door width (in inches)
+// Stamps are 42" long x 14" tall
+// Based on Upwardor Long Raised Panel layout specifications
+const STAMP_WIDTH = 42 // inches
+const STAMP_HEIGHT = 14 // inches
+
+const getStampColumns = (widthInches) => {
+  // Calculate how many 42" stamps fit with reasonable spacing
+  // Refer to Upwardor stamp layout PDFs for exact values per width
+  const widthFeet = widthInches / 12
+
+  // Exact mappings from Upwardor layout documents
+  if (widthFeet <= 8) return 3
+  if (widthFeet <= 9) return 3
+  if (widthFeet <= 10) return 3
+  if (widthFeet <= 11) return 3
+  if (widthFeet <= 12) return 3  // 12' = 144", fits 3 stamps (3x42=126") with spacing
+  if (widthFeet <= 13) return 4
+  if (widthFeet <= 14) return 4
+  if (widthFeet <= 15) return 4
+  if (widthFeet <= 16) return 4  // 16' = 192", fits 4 stamps (4x42=168") with spacing
+  if (widthFeet <= 17) return 5
+  if (widthFeet <= 18) return 5
+  if (widthFeet <= 19) return 5
+  if (widthFeet <= 20) return 6  // 20' = 240", fits 6 stamps (6x42=252") tight
+  return 6
+}
+
 const PANEL_PATTERNS = {
-  SHXL: { // Sheridan - raised panel short
-    type: 'raised',
-    rows: 2,
-    cols: 2,
-    style: 'traditional'
-  },
-  LNXL: { // Sheridan XL - raised panel long
+  // Sheridan XL - Long raised panel (1 row, columns based on width)
+  SHXL: {
     type: 'raised',
     rows: 1,
-    cols: 3,
-    style: 'traditional'
+    cols: 'dynamic', // Will be calculated based on door width
+    style: 'sheridan',
+    description: 'Sheridan XL - Long Raised Panel'
   },
-  SHCH: { // Bronte Creek - carriage house short
-    type: 'carriage',
+  // Sheridan - Short raised panel (2 rows, columns based on width)
+  SH: {
+    type: 'raised',
     rows: 2,
-    cols: 2,
-    style: 'carriage'
+    cols: 'dynamic',
+    style: 'sheridan',
+    description: 'Sheridan - Short Raised Panel'
   },
-  LNCH: { // Bronte Creek XL - carriage house long
+  // Bronte Creek XL - Long carriage panel (1 row, columns based on width)
+  BCXL: {
     type: 'carriage',
     rows: 1,
-    cols: 3,
-    style: 'carriage'
+    cols: 'dynamic',
+    style: 'bronte',
+    description: 'Bronte Creek XL - Long Carriage Panel'
   },
-  RIB: { // Trafalgar - ribbed
+  // Bronte Creek - Short carriage panel (2 rows, columns based on width)
+  BC: {
+    type: 'carriage',
+    rows: 2,
+    cols: 'dynamic',
+    style: 'bronte',
+    description: 'Bronte Creek - Short Carriage Panel'
+  },
+  // Trafalgar - Vertical ribbed
+  TRAFALGAR: {
     type: 'ribbed',
     ribs: 8,
-    style: 'modern'
+    style: 'modern',
+    description: 'Trafalgar - Ribbed'
   },
-  FLUSH: { // Flush - flat
+  // Flush - Flat panel (no design)
+  FLUSH: {
     type: 'flush',
-    style: 'minimal'
+    style: 'minimal',
+    description: 'Flush - Flat Panel'
   },
-  UDC: { // Commercial UDC (Undercoated) - 5 horizontal lines per panel
+  // UDC - Commercial standard (horizontal lines)
+  UDC: {
     type: 'horizontal_ribbed',
     ribs: 5,
-    style: 'commercial'
+    style: 'commercial',
+    description: 'UDC - Commercial Standard'
   },
+  // Muskoka - Carriage house design
   MUSKOKA: {
     type: 'carriage',
     rows: 2,
     cols: 2,
-    style: 'rustic'
+    style: 'muskoka',
+    description: 'Muskoka - Carriage House'
   },
+  // Denison - Carriage house design
   DENISON: {
     type: 'carriage',
     rows: 2,
     cols: 3,
-    style: 'classic'
+    style: 'denison',
+    description: 'Denison - Carriage House'
   },
+  // Granville - Carriage house design
   GRANVILLE: {
     type: 'carriage',
     rows: 1,
     cols: 4,
-    style: 'farmhouse'
+    style: 'granville',
+    description: 'Granville - Carriage House'
   },
 }
 
@@ -108,6 +158,10 @@ function DoorPreview({
   doorType = 'residential',
   showDimensions = true,
   scale = 1,
+  interactive = false,  // Enable click-to-place window mode
+  onSectionClick = null,  // Callback when section is clicked (section index)
+  highlightSection = null,  // Section to highlight (for hover effect)
+  onSectionHover = null,  // Callback when hovering over a section
 }) {
   const isCommercial = doorType === 'commercial'
   // Calculate display dimensions (max 400px width for preview)
@@ -255,55 +309,81 @@ function DoorPreview({
   }
 
   const renderRaisedPanels = (y, w, h, padding, pattern) => {
-    const { rows, cols } = pattern
-    const cellW = (w - padding * (cols - 1)) / cols
-    const cellH = (h - padding * (rows - 1)) / rows
+    const { rows } = pattern
+    // Calculate columns dynamically based on door width
+    const cols = pattern.cols === 'dynamic' ? getStampColumns(width) : pattern.cols
+    // Gap between stamps
+    const gapX = w * 0.02
+    const gapY = h * 0.05
+    // Calculate cell dimensions accounting for gaps
+    const cellW = (w - gapX * (cols + 1)) / cols
+    const cellH = (h - gapY * (rows + 1)) / rows
 
     const panels = []
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
-        const x = padding + col * (cellW + padding)
-        const cellY = y + row * (cellH + padding)
-        const inset = Math.min(cellW, cellH) * 0.1
+        const x = padding + gapX + col * (cellW + gapX)
+        const cellY = y + gapY + row * (cellH + gapY)
+
+        // Outer border inset from cell edge
+        const outerInset = Math.min(cellW, cellH) * 0.05
+        // Inner raised panel inset from outer border
+        const innerInset = Math.min(cellW, cellH) * 0.12
 
         panels.push(
           <g key={`panel-${row}-${col}`}>
-            {/* Outer raised panel border */}
+            {/* Outer rectangle border */}
             <rect
-              x={x}
-              y={cellY}
-              width={cellW}
-              height={cellH}
-              fill={doorColor}
+              x={x + outerInset}
+              y={cellY + outerInset}
+              width={cellW - outerInset * 2}
+              height={cellH - outerInset * 2}
+              fill="none"
+              stroke={lineColor}
+              strokeWidth="1.5"
+            />
+            {/* Inner raised rectangle */}
+            <rect
+              x={x + outerInset + innerInset}
+              y={cellY + outerInset + innerInset}
+              width={cellW - (outerInset + innerInset) * 2}
+              height={cellH - (outerInset + innerInset) * 2}
+              fill="none"
               stroke={lineColor}
               strokeWidth="1"
             />
-            {/* Inner recessed area */}
-            <rect
-              x={x + inset}
-              y={cellY + inset}
-              width={cellW - inset * 2}
-              height={cellH - inset * 2}
-              fill={doorColor}
-              stroke={lineColor}
-              strokeWidth="0.5"
-              style={{ filter: `drop-shadow(inset 2px 2px 4px ${shadowColor})` }}
-            />
-            {/* Highlight on top/left */}
+            {/* 3D effect - shadow on bottom/right of inner panel */}
             <line
-              x1={x + inset}
-              y1={cellY + inset}
-              x2={x + cellW - inset}
-              y2={cellY + inset}
-              stroke={isDark ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.5)'}
+              x1={x + outerInset + innerInset}
+              y1={cellY + cellH - outerInset - innerInset}
+              x2={x + cellW - outerInset - innerInset}
+              y2={cellY + cellH - outerInset - innerInset}
+              stroke={shadowColor}
+              strokeWidth="2"
+            />
+            <line
+              x1={x + cellW - outerInset - innerInset}
+              y1={cellY + outerInset + innerInset}
+              x2={x + cellW - outerInset - innerInset}
+              y2={cellY + cellH - outerInset - innerInset}
+              stroke={shadowColor}
+              strokeWidth="2"
+            />
+            {/* 3D effect - highlight on top/left of inner panel */}
+            <line
+              x1={x + outerInset + innerInset}
+              y1={cellY + outerInset + innerInset}
+              x2={x + cellW - outerInset - innerInset}
+              y2={cellY + outerInset + innerInset}
+              stroke={isDark ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.7)'}
               strokeWidth="1"
             />
             <line
-              x1={x + inset}
-              y1={cellY + inset}
-              x2={x + inset}
-              y2={cellY + cellH - inset}
-              stroke={isDark ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.5)'}
+              x1={x + outerInset + innerInset}
+              y1={cellY + outerInset + innerInset}
+              x2={x + outerInset + innerInset}
+              y2={cellY + cellH - outerInset - innerInset}
+              stroke={isDark ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.7)'}
               strokeWidth="1"
             />
           </g>
@@ -314,57 +394,92 @@ function DoorPreview({
   }
 
   const renderCarriagePanels = (y, w, h, padding, pattern) => {
-    const { rows, cols } = pattern
-    const cellW = (w - padding * (cols - 1)) / cols
-    const cellH = (h - padding * (rows - 1)) / rows
+    const { rows } = pattern
+    // Calculate columns dynamically based on door width for Bronte Creek styles
+    const cols = pattern.cols === 'dynamic' ? getStampColumns(width) : pattern.cols
+    // Gap between stamps
+    const gapX = w * 0.02
+    const gapY = h * 0.05
+    const cellW = (w - gapX * (cols + 1)) / cols
+    const cellH = (h - gapY * (rows + 1)) / rows
 
     const panels = []
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
-        const x = padding + col * (cellW + padding)
-        const cellY = y + row * (cellH + padding)
-        const inset = Math.min(cellW, cellH) * 0.08
-        const cornerRadius = Math.min(cellW, cellH) * 0.05
+        const x = padding + gapX + col * (cellW + gapX)
+        const cellY = y + gapY + row * (cellH + gapY)
+
+        // Outer border inset
+        const outerInset = Math.min(cellW, cellH) * 0.05
+        // Inner frame inset
+        const innerInset = Math.min(cellW, cellH) * 0.12
+        const cornerRadius = Math.min(cellW, cellH) * 0.03
 
         panels.push(
           <g key={`carriage-${row}-${col}`}>
-            {/* Outer border with rounded corners */}
+            {/* Outer rectangle border */}
             <rect
-              x={x}
-              y={cellY}
-              width={cellW}
-              height={cellH}
+              x={x + outerInset}
+              y={cellY + outerInset}
+              width={cellW - outerInset * 2}
+              height={cellH - outerInset * 2}
               rx={cornerRadius}
               ry={cornerRadius}
-              fill={doorColor}
+              fill="none"
               stroke={lineColor}
               strokeWidth="1.5"
             />
             {/* Inner decorative frame */}
             <rect
-              x={x + inset}
-              y={cellY + inset}
-              width={cellW - inset * 2}
-              height={cellH - inset * 2}
+              x={x + outerInset + innerInset}
+              y={cellY + outerInset + innerInset}
+              width={cellW - (outerInset + innerInset) * 2}
+              height={cellH - (outerInset + innerInset) * 2}
               rx={cornerRadius * 0.5}
               ry={cornerRadius * 0.5}
               fill="none"
               stroke={lineColor}
               strokeWidth="1"
             />
-            {/* Cross beam for carriage style */}
-            {pattern.style === 'carriage' && (
-              <>
-                <line
-                  x1={x + cellW * 0.5}
-                  y1={cellY + inset}
-                  x2={x + cellW * 0.5}
-                  y2={cellY + cellH - inset}
-                  stroke={lineColor}
-                  strokeWidth="1"
-                />
-              </>
+            {/* Vertical divider line for Bronte Creek carriage style */}
+            {(pattern.style === 'bronte' || pattern.style === 'carriage') && (
+              <line
+                x1={x + cellW * 0.5}
+                y1={cellY + outerInset + innerInset}
+                x2={x + cellW * 0.5}
+                y2={cellY + cellH - outerInset - innerInset}
+                stroke={lineColor}
+                strokeWidth="1"
+              />
             )}
+            {/* Horizontal divider for some carriage styles */}
+            {(pattern.style === 'muskoka' || pattern.style === 'denison') && (
+              <line
+                x1={x + outerInset + innerInset}
+                y1={cellY + cellH * 0.5}
+                x2={x + cellW - outerInset - innerInset}
+                y2={cellY + cellH * 0.5}
+                stroke={lineColor}
+                strokeWidth="1"
+              />
+            )}
+            {/* 3D shadow effect */}
+            <line
+              x1={x + outerInset + innerInset}
+              y1={cellY + cellH - outerInset - innerInset}
+              x2={x + cellW - outerInset - innerInset}
+              y2={cellY + cellH - outerInset - innerInset}
+              stroke={shadowColor}
+              strokeWidth="1.5"
+            />
+            <line
+              x1={x + cellW - outerInset - innerInset}
+              y1={cellY + outerInset + innerInset}
+              x2={x + cellW - outerInset - innerInset}
+              y2={cellY + cellH - outerInset - innerInset}
+              stroke={shadowColor}
+              strokeWidth="1.5"
+            />
           </g>
         )
       }
@@ -666,7 +781,40 @@ function DoorPreview({
 
         {/* Render each section */}
         {sections.map((section) => (
-          <g key={`section-${section.index}`}>
+          <g
+            key={`section-${section.index}`}
+            style={interactive ? { cursor: 'pointer' } : {}}
+            onClick={interactive && onSectionClick ? () => onSectionClick(section.index + 1) : undefined}
+            onMouseEnter={interactive && onSectionHover ? () => onSectionHover(section.index + 1) : undefined}
+            onMouseLeave={interactive && onSectionHover ? () => onSectionHover(null) : undefined}
+          >
+            {/* Interactive highlight overlay */}
+            {interactive && highlightSection === section.index + 1 && (
+              <rect
+                x="2"
+                y={section.y + 2}
+                width={displayWidth - 4}
+                height={section.height - 4}
+                fill="rgba(59, 130, 246, 0.2)"
+                stroke="rgba(59, 130, 246, 0.8)"
+                strokeWidth="2"
+                strokeDasharray="5,3"
+                rx="3"
+              />
+            )}
+            {/* Section number label for interactive mode */}
+            {interactive && (
+              <text
+                x={displayWidth - 15}
+                y={section.y + 18}
+                fontSize="12"
+                fill={highlightSection === section.index + 1 ? '#2563eb' : '#666'}
+                fontWeight={highlightSection === section.index + 1 ? 'bold' : 'normal'}
+                textAnchor="middle"
+              >
+                {section.index + 1}
+              </text>
+            )}
             {/* Section divider line */}
             {section.index > 0 && (
               <line

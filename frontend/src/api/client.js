@@ -286,9 +286,24 @@ export const productionApi = {
       quantityCompleted
     }),
 
-  // Ship a completed order
-  shipOrder: (productionOrderId, userId = null) =>
-    apiClient.post(`/production/tasks/order/${productionOrderId}/ship`, {
+  // Mark a line item as picked (for pick/pack orders)
+  pickLineItem: (lineItemId, quantityPicked = null, userId = null) =>
+    apiClient.post('/production/tasks/pick-item', {
+      lineItemId,
+      quantityPicked,
+      userId
+    }),
+
+  // Unmark a line item as picked (reset pick status)
+  unpickLineItem: (lineItemId, userId = null) =>
+    apiClient.post('/production/tasks/unpick-item', {
+      lineItemId,
+      userId
+    }),
+
+  // Ship a completed order (supports both production orders and pick/pack sales orders)
+  shipOrder: (salesOrderId, userId = null) =>
+    apiClient.post(`/production/tasks/sales-order/${salesOrderId}/ship`, {
       userId
     }),
 
@@ -305,12 +320,27 @@ export const productionApi = {
   // ==================== Scheduling API ====================
 
   // Get all open sales orders with work orders for the side panel
-  getOpenOrders: () =>
-    apiClient.get('/production/tasks/open-orders'),
+  // If onlyUnscheduled=true (default), filters to only orders with unscheduled tasks
+  getOpenOrders: (onlyUnscheduled = true) =>
+    apiClient.get('/production/tasks/open-orders', {
+      params: { only_unscheduled: onlyUnscheduled }
+    }),
 
   // Get unscheduled orders for the side panel (legacy)
   getUnscheduledOrders: () =>
     apiClient.get('/production/tasks/unscheduled'),
+
+  // Get all sales orders scheduled for a specific date
+  // Used to show SO numbers on calendar dates
+  getScheduledByDate: (date) =>
+    apiClient.get(`/production/tasks/scheduled-by-date/${date}`),
+
+  // Get all scheduled sales orders grouped by date for a date range
+  // Efficient endpoint for calendar display
+  getScheduledSummary: (dateFrom, dateTo) =>
+    apiClient.get('/production/tasks/scheduled-summary', {
+      params: { date_from: dateFrom, date_to: dateTo }
+    }),
 
   // Schedule a sales order to a specific date (drag & drop)
   scheduleOrder: (salesOrderId, scheduledDate) =>
@@ -328,6 +358,10 @@ export const productionApi = {
   // Remove an order from the schedule
   unscheduleOrder: (salesOrderId) =>
     apiClient.delete(`/production/tasks/unschedule/${salesOrderId}`),
+
+  // Unschedule ALL orders (clear entire schedule)
+  unscheduleAll: () =>
+    apiClient.delete('/production/tasks/unschedule-all'),
 
   // ==================== Work Order Linking API ====================
 
@@ -399,6 +433,33 @@ export const ordersApi = {
   // Create invoice for order
   createInvoice: (orderId) =>
     apiClient.post(`/api/orders/${orderId}/invoice`),
+};
+
+// AI Chat API
+export const chatApi = {
+  // Send a message to the AI agent
+  sendMessage: (message, context = {}, conversationId = null) =>
+    apiClient.post('/api/chat/message', {
+      message,
+      context,
+      conversation_id: conversationId
+    }),
+
+  // Get list of conversations
+  getConversations: (limit = 20) =>
+    apiClient.get('/api/chat/conversations', { params: { limit } }),
+
+  // Get conversation history
+  getConversation: (conversationId) =>
+    apiClient.get(`/api/chat/conversations/${conversationId}`),
+
+  // Delete a conversation
+  deleteConversation: (conversationId) =>
+    apiClient.delete(`/api/chat/conversations/${conversationId}`),
+
+  // Clear a conversation (keep it but remove messages)
+  clearConversation: (conversationId) =>
+    apiClient.post(`/api/chat/conversations/${conversationId}/clear`),
 };
 
 export default apiClient;

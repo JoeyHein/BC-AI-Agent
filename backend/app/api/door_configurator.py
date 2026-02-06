@@ -173,11 +173,11 @@ COLORS = {
 
 PANEL_DESIGNS = {
     "KANATA": [
-        {"id": "SHERIDAN", "code": "SHXL", "name": "Sheridan", "type": "Raised Panel (Short)"},
-        {"id": "SHERIDAN_XL", "code": "LNXL", "name": "Sheridan XL", "type": "Raised Panel (Long)"},
-        {"id": "BRONTE_CREEK", "code": "SHCH", "name": "Bronte Creek", "type": "Carriage House (Short)"},
-        {"id": "BRONTE_CREEK_XL", "code": "LNCH", "name": "Bronte Creek XL", "type": "Carriage House (Long)"},
-        {"id": "TRAFALGAR", "code": "RIB", "name": "Trafalgar", "type": "Ribbed Panel"},
+        {"id": "SH", "code": "SH", "name": "Sheridan", "type": "Raised Panel (Short)"},
+        {"id": "SHXL", "code": "SHXL", "name": "Sheridan XL", "type": "Raised Panel (Long)"},
+        {"id": "BC", "code": "BC", "name": "Bronte Creek", "type": "Carriage House (Short)"},
+        {"id": "BCXL", "code": "BCXL", "name": "Bronte Creek XL", "type": "Carriage House (Long)"},
+        {"id": "TRAFALGAR", "code": "TRAFALGAR", "name": "Trafalgar", "type": "Ribbed Panel"},
         {"id": "FLUSH", "code": "FLUSH", "name": "Flush", "type": "Flush/Flat"},
     ],
     "CRAFT": [

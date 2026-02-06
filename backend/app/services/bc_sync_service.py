@@ -317,13 +317,17 @@ class BCSyncService:
         Logic:
         1. Get all unlinked production orders (sales_order_id is NULL)
         2. For each, find sales order lines with matching item_no = production order's item_code
-        3. If found, link to the sales order and optionally the line item
+        3. Use smart matching to resolve multiple matches:
+           - Prefer lines that don't already have a linked production order
+           - Prefer lines with matching quantity
+           - Prefer lines on sales orders with closest date to production due date
         """
         results = {
             "linked": 0,
             "already_linked": 0,
             "no_match": 0,
             "multiple_matches": 0,
+            "smart_linked": 0,
             "details": []
         }
 
@@ -367,20 +371,102 @@ class BCSyncService:
                 })
 
             else:
-                # Multiple matches - try to narrow down by date or quantity
-                # For now, just report it
-                results["multiple_matches"] += 1
-                results["details"].append({
-                    "prod_order": prod_order.bc_prod_order_number,
-                    "item_code": prod_order.item_code,
-                    "match_count": len(matching_lines),
-                    "status": "multiple_matches"
-                })
+                # Multiple matches - use smart matching
+                best_line = self._find_best_matching_line(
+                    db, prod_order, matching_lines
+                )
+
+                if best_line:
+                    prod_order.sales_order_id = best_line.sales_order_id
+                    prod_order.line_item_id = best_line.id
+                    results["smart_linked"] += 1
+                    results["details"].append({
+                        "prod_order": prod_order.bc_prod_order_number,
+                        "item_code": prod_order.item_code,
+                        "linked_to_so": best_line.sales_order_id,
+                        "linked_to_line": best_line.id,
+                        "match_count": len(matching_lines),
+                        "status": "smart_linked"
+                    })
+                else:
+                    results["multiple_matches"] += 1
+                    results["details"].append({
+                        "prod_order": prod_order.bc_prod_order_number,
+                        "item_code": prod_order.item_code,
+                        "match_count": len(matching_lines),
+                        "status": "multiple_matches"
+                    })
 
         db.commit()
-        logger.info(f"Auto-link complete: {results['linked']} linked, {results['no_match']} no match, {results['multiple_matches']} multiple matches")
+        logger.info(f"Auto-link complete: {results['linked']} linked, {results['smart_linked']} smart-linked, {results['no_match']} no match, {results['multiple_matches']} multiple matches")
 
         return results
+
+    def _find_best_matching_line(
+        self,
+        db: Session,
+        prod_order: ProductionOrder,
+        matching_lines: List[SalesOrderLineItem]
+    ) -> Optional[SalesOrderLineItem]:
+        """
+        Find the best matching sales order line when there are multiple candidates.
+
+        Scoring criteria:
+        1. Line doesn't already have a linked production order (+100 points)
+        2. Quantity matches exactly (+50 points)
+        3. Sales order date is closest to production due date (+25 points max)
+        """
+        if not matching_lines:
+            return None
+
+        scored_lines = []
+        for line in matching_lines:
+            score = 0
+
+            # Check if this line already has a linked production order
+            existing_link = db.query(ProductionOrder).filter(
+                ProductionOrder.line_item_id == line.id,
+                ProductionOrder.id != prod_order.id
+            ).first()
+
+            if not existing_link:
+                score += 100  # Strong preference for unlinked lines
+
+            # Check quantity match
+            if line.quantity and prod_order.quantity:
+                if line.quantity == prod_order.quantity:
+                    score += 50
+                elif abs(line.quantity - prod_order.quantity) <= 1:
+                    score += 25  # Close match
+
+            # Check date proximity
+            if prod_order.due_date and line.sales_order:
+                so = line.sales_order
+                so_date = so.requested_delivery_date or so.order_date
+                if so_date:
+                    days_diff = abs((prod_order.due_date - so_date).days)
+                    if days_diff <= 7:
+                        score += 25
+                    elif days_diff <= 30:
+                        score += 15
+                    elif days_diff <= 90:
+                        score += 5
+
+            scored_lines.append((score, line))
+
+        # Sort by score descending
+        scored_lines.sort(key=lambda x: x[0], reverse=True)
+
+        # Return the best match if it has a meaningful score
+        if scored_lines and scored_lines[0][0] >= 100:
+            return scored_lines[0][1]
+
+        # If top candidates have same score, still can't determine
+        if len(scored_lines) >= 2:
+            if scored_lines[0][0] == scored_lines[1][0]:
+                return None  # Ambiguous
+
+        return scored_lines[0][1] if scored_lines else None
 
     # ==================== Full Sync ====================
 
