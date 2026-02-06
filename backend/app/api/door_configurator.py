@@ -321,6 +321,11 @@ OPERATOR_OPTIONS = {
 # PYDANTIC MODELS
 # ============================================================================
 
+class WindowPosition(BaseModel):
+    """Position of a window within a stamp grid (section x column)"""
+    section: int  # 1-based section number (1 = top)
+    col: int  # 0-based column index (0 = left)
+
 class DoorConfigRequest(BaseModel):
     doorType: str
     doorSeries: str
@@ -330,7 +335,8 @@ class DoorConfigRequest(BaseModel):
     panelColor: str
     panelDesign: str
     windowInsert: Optional[str] = None
-    windowSection: Optional[int] = None  # Which section has windows (1 = top)
+    windowPositions: Optional[List[WindowPosition]] = []  # Multi-stamp window positions
+    windowSection: Optional[int] = None  # Legacy: single section (for backward compatibility)
     glazingType: Optional[str] = None
     trackRadius: str = "15"
     trackThickness: str = "2"
@@ -676,6 +682,9 @@ async def generate_door_quote(request: QuoteGenerationRequest):
             })
 
             # Get parts for this door configuration
+            # Calculate window count from windowPositions array
+            window_count = len(door.windowPositions) if door.windowPositions else (1 if door.windowSection else 0)
+
             config_dict = {
                 "doorType": door.doorType,
                 "doorSeries": door.doorSeries,
@@ -685,6 +694,8 @@ async def generate_door_quote(request: QuoteGenerationRequest):
                 "panelColor": door.panelColor,
                 "panelDesign": door.panelDesign,
                 "windowInsert": door.windowInsert,
+                "windowPositions": [{"section": p.section, "col": p.col} for p in door.windowPositions] if door.windowPositions else [],
+                "windowCount": window_count,
                 "windowSection": door.windowSection,
                 "glazingType": door.glazingType,
                 "trackRadius": door.trackRadius,
@@ -917,6 +928,9 @@ async def get_part_numbers(config: DoorConfigRequest):
     organized by category (panel, track, hardware, spring, etc.)
     """
     try:
+        # Calculate window count from windowPositions array
+        window_count = len(config.windowPositions) if config.windowPositions else (1 if config.windowSection else 0)
+
         # Convert request to dict for part number service
         config_dict = {
             "doorType": config.doorType,
@@ -927,6 +941,8 @@ async def get_part_numbers(config: DoorConfigRequest):
             "panelColor": config.panelColor,
             "panelDesign": config.panelDesign,
             "windowInsert": config.windowInsert,
+            "windowPositions": [{"section": p.section, "col": p.col} for p in config.windowPositions] if config.windowPositions else [],
+            "windowCount": window_count,
             "windowSection": config.windowSection,
             "glazingType": config.glazingType,
             "trackRadius": config.trackRadius,
@@ -961,6 +977,9 @@ async def get_parts_for_quote(request: QuoteGenerationRequest):
         parts_by_door = []
 
         for i, door in enumerate(request.doors):
+            # Calculate window count from windowPositions array
+            window_count = len(door.windowPositions) if door.windowPositions else (1 if door.windowSection else 0)
+
             config_dict = {
                 "doorType": door.doorType,
                 "doorSeries": door.doorSeries,
@@ -970,6 +989,8 @@ async def get_parts_for_quote(request: QuoteGenerationRequest):
                 "panelColor": door.panelColor,
                 "panelDesign": door.panelDesign,
                 "windowInsert": door.windowInsert,
+                "windowPositions": [{"section": p.section, "col": p.col} for p in door.windowPositions] if door.windowPositions else [],
+                "windowCount": window_count,
                 "windowSection": door.windowSection,
                 "glazingType": door.glazingType,
                 "trackRadius": door.trackRadius,

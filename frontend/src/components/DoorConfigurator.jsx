@@ -55,7 +55,8 @@ function DoorConfigurator() {
       panelColor: '',
       panelDesign: '',
       windowInsert: 'NONE',
-      windowSection: 1,
+      windowPositions: [],  // Array of {section, col} for multi-stamp windows
+      windowSection: 1,  // Legacy fallback
       glazingType: 'NONE',
       trackRadius: '15',
       trackThickness: '2',
@@ -141,7 +142,8 @@ function DoorConfigurator() {
         panelColor: door.panelColor,
         panelDesign: door.panelDesign,
         windowInsert: door.windowInsert !== 'NONE' ? door.windowInsert : null,
-        windowSection: door.windowSection,
+        windowPositions: door.windowPositions || [],  // New multi-stamp positions
+        windowSection: door.windowSection,  // Legacy fallback
         glazingType: door.glazingType !== 'NONE' ? door.glazingType : null,
         trackRadius: door.trackRadius,
         trackThickness: door.trackThickness,
@@ -620,11 +622,72 @@ function DesignStep({ door, colors, panelDesigns, onChange }) {
 }
 
 function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
-  const [hoveredSection, setHoveredSection] = useState(null)
+  const [hoveredStamp, setHoveredStamp] = useState(null)
   const hasWindows = door.windowInsert !== 'NONE' && door.windowInsert
 
   // Calculate panel count based on height
   const panelCount = door.doorHeight <= 84 ? 4 : door.doorHeight <= 96 ? 5 : 6
+
+  // Calculate stamp columns based on door width (same logic as DoorPreview)
+  const getStampColumns = (widthInches) => {
+    const widthFeet = widthInches / 12
+    if (widthFeet <= 12) return 3
+    if (widthFeet <= 16) return 4
+    if (widthFeet <= 19) return 5
+    return 6
+  }
+  const stampColumns = getStampColumns(door.doorWidth)
+
+  // Get window positions, defaulting to empty array
+  const windowPositions = door.windowPositions || []
+
+  // Check if a position has a window
+  const hasWindowAt = (section, col) => {
+    return windowPositions.some(pos => pos.section === section && pos.col === col)
+  }
+
+  // Toggle window at a stamp position
+  const toggleWindow = (section, col) => {
+    const existing = windowPositions.find(pos => pos.section === section && pos.col === col)
+    let newPositions
+    if (existing) {
+      // Remove this position
+      newPositions = windowPositions.filter(pos => !(pos.section === section && pos.col === col))
+    } else {
+      // Add this position
+      newPositions = [...windowPositions, { section, col }]
+    }
+    onChange({ windowPositions: newPositions })
+  }
+
+  // Quick actions for common patterns
+  const setTopRowWindows = () => {
+    const positions = []
+    for (let col = 0; col < stampColumns; col++) {
+      positions.push({ section: 1, col })
+    }
+    onChange({ windowPositions: positions })
+  }
+
+  const setLeftColumnWindows = () => {
+    const positions = []
+    for (let section = 1; section <= panelCount; section++) {
+      positions.push({ section, col: 0 })
+    }
+    onChange({ windowPositions: positions })
+  }
+
+  const setRightColumnWindows = () => {
+    const positions = []
+    for (let section = 1; section <= panelCount; section++) {
+      positions.push({ section, col: stampColumns - 1 })
+    }
+    onChange({ windowPositions: positions })
+  }
+
+  const clearAllWindows = () => {
+    onChange({ windowPositions: [] })
+  }
 
   return (
     <div className="space-y-6">
@@ -634,7 +697,10 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
           type="checkbox"
           id="hasWindows"
           checked={hasWindows}
-          onChange={(e) => onChange({ windowInsert: e.target.checked ? 'STOCKTON_STANDARD' : 'NONE' })}
+          onChange={(e) => onChange({
+            windowInsert: e.target.checked ? 'STOCKTON_STANDARD' : 'NONE',
+            windowPositions: e.target.checked ? [] : []
+          })}
           className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
         />
         <label htmlFor="hasWindows" className="text-sm font-medium text-gray-700">
@@ -673,12 +739,12 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
             </div>
           </div>
 
-          {/* Window Section - Interactive Door Preview */}
+          {/* Window Placement - Interactive Door Preview */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Click a section to place windows (1 = Top)
+              Click individual stamps to add/remove windows
             </label>
-            <div className="flex flex-col md:flex-row gap-6">
+            <div className="flex flex-col lg:flex-row gap-6">
               {/* Interactive Door Preview */}
               <div className="flex-shrink-0">
                 <DoorPreview
@@ -687,50 +753,113 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
                   color={door.panelColor || 'WHITE'}
                   panelDesign={door.panelDesign || 'SHXL'}
                   windowInsert={door.windowInsert}
-                  windowSection={door.windowSection}
+                  windowPositions={windowPositions}
                   showDimensions={false}
-                  scale={0.6}
+                  scale={0.7}
                   interactive={true}
-                  onSectionClick={(section) => onChange({ windowSection: section })}
-                  highlightSection={hoveredSection || door.windowSection}
-                  onSectionHover={setHoveredSection}
+                  onStampClick={toggleWindow}
+                  highlightStamp={hoveredStamp}
+                  onStampHover={(section, col) => setHoveredStamp(section !== null ? { section, col } : null)}
                 />
                 <p className="mt-2 text-xs text-center text-gray-500">
-                  Click a section to place window
+                  Click any stamp to toggle window
                 </p>
               </div>
 
-              {/* Section Buttons (alternative selection) */}
-              <div className="flex-1">
-                <p className="text-sm text-gray-600 mb-2">Or select section number:</p>
-                <div className="flex flex-wrap gap-2">
-                  {[...Array(panelCount)].map((_, i) => (
+              {/* Quick Actions & Info */}
+              <div className="flex-1 space-y-4">
+                {/* Quick Actions */}
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-2">Quick Patterns:</p>
+                  <div className="flex flex-wrap gap-2">
                     <button
-                      key={i + 1}
-                      onClick={() => onChange({ windowSection: i + 1 })}
-                      onMouseEnter={() => setHoveredSection(i + 1)}
-                      onMouseLeave={() => setHoveredSection(null)}
-                      className={`w-12 h-12 rounded-md border-2 text-sm font-medium transition-all ${
-                        door.windowSection === i + 1
-                          ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                          : hoveredSection === i + 1
-                            ? 'border-blue-300 bg-blue-50'
-                            : 'border-gray-300 hover:border-gray-400'
-                      }`}
+                      onClick={setTopRowWindows}
+                      className="px-3 py-2 text-xs rounded-md border border-gray-300 hover:border-indigo-400 hover:bg-indigo-50"
                     >
-                      {i + 1}
+                      Top Row
                     </button>
-                  ))}
+                    <button
+                      onClick={setLeftColumnWindows}
+                      className="px-3 py-2 text-xs rounded-md border border-gray-300 hover:border-indigo-400 hover:bg-indigo-50"
+                    >
+                      Left Column
+                    </button>
+                    <button
+                      onClick={setRightColumnWindows}
+                      className="px-3 py-2 text-xs rounded-md border border-gray-300 hover:border-indigo-400 hover:bg-indigo-50"
+                    >
+                      Right Column
+                    </button>
+                    <button
+                      onClick={clearAllWindows}
+                      className="px-3 py-2 text-xs rounded-md border border-red-200 text-red-600 hover:border-red-400 hover:bg-red-50"
+                    >
+                      Clear All
+                    </button>
+                  </div>
                 </div>
-                <p className="mt-2 text-xs text-gray-500">
-                  This door has {panelCount} panels. Section 1 is the top.
-                </p>
-                <div className="mt-3 p-3 bg-indigo-50 rounded-md">
-                  <p className="text-sm text-indigo-700">
-                    <strong>Selected:</strong> Section {door.windowSection}
-                    {door.windowSection === 1 && ' (Top panel)'}
-                    {door.windowSection === panelCount && ' (Bottom panel)'}
+
+                {/* Grid Info */}
+                <div className="p-3 bg-gray-50 rounded-md">
+                  <p className="text-sm text-gray-600">
+                    <strong>Door Grid:</strong> {panelCount} sections × {stampColumns} stamps
                   </p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    <strong>Windows Selected:</strong> {windowPositions.length}
+                  </p>
+                </div>
+
+                {/* Selected Windows List */}
+                {windowPositions.length > 0 && (
+                  <div className="p-3 bg-indigo-50 rounded-md">
+                    <p className="text-sm font-medium text-indigo-700 mb-2">Window Positions:</p>
+                    <div className="flex flex-wrap gap-1">
+                      {windowPositions.map((pos, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center px-2 py-1 text-xs rounded bg-white border border-indigo-200 text-indigo-700"
+                        >
+                          S{pos.section}-C{pos.col + 1}
+                          <button
+                            onClick={() => toggleWindow(pos.section, pos.col)}
+                            className="ml-1 text-indigo-400 hover:text-red-500"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Stamp Grid Selector (alternative to clicking preview) */}
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-2">Or click grid cells:</p>
+                  <div className="inline-block border border-gray-300 rounded-lg p-2 bg-white">
+                    {[...Array(panelCount)].map((_, section) => (
+                      <div key={section} className="flex gap-1 mb-1 last:mb-0">
+                        {[...Array(stampColumns)].map((_, col) => (
+                          <button
+                            key={col}
+                            onClick={() => toggleWindow(section + 1, col)}
+                            onMouseEnter={() => setHoveredStamp({ section: section + 1, col })}
+                            onMouseLeave={() => setHoveredStamp(null)}
+                            className={`w-8 h-8 rounded text-xs font-medium transition-all ${
+                              hasWindowAt(section + 1, col)
+                                ? 'bg-sky-400 text-white border-2 border-sky-500'
+                                : hoveredStamp?.section === section + 1 && hoveredStamp?.col === col
+                                  ? 'bg-blue-100 border-2 border-blue-300'
+                                  : 'bg-gray-100 border border-gray-300 hover:bg-gray-200'
+                            }`}
+                            title={`Section ${section + 1}, Column ${col + 1}`}
+                          >
+                            {hasWindowAt(section + 1, col) ? '☐' : ''}
+                          </button>
+                        ))}
+                        <span className="text-xs text-gray-400 ml-1 self-center">S{section + 1}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
@@ -895,6 +1024,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult 
             panelColor: door.panelColor,
             panelDesign: door.panelDesign,
             windowInsert: door.windowInsert !== 'NONE' ? door.windowInsert : null,
+            windowPositions: door.windowPositions || [],
             windowSection: door.windowSection,
             glazingType: door.glazingType !== 'NONE' ? door.glazingType : null,
             trackRadius: door.trackRadius,
@@ -1004,7 +1134,9 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult 
               <div>
                 <span className="text-gray-500">Windows:</span>
                 <span className="ml-2 text-gray-900">
-                  {door.windowInsert !== 'NONE' ? `Yes (Section ${door.windowSection})` : 'No'}
+                  {door.windowInsert !== 'NONE' && (door.windowPositions?.length > 0 || door.windowSection)
+                    ? `Yes (${door.windowPositions?.length || 1} window${(door.windowPositions?.length || 1) > 1 ? 's' : ''})`
+                    : 'No'}
                 </span>
               </div>
               <div>

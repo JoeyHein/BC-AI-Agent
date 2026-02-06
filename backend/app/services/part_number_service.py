@@ -101,6 +101,7 @@ class DoorConfiguration:
     panel_design: str  # stamp pattern
     window_insert: Optional[str] = None
     window_section: Optional[int] = None
+    window_count: int = 0  # Number of windows (calculated from windowPositions)
     glazing_type: Optional[str] = None
     track_radius: str = "15"
     track_thickness: str = "2"
@@ -853,6 +854,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         panel_design=config_dict.get("panelDesign", "SHXL"),
         window_insert=config_dict.get("windowInsert"),
         window_section=config_dict.get("windowSection"),
+        window_count=config_dict.get("windowCount", 0),
         glazing_type=config_dict.get("glazingType"),
         track_radius=config_dict.get("trackRadius", "15"),
         track_thickness=config_dict.get("trackThickness", "2"),

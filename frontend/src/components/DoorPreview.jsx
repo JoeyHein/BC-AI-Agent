@@ -164,16 +164,20 @@ function DoorPreview({
   color = 'WHITE',
   panelDesign = 'SHXL',
   windowInsert = null,
-  windowSection = 1,
+  windowPositions = [],  // Array of {section, col} for multi-stamp windows
+  windowSection = 1,  // Legacy: single section (used if windowPositions empty)
   windowQty = 0,  // For commercial doors
   windowFrameColor = 'WHITE',  // For commercial doors (WHITE or BLACK)
   doorType = 'residential',
   showDimensions = true,
   scale = 1,
   interactive = false,  // Enable click-to-place window mode
-  onSectionClick = null,  // Callback when section is clicked (section index)
+  onStampClick = null,  // Callback when stamp is clicked (section, col)
+  onSectionClick = null,  // Legacy: Callback when section is clicked
+  highlightStamp = null,  // {section, col} to highlight
   highlightSection = null,  // Section to highlight (for hover effect)
-  onSectionHover = null,  // Callback when hovering over a section
+  onStampHover = null,  // Callback when hovering over a stamp (section, col)
+  onSectionHover = null,  // Legacy: Callback when hovering over a section
 }) {
   const isCommercial = doorType === 'commercial'
   // Calculate display dimensions (max 400px width for preview)
@@ -181,6 +185,23 @@ function DoorPreview({
   const aspectRatio = height / width
   const displayWidth = Math.min(maxDisplayWidth, 400)
   const displayHeight = displayWidth * aspectRatio
+
+  // Helper to check if a specific stamp position has a window
+  const hasWindowAtPosition = (section, col) => {
+    if (windowPositions && windowPositions.length > 0) {
+      return windowPositions.some(pos => pos.section === section && pos.col === col)
+    }
+    // Legacy: if no windowPositions, use single windowSection (all stamps in that section)
+    return windowInsert && windowInsert !== 'NONE' && section === windowSection
+  }
+
+  // Check if any window exists (for rendering purposes)
+  const hasAnyWindows = windowInsert && windowInsert !== 'NONE' && (
+    (windowPositions && windowPositions.length > 0) || windowSection
+  )
+
+  // Calculate stamp columns for current door width
+  const stampColumns = getStampColumns(width)
 
   // Calculate section heights
   const sectionConfig = useMemo(() => {
@@ -221,27 +242,18 @@ function DoorPreview({
     const panelWidth = displayWidth - padding * 2
     const panelHeight = sectionHeight - padding * 2
 
-    // Check if this section has windows
-    // For commercial doors: windows in selected section based on windowQty
-    // For residential doors: single window in specified section
-    const hasWindow = windowInsert && windowInsert !== 'NONE' && (
-      isCommercial
-        ? (sectionIndex === (windowSection - 1) && windowQty > 0)  // Commercial: selected section with quantity
-        : (sectionIndex === windowSection - 1)   // Residential: specified section
-    )
-
-    if (hasWindow) {
-      if (isCommercial) {
-        return renderCommercialWindows(sectionY + padding, panelWidth, panelHeight, padding)
-      }
-      return renderWindowSection(sectionY + padding, panelWidth, panelHeight, padding)
+    // For commercial doors, still use section-level window rendering
+    if (isCommercial && windowInsert && windowInsert !== 'NONE' &&
+        sectionIndex === (windowSection - 1) && windowQty > 0) {
+      return renderCommercialWindows(sectionY + padding, panelWidth, panelHeight, padding)
     }
 
+    // For residential doors, windows are rendered per-stamp within panel functions
     switch (pattern.type) {
       case 'raised':
-        return renderRaisedPanels(sectionY + padding, panelWidth, panelHeight, padding, pattern)
+        return renderRaisedPanels(sectionY + padding, panelWidth, panelHeight, padding, pattern, sectionIndex)
       case 'carriage':
-        return renderCarriagePanels(sectionY + padding, panelWidth, panelHeight, padding, pattern)
+        return renderCarriagePanels(sectionY + padding, panelWidth, panelHeight, padding, pattern, sectionIndex)
       case 'ribbed':
         return renderRibbedPanels(sectionY + padding, panelWidth, panelHeight, padding, pattern)
       case 'horizontal_ribbed':
@@ -320,7 +332,142 @@ function DoorPreview({
     return elements
   }
 
-  const renderRaisedPanels = (y, w, h, padding, pattern) => {
+  // Render a window within a single stamp area
+  const renderStampWindow = (x, y, stampW, stampH, colIndex) => {
+    const windowShape = WINDOW_SHAPES[windowInsert] || WINDOW_SHAPES.STOCKTON_STANDARD
+    const pattern = PANEL_PATTERNS[panelDesign] || PANEL_PATTERNS.SHXL
+    const frameColor = isDark ? '#888' : '#444'
+
+    // Calculate window size to fit within stamp with padding
+    const windowPadding = Math.min(stampW, stampH) * 0.08
+    const windowWidth = stampW - windowPadding * 2
+    const windowHeight = stampH - windowPadding * 2
+    const windowX = x + windowPadding
+    const windowY = y + windowPadding
+
+    const elements = []
+
+    // Window frame
+    elements.push(
+      <rect
+        key={`window-frame-${colIndex}`}
+        x={windowX}
+        y={windowY}
+        width={windowWidth}
+        height={windowHeight}
+        fill="#87CEEB"
+        stroke={frameColor}
+        strokeWidth="2"
+        rx="2"
+        ry="2"
+      />
+    )
+
+    // Window grid based on shape type
+    if (windowShape.type === 'grid') {
+      const { rows, cols: gridCols } = windowShape
+      const cellW = windowWidth / gridCols
+      const cellH = windowHeight / rows
+
+      // Vertical lines
+      for (let i = 1; i < gridCols; i++) {
+        elements.push(
+          <line
+            key={`wv-${colIndex}-${i}`}
+            x1={windowX + cellW * i}
+            y1={windowY}
+            x2={windowX + cellW * i}
+            y2={windowY + windowHeight}
+            stroke={frameColor}
+            strokeWidth="1.5"
+          />
+        )
+      }
+      // Horizontal lines
+      for (let i = 1; i < rows; i++) {
+        elements.push(
+          <line
+            key={`wh-${colIndex}-${i}`}
+            x1={windowX}
+            y1={windowY + cellH * i}
+            x2={windowX + windowWidth}
+            y2={windowY + cellH * i}
+            stroke={frameColor}
+            strokeWidth="1.5"
+          />
+        )
+      }
+
+      // Arched top
+      if (windowShape.arched) {
+        const archHeight = windowHeight * 0.15
+        elements.push(
+          <path
+            key={`arch-${colIndex}`}
+            d={`M ${windowX} ${windowY + archHeight}
+                Q ${windowX + windowWidth / 2} ${windowY - archHeight * 0.5}
+                  ${windowX + windowWidth} ${windowY + archHeight}`}
+            fill="none"
+            stroke={frameColor}
+            strokeWidth="2"
+          />
+        )
+      }
+    } else if (windowShape.type === 'prairie') {
+      // Prairie style window with border pattern
+      const borderSize = windowWidth * 0.12
+      elements.push(
+        <rect
+          key={`prairie-inner-${colIndex}`}
+          x={windowX + borderSize}
+          y={windowY + borderSize}
+          width={windowWidth - borderSize * 2}
+          height={windowHeight - borderSize * 2}
+          fill="none"
+          stroke={frameColor}
+          strokeWidth="1.5"
+        />
+      )
+      // Corner accents
+      const corners = [
+        [windowX, windowY],
+        [windowX + windowWidth - borderSize, windowY],
+        [windowX, windowY + windowHeight - borderSize],
+        [windowX + windowWidth - borderSize, windowY + windowHeight - borderSize],
+      ]
+      corners.forEach(([cx, cy], i) => {
+        elements.push(
+          <rect
+            key={`corner-${colIndex}-${i}`}
+            x={cx}
+            y={cy}
+            width={borderSize}
+            height={borderSize}
+            fill="none"
+            stroke={frameColor}
+            strokeWidth="1"
+          />
+        )
+      })
+    }
+
+    // Glass reflection effect
+    elements.push(
+      <rect
+        key={`reflection-${colIndex}`}
+        x={windowX + 3}
+        y={windowY + 3}
+        width={windowWidth * 0.25}
+        height={windowHeight * 0.35}
+        fill="url(#glassReflection)"
+        opacity="0.3"
+      />
+    )
+
+    return elements
+  }
+
+  const renderRaisedPanels = (y, w, h, padding, pattern, sectionIndex) => {
     const { rows } = pattern
     // Calculate columns dynamically based on door width
     const cols = pattern.cols === 'dynamic' ? getStampColumns(width) : pattern.cols
@@ -336,14 +483,52 @@ function DoorPreview({
       for (let col = 0; col < cols; col++) {
         const x = padding + gapX + col * (cellW + gapX)
         const cellY = y + gapY + row * (cellH + gapY)
+        const stampKey = `stamp-${sectionIndex}-${row}-${col}`
+
+        // Check if this stamp has a window
+        // Map stamp row within section to absolute section number
+        const absoluteSection = sectionIndex + 1  // 1-based section
+        if (hasWindowAtPosition(absoluteSection, col)) {
+          // Render window instead of panel
+          panels.push(
+            <g key={stampKey}>
+              {renderStampWindow(x, cellY, cellW, cellH, col)}
+            </g>
+          )
+          continue
+        }
 
         // Outer border inset from cell edge
         const outerInset = Math.min(cellW, cellH) * 0.05
         // Inner raised panel inset from outer border
         const innerInset = Math.min(cellW, cellH) * 0.12
 
+        // Check if this stamp is being hovered (for interactive mode)
+        const isHovered = interactive && highlightStamp &&
+          highlightStamp.section === absoluteSection && highlightStamp.col === col
+
         panels.push(
-          <g key={`panel-${row}-${col}`}>
+          <g
+            key={stampKey}
+            style={interactive ? { cursor: 'pointer' } : {}}
+            onClick={interactive && onStampClick ? () => onStampClick(absoluteSection, col) : undefined}
+            onMouseEnter={interactive && onStampHover ? () => onStampHover(absoluteSection, col) : undefined}
+            onMouseLeave={interactive && onStampHover ? () => onStampHover(null) : undefined}
+          >
+            {/* Highlight overlay for interactive mode */}
+            {isHovered && (
+              <rect
+                x={x}
+                y={cellY}
+                width={cellW}
+                height={cellH}
+                fill="rgba(59, 130, 246, 0.2)"
+                stroke="rgba(59, 130, 246, 0.8)"
+                strokeWidth="2"
+                strokeDasharray="4,2"
+                rx="2"
+              />
+            )}
             {/* Outer rectangle border */}
             <rect
               x={x + outerInset}
@@ -405,7 +590,7 @@ function DoorPreview({
     return panels
   }
 
-  const renderCarriagePanels = (y, w, h, padding, pattern) => {
+  const renderCarriagePanels = (y, w, h, padding, pattern, sectionIndex) => {
     const { rows } = pattern
     // Calculate columns dynamically based on door width for Bronte Creek styles
     const cols = pattern.cols === 'dynamic' ? getStampColumns(width) : pattern.cols
@@ -420,6 +605,19 @@ function DoorPreview({
       for (let col = 0; col < cols; col++) {
         const x = padding + gapX + col * (cellW + gapX)
         const cellY = y + gapY + row * (cellH + gapY)
+        const stampKey = `carriage-${sectionIndex}-${row}-${col}`
+
+        // Check if this stamp has a window
+        const absoluteSection = sectionIndex + 1  // 1-based section
+        if (hasWindowAtPosition(absoluteSection, col)) {
+          // Render window instead of panel
+          panels.push(
+            <g key={stampKey}>
+              {renderStampWindow(x, cellY, cellW, cellH, col)}
+            </g>
+          )
+          continue
+        }
 
         // Outer border inset
         const outerInset = Math.min(cellW, cellH) * 0.05
@@ -427,8 +625,32 @@ function DoorPreview({
         const innerInset = Math.min(cellW, cellH) * 0.12
         const cornerRadius = Math.min(cellW, cellH) * 0.03
 
+        // Check if this stamp is being hovered (for interactive mode)
+        const isHovered = interactive && highlightStamp &&
+          highlightStamp.section === absoluteSection && highlightStamp.col === col
+
         panels.push(
-          <g key={`carriage-${row}-${col}`}>
+          <g
+            key={stampKey}
+            style={interactive ? { cursor: 'pointer' } : {}}
+            onClick={interactive && onStampClick ? () => onStampClick(absoluteSection, col) : undefined}
+            onMouseEnter={interactive && onStampHover ? () => onStampHover(absoluteSection, col) : undefined}
+            onMouseLeave={interactive && onStampHover ? () => onStampHover(null) : undefined}
+          >
+            {/* Highlight overlay for interactive mode */}
+            {isHovered && (
+              <rect
+                x={x}
+                y={cellY}
+                width={cellW}
+                height={cellH}
+                fill="rgba(59, 130, 246, 0.2)"
+                stroke="rgba(59, 130, 246, 0.8)"
+                strokeWidth="2"
+                strokeDasharray="4,2"
+                rx="2"
+              />
+            )}
             {/* Outer rectangle border */}
             <rect
               x={x + outerInset}
@@ -825,35 +1047,15 @@ function DoorPreview({
 
         {/* Render each section */}
         {sections.map((section) => (
-          <g
-            key={`section-${section.index}`}
-            style={interactive ? { cursor: 'pointer' } : {}}
-            onClick={interactive && onSectionClick ? () => onSectionClick(section.index + 1) : undefined}
-            onMouseEnter={interactive && onSectionHover ? () => onSectionHover(section.index + 1) : undefined}
-            onMouseLeave={interactive && onSectionHover ? () => onSectionHover(null) : undefined}
-          >
-            {/* Interactive highlight overlay */}
-            {interactive && highlightSection === section.index + 1 && (
-              <rect
-                x="2"
-                y={section.y + 2}
-                width={displayWidth - 4}
-                height={section.height - 4}
-                fill="rgba(59, 130, 246, 0.2)"
-                stroke="rgba(59, 130, 246, 0.8)"
-                strokeWidth="2"
-                strokeDasharray="5,3"
-                rx="3"
-              />
-            )}
+          <g key={`section-${section.index}`}>
             {/* Section number label for interactive mode */}
             {interactive && (
               <text
-                x={displayWidth - 15}
-                y={section.y + 18}
-                fontSize="12"
-                fill={highlightSection === section.index + 1 ? '#2563eb' : '#666'}
-                fontWeight={highlightSection === section.index + 1 ? 'bold' : 'normal'}
+                x={displayWidth - 12}
+                y={section.y + 14}
+                fontSize="10"
+                fill="#999"
+                fontWeight="normal"
                 textAnchor="middle"
               >
                 {section.index + 1}
@@ -870,7 +1072,7 @@ function DoorPreview({
                 strokeWidth="2"
               />
             )}
-            {/* Panel design */}
+            {/* Panel design - stamps handle their own interaction */}
             {renderPanelDesign(section.index, section.y, section.height)}
           </g>
         ))}
