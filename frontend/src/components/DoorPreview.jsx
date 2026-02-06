@@ -134,16 +134,28 @@ const COLOR_MAP = {
 }
 
 // Window insert shapes
+// Residential window sizes (in inches)
+// Windows fit within stamp areas
+const WINDOW_SIZES = {
+  LONG: { width: 40, height: 14 },   // 14x40 for SHXL/BCXL (fits 1 long stamp)
+  SHORT: { width: 20, height: 14 },  // 14x20 for SH/BC (fits 1 short stamp)
+}
+
+// Window insert styles with grid patterns
 const WINDOW_SHAPES = {
-  STOCKTON_STANDARD: { type: 'grid', rows: 2, cols: 4, arched: false },
-  STOCKTON_TEN_SQUARE_XL: { type: 'grid', rows: 2, cols: 5, arched: false },
-  STOCKTON_ARCHED_XL: { type: 'grid', rows: 2, cols: 5, arched: true },
-  STOCKTON_EIGHT_SQUARE: { type: 'grid', rows: 2, cols: 4, arched: false },
-  STOCKTON_ARCHED: { type: 'grid', rows: 2, cols: 4, arched: true },
-  STOCKBRIDGE_STRAIGHT: { type: 'prairie', arched: false },
-  STOCKBRIDGE_STRAIGHT_XL: { type: 'prairie', arched: false, xl: true },
-  STOCKBRIDGE_ARCHED_XL: { type: 'prairie', arched: true, xl: true },
-  STOCKBRIDGE_ARCHED: { type: 'prairie', arched: true },
+  // 14x40 windows (for SHXL/BCXL long stamps, or spans 2 stamps on SH/BC)
+  STOCKTON_STANDARD: { type: 'grid', rows: 2, cols: 4, arched: false, size: 'LONG' },
+  STOCKTON_TEN_SQUARE_XL: { type: 'grid', rows: 2, cols: 5, arched: false, size: 'LONG' },
+  STOCKTON_ARCHED_XL: { type: 'grid', rows: 2, cols: 5, arched: true, size: 'LONG' },
+  STOCKTON_EIGHT_SQUARE: { type: 'grid', rows: 2, cols: 4, arched: false, size: 'LONG' },
+  STOCKTON_ARCHED: { type: 'grid', rows: 2, cols: 4, arched: true, size: 'LONG' },
+  STOCKBRIDGE_STRAIGHT: { type: 'prairie', arched: false, size: 'LONG' },
+  STOCKBRIDGE_STRAIGHT_XL: { type: 'prairie', arched: false, xl: true, size: 'LONG' },
+  STOCKBRIDGE_ARCHED_XL: { type: 'prairie', arched: true, xl: true, size: 'LONG' },
+  STOCKBRIDGE_ARCHED: { type: 'prairie', arched: true, size: 'LONG' },
+  // 14x20 windows (for SH/BC short stamps - fits in 1 stamp)
+  STOCKTON_SHORT: { type: 'grid', rows: 2, cols: 2, arched: false, size: 'SHORT' },
+  STOCKTON_SHORT_ARCHED: { type: 'grid', rows: 2, cols: 2, arched: true, size: 'SHORT' },
 }
 
 function DoorPreview({
@@ -564,11 +576,39 @@ function DoorPreview({
 
   const renderWindowSection = (y, w, h, padding) => {
     const windowShape = WINDOW_SHAPES[windowInsert] || WINDOW_SHAPES.STOCKTON_STANDARD
-    const windowPadding = w * 0.1
-    const windowWidth = w - windowPadding * 2
-    const windowHeight = h * 0.7
-    const windowY = y + (h - windowHeight) / 2
+    const pattern = PANEL_PATTERNS[panelDesign] || PANEL_PATTERNS.SHXL
     const frameColor = isDark ? '#888' : '#444'
+
+    // Determine window size based on pattern type
+    // SHXL/BCXL (1 row): 14x40 window fits in 1 stamp
+    // SH/BC (2 rows): 14x20 window fits in 1 stamp, 14x40 spans 2 stamps
+    const isLongStamp = pattern.rows === 1  // SHXL, BCXL have 1 row
+    const windowSizeType = windowShape.size || 'LONG'
+    const windowSizeInches = WINDOW_SIZES[windowSizeType] || WINDOW_SIZES.LONG
+
+    // Calculate display scale
+    const scaleRatio = displayWidth / width
+
+    // Calculate window dimensions in display units
+    const windowWidthDisplay = windowSizeInches.width * scaleRatio
+    const windowHeightDisplay = windowSizeInches.height * scaleRatio
+
+    // For short stamp patterns (SH/BC) with long windows (14x40), window spans 2 stamp columns
+    const cols = pattern.cols === 'dynamic' ? getStampColumns(width) : pattern.cols
+    const gapX = w * 0.02
+    const stampWidth = (w - gapX * (cols + 1)) / cols
+
+    // Calculate how many stamps this window covers
+    let stampsSpanned = 1
+    if (!isLongStamp && windowSizeType === 'LONG') {
+      // 14x40 window on SH/BC covers 2 short stamps horizontally
+      stampsSpanned = 2
+    }
+
+    // Calculate window position - center in the stamp area(s)
+    const totalStampArea = stampWidth * stampsSpanned + gapX * (stampsSpanned - 1)
+    const windowX = padding + gapX + (totalStampArea - windowWidthDisplay) / 2
+    const windowY = y + (h - windowHeightDisplay) / 2
 
     const elements = []
 
@@ -576,10 +616,10 @@ function DoorPreview({
     elements.push(
       <rect
         key="window-frame"
-        x={padding + windowPadding}
+        x={windowX}
         y={windowY}
-        width={windowWidth}
-        height={windowHeight}
+        width={windowWidthDisplay}
+        height={windowHeightDisplay}
         fill="#87CEEB"
         stroke={frameColor}
         strokeWidth="3"
@@ -588,20 +628,24 @@ function DoorPreview({
       />
     )
 
+    // Use calculated dimensions for grid
+    const windowWidth = windowWidthDisplay
+    const windowHeight = windowHeightDisplay
+
     // Window grid
     if (windowShape.type === 'grid') {
-      const { rows, cols } = windowShape
-      const cellW = windowWidth / cols
+      const { rows, cols: gridCols } = windowShape
+      const cellW = windowWidth / gridCols
       const cellH = windowHeight / rows
 
       // Vertical lines
-      for (let i = 1; i < cols; i++) {
+      for (let i = 1; i < gridCols; i++) {
         elements.push(
           <line
             key={`wv-${i}`}
-            x1={padding + windowPadding + cellW * i}
+            x1={windowX + cellW * i}
             y1={windowY}
-            x2={padding + windowPadding + cellW * i}
+            x2={windowX + cellW * i}
             y2={windowY + windowHeight}
             stroke={frameColor}
             strokeWidth="2"
@@ -613,9 +657,9 @@ function DoorPreview({
         elements.push(
           <line
             key={`wh-${i}`}
-            x1={padding + windowPadding}
+            x1={windowX}
             y1={windowY + cellH * i}
-            x2={padding + windowPadding + windowWidth}
+            x2={windowX + windowWidth}
             y2={windowY + cellH * i}
             stroke={frameColor}
             strokeWidth="2"
@@ -628,9 +672,9 @@ function DoorPreview({
         elements.push(
           <path
             key="arch"
-            d={`M ${padding + windowPadding} ${windowY + 10}
-                Q ${padding + windowPadding + windowWidth / 2} ${windowY - 15}
-                  ${padding + windowPadding + windowWidth} ${windowY + 10}`}
+            d={`M ${windowX} ${windowY + 10}
+                Q ${windowX + windowWidth / 2} ${windowY - 15}
+                  ${windowX + windowWidth} ${windowY + 10}`}
             fill="none"
             stroke={frameColor}
             strokeWidth="3"
@@ -643,7 +687,7 @@ function DoorPreview({
       elements.push(
         <rect
           key="prairie-inner"
-          x={padding + windowPadding + borderSize}
+          x={windowX + borderSize}
           y={windowY + borderSize}
           width={windowWidth - borderSize * 2}
           height={windowHeight - borderSize * 2}
@@ -654,10 +698,10 @@ function DoorPreview({
       )
       // Corner accents
       const corners = [
-        [padding + windowPadding, windowY],
-        [padding + windowPadding + windowWidth - borderSize, windowY],
-        [padding + windowPadding, windowY + windowHeight - borderSize],
-        [padding + windowPadding + windowWidth - borderSize, windowY + windowHeight - borderSize],
+        [windowX, windowY],
+        [windowX + windowWidth - borderSize, windowY],
+        [windowX, windowY + windowHeight - borderSize],
+        [windowX + windowWidth - borderSize, windowY + windowHeight - borderSize],
       ]
       corners.forEach(([cx, cy], i) => {
         elements.push(
@@ -679,7 +723,7 @@ function DoorPreview({
     elements.push(
       <rect
         key="reflection"
-        x={padding + windowPadding + 5}
+        x={windowX + 5}
         y={windowY + 5}
         width={windowWidth * 0.3}
         height={windowHeight * 0.4}
