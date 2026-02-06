@@ -859,6 +859,8 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
                   panelDesign={door.panelDesign || 'SHXL'}
                   windowInsert={door.windowInsert}
                   windowPositions={windowPositions}
+                  hasInserts={door.hasInserts || false}
+                  glassColor={door.glassColor || 'CLEAR'}
                   showDimensions={false}
                   scale={0.7}
                   interactive={true}

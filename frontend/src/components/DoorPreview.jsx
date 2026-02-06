@@ -166,6 +166,8 @@ function DoorPreview({
   windowInsert = null,
   windowPositions = [],  // Array of {section, col} for multi-stamp windows
   windowSection = 1,  // Legacy: single section (used if windowPositions empty)
+  hasInserts = false,  // Whether decorative inserts are added
+  glassColor = 'CLEAR',  // Glass color: CLEAR, ETCHED, SUPER_GREY
   windowQty = 0,  // For commercial doors
   windowFrameColor = 'WHITE',  // For commercial doors (WHITE or BLACK)
   doorType = 'residential',
@@ -335,8 +337,15 @@ function DoorPreview({
   // Render a window within a single stamp area
   const renderStampWindow = (x, y, stampW, stampH, colIndex) => {
     const windowShape = WINDOW_SHAPES[windowInsert] || WINDOW_SHAPES.STOCKTON_STANDARD
-    const pattern = PANEL_PATTERNS[panelDesign] || PANEL_PATTERNS.SHXL
     const frameColor = isDark ? '#888' : '#444'
+
+    // Glass color mapping
+    const glassColorMap = {
+      'CLEAR': '#87CEEB',      // Light blue (clear glass)
+      'ETCHED': '#D3D3D3',     // Light grey (frosted)
+      'SUPER_GREY': '#3D3D3D', // Dark grey/almost black
+    }
+    const glassFill = glassColorMap[glassColor] || glassColorMap.CLEAR
 
     // Calculate window size to fit within stamp with padding
     const windowPadding = Math.min(stampW, stampH) * 0.08
@@ -347,7 +356,7 @@ function DoorPreview({
 
     const elements = []
 
-    // Window frame
+    // Window frame with glass
     elements.push(
       <rect
         key={`window-frame-${colIndex}`}
@@ -355,7 +364,7 @@ function DoorPreview({
         y={windowY}
         width={windowWidth}
         height={windowHeight}
-        fill="#87CEEB"
+        fill={glassFill}
         stroke={frameColor}
         strokeWidth="2"
         rx="2"
@@ -363,7 +372,25 @@ function DoorPreview({
       />
     )
 
-    // Window grid based on shape type
+    // Only render insert pattern if hasInserts is true
+    // Without inserts, window is just plain glass
+    if (!hasInserts) {
+      // Plain glass - just add reflection and return
+      elements.push(
+        <rect
+          key={`reflection-${colIndex}`}
+          x={windowX + 3}
+          y={windowY + 3}
+          width={windowWidth * 0.25}
+          height={windowHeight * 0.35}
+          fill="url(#glassReflection)"
+          opacity="0.3"
+        />
+      )
+      return elements
+    }
+
+    // Render insert pattern (decorative frame grid)
     if (windowShape.type === 'grid') {
       const { rows, cols: gridCols } = windowShape
       const cellW = windowWidth / gridCols
