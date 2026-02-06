@@ -154,6 +154,7 @@ COLORS = {
         {"id": "IRON_ORE", "name": "Iron Ore", "hex": "#2F3234", "ral": "RAL 7021", "type": "solid"},
         {"id": "WALNUT", "name": "Walnut", "hex": "#4A3728", "type": "woodgrain", "grain": ["#4A3728", "#5D432C", "#3D2B1F"], "note": "28\" section only"},
         {"id": "ENGLISH_CHESTNUT", "name": "English Chestnut", "hex": "#6B4423", "type": "woodgrain", "grain": ["#6B4423", "#8B5A2B", "#5C3317"]},
+        {"id": "FRENCH_OAK", "name": "French Oak", "hex": "#C4A35A", "type": "woodgrain", "grain": ["#C4A35A", "#D4B56A", "#B49A4A"]},
     ],
     "COMMERCIAL": [
         {"id": "WHITE", "name": "White", "hex": "#F4F4F4", "ral": "RAL 9003", "type": "solid"},
