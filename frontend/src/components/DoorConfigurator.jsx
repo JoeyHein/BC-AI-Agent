@@ -621,12 +621,119 @@ function DesignStep({ door, colors, panelDesigns, onChange }) {
   )
 }
 
+// Window Insert Preview Component - renders SVG representations
+function WindowInsertPreview({ insertId, size = 60 }) {
+  const width = size
+  const height = size * 0.6  // Window aspect ratio
+
+  // Define grid patterns for different insert types
+  const getGridPattern = () => {
+    switch (insertId) {
+      case 'STOCKTON_STANDARD':
+        return { rows: 2, cols: 4, arched: false }
+      case 'STOCKTON_TEN_SQUARE_XL':
+        return { rows: 2, cols: 5, arched: false }
+      case 'STOCKTON_ARCHED_XL':
+        return { rows: 2, cols: 5, arched: true }
+      case 'STOCKTON_EIGHT_SQUARE':
+        return { rows: 2, cols: 4, arched: false }
+      case 'STOCKTON_ARCHED':
+        return { rows: 2, cols: 4, arched: true }
+      case 'STOCKBRIDGE_STRAIGHT':
+        return { type: 'prairie', arched: false }
+      case 'STOCKBRIDGE_STRAIGHT_XL':
+        return { type: 'prairie', arched: false, xl: true }
+      case 'STOCKBRIDGE_ARCHED_XL':
+        return { type: 'prairie', arched: true, xl: true }
+      case 'STOCKBRIDGE_ARCHED':
+        return { type: 'prairie', arched: true }
+      default:
+        return { rows: 2, cols: 4, arched: false }
+    }
+  }
+
+  const pattern = getGridPattern()
+  const frameColor = '#444'
+  const glassColor = '#87CEEB'
+
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+      {/* Glass background */}
+      <rect x={2} y={2} width={width - 4} height={height - 4} fill={glassColor} rx={2} />
+
+      {/* Frame */}
+      <rect x={2} y={2} width={width - 4} height={height - 4} fill="none" stroke={frameColor} strokeWidth={2} rx={2} />
+
+      {pattern.type === 'prairie' ? (
+        // Prairie style - border pattern with center clear
+        <>
+          <rect
+            x={width * 0.15}
+            y={height * 0.2}
+            width={width * 0.7}
+            height={height * 0.6}
+            fill="none"
+            stroke={frameColor}
+            strokeWidth={1.5}
+          />
+          {/* Corner squares */}
+          {[[2, 2], [width - width * 0.15, 2], [2, height - height * 0.2], [width - width * 0.15, height - height * 0.2]].map(([cx, cy], i) => (
+            <rect key={i} x={cx} y={cy} width={width * 0.12} height={height * 0.18} fill="none" stroke={frameColor} strokeWidth={1} />
+          ))}
+          {pattern.arched && (
+            <path
+              d={`M 4 ${height * 0.25} Q ${width / 2} ${-height * 0.1} ${width - 4} ${height * 0.25}`}
+              fill="none"
+              stroke={frameColor}
+              strokeWidth={1.5}
+            />
+          )}
+        </>
+      ) : (
+        // Grid pattern
+        <>
+          {/* Vertical grid lines */}
+          {[...Array(pattern.cols - 1)].map((_, i) => {
+            const x = 2 + ((width - 4) / pattern.cols) * (i + 1)
+            return <line key={`v${i}`} x1={x} y1={2} x2={x} y2={height - 2} stroke={frameColor} strokeWidth={1.5} />
+          })}
+          {/* Horizontal grid lines */}
+          {[...Array(pattern.rows - 1)].map((_, i) => {
+            const y = 2 + ((height - 4) / pattern.rows) * (i + 1)
+            return <line key={`h${i}`} x1={2} y1={y} x2={width - 2} y2={y} stroke={frameColor} strokeWidth={1.5} />
+          })}
+          {/* Arched top */}
+          {pattern.arched && (
+            <path
+              d={`M 4 ${height * 0.3} Q ${width / 2} ${-height * 0.15} ${width - 4} ${height * 0.3}`}
+              fill="none"
+              stroke={frameColor}
+              strokeWidth={2}
+            />
+          )}
+        </>
+      )}
+
+      {/* Reflection */}
+      <rect x={4} y={4} width={width * 0.2} height={height * 0.3} fill="white" opacity={0.3} rx={1} />
+    </svg>
+  )
+}
+
 function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
   const [hoveredStamp, setHoveredStamp] = useState(null)
   const hasWindows = door.windowInsert !== 'NONE' && door.windowInsert
 
-  // Calculate panel count based on height
-  const panelCount = door.doorHeight <= 84 ? 4 : door.doorHeight <= 96 ? 5 : 6
+  // Calculate panel count based on height (matching DoorPreview.jsx sectionConfig)
+  // Up to 84" (7') = 4 panels, up to 96" (8') = 4 panels, up to 120" (10') = 5 panels, etc.
+  const getPanelCount = (heightInches) => {
+    if (heightInches <= 96) return 4   // 7' and 8' doors = 4 panels
+    if (heightInches <= 120) return 5  // 9' and 10' doors = 5 panels
+    if (heightInches <= 144) return 6  // 11' and 12' doors = 6 panels
+    if (heightInches <= 168) return 7  // 13' and 14' doors = 7 panels
+    return 8
+  }
+  const panelCount = getPanelCount(door.doorHeight)
 
   // Calculate stamp columns based on door width (same logic as DoorPreview)
   const getStampColumns = (widthInches) => {
@@ -710,7 +817,7 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
 
       {hasWindows && (
         <>
-          {/* Window Style */}
+          {/* Window Insert Style with Visual Previews */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Window Insert Style
@@ -719,18 +826,22 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
               {Object.entries(windowInserts).map(([style, inserts]) => (
                 <div key={style}>
                   <h4 className="text-sm font-medium text-gray-600 mb-2">{style}</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
                     {inserts.map((insert) => (
                       <button
                         key={insert.id}
                         onClick={() => onChange({ windowInsert: insert.id })}
-                        className={`px-3 py-2 text-sm rounded-md border ${
+                        className={`p-2 rounded-lg border-2 flex flex-col items-center transition-all ${
                           door.windowInsert === insert.id
-                            ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                            : 'border-gray-300 hover:border-gray-400'
+                            ? 'border-indigo-500 bg-indigo-50'
+                            : 'border-gray-200 hover:border-gray-400'
                         }`}
                       >
-                        {insert.name}
+                        {/* Window Insert SVG Preview */}
+                        <WindowInsertPreview insertId={insert.id} size={60} />
+                        <span className="mt-2 text-xs text-center text-gray-700 leading-tight">
+                          {insert.name}
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -865,13 +976,15 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
             </div>
           </div>
 
-          {/* Glazing Type */}
+          {/* Glazing Type - filtered to remove "No Windows" since windows are already selected */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Glass Type
             </label>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-              {(glazingOptions[door.doorType] || glazingOptions.standard || []).map((option) => (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {(glazingOptions[door.doorType] || glazingOptions.standard || [])
+                .filter(option => option.id !== 'NONE')  // Remove "No Windows" option
+                .map((option) => (
                 <button
                   key={option.id}
                   onClick={() => onChange({ glazingType: option.id })}
