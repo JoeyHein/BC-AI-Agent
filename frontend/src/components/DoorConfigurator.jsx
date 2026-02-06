@@ -54,10 +54,16 @@ function DoorConfigurator() {
       doorCount: 1,
       panelColor: '',
       panelDesign: '',
-      windowInsert: 'NONE',
+      // Window configuration
+      hasWindows: false,
       windowPositions: [],  // Array of {section, col} for multi-stamp windows
+      glassPaneType: null,  // 'INSULATED' or 'SINGLE'
+      glassColor: null,  // 'CLEAR', 'ETCHED', 'SUPER_GREY'
+      hasInserts: false,  // Whether decorative inserts are added
+      windowInsert: 'NONE',  // Insert style if hasInserts is true
       windowSection: 1,  // Legacy fallback
-      glazingType: 'NONE',
+      glazingType: 'NONE',  // Legacy
+      // Hardware
       trackRadius: '15',
       trackThickness: '2',
       hardware: {
@@ -141,10 +147,16 @@ function DoorConfigurator() {
         doorCount: door.doorCount,
         panelColor: door.panelColor,
         panelDesign: door.panelDesign,
-        windowInsert: door.windowInsert !== 'NONE' ? door.windowInsert : null,
-        windowPositions: door.windowPositions || [],  // New multi-stamp positions
+        // Window configuration
+        hasWindows: door.hasWindows || false,
+        windowPositions: door.windowPositions || [],
+        glassPaneType: door.glassPaneType,
+        glassColor: door.glassColor,
+        hasInserts: door.hasInserts || false,
+        windowInsert: door.hasInserts && door.windowInsert !== 'NONE' ? door.windowInsert : null,
         windowSection: door.windowSection,  // Legacy fallback
-        glazingType: door.glazingType !== 'NONE' ? door.glazingType : null,
+        glazingType: door.glazingType !== 'NONE' ? door.glazingType : null,  // Legacy
+        // Hardware
         trackRadius: door.trackRadius,
         trackThickness: door.trackThickness,
         hardware: door.hardware,
@@ -722,10 +734,9 @@ function WindowInsertPreview({ insertId, size = 60 }) {
 
 function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
   const [hoveredStamp, setHoveredStamp] = useState(null)
-  const hasWindows = door.windowInsert !== 'NONE' && door.windowInsert
+  const hasWindows = door.hasWindows || false
 
   // Calculate panel count based on height (matching DoorPreview.jsx sectionConfig)
-  // Up to 84" (7') = 4 panels, up to 96" (8') = 4 panels, up to 120" (10') = 5 panels, etc.
   const getPanelCount = (heightInches) => {
     if (heightInches <= 96) return 4   // 7' and 8' doors = 4 panels
     if (heightInches <= 120) return 5  // 9' and 10' doors = 5 panels
@@ -758,10 +769,8 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
     const existing = windowPositions.find(pos => pos.section === section && pos.col === col)
     let newPositions
     if (existing) {
-      // Remove this position
       newPositions = windowPositions.filter(pos => !(pos.section === section && pos.col === col))
     } else {
-      // Add this position
       newPositions = [...windowPositions, { section, col }]
     }
     onChange({ windowPositions: newPositions })
@@ -796,6 +805,19 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
     onChange({ windowPositions: [] })
   }
 
+  // Glass color options with visual representation
+  const glassColorOptions = [
+    { id: 'CLEAR', name: 'Clear', color: '#87CEEB', description: 'Standard clear glass' },
+    { id: 'ETCHED', name: 'Etched', color: '#D3D3D3', description: 'Frosted privacy glass' },
+    { id: 'SUPER_GREY', name: 'Super Grey', color: '#2D2D2D', description: 'Dark tinted glass' },
+  ]
+
+  // Glass pane type options
+  const glassPaneOptions = [
+    { id: 'INSULATED', name: 'Insulated', description: 'Double-pane for energy efficiency' },
+    { id: 'SINGLE', name: 'Single Pane', description: 'Standard single glass' },
+  ]
+
   return (
     <div className="space-y-6">
       {/* Window Toggle */}
@@ -805,8 +827,12 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
           id="hasWindows"
           checked={hasWindows}
           onChange={(e) => onChange({
-            windowInsert: e.target.checked ? 'STOCKTON_STANDARD' : 'NONE',
-            windowPositions: e.target.checked ? [] : []
+            hasWindows: e.target.checked,
+            windowPositions: e.target.checked ? [] : [],
+            glassPaneType: e.target.checked ? 'INSULATED' : null,
+            glassColor: e.target.checked ? 'CLEAR' : null,
+            windowInsert: 'NONE',
+            hasInserts: false,
           })}
           className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
         />
@@ -817,44 +843,12 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
 
       {hasWindows && (
         <>
-          {/* Window Insert Style with Visual Previews */}
+          {/* Step 1: Window Placement - Interactive Door Preview */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Window Insert Style
+              1. Select Window Positions
             </label>
-            <div className="space-y-4">
-              {Object.entries(windowInserts).map(([style, inserts]) => (
-                <div key={style}>
-                  <h4 className="text-sm font-medium text-gray-600 mb-2">{style}</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                    {inserts.map((insert) => (
-                      <button
-                        key={insert.id}
-                        onClick={() => onChange({ windowInsert: insert.id })}
-                        className={`p-2 rounded-lg border-2 flex flex-col items-center transition-all ${
-                          door.windowInsert === insert.id
-                            ? 'border-indigo-500 bg-indigo-50'
-                            : 'border-gray-200 hover:border-gray-400'
-                        }`}
-                      >
-                        {/* Window Insert SVG Preview */}
-                        <WindowInsertPreview insertId={insert.id} size={60} />
-                        <span className="mt-2 text-xs text-center text-gray-700 leading-tight">
-                          {insert.name}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Window Placement - Interactive Door Preview */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Click individual stamps to add/remove windows
-            </label>
+            <p className="text-xs text-gray-500 mb-3">Click stamps to add/remove windows</p>
             <div className="flex flex-col lg:flex-row gap-6">
               {/* Interactive Door Preview */}
               <div className="flex-shrink-0">
@@ -976,28 +970,107 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
             </div>
           </div>
 
-          {/* Glazing Type - filtered to remove "No Windows" since windows are already selected */}
+          {/* Step 2: Glass Pane Type */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Glass Type
+              2. Glass Pane Type
             </label>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              {(glazingOptions[door.doorType] || glazingOptions.standard || [])
-                .filter(option => option.id !== 'NONE')  // Remove "No Windows" option
-                .map((option) => (
+            <div className="grid grid-cols-2 gap-3">
+              {glassPaneOptions.map((option) => (
                 <button
                   key={option.id}
-                  onClick={() => onChange({ glazingType: option.id })}
-                  className={`px-3 py-2 text-sm rounded-md border ${
-                    door.glazingType === option.id
-                      ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                      : 'border-gray-300 hover:border-gray-400'
+                  onClick={() => onChange({ glassPaneType: option.id })}
+                  className={`p-4 rounded-lg border-2 text-left transition-all ${
+                    door.glassPaneType === option.id
+                      ? 'border-indigo-500 bg-indigo-50'
+                      : 'border-gray-200 hover:border-gray-400'
                   }`}
                 >
-                  {option.name}
+                  <span className="block font-medium text-gray-900">{option.name}</span>
+                  <span className="block text-xs text-gray-500 mt-1">{option.description}</span>
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Step 3: Glass Color */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              3. Glass Color
+            </label>
+            <div className="grid grid-cols-3 gap-3">
+              {glassColorOptions.map((option) => (
+                <button
+                  key={option.id}
+                  onClick={() => onChange({ glassColor: option.id })}
+                  className={`p-3 rounded-lg border-2 flex flex-col items-center transition-all ${
+                    door.glassColor === option.id
+                      ? 'border-indigo-500 bg-indigo-50'
+                      : 'border-gray-200 hover:border-gray-400'
+                  }`}
+                >
+                  {/* Glass color preview */}
+                  <div
+                    className="w-16 h-10 rounded border border-gray-300 mb-2"
+                    style={{ backgroundColor: option.color }}
+                  />
+                  <span className="font-medium text-gray-900 text-sm">{option.name}</span>
+                  <span className="text-xs text-gray-500 text-center">{option.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Step 4: Optional Window Inserts */}
+          <div className="border-t pt-6">
+            <div className="flex items-center space-x-3 mb-4">
+              <input
+                type="checkbox"
+                id="hasInserts"
+                checked={door.hasInserts || false}
+                onChange={(e) => onChange({
+                  hasInserts: e.target.checked,
+                  windowInsert: e.target.checked ? 'STOCKTON_STANDARD' : 'NONE'
+                })}
+                className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+              />
+              <label htmlFor="hasInserts" className="text-sm font-medium text-gray-700">
+                Add decorative window inserts (optional upgrade)
+              </label>
+            </div>
+
+            {door.hasInserts && (
+              <div className="pl-7">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  4. Select Insert Style
+                </label>
+                <div className="space-y-4">
+                  {Object.entries(windowInserts).map(([style, inserts]) => (
+                    <div key={style}>
+                      <h4 className="text-sm font-medium text-gray-600 mb-2">{style}</h4>
+                      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                        {inserts.map((insert) => (
+                          <button
+                            key={insert.id}
+                            onClick={() => onChange({ windowInsert: insert.id })}
+                            className={`p-2 rounded-lg border-2 flex flex-col items-center transition-all ${
+                              door.windowInsert === insert.id
+                                ? 'border-indigo-500 bg-indigo-50'
+                                : 'border-gray-200 hover:border-gray-400'
+                            }`}
+                          >
+                            <WindowInsertPreview insertId={insert.id} size={60} />
+                            <span className="mt-2 text-xs text-center text-gray-700 leading-tight">
+                              {insert.name}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -1136,8 +1209,13 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult 
             doorCount: door.doorCount,
             panelColor: door.panelColor,
             panelDesign: door.panelDesign,
-            windowInsert: door.windowInsert !== 'NONE' ? door.windowInsert : null,
+            // Window configuration
+            hasWindows: door.hasWindows || false,
             windowPositions: door.windowPositions || [],
+            glassPaneType: door.glassPaneType,
+            glassColor: door.glassColor,
+            hasInserts: door.hasInserts || false,
+            windowInsert: door.hasInserts && door.windowInsert !== 'NONE' ? door.windowInsert : null,
             windowSection: door.windowSection,
             glazingType: door.glazingType !== 'NONE' ? door.glazingType : null,
             trackRadius: door.trackRadius,
@@ -1247,11 +1325,27 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult 
               <div>
                 <span className="text-gray-500">Windows:</span>
                 <span className="ml-2 text-gray-900">
-                  {door.windowInsert !== 'NONE' && (door.windowPositions?.length > 0 || door.windowSection)
-                    ? `Yes (${door.windowPositions?.length || 1} window${(door.windowPositions?.length || 1) > 1 ? 's' : ''})`
+                  {door.hasWindows && door.windowPositions?.length > 0
+                    ? `${door.windowPositions.length} window${door.windowPositions.length > 1 ? 's' : ''}`
                     : 'No'}
                 </span>
               </div>
+              {door.hasWindows && (
+                <>
+                  <div>
+                    <span className="text-gray-500">Glass:</span>
+                    <span className="ml-2 text-gray-900">
+                      {door.glassPaneType === 'INSULATED' ? 'Insulated' : 'Single'}, {door.glassColor || 'Clear'}
+                    </span>
+                  </div>
+                  {door.hasInserts && (
+                    <div>
+                      <span className="text-gray-500">Inserts:</span>
+                      <span className="ml-2 text-gray-900">{door.windowInsert}</span>
+                    </div>
+                  )}
+                </>
+              )}
               <div>
                 <span className="text-gray-500">Track:</span>
                 <span className="ml-2 text-gray-900">{door.trackRadius}" / {door.trackThickness}"</span>
