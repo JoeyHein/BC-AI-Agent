@@ -116,21 +116,36 @@ const PANEL_PATTERNS = {
   },
 }
 
-// Color hex values
+// Color hex values - RAL codes for accurate representation
 const COLOR_MAP = {
-  WHITE: '#FFFFFF',
-  BRIGHT_WHITE: '#FFFFFF',
-  NEW_ALMOND: '#EFDECD',
-  BLACK: '#1a1a1a',
-  WALNUT: '#5D432C',
-  IRON_ORE: '#48464A',
-  SANDTONE: '#D4C4A8',
-  NEW_BROWN: '#6B4423',
-  BRONZE: '#CD7F32',
-  STEEL_GREY: '#71797E',
-  HAZELWOOD: '#8E7618',
-  ENGLISH_CHESTNUT: '#954535',
+  // Solid colors (RAL)
+  WHITE: '#F4F4F4',           // RAL 9003 Signal White
+  BRIGHT_WHITE: '#F4F4F4',    // RAL 9003
+  BLACK: '#282828',           // RAL 9004 Signal Black
+  NEW_BROWN: '#4C4842',       // RAL 7022 Umbra Grey
+  HAZELWOOD: '#756F61',       // RAL 7006 Beige Grey
+  BRONZE: '#6C6961',          // RAL 7039 Quartz Grey
+  STEEL_GREY: '#7D7F7D',      // RAL 7037 Dusty Grey
+  SANDTONE: '#A4957D',        // RAL 1019 Grey Beige
+  IRON_ORE: '#2F3234',        // RAL 7021 Black Grey
+  // Woodgrain colors (base color for pattern)
+  WALNUT: '#4A3728',
+  ENGLISH_CHESTNUT: '#6B4423',
+  FRENCH_OAK: '#C4A35A',
+  // Aluminum
   CLEAR_ANODIZED: '#C0C0C0',
+}
+
+// Woodgrain patterns - colors for grain effect
+const WOODGRAIN_COLORS = {
+  WALNUT: { base: '#4A3728', light: '#5D432C', dark: '#3D2B1F' },
+  ENGLISH_CHESTNUT: { base: '#6B4423', light: '#8B5A2B', dark: '#5C3317' },
+  FRENCH_OAK: { base: '#C4A35A', light: '#D4B56A', dark: '#B49A4A' },
+}
+
+// Check if a color is a woodgrain finish
+const isWoodgrain = (colorId) => {
+  return ['WALNUT', 'ENGLISH_CHESTNUT', 'FRENCH_OAK'].includes(colorId)
 }
 
 // Window insert shapes
@@ -1058,6 +1073,34 @@ function DoorPreview({
           <filter id="doorShadow" x="-20%" y="-20%" width="140%" height="140%">
             <feDropShadow dx="3" dy="3" stdDeviation="4" floodOpacity="0.3"/>
           </filter>
+
+          {/* Woodgrain pattern */}
+          {isWoodgrain(color) && WOODGRAIN_COLORS[color] && (
+            <pattern id="woodgrainPattern" patternUnits="userSpaceOnUse" width="100" height="8">
+              <rect width="100" height="8" fill={WOODGRAIN_COLORS[color].base} />
+              <path
+                d={`M0,2 Q25,0 50,2 T100,2`}
+                stroke={WOODGRAIN_COLORS[color].dark}
+                strokeWidth="0.5"
+                fill="none"
+                opacity="0.6"
+              />
+              <path
+                d={`M0,5 Q30,3 60,5 T100,5`}
+                stroke={WOODGRAIN_COLORS[color].light}
+                strokeWidth="0.3"
+                fill="none"
+                opacity="0.4"
+              />
+              <path
+                d={`M0,7 Q20,6 40,7 T80,6.5 T100,7`}
+                stroke={WOODGRAIN_COLORS[color].dark}
+                strokeWidth="0.4"
+                fill="none"
+                opacity="0.5"
+              />
+            </pattern>
+          )}
         </defs>
 
         {/* Door background with shadow */}
@@ -1066,7 +1109,7 @@ function DoorPreview({
           y="0"
           width={displayWidth}
           height={displayHeight}
-          fill={doorColor}
+          fill={isWoodgrain(color) ? 'url(#woodgrainPattern)' : doorColor}
           stroke="#333"
           strokeWidth="2"
           filter="url(#doorShadow)"

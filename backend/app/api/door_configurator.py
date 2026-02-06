@@ -132,31 +132,34 @@ DOOR_SERIES = {
 }
 
 COLORS = {
+    # Solid colors with RAL codes
     "KANATA": [
-        {"id": "WHITE", "name": "White", "hex": "#FFFFFF"},
-        {"id": "NEW_ALMOND", "name": "New Almond", "hex": "#EFDECD"},
-        {"id": "BLACK", "name": "Black", "hex": "#000000"},
-        {"id": "WALNUT", "name": "Walnut", "hex": "#5D432C"},
-        {"id": "IRON_ORE", "name": "Iron Ore", "hex": "#48464A"},
-        {"id": "SANDTONE", "name": "Sandtone", "hex": "#D4C4A8"},
-        {"id": "NEW_BROWN", "name": "New Brown", "hex": "#6B4423"},
-        {"id": "BRONZE", "name": "Bronze", "hex": "#CD7F32"},
-        {"id": "STEEL_GREY", "name": "Steel Grey", "hex": "#71797E"},
-        {"id": "HAZELWOOD", "name": "Hazelwood", "hex": "#8E7618"},
-        {"id": "ENGLISH_CHESTNUT", "name": "English Chestnut", "hex": "#954535"},
+        # Solid Colors (RAL)
+        {"id": "WHITE", "name": "White", "hex": "#F4F4F4", "ral": "RAL 9003", "type": "solid"},
+        {"id": "BLACK", "name": "Black", "hex": "#282828", "ral": "RAL 9004", "type": "solid"},
+        {"id": "NEW_BROWN", "name": "New Brown", "hex": "#4C4842", "ral": "RAL 7022", "type": "solid"},
+        {"id": "HAZELWOOD", "name": "Hazelwood", "hex": "#756F61", "ral": "RAL 7006", "type": "solid"},
+        {"id": "BRONZE", "name": "Bronze", "hex": "#6C6961", "ral": "RAL 7039", "type": "solid"},
+        {"id": "STEEL_GREY", "name": "Steel Grey", "hex": "#7D7F7D", "ral": "RAL 7037", "type": "solid"},
+        {"id": "SANDTONE", "name": "Sandtone", "hex": "#A4957D", "ral": "RAL 1019", "type": "solid"},
+        {"id": "IRON_ORE", "name": "Iron Ore", "hex": "#2F3234", "ral": "RAL 7021", "type": "solid"},
+        # Woodgrain finishes
+        {"id": "WALNUT", "name": "Walnut", "hex": "#4A3728", "type": "woodgrain", "grain": ["#4A3728", "#5D432C", "#3D2B1F"]},
+        {"id": "ENGLISH_CHESTNUT", "name": "English Chestnut", "hex": "#6B4423", "type": "woodgrain", "grain": ["#6B4423", "#8B5A2B", "#5C3317"]},
+        {"id": "FRENCH_OAK", "name": "French Oak", "hex": "#C4A35A", "type": "woodgrain", "grain": ["#C4A35A", "#D4B56A", "#B49A4A"]},
     ],
     "CRAFT": [
-        {"id": "WHITE", "name": "White", "hex": "#FFFFFF"},
-        {"id": "SANDTONE", "name": "Sandtone", "hex": "#D4C4A8"},
-        {"id": "WALNUT", "name": "Walnut", "hex": "#5D432C", "note": "28\" section only"},
-        {"id": "ENGLISH_CHESTNUT", "name": "English Chestnut", "hex": "#954535"},
-        {"id": "IRON_ORE", "name": "Iron Ore", "hex": "#48464A"},
+        {"id": "WHITE", "name": "White", "hex": "#F4F4F4", "ral": "RAL 9003", "type": "solid"},
+        {"id": "SANDTONE", "name": "Sandtone", "hex": "#A4957D", "ral": "RAL 1019", "type": "solid"},
+        {"id": "IRON_ORE", "name": "Iron Ore", "hex": "#2F3234", "ral": "RAL 7021", "type": "solid"},
+        {"id": "WALNUT", "name": "Walnut", "hex": "#4A3728", "type": "woodgrain", "grain": ["#4A3728", "#5D432C", "#3D2B1F"], "note": "28\" section only"},
+        {"id": "ENGLISH_CHESTNUT", "name": "English Chestnut", "hex": "#6B4423", "type": "woodgrain", "grain": ["#6B4423", "#8B5A2B", "#5C3317"]},
     ],
     "COMMERCIAL": [
-        {"id": "BRIGHT_WHITE", "name": "Bright White", "hex": "#FFFFFF"},
-        {"id": "NEW_BROWN", "name": "New Brown", "hex": "#6B4423"},
-        {"id": "BLACK", "name": "Black", "hex": "#000000"},
-        {"id": "STEEL_GREY", "name": "Steel Grey", "hex": "#71797E"},
+        {"id": "WHITE", "name": "White", "hex": "#F4F4F4", "ral": "RAL 9003", "type": "solid"},
+        {"id": "BLACK", "name": "Black", "hex": "#282828", "ral": "RAL 9004", "type": "solid"},
+        {"id": "NEW_BROWN", "name": "New Brown", "hex": "#4C4842", "ral": "RAL 7022", "type": "solid"},
+        {"id": "STEEL_GREY", "name": "Steel Grey", "hex": "#7D7F7D", "ral": "RAL 7037", "type": "solid"},
     ],
     "AL976": [
         {"id": "CLEAR_ANODIZED", "name": "Clear Anodized (Standard)", "hex": "#C0C0C0"},
