@@ -595,12 +595,24 @@ function DesignStep({ door, colors, panelDesigns, onChange }) {
                   : 'border-gray-200 hover:border-gray-300'
               }`}
             >
-              <div
-                className="w-8 h-8 rounded-full mx-auto border border-gray-300"
-                style={{ backgroundColor: color.hex || '#ccc' }}
-              />
+              {/* Color swatch - with woodgrain pattern for wood finishes */}
+              {color.type === 'woodgrain' && color.grain ? (
+                <svg className="w-10 h-10 rounded-full mx-auto border border-gray-300 overflow-hidden" viewBox="0 0 40 40">
+                  <rect width="40" height="40" fill={color.grain[0]} />
+                  <path d="M0,8 Q10,6 20,8 T40,8" stroke={color.grain[2]} strokeWidth="1" fill="none" opacity="0.7" />
+                  <path d="M0,16 Q15,14 30,16 T40,16" stroke={color.grain[1]} strokeWidth="0.8" fill="none" opacity="0.5" />
+                  <path d="M0,24 Q12,22 24,24 T40,24" stroke={color.grain[2]} strokeWidth="1" fill="none" opacity="0.6" />
+                  <path d="M0,32 Q8,30 16,32 T40,32" stroke={color.grain[1]} strokeWidth="0.8" fill="none" opacity="0.5" />
+                </svg>
+              ) : (
+                <div
+                  className="w-10 h-10 rounded-full mx-auto border border-gray-300"
+                  style={{ backgroundColor: color.hex || '#ccc' }}
+                />
+              )}
               <span className="mt-1 block text-xs text-gray-700">{color.name}</span>
-              {color.note && <span className="text-xs text-gray-400">{color.note}</span>}
+              {color.ral && <span className="block text-xs text-gray-400">{color.ral}</span>}
+              {color.note && <span className="block text-xs text-orange-500">{color.note}</span>}
             </button>
           ))}
         </div>
