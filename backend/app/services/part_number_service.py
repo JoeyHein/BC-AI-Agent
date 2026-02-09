@@ -363,57 +363,109 @@ class PartNumberService:
         Get all part numbers needed for a door configuration.
 
         Returns list of PartSelection objects with part numbers and quantities.
+
+        ORDER (per business requirements):
+        1. Comment (door description)
+        2. Panels
+        3. Retainer
+        4. Astragal
+        5. Struts
+        6. Top seal (if applicable)
+        7. Tracks
+        8. Highlift/lowheadroom (if applicable)
+        9. Hardware
+        10. Shaft
+        11. Springs
+        12. Weather seal
+        13. Extras (windows, operator)
         """
         parts = []
+        hardware = config.hardware or {}
 
-        # 1. Get panel part numbers (always use individual panels, not door packages)
+        # 1. COMMENT - Door description line
+        door_width_ft = config.door_width // 12
+        door_width_in = config.door_width % 12
+        door_height_ft = config.door_height // 12
+        door_height_in = config.door_height % 12
+
+        width_str = f"{door_width_ft}'" if door_width_in == 0 else f"{door_width_ft}'{door_width_in}\""
+        height_str = f"{door_height_ft}'" if door_height_in == 0 else f"{door_height_ft}'{door_height_in}\""
+
+        comment_desc = f"{config.door_series} {width_str} x {height_str} {config.panel_color.replace('_', ' ').title()}"
+        if config.panel_design:
+            comment_desc += f" {config.panel_design}"
+
+        parts.append(PartSelection(
+            part_number="",  # Comment line has no part number
+            description=comment_desc,
+            quantity=1,
+            category="comment"
+        ))
+
+        # 2. PANELS
         panel_parts = self._get_panel_parts(config)
         parts.extend(panel_parts)
 
-        # 3. Get hardware if needed
-        hardware = config.hardware or {}
+        # 3. RETAINER (from bottom retainer parts - just retainer, not astragal)
+        if hardware.get("bottomRetainer", True):
+            retainer_parts = self._get_retainer_only_parts(config)
+            parts.extend(retainer_parts)
 
-        if hardware.get("tracks", True):
-            track_parts = self._get_track_parts(config)
-            parts.extend(track_parts)
+        # 4. ASTRAGAL (bottom rubber)
+        if hardware.get("bottomRetainer", True):
+            astragal_parts = self._get_astragal_only_parts(config)
+            parts.extend(astragal_parts)
 
-        if hardware.get("springs", True):
-            spring_parts = self._get_spring_parts(config)
-            parts.extend(spring_parts)
-
-        if hardware.get("shafts", True):
-            shaft_parts = self._get_shaft_parts(config)
-            parts.extend(shaft_parts)
-
+        # 5. STRUTS (right after astragal, before tracks)
         if hardware.get("struts", True):
             strut_parts = self._get_strut_parts(config)
             parts.extend(strut_parts)
 
+        # 6. TOP SEAL (if applicable - for insulated doors)
+        top_seal_parts = self._get_top_seal_parts(config)
+        parts.extend(top_seal_parts)
+
+        # 7. TRACKS
+        if hardware.get("tracks", True):
+            track_parts = self._get_track_parts(config)
+            parts.extend(track_parts)
+
+        # 7. HIGHLIFT/LOWHEADROOM (if applicable)
+        highlift_parts = self._get_highlift_parts(config)
+        parts.extend(highlift_parts)
+
+        # 8. HARDWARE
         if hardware.get("hardwareKits", True):
             hw_parts = self._get_hardware_kit_parts(config)
             parts.extend(hw_parts)
 
+        # 9. SHAFT
+        if hardware.get("shafts", True):
+            shaft_parts = self._get_shaft_parts(config)
+            parts.extend(shaft_parts)
+
+        # 10. SPRINGS
+        if hardware.get("springs", True):
+            spring_parts = self._get_spring_parts(config)
+            parts.extend(spring_parts)
+
+        # 11. WEATHER SEAL (sides and header)
         if hardware.get("weatherStripping", True):
             seal_parts = self._get_seal_parts(config)
             parts.extend(seal_parts)
 
-        if hardware.get("bottomRetainer", True):
-            retainer_parts = self._get_bottom_retainer_parts(config)
-            parts.extend(retainer_parts)
-
-        # 4. Get window/glass parts if configured
+        # 12. EXTRAS (windows, operator)
         if config.window_insert and config.window_insert != "NONE":
             window_parts = self._get_window_parts(config)
             parts.extend(window_parts)
 
-        # 5. Get operator if selected
         if config.operator and config.operator != "NONE":
             operator_parts = self._get_operator_parts(config)
             parts.extend(operator_parts)
 
-        # Apply quantity multiplier for door count
+        # Apply quantity multiplier for door count (skip comment and operator)
         for part in parts:
-            if part.category != "operator":  # Operator usually shared
+            if part.category not in ["operator", "comment"]:
                 part.quantity *= config.door_count
 
         return parts
@@ -807,19 +859,24 @@ class PartNumberService:
         return parts
 
     def _get_bottom_retainer_parts(self, config: DoorConfiguration) -> List[PartSelection]:
-        """Get retainer and astragal part numbers using actual BC parts"""
+        """Get retainer and astragal part numbers using actual BC parts (legacy method)"""
+        parts = []
+        parts.extend(self._get_retainer_only_parts(config))
+        parts.extend(self._get_astragal_only_parts(config))
+        return parts
+
+    def _get_retainer_only_parts(self, config: DoorConfiguration) -> List[PartSelection]:
+        """Get retainer part numbers only (without astragal)"""
         parts = []
         mapper = get_bc_mapper()
 
-        door_width_feet = config.door_width / 12
-
-        # Get retainer FIRST (comes before astragal in line order)
+        # Get retainer for top and bottom
         retainer = mapper.get_retainer()
         parts.append(PartSelection(
             part_number=retainer.part_number,
             description=f"{retainer.description} (TOP)",
             quantity=1,
-            category="retainer"  # Specific category for ordering
+            category="retainer"
         ))
         parts.append(PartSelection(
             part_number=retainer.part_number,
@@ -828,16 +885,73 @@ class PartNumberService:
             category="retainer"
         ))
 
-        # Get astragal (bottom rubber) - comes after retainer
+        return parts
+
+    def _get_astragal_only_parts(self, config: DoorConfiguration) -> List[PartSelection]:
+        """Get astragal (bottom rubber) part numbers only"""
+        mapper = get_bc_mapper()
+        door_width_feet = config.door_width / 12
+
         astragal = mapper.get_astragal(door_width_feet)
-        parts.append(PartSelection(
+        return [PartSelection(
             part_number=astragal.part_number,
             description=astragal.description,
-            quantity=1,  # One per door
-            category="astragal"  # Specific category for ordering
-        ))
+            quantity=1,
+            category="astragal"
+        )]
 
-        return parts
+    def _get_top_seal_parts(self, config: DoorConfiguration) -> List[PartSelection]:
+        """Get top seal parts (for insulated doors or when explicitly needed)
+
+        Top seal is typically used on:
+        - Insulated doors (TX450-20, TX500-20)
+        - Doors with weather seal requirements
+        """
+        # Check if this door type requires top seal
+        insulated_series = ["TX450-20", "TX500-20", "KANATA_EXECUTIVE"]
+        if config.door_series not in insulated_series:
+            return []
+
+        mapper = get_bc_mapper()
+        door_width_feet = config.door_width // 12
+
+        # Top seal uses same weather stripping as header
+        # but categorized separately for ordering
+        color = config.panel_color.replace("_", " ")
+        is_commercial = config.door_type == "commercial"
+
+        top_seal = mapper.get_weather_stripping(
+            door_height_feet=door_width_feet,  # Width for header
+            color=color,
+            commercial=is_commercial
+        )
+
+        return [PartSelection(
+            part_number=top_seal.part_number,
+            description=f"{top_seal.description} (TOP SEAL)",
+            quantity=1,
+            category="top_seal"
+        )]
+
+    def _get_highlift_parts(self, config: DoorConfiguration) -> List[PartSelection]:
+        """Get highlift or lowheadroom track parts if applicable
+
+        Highlift/lowheadroom is determined by:
+        - Explicit configuration (future: add to DoorConfiguration)
+        - Track radius requirements
+        - Ceiling height constraints
+
+        For now, returns empty list - can be extended when highlift
+        configuration is added to the door configurator.
+        """
+        # TODO: Add highlift/lowheadroom detection when config supports it
+        # Example conditions:
+        # - config.lift_type == "highlift"
+        # - config.lift_type == "lowheadroom"
+        # - config.headroom < standard_headroom
+
+        # Currently no highlift parts - return empty
+        return []
 
     def _get_window_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get window/glass kit part numbers"""
