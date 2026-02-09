@@ -490,6 +490,7 @@ class DoorCalculatorService:
         double_end_caps: bool = False,
         heavy_duty_hinges: bool = False,
         target_cycles: int = 10000,
+        shaft_type: str = "auto",  # 'auto', 'single', 'split'
     ) -> DoorCalculation:
         """
         Calculate complete door configuration.
@@ -525,6 +526,13 @@ class DoorCalculatorService:
             heavy_duty_hinges
         )
 
+        # Set correct steel gauge based on model
+        # TX450-20 and TX500-20 are 20 gauge, all others are 24 gauge
+        if door_model in ["TX450-20", "TX500-20"]:
+            panel_config.gauge = 20
+        else:
+            panel_config.gauge = 24
+
         # 2. Calculate door weight
         weight = self._calculate_weight(
             door_model,
@@ -552,7 +560,7 @@ class DoorCalculatorService:
         )
 
         # 6. Calculate shaft
-        shaft = self._calculate_shaft(width_inches, weight.total_weight)
+        shaft = self._calculate_shaft(width_inches, weight.total_weight, shaft_type)
 
         # 7. Calculate struts
         strut_count = self._calculate_struts(door_model, width_inches, height_inches)
@@ -599,7 +607,7 @@ class DoorCalculatorService:
             total_sections=config["total"],
             sections_21=config["21"],
             sections_24=config["24"],
-            gauge=20,  # Default to 20ga
+            gauge=24,  # Default to 24ga (standard), will be updated in calculate_door based on model
             end_caps=2 if double_end_caps else 1,
             heavy_duty_hinges=heavy_duty_hinges,
             note=config.get("note")
@@ -801,9 +809,19 @@ class DoorCalculatorService:
     def _calculate_shaft(
         self,
         width_inches: int,
-        door_weight: float
+        door_weight: float,
+        shaft_type: str = "auto"
     ) -> ShaftConfiguration:
-        """Calculate shaft configuration"""
+        """Calculate shaft configuration
+
+        Args:
+            width_inches: Door width in inches
+            door_weight: Door weight in lbs
+            shaft_type: 'auto', 'single', or 'split'
+                - auto: Single shaft up to 14'2" (170"), split after
+                - single: Force single shaft (no coupler)
+                - split: Force split shaft (two pieces with coupler)
+        """
 
         # Shaft diameter based on width and weight
         if width_inches <= 144 and door_weight < 600:  # Up to 12' and light
@@ -811,16 +829,33 @@ class DoorCalculatorService:
         else:
             diameter = "1-1/4"
 
-        # Shaft length = door width + extra for drums
-        # Typically 2 pieces with coupler
-        shaft_length_each = (width_inches / 2) + 6  # 6" extra each end
+        # Determine if single or split shaft based on shaft_type and width
+        # 14'2" = 170 inches is the cutoff for single shaft
+        if shaft_type == "single":
+            use_single = True
+        elif shaft_type == "split":
+            use_single = False
+        else:  # auto
+            use_single = width_inches <= 170  # 14'2"
 
-        return ShaftConfiguration(
-            diameter=diameter,
-            length=round(shaft_length_each, 1),
-            pieces=2,
-            coupler_qty=1
-        )
+        if use_single:
+            # Single shaft - one piece, no coupler
+            shaft_length = width_inches + 12  # Add 12" for drum clearance
+            return ShaftConfiguration(
+                diameter=diameter,
+                length=round(shaft_length, 1),
+                pieces=1,
+                coupler_qty=0
+            )
+        else:
+            # Split shaft - two pieces with coupler
+            shaft_length_each = (width_inches / 2) + 6  # 6" extra each end
+            return ShaftConfiguration(
+                diameter=diameter,
+                length=round(shaft_length_each, 1),
+                pieces=2,
+                coupler_qty=1
+            )
 
     def _calculate_struts(
         self,
@@ -1029,6 +1064,7 @@ def calculate_door_from_config(config: Dict[str, Any]) -> Dict[str, Any]:
         double_end_caps=config.get("double_end_caps", config.get("doubleEndCaps", False)),
         heavy_duty_hinges=config.get("heavy_duty_hinges", config.get("heavyDutyHinges", False)),
         target_cycles=config.get("target_cycles", config.get("targetCycles", 10000)),
+        shaft_type=config.get("shaft_type", config.get("shaftType", "auto")),
     )
 
     return door_calculator.get_calculation_summary(calc)

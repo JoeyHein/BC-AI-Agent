@@ -1064,6 +1064,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         track_thickness=config_dict.get("trackThickness", "2"),
         hardware=config_dict.get("hardware", {}),
         operator=config_dict.get("operator"),
+        target_cycles=config_dict.get("targetCycles", config_dict.get("target_cycles", 10000)),
     )
 
     parts = part_number_service.get_parts_for_configuration(config)

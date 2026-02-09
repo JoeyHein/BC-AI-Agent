@@ -76,6 +76,9 @@ function DoorConfigurator() {
         shafts: true,
       },
       operator: 'NONE',
+      // Spring and shaft options
+      targetCycles: 10000,
+      shaftType: 'auto', // 'auto', 'single', 'split'
     }
   }
 
@@ -161,6 +164,9 @@ function DoorConfigurator() {
         trackThickness: door.trackThickness,
         hardware: door.hardware,
         operator: door.operator !== 'NONE' ? door.operator : null,
+        // Spring and shaft options
+        targetCycles: door.targetCycles || 10000,
+        shaftType: door.shaftType || 'auto',
       })),
       tagName: `Configurator Quote - ${doors.length} door(s)`,
     }
@@ -1095,6 +1101,25 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
 function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, onChange }) {
   const operators = operatorOptions[door.doorType] || operatorOptions.residential
 
+  // Spring cycle options
+  const springCycleOptions = [
+    { id: 10000, name: '10,000 cycles', description: 'Standard residential' },
+    { id: 15000, name: '15,000 cycles', description: 'Extended life' },
+    { id: 25000, name: '25,000 cycles', description: 'Commercial light duty' },
+    { id: 50000, name: '50,000 cycles', description: 'Commercial standard' },
+    { id: 100000, name: '100,000 cycles', description: 'High cycle commercial' },
+  ]
+
+  // Shaft type options - auto-detect based on width (14'2" = 170")
+  const shaftTypeOptions = [
+    { id: 'auto', name: 'Auto (Recommended)', description: door.doorWidth <= 170 ? 'Single shaft (≤14\'2")' : 'Split shaft with coupler (>14\'2")' },
+    { id: 'single', name: 'Single Shaft', description: 'No coupler - up to 14\'2" wide' },
+    { id: 'split', name: 'Split Shaft', description: 'Two pieces with coupler' },
+  ]
+
+  // Warn if single shaft selected for wide door
+  const shaftWarning = door.shaftType === 'single' && door.doorWidth > 170
+
   return (
     <div className="space-y-6">
       {/* Track Configuration */}
@@ -1140,6 +1165,59 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
             ))}
           </div>
         </div>
+      </div>
+
+      {/* Spring Cycles */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Spring Cycle Life
+        </label>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          {springCycleOptions.map((option) => (
+            <button
+              key={option.id}
+              onClick={() => onChange({ targetCycles: option.id })}
+              className={`p-3 rounded-lg border-2 text-center transition-all ${
+                door.targetCycles === option.id
+                  ? 'border-indigo-500 bg-indigo-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <span className="block text-sm font-medium text-gray-900">{option.name}</span>
+              <span className="block text-xs text-gray-500">{option.description}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Shaft Type */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Shaft Configuration
+        </label>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {shaftTypeOptions.map((option) => (
+            <button
+              key={option.id}
+              onClick={() => onChange({ shaftType: option.id })}
+              className={`p-3 rounded-lg border-2 text-left transition-all ${
+                door.shaftType === option.id
+                  ? 'border-indigo-500 bg-indigo-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <span className="block text-sm font-medium text-gray-900">{option.name}</span>
+              <span className="block text-xs text-gray-500">{option.description}</span>
+            </button>
+          ))}
+        </div>
+        {shaftWarning && (
+          <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
+            <p className="text-xs text-yellow-700">
+              Warning: Single shaft is only recommended for doors up to 14'2" wide. Your door is {Math.floor(door.doorWidth / 12)}'{door.doorWidth % 12}".
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Hardware Options */}
@@ -1265,7 +1343,8 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult 
               windowQty: door.windowInsert !== 'NONE' ? 1 : 0,
               doubleEndCaps: false,
               heavyDutyHinges: false,
-              targetCycles: 10000,
+              targetCycles: door.targetCycles || 10000,
+              shaftType: door.shaftType || 'auto',
             }
             const response = await doorConfigApi.calculateDoor(calcRequest)
             return {
