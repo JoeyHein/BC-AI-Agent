@@ -950,9 +950,45 @@ class BCPartNumberMapper:
                     part_number = f"HK03-{width_code}{height_code[:-1]}{variant}-RC"
                     description = f"HARDWARE KIT, STD LIFT 3\", {door_width_feet}'x{door_height_feet}'"
             else:
-                # HK02 - Standard Lift 2" Track (Residential)
-                part_number = f"HK02-{width_code}{height_code}-RC"
-                description = f"HARDWARE KIT, STD LIFT 2\", {door_width_feet}'x{door_height_feet}'"
+                # Residential 2" Track - Check for premade HK10 boxes first
+                # HK10 premade boxes are more cost-effective for standard sizes:
+                # - HK10-00704-0809: 7' height, 8'-10' width, 4 sections
+                # - HK10-00704-1316: 7' height, 12'-18' width, 4 sections
+                # - HK10-00804-0809: 8' height, 8'-10' width, 4 sections
+                # - HK10-00804-1316: 8' height, 12'-18' width, 4 sections
+
+                # Check if door fits premade HK10 box dimensions
+                hk10_available = False
+                hk10_part = None
+                hk10_desc = None
+
+                if door_height_feet == 7 and num_sections == 4:
+                    if 8 <= door_width_feet <= 10:
+                        hk10_part = "HK10-00704-0809"
+                        hk10_desc = "PURCHASED HARDWARE BOX, 2R 8'-10' X 7', STANDARD, 4S3HW, 4 SECTIONS"
+                        hk10_available = True
+                    elif 12 <= door_width_feet <= 18:
+                        hk10_part = "HK10-00704-1316"
+                        hk10_desc = "PURCHASED HARDWARE BOX, 2R 12'-18' X 7', STANDARD, 4S5HW, 4 SECTIONS"
+                        hk10_available = True
+                elif door_height_feet == 8 and num_sections == 4:
+                    if 8 <= door_width_feet <= 10:
+                        hk10_part = "HK10-00804-0809"
+                        hk10_desc = "PURCHASED HARDWARE BOX, 2R 8'-10' X 8', STANDARD, 4S3HW, 4 SECTIONS"
+                        hk10_available = True
+                    elif 12 <= door_width_feet <= 18:
+                        hk10_part = "HK10-00804-1316"
+                        hk10_desc = "PURCHASED HARDWARE BOX, 2R 12'-18' X 8', STANDARD, 4S5HW, 4 SECTIONS"
+                        hk10_available = True
+
+                if hk10_available:
+                    # Use premade HK10 box (more cost-effective)
+                    part_number = hk10_part
+                    description = hk10_desc
+                else:
+                    # Fall back to HK02 for non-standard sizes
+                    part_number = f"HK02-{width_code}{height_code}-RC"
+                    description = f"HARDWARE KIT, STD LIFT 2\", {door_width_feet}'x{door_height_feet}'"
 
         return BCPartNumber(
             part_number=part_number,

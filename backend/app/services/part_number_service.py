@@ -494,6 +494,78 @@ class PartNumberService:
         else:
             return 8
 
+    def _calculate_door_weight(self, config: DoorConfiguration) -> float:
+        """
+        Calculate door weight using linear foot weights per section.
+
+        Weight = (lbs_per_linear_ft × door_width_ft × num_sections) + hardware_weight
+
+        Panel weights (lbs per linear foot):
+        - 18" panels: 3.7655
+        - 21" panels: 4.1875
+        - 24" panels: 4.6392
+        - 28" panels: 5.1363
+        - 32" panels: 6.1875
+        """
+        # Weight per linear foot by section height
+        MODEL_WEIGHTS = {
+            # Commercial models
+            "TX380": {"18": 3.4991, "21": 3.4991, "24": 3.933, "28": 4.5, "32": 5.0},
+            "TX450": {"18": 3.83, "21": 3.83, "24": 4.38, "28": 5.0, "32": 5.5},
+            "TX450-20": {"18": 5.18, "21": 5.18, "24": 5.6813, "28": 6.2, "32": 6.8},
+            "TX500": {"18": 4.002, "21": 4.002, "24": 4.57, "28": 5.2, "32": 5.7},
+            "TX500-20": {"18": 5.2865, "21": 5.2865, "24": 5.63, "28": 6.1, "32": 6.6},
+            # Residential models (Kanata/Craft)
+            "KANATA": {"18": 3.7655, "21": 4.1875, "24": 4.6392, "28": 5.1363, "32": 6.1875},
+            "CRAFT": {"18": 3.7655, "21": 4.1875, "24": 4.6392, "28": 5.1363, "32": 6.1875},
+        }
+
+        # Get model weights (default to KANATA if not found)
+        model_weights = MODEL_WEIGHTS.get(config.door_series, MODEL_WEIGHTS["KANATA"])
+
+        door_width_ft = config.door_width / 12
+        door_height_in = config.door_height
+        num_sections = self._calculate_panel_count(door_height_in)
+
+        # Determine section height based on door height
+        # Standard residential (7', 8') uses 21" sections
+        # Taller doors may use 24" sections
+        if door_height_in <= 96:  # Up to 8'
+            section_height = "21"
+        elif door_height_in <= 120:  # 8' to 10'
+            section_height = "24"
+        else:
+            section_height = "24"  # Default to 24" for tall doors
+
+        # Get weight per linear foot for this section height
+        weight_per_ft = model_weights.get(section_height, model_weights.get("21", 4.0))
+
+        # Calculate panel weight
+        panel_weight = weight_per_ft * door_width_ft * num_sections
+
+        # Add hardware weight - different for residential vs commercial
+        # Residential (2" hinges, lighter brackets): ~15-18 lbs
+        # Commercial (3" hinges, heavier brackets): ~27-35 lbs
+        is_residential = config.door_series.upper() in ["KANATA", "CRAFT", "KANATA_EXECUTIVE"]
+        if is_residential:
+            # Residential hardware weight (2" hinges, smaller rollers, lighter brackets)
+            # Based on typical residential hardware box contents
+            hardware_weight = 17.0
+        else:
+            # Commercial hardware weight (3" hinges, heavy-duty brackets)
+            hardware_weight = 27.0
+
+        total_weight = panel_weight + hardware_weight
+
+        hw_type = "residential 2\"" if is_residential else "commercial 3\""
+        logger.info(
+            f"Door weight calculation: {config.door_series} {door_width_ft}'x{door_height_in}\" "
+            f"= {weight_per_ft} lbs/ft × {door_width_ft}' × {num_sections} sections + {hardware_weight} lbs ({hw_type} hw) "
+            f"= {total_weight:.1f} lbs"
+        )
+
+        return total_weight
+
     def _get_track_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get track part numbers using actual BC parts"""
         mapper = get_bc_mapper()
@@ -537,15 +609,10 @@ class PartNumberService:
         """
         parts = []
 
-        # Get door weight - use provided weight or estimate from size
+        # Get door weight - use provided weight or calculate from linear foot weights
         door_weight = config.door_weight
         if door_weight is None:
-            # Estimate weight: ~4 lbs/sq ft for standard insulated door
-            sq_ft = (config.door_width * config.door_height) / 144
-            if config.door_type == "commercial":
-                door_weight = sq_ft * 5.5  # Commercial doors are heavier
-            else:
-                door_weight = sq_ft * 4.0  # Residential estimate
+            door_weight = self._calculate_door_weight(config)
 
         # Parse track radius (handle string format)
         track_radius = int(config.track_radius) if config.track_radius else 15
@@ -694,27 +761,50 @@ class PartNumberService:
         )]
 
     def _get_seal_parts(self, config: DoorConfiguration) -> List[PartSelection]:
-        """Get weather stripping part numbers using actual BC parts"""
+        """
+        Get weather stripping part numbers using actual BC parts.
+
+        Weather stripping rules:
+        - 2 pieces for the height (one per side - left and right jambs)
+        - 1 piece for the width (header/top)
+
+        Example: 16x7 door = 2x 7' strips (sides) + 1x 16' strip (header)
+        """
+        parts = []
         mapper = get_bc_mapper()
 
         door_height_feet = config.door_height // 12
+        door_width_feet = config.door_width // 12
+        color = config.panel_color.replace("_", " ")
+        is_commercial = config.door_type == "commercial"
 
-        # Get actual BC weather strip part number
-        weather_strip = mapper.get_weather_stripping(
+        # Get weather strip for HEIGHT (sides) - quantity 2
+        height_strip = mapper.get_weather_stripping(
             door_height_feet=door_height_feet,
-            color=config.panel_color.replace("_", " "),
-            commercial=(config.door_type == "commercial")
+            color=color,
+            commercial=is_commercial
         )
+        parts.append(PartSelection(
+            part_number=height_strip.part_number,
+            description=f"{height_strip.description} (SIDES)",
+            quantity=2,  # Always 2 for left and right jambs
+            category="weather_stripping"
+        ))
 
-        # Quantity = number of panels (one per panel section)
-        panel_count = self._calculate_panel_count(config.door_height)
+        # Get weather strip for WIDTH (header) - quantity 1
+        width_strip = mapper.get_weather_stripping(
+            door_height_feet=door_width_feet,  # Using width here
+            color=color,
+            commercial=is_commercial
+        )
+        parts.append(PartSelection(
+            part_number=width_strip.part_number,
+            description=f"{width_strip.description} (HEADER)",
+            quantity=1,  # Always 1 for header
+            category="weather_stripping"
+        ))
 
-        return [PartSelection(
-            part_number=weather_strip.part_number,
-            description=weather_strip.description,
-            quantity=panel_count,
-            category="weather_stripping"  # Specific category for ordering
-        )]
+        return parts
 
     def _get_bottom_retainer_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get retainer and astragal part numbers using actual BC parts"""
