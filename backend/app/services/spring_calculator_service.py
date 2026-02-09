@@ -426,8 +426,14 @@ class SpringCalculatorService:
         if wire_diameter is None:
             wire_diameter = self._select_wire_for_mip(mip_required, coil_diameter, target_cycles)
             if wire_diameter is None:
-                logger.warning(f"No wire found for MIP {mip_required:.1f} at {target_cycles} cycles")
-                return None
+                # Try larger coil diameters for heavy doors
+                logger.info(f"MIP {mip_required:.1f} exceeds {coil_diameter}\" coil capacity, trying larger coils...")
+                result = self._select_wire_and_coil_for_mip(mip_required, target_cycles, coil_diameter)
+                if result is None:
+                    logger.warning(f"No wire/coil combination found for MIP {mip_required:.1f} at {target_cycles} cycles")
+                    return None
+                wire_diameter, coil_diameter = result
+                logger.info(f"Selected {wire_diameter}\" wire with {coil_diameter}\" coil for heavy door")
 
         # Get divider
         divider = self.get_divider(wire_diameter, coil_diameter)
@@ -566,6 +572,39 @@ class SpringCalculatorService:
             mip_capacity = self.get_mip_capacity(wire_diam, target_cycles)
             if mip_capacity and mip_capacity >= mip_required:
                 return wire_diam
+
+        return None
+
+    def _select_wire_and_coil_for_mip(
+        self,
+        mip_required: float,
+        target_cycles: int,
+        preferred_coil: float = 2.0
+    ) -> Optional[Tuple[float, float]]:
+        """
+        Select wire diameter and coil diameter that can handle required MIP.
+
+        For heavy doors, the standard 2" coil may not work, so we try
+        progressively larger coil diameters.
+
+        Returns: (wire_diameter, coil_diameter) or None
+        """
+        # Coil diameters to try, in order of preference (smaller is better for installation)
+        coil_diameters_to_try = [preferred_coil, 2.0, 2.5, 2.625, 3.375, 3.5, 3.75, 4.5, 5.25, 5.875, 6.0, 7.625]
+        # Remove duplicates while preserving order
+        seen = set()
+        coil_diameters_to_try = [x for x in coil_diameters_to_try if not (x in seen or seen.add(x))]
+
+        for coil_diam in coil_diameters_to_try:
+            for wire_diam in sorted(self.mip_capacity.keys()):
+                # Check if wire/coil combination exists in dividers
+                if coil_diam not in self.dividers.get(wire_diam, {}):
+                    continue
+
+                # Check MIP capacity
+                mip_capacity = self.get_mip_capacity(wire_diam, target_cycles)
+                if mip_capacity and mip_capacity >= mip_required:
+                    return (wire_diam, coil_diam)
 
         return None
 

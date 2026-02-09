@@ -1,6 +1,9 @@
 """
 Quote Generation Service
 Converts parsed email data into structured quotes with pricing
+
+Uses the door configurator / part number service to get actual BC part numbers
+instead of placeholder codes.
 """
 
 import logging
@@ -11,6 +14,11 @@ from sqlalchemy.orm import Session
 
 from app.db.models import QuoteRequest, QuoteItem, PricingRule, BCCustomer
 from app.services.spring_calculator_service import spring_calculator
+from app.services.part_number_service import (
+    part_number_service,
+    DoorConfiguration,
+    PartSelection,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -96,101 +104,266 @@ class QuoteGenerationService:
 
     def _generate_door_items(self, door_spec: Dict[str, Any], customer: Optional[BCCustomer]) -> List[Dict[str, Any]]:
         """
-        Generate line items for a door specification
+        Generate line items for a door specification using the door configurator
+        to get actual BC part numbers.
 
         Args:
-            door_spec: Door specifications from parsed data
+            door_spec: Door specifications from AI-parsed email data
             customer: BC customer for pricing tier
 
         Returns:
-            List of line item dicts
+            List of line item dicts with actual BC part numbers
         """
         items = []
+
+        # Extract door specs from AI-parsed data
         model = door_spec.get("model")
-        quantity = door_spec.get("quantity", 1)
-        width_ft = door_spec.get("width_ft", 0)
-        height_ft = door_spec.get("height_ft", 0)
+        quantity = door_spec.get("quantity", 1) or 1
+        width_ft = door_spec.get("width_ft", 0) or 0
+        width_in = door_spec.get("width_in", 0) or 0
+        height_ft = door_spec.get("height_ft", 0) or 0
+        height_in = door_spec.get("height_in", 0) or 0
+        color = door_spec.get("color")
+        glazing = door_spec.get("glazing")
+        track_type = door_spec.get("track_type", "2")
 
         if not model:
             logger.warning("Door spec missing model, skipping")
             return items
 
-        # Calculate door size
-        size = f"{width_ft}' x {height_ft}'"
+        # Convert dimensions to total inches
+        door_width_inches = (width_ft * 12) + width_in
+        door_height_inches = (height_ft * 12) + height_in
 
-        # Get base price for door model
-        base_price = self._get_base_price(model, width_ft, height_ft)
+        # Default to common sizes if dimensions missing
+        if door_width_inches == 0:
+            door_width_inches = 96  # 8' default
+            logger.warning(f"Door width missing, defaulting to {door_width_inches}\" (8')")
+        if door_height_inches == 0:
+            door_height_inches = 84  # 7' default
+            logger.warning(f"Door height missing, defaulting to {door_height_inches}\" (7')")
 
-        # Apply pricing rules
-        context = {
-            "model": model,
-            "quantity": quantity,
-            "width_ft": width_ft,
-            "height_ft": height_ft,
-            "customer_tier": customer.pricing_tier if customer else "standard"
-        }
+        # Map AI-parsed model names to door series
+        door_series = self._map_model_to_series(model)
+        door_type = self._determine_door_type(model, door_width_inches, door_height_inches)
 
-        door_price = self._apply_pricing_rules(base_price, "base_price", model, context)
+        # Map color to standard color code
+        panel_color = self._map_color_to_code(color, door_series)
 
-        # Main door item
-        items.append({
-            "item_type": "door",
-            "product_code": f"DOOR-{model}",
-            "description": f"{model} Overhead Door - {size}",
-            "quantity": quantity,
-            "unit_price": float(door_price),
-            "total_price": float(door_price * quantity),
-            "item_metadata": {
-                "model": model,
-                "size": size,
-                "color": door_spec.get("color"),
-                "panel_config": door_spec.get("panel_config"),
-            }
-        })
+        # Create DoorConfiguration for the part number service
+        try:
+            config = DoorConfiguration(
+                door_type=door_type,
+                door_series=door_series,
+                door_width=door_width_inches,
+                door_height=door_height_inches,
+                door_count=1,  # Parts are per-door, we multiply by quantity later
+                panel_color=panel_color,
+                panel_design="FLUSH" if door_type == "commercial" else "SHXL",  # Default designs
+                window_insert=None,  # TODO: parse from glazing
+                window_section=None,
+                glazing_type=glazing.upper() if glazing else None,
+                track_radius="15" if track_type == "2" else "12",
+                track_thickness=track_type or "2",
+                hardware={
+                    "tracks": True,
+                    "springs": True,
+                    "shafts": True,
+                    "struts": True,
+                    "hardwareKits": True,
+                    "weatherStripping": True,
+                    "bottomRetainer": True,
+                },
+                operator=None,
+                target_cycles=10000,
+                spring_quantity=2,
+            )
 
-        # Hardware item (track type)
-        track_type = door_spec.get("track_type")
-        if track_type:
-            hardware_price = self._get_hardware_price(track_type, width_ft, height_ft)
-            hardware_price = self._apply_pricing_rules(hardware_price, "hardware", track_type, context)
+            # Get parts from the part number service
+            parts: List[PartSelection] = part_number_service.get_parts_for_configuration(config)
 
+            logger.info(f"Got {len(parts)} parts for door: {model} {door_width_inches}\"x{door_height_inches}\"")
+
+            # Convert parts to quote line items
+            size = f"{width_ft}'{width_in}\" x {height_ft}'{height_in}\""
+
+            for part in parts:
+                # Get pricing context
+                context = {
+                    "model": model,
+                    "quantity": quantity,
+                    "width_ft": width_ft,
+                    "height_ft": height_ft,
+                    "customer_tier": customer.pricing_tier if customer else "standard"
+                }
+
+                # Get unit price (use part price if available, otherwise calculate)
+                if part.unit_price:
+                    unit_price = Decimal(str(part.unit_price))
+                else:
+                    unit_price = self._get_part_price(part, config)
+
+                # Apply pricing rules
+                unit_price = self._apply_pricing_rules(unit_price, part.category, part.part_number, context)
+
+                # Calculate total (quantity from part × door quantity)
+                total_quantity = part.quantity * quantity
+                total_price = unit_price * total_quantity
+
+                items.append({
+                    "item_type": part.category,
+                    "product_code": part.part_number,
+                    "description": part.description,
+                    "quantity": total_quantity,
+                    "unit_price": float(unit_price),
+                    "total_price": float(total_price),
+                    "item_metadata": {
+                        "model": model,
+                        "size": size,
+                        "color": color,
+                        "door_series": door_series,
+                        "notes": part.notes,
+                    }
+                })
+
+            logger.info(f"Generated {len(items)} line items for door with real BC part numbers")
+
+        except Exception as e:
+            logger.error(f"Error getting parts from door configurator: {e}")
+            # Fall back to basic door item if part number service fails
             items.append({
-                "item_type": "hardware",
-                "product_code": f"TRACK-{track_type}",
-                "description": f"{track_type}\" Track and Hardware",
+                "item_type": "door",
+                "product_code": f"DOOR-{model}",
+                "description": f"{model} Overhead Door - {width_ft}'x{height_ft}'",
                 "quantity": quantity,
-                "unit_price": float(hardware_price),
-                "total_price": float(hardware_price * quantity),
+                "unit_price": 0.0,
+                "total_price": 0.0,
                 "item_metadata": {
-                    "track_type": track_type,
-                    "size": size
+                    "model": model,
+                    "error": str(e),
+                    "needs_manual_review": True,
                 }
             })
-
-        # Glazing item (windows)
-        glazing = door_spec.get("glazing")
-        if glazing:
-            glazing_price = self._get_glazing_price(glazing, width_ft, height_ft)
-            glazing_price = self._apply_pricing_rules(glazing_price, "glazing", glazing, context)
-
-            items.append({
-                "item_type": "glazing",
-                "product_code": f"GLASS-{glazing.upper().replace(' ', '_')}",
-                "description": f"{glazing.title()} Glazing",
-                "quantity": quantity,
-                "unit_price": float(glazing_price),
-                "total_price": float(glazing_price * quantity),
-                "item_metadata": {
-                    "glazing_type": glazing
-                }
-            })
-
-        # Spring item - calculated using Canimex methodology
-        spring_item = self._generate_spring_item(door_spec, quantity, context)
-        if spring_item:
-            items.append(spring_item)
 
         return items
+
+    def _map_model_to_series(self, model: str) -> str:
+        """Map AI-parsed model names to standard door series codes"""
+        if not model:
+            return "KANATA"  # Default
+
+        model_upper = model.upper()
+
+        # Direct mappings
+        series_map = {
+            "TX450": "TX450",
+            "TX500": "TX500",
+            "TX450-20": "TX450-20",
+            "TX500-20": "TX500-20",
+            "THERMALEX": "TX450",  # Generic Thermalex → TX450
+            "AL976": "AL976",
+            "ALUMINUM": "AL976",
+            "ALUMINIUM": "AL976",
+            "KANATA": "KANATA",
+            "CRAFT": "CRAFT",
+            "SOLALITE": "AL976",  # Solalite is aluminum series
+        }
+
+        for key, series in series_map.items():
+            if key in model_upper:
+                return series
+
+        # Default based on common patterns
+        if "COMMERCIAL" in model_upper:
+            return "TX450"
+
+        return "KANATA"  # Default to residential
+
+    def _determine_door_type(self, model: str, width_inches: int, height_inches: int) -> str:
+        """Determine door type (residential/commercial) based on model and size"""
+        if not model:
+            return "residential"
+
+        model_upper = model.upper()
+
+        # Commercial models
+        if any(x in model_upper for x in ["TX450", "TX500", "THERMALEX", "COMMERCIAL"]):
+            return "commercial"
+
+        # Aluminum
+        if any(x in model_upper for x in ["AL976", "ALUMINUM", "ALUMINIUM", "SOLALITE"]):
+            return "aluminium"
+
+        # Size-based heuristic: very large doors are likely commercial
+        sq_ft = (width_inches * height_inches) / 144
+        if sq_ft > 200:  # Over 200 sq ft
+            return "commercial"
+
+        return "residential"
+
+    def _map_color_to_code(self, color: Optional[str], series: str) -> str:
+        """Map AI-parsed color names to standard color codes"""
+        if not color:
+            return "WHITE"  # Default
+
+        color_upper = color.upper().replace(" ", "_")
+
+        # Common color mappings
+        color_map = {
+            "WHITE": "WHITE",
+            "BLACK": "BLACK",
+            "BROWN": "NEW_BROWN",
+            "NEW_BROWN": "NEW_BROWN",
+            "ALMOND": "NEW_ALMOND",
+            "SANDTONE": "SANDTONE",
+            "SAND": "SANDTONE",
+            "TAN": "SANDTONE",
+            "BRONZE": "BRONZE",
+            "GREY": "STEEL_GREY",
+            "GRAY": "STEEL_GREY",
+            "STEEL_GREY": "STEEL_GREY",
+            "STEEL_GRAY": "STEEL_GREY",
+            "WALNUT": "WALNUT",
+            "IRON_ORE": "IRON_ORE",
+            "HAZELWOOD": "HAZELWOOD",
+            "ENGLISH_CHESTNUT": "ENGLISH_CHESTNUT",
+            "CHESTNUT": "ENGLISH_CHESTNUT",
+        }
+
+        for key, code in color_map.items():
+            if key in color_upper:
+                return code
+
+        return "WHITE"  # Default
+
+    def _get_part_price(self, part: PartSelection, config: DoorConfiguration) -> Decimal:
+        """Calculate price for a part based on category and specifications"""
+        # Base prices by category (placeholder - would come from BC pricing in production)
+        category_base_prices = {
+            "panel": Decimal("150.00"),
+            "track": Decimal("200.00"),
+            "spring": Decimal("3.50"),  # Per inch
+            "spring_accessory": Decimal("25.00"),
+            "shaft": Decimal("75.00"),
+            "strut": Decimal("45.00"),
+            "hardware": Decimal("180.00"),
+            "weather_stripping": Decimal("15.00"),
+            "retainer": Decimal("20.00"),
+            "astragal": Decimal("35.00"),
+            "window": Decimal("120.00"),
+            "operator": Decimal("350.00"),
+        }
+
+        base_price = category_base_prices.get(part.category, Decimal("50.00"))
+
+        # Adjust based on door size for certain categories
+        sq_ft = (config.door_width * config.door_height) / 144
+        size_factor = Decimal(str(max(1.0, sq_ft / 56)))  # 56 sq ft = 8x7 baseline
+
+        if part.category in ["panel", "track", "hardware"]:
+            base_price = base_price * size_factor
+
+        return base_price
 
     def _generate_shipping_item(self, line_items: List[Dict[str, Any]], project: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Generate shipping/delivery line item"""
