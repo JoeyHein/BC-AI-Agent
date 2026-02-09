@@ -632,22 +632,11 @@ class DoorCalculatorService:
             weight_24 = model_weights["24"] * width_ft * panel_config.sections_24
             weight.steel_weight += weight_24
 
-        # Hardware weight (approximate)
-        # Hinges, brackets, rollers, screws
-        weight.hardware_weight = 27  # Base hardware weight
-
-        # Add bracket weights
-        weight.hardware_weight += (
-            HARDWARE_WEIGHTS["3'' Top Bracket"]["weight_grams"] * 4 / 453.592 +  # Convert grams to lbs
-            HARDWARE_WEIGHTS["EZ123 Bottom Bracket"]["weight_grams"] * 2 / 453.592 +
-            HARDWARE_WEIGHTS["3'' L/S"]["weight_grams"] * 8 / 453.592 +
-            HARDWARE_WEIGHTS["3'' S/S"]["weight_grams"] * 2 / 453.592 +
-            HARDWARE_WEIGHTS["Step Kit"]["weight_grams"] / 453.592
-        )
-
-        # Tek screws
-        tek_screw_qty = 27 * panel_config.total_sections
-        weight.hardware_weight += tek_screw_qty * HARDWARE_WEIGHTS["Tek Screws"]["weight_grams_each"] / 453.592
+        # Hardware weight
+        # Commercial 3" hardware: 27 lbs (includes brackets, hinges, rollers, screws, step kit)
+        # Residential 2" hardware: 17 lbs
+        is_commercial = door_model.upper().startswith("TX")
+        weight.hardware_weight = 27.0 if is_commercial else 17.0
 
         # Window weight
         if window_type and window_qty > 0:
