@@ -965,3 +965,35 @@ class ChatMessage(Base):
             "tokensUsed": self.tokens_used,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
         }
+
+
+# ============================================================================
+# APPLICATION SETTINGS MODELS
+# ============================================================================
+
+class AppSettings(Base):
+    """Application-wide settings storage"""
+    __tablename__ = "app_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    setting_key = Column(String(100), unique=True, nullable=False, index=True)
+    setting_value = Column(JSON, nullable=False)
+    description = Column(String(500), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    # Relationships
+    updated_by_user = relationship("User", foreign_keys=[updated_by])
+
+    def __repr__(self):
+        return f"<AppSettings(key={self.setting_key}, updated_at={self.updated_at})>"
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "settingKey": self.setting_key,
+            "settingValue": self.setting_value,
+            "description": self.description,
+            "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
+            "updatedBy": self.updated_by,
+        }

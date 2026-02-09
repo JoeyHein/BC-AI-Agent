@@ -462,4 +462,34 @@ export const chatApi = {
     apiClient.post(`/api/chat/conversations/${conversationId}/clear`),
 };
 
+// Settings API
+export const settingsApi = {
+  // Get a specific setting by key
+  getSetting: (key) =>
+    apiClient.get(`/api/settings/${key}`),
+
+  // Update a setting
+  updateSetting: (key, value, description = null) =>
+    apiClient.put(`/api/settings/${key}`, { value, description }),
+
+  // Spring Inventory endpoints
+  getSpringInventory: () =>
+    apiClient.get('/api/settings/spring-inventory/current'),
+
+  getAvailableSpringSizes: () =>
+    apiClient.get('/api/settings/spring-inventory/available-sizes'),
+
+  getAvailableCoils: () =>
+    apiClient.get('/api/settings/spring-inventory/coils'),
+
+  getWireSizesForCoil: (coilId) =>
+    apiClient.get(`/api/settings/spring-inventory/coils/${coilId}/wire-sizes`),
+
+  updateSpringInventory: (inventory) =>
+    apiClient.put('/api/settings/spring-inventory', { inventory }),
+
+  getSpringInventorySummary: () =>
+    apiClient.get('/api/settings/spring-inventory/summary'),
+};
+
 export default apiClient;

@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 from app.api import feedback, auth, email_connections, email_feedback, quotes, orders, analytics, door_configurator
 from app.api import customer_auth, customer_portal, admin_customers, inventory, production, production_tasks
 from app.api import chat
+from app.api import settings as settings_api
 
 # Import services
 from app.services.scheduler_service import get_scheduler
@@ -130,6 +131,10 @@ app.include_router(production_tasks.router)
 # AI Chat router
 logger.info(f"Including chat router: {chat.router.prefix}")
 app.include_router(chat.router)
+
+# Settings router (Spring Inventory, etc.)
+logger.info(f"Including settings router: {settings_api.router.prefix}")
+app.include_router(settings_api.router)
 
 logger.info(f"Total routes after including routers: {len(app.routes)}")
 
