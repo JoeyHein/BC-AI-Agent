@@ -13,7 +13,7 @@ from anthropic import Anthropic
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.services.agent_tools import AgentTools, AGENT_TOOLS
+from app.services.agent_tools import AgentTools, AGENT_TOOLS, PHASE1_READ_ONLY_TOOLS
 from app.db.models import Conversation, ChatMessage
 
 logger = logging.getLogger(__name__)
@@ -22,10 +22,21 @@ logger = logging.getLogger(__name__)
 class BCAgentService:
     """AI Agent that can control BC through natural language"""
 
+    # Phase configuration - set to 1 for read-only, 2+ for write operations
+    CURRENT_PHASE = 1
+
     def __init__(self):
         self.api_key = settings.ANTHROPIC_API_KEY
         self.client: Optional[Anthropic] = None
         self.model = "claude-sonnet-4-20250514"
+
+        # Select tools based on current phase
+        if self.CURRENT_PHASE == 1:
+            self.tools = PHASE1_READ_ONLY_TOOLS
+            logger.info("BC Agent initialized in Phase 1 (read-only mode)")
+        else:
+            self.tools = AGENT_TOOLS
+            logger.info("BC Agent initialized with full tool access")
 
         if self.api_key:
             self.client = Anthropic(api_key=self.api_key)
@@ -60,34 +71,45 @@ The user is currently on the Dashboard.
 They can see an overview of quotes, orders, and production status.
 """
 
+        # Phase-specific capabilities
+        if self.CURRENT_PHASE == 1:
+            capabilities = """You have access to tools that can:
+- Get detailed order information (order details, line items, work orders)
+- Search for orders by customer name, order number, or status
+- List orders that need scheduling
+- View the production schedule for specific dates
+- Get production summaries and capacity overview
+
+NOTE: You are currently in READ-ONLY mode. You can look up information but cannot make changes.
+If a user asks you to schedule, ship, or modify anything, politely explain that this feature
+is coming soon and offer to look up the relevant information instead."""
+        else:
+            capabilities = """You have access to tools that can:
+- Schedule and unschedule sales orders for production dates
+- Get detailed order information
+- List unscheduled orders
+- View the production schedule for specific dates
+- Ship completed orders
+- Sync data from Business Central"""
+
         return f"""You are an AI assistant for the BC AI Agent application - a Business Central automation system for Open Distribution Company, a garage door manufacturer.
 
 Today's date is: {today}
 
 {context_info}
 
-You have access to tools that can:
-- Schedule and unschedule sales orders for production dates
-- Get detailed order information
-- List unscheduled orders
-- View the production schedule for specific dates
-- Ship completed orders
-- Sync data from Business Central
-
-When users ask you to perform actions:
-1. Use the appropriate tool to execute the action
-2. Provide a clear, concise summary of what was done
-3. If an action fails, explain why and suggest alternatives
+{capabilities}
 
 When users ask questions:
 1. Use tools to gather information as needed
 2. Present the information clearly and concisely
 3. Format dates as readable (e.g., "February 15, 2026" or "Feb 15")
+4. Format currency values nicely (e.g., "$1,234.56")
 
 Order numbers usually look like "SO-XXXXXX" (e.g., SO-000857).
 When a user mentions an order number, try to match it with or without the "SO-" prefix.
 
-Be helpful, concise, and action-oriented. If you're unsure about something, ask for clarification.
+Be helpful, concise, and friendly. If you're unsure about something, ask for clarification.
 """
 
     async def process_message(
@@ -168,12 +190,12 @@ Be helpful, concise, and action-oriented. If you're unsure about something, ask 
             actions_taken = []
             total_tokens = 0
 
-            # Call Claude with tools
+            # Call Claude with tools (phase-appropriate)
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=4096,
                 system=system_prompt,
-                tools=AGENT_TOOLS,
+                tools=self.tools,
                 messages=messages
             )
 
@@ -221,7 +243,7 @@ Be helpful, concise, and action-oriented. If you're unsure about something, ask 
                     model=self.model,
                     max_tokens=4096,
                     system=system_prompt,
-                    tools=AGENT_TOOLS,
+                    tools=self.tools,
                     messages=messages
                 )
 
@@ -308,6 +330,19 @@ Be helpful, concise, and action-oriented. If you're unsure about something, ask 
             elif tool_name == "sync_from_bc":
                 return await tools.sync_from_bc(
                     sync_type=tool_input.get("sync_type")
+                )
+
+            elif tool_name == "search_orders":
+                return await tools.search_orders(
+                    query=tool_input.get("query", ""),
+                    status=tool_input.get("status"),
+                    limit=tool_input.get("limit", 10)
+                )
+
+            elif tool_name == "get_production_summary":
+                return await tools.get_production_summary(
+                    date_from=tool_input.get("date_from"),
+                    date_to=tool_input.get("date_to")
                 )
 
             else:

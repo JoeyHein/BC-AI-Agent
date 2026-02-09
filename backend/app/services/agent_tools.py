@@ -595,6 +595,194 @@ class AgentTools:
                 "error": str(e)
             }
 
+    async def search_orders(
+        self,
+        query: str,
+        status: Optional[str] = None,
+        limit: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Search for sales orders by customer name, order number, or status.
+
+        Args:
+            query: Search term
+            status: Optional status filter
+            limit: Max results
+
+        Returns:
+            List of matching orders
+        """
+        try:
+            from sqlalchemy import or_
+
+            # Build query
+            search_query = self.db.query(SalesOrder)
+
+            # Text search on customer name and order number
+            if query:
+                search_pattern = f"%{query}%"
+                search_query = search_query.filter(
+                    or_(
+                        SalesOrder.customer_name.ilike(search_pattern),
+                        SalesOrder.bc_order_number.ilike(search_pattern),
+                        SalesOrder.customer_number.ilike(search_pattern)
+                    )
+                )
+
+            # Status filter
+            if status:
+                status_map = {
+                    "open": OrderStatus.OPEN,
+                    "in_production": OrderStatus.IN_PRODUCTION,
+                    "completed": OrderStatus.COMPLETED,
+                    "shipped": OrderStatus.SHIPPED,
+                    "cancelled": OrderStatus.CANCELLED
+                }
+                if status in status_map:
+                    search_query = search_query.filter(
+                        SalesOrder.status == status_map[status]
+                    )
+
+            # Execute
+            orders = search_query.order_by(
+                SalesOrder.order_date.desc()
+            ).limit(limit).all()
+
+            results = []
+            for so in orders:
+                # Get work order count
+                wo_count = self.db.query(ProductionOrder).filter(
+                    ProductionOrder.sales_order_id == so.id
+                ).count()
+
+                results.append({
+                    "id": so.id,
+                    "bcOrderNumber": so.bc_order_number,
+                    "customerName": so.customer_name,
+                    "status": so.status.value if so.status else "unknown",
+                    "totalAmount": float(so.total_amount) if so.total_amount else None,
+                    "orderDate": so.order_date.strftime("%Y-%m-%d") if so.order_date else None,
+                    "scheduledDate": so.scheduled_date.strftime("%Y-%m-%d") if so.scheduled_date else None,
+                    "workOrderCount": wo_count
+                })
+
+            return {
+                "success": True,
+                "query": query,
+                "count": len(results),
+                "orders": results,
+                "message": f"Found {len(results)} orders matching '{query}'"
+            }
+
+        except Exception as e:
+            logger.error(f"Error searching orders: {e}", exc_info=True)
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    async def get_production_summary(
+        self,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Get a summary of production status.
+
+        Args:
+            date_from: Start date (defaults to today)
+            date_to: End date (defaults to 7 days from start)
+
+        Returns:
+            Production summary with counts and status
+        """
+        try:
+            from datetime import timedelta
+
+            # Parse dates
+            if date_from:
+                start_date = datetime.strptime(date_from, "%Y-%m-%d")
+            else:
+                start_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+            if date_to:
+                end_date = datetime.strptime(date_to, "%Y-%m-%d")
+            else:
+                end_date = start_date + timedelta(days=7)
+
+            end_date_inclusive = datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59)
+
+            # Order counts by status
+            status_counts = {}
+            for status in OrderStatus:
+                count = self.db.query(SalesOrder).filter(
+                    SalesOrder.status == status
+                ).count()
+                status_counts[status.value] = count
+
+            # Unscheduled orders count (orders needing scheduling)
+            unscheduled_count = 0
+            open_orders = self.db.query(SalesOrder).filter(
+                SalesOrder.status.notin_([OrderStatus.COMPLETED, OrderStatus.CANCELLED, OrderStatus.SHIPPED])
+            ).all()
+
+            for so in open_orders:
+                prod_orders = self.db.query(ProductionOrder).filter(
+                    ProductionOrder.sales_order_id == so.id
+                ).all()
+
+                if prod_orders:
+                    # Check tasks
+                    for po in prod_orders:
+                        unscheduled_tasks = self.db.query(ProductionTask).filter(
+                            ProductionTask.production_order_id == po.id,
+                            ProductionTask.scheduled_date.is_(None)
+                        ).count()
+                        if unscheduled_tasks > 0:
+                            unscheduled_count += 1
+                            break
+                else:
+                    if so.scheduled_date is None:
+                        unscheduled_count += 1
+
+            # Scheduled tasks in date range
+            scheduled_tasks = self.db.query(ProductionTask).filter(
+                ProductionTask.scheduled_date >= start_date,
+                ProductionTask.scheduled_date <= end_date_inclusive
+            ).all()
+
+            # Group by date
+            by_date = {}
+            for task in scheduled_tasks:
+                date_str = task.scheduled_date.strftime("%Y-%m-%d")
+                if date_str not in by_date:
+                    by_date[date_str] = {"total": 0, "completed": 0, "pending": 0}
+                by_date[date_str]["total"] += 1
+                if task.status and task.status.value == "completed":
+                    by_date[date_str]["completed"] += 1
+                else:
+                    by_date[date_str]["pending"] += 1
+
+            return {
+                "success": True,
+                "dateRange": {
+                    "from": start_date.strftime("%Y-%m-%d"),
+                    "to": end_date.strftime("%Y-%m-%d")
+                },
+                "ordersByStatus": status_counts,
+                "unscheduledOrders": unscheduled_count,
+                "scheduledTasksByDate": by_date,
+                "totalScheduledTasks": len(scheduled_tasks),
+                "message": f"Production summary from {start_date.strftime('%b %d')} to {end_date.strftime('%b %d')}: {unscheduled_count} orders need scheduling, {len(scheduled_tasks)} tasks scheduled."
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting production summary: {e}", exc_info=True)
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
     async def sync_from_bc(self, sync_type: str) -> Dict[str, Any]:
         """
         Synchronize data from Business Central.
@@ -662,7 +850,93 @@ class AgentTools:
             }
 
 
-# Tool definitions for Claude's tool calling format
+# ==================== Tool Definitions ====================
+
+# Phase 1: Read-only tools (safe to deploy first)
+PHASE1_READ_ONLY_TOOLS = [
+    {
+        "name": "get_order_details",
+        "description": "Get detailed information about a sales order including customer, line items, linked work orders, and scheduling status.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "order_identifier": {
+                    "type": "string",
+                    "description": "The sales order ID or BC order number"
+                }
+            },
+            "required": ["order_identifier"]
+        }
+    },
+    {
+        "name": "list_unscheduled_orders",
+        "description": "Get a list of all sales orders that have not yet been scheduled for production.",
+        "input_schema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "get_schedule_for_date",
+        "description": "Get all sales orders scheduled for a specific date or date range.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string",
+                    "description": "The date in YYYY-MM-DD format"
+                },
+                "date_to": {
+                    "type": "string",
+                    "description": "Optional end date for a range"
+                }
+            },
+            "required": ["date"]
+        }
+    },
+    {
+        "name": "search_orders",
+        "description": "Search for sales orders by customer name, order number, or status. Use this when looking for orders that match certain criteria.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search term (customer name, order number, etc.)"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["open", "in_production", "completed", "shipped", "cancelled"],
+                    "description": "Filter by order status (optional)"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of results (default 10)"
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "get_production_summary",
+        "description": "Get a summary of production status including counts by status, upcoming scheduled work, and capacity overview.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "date_from": {
+                    "type": "string",
+                    "description": "Start date for summary (YYYY-MM-DD, defaults to today)"
+                },
+                "date_to": {
+                    "type": "string",
+                    "description": "End date for summary (YYYY-MM-DD, defaults to 7 days from start)"
+                }
+            }
+        }
+    }
+]
+
+# Full tool set (all phases)
 AGENT_TOOLS = [
     {
         "name": "schedule_order",

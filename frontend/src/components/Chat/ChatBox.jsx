@@ -179,7 +179,7 @@ function ChatBox({ onAction }) {
             onSend={sendMessage}
             onKeyPress={handleKeyPress}
             disabled={isLoading}
-            placeholder="Ask me to schedule orders, check status..."
+            placeholder="Ask about orders, schedules, production status..."
           />
         </div>
       )}
