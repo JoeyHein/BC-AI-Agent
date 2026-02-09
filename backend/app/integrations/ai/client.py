@@ -213,12 +213,19 @@ Analyze the following email and extract structured quote request information.
 **Body:** {email_body[:1000]}  # First 1000 chars
 
 **Categories:**
-- "quote_request" - Email is requesting a quote for doors/products
+- "quote_request" - Email is requesting a NEW quote for doors/products
+- "quote_modification" - Email is MODIFYING/CHANGING an existing quote (mentions quote number, says "revise", "change", "update the quote", etc.)
 - "order_confirmation" - Confirming an order
 - "inquiry" - General question or inquiry
 - "invoice" - Invoice or payment related
 - "complaint" - Issue or complaint
 - "other" - Doesn't fit above categories
+
+**IMPORTANT for quote_modification detection:**
+- Look for references to existing quote numbers (e.g., "Q-12345", "quote #123")
+- Look for phrases like "revise the quote", "change the dimensions", "update the door size", "modify the order"
+- Look for email reply chains that reference previous quotes
+- If they're asking for changes to specs on a quote they already requested, it's a modification NOT a new quote
 
 **Output JSON only:**
 ```json
@@ -298,14 +305,21 @@ Analyze the following email and extract structured quote request information.
 **Body:** {email_body[:2000]}
 
 **Categories:**
-- "quote_request" - Email is requesting a quote for doors/overhead doors/garage doors with specifications
+- "quote_request" - Email is requesting a NEW quote for doors/overhead doors/garage doors with specifications
+- "quote_modification" - Email is CHANGING/REVISING an existing quote (mentions existing quote number, asks to change specs, update dimensions, etc.)
 - "order_confirmation" - Confirming an existing order
 - "inquiry" - General question, sample request, or information request (NOT a quote request)
 - "invoice" - Invoice or payment related
 - "internal" - Internal company communication
 - "other" - Doesn't fit above categories
 
-**Important:** A quote request must include intent to get pricing for new doors. 
+**IMPORTANT for quote_modification detection:**
+- Look for references to existing quote numbers (e.g., "Q-12345", "quote #123", "AI-QR-xxx")
+- Look for phrases like: "revise the quote", "change the door", "update the dimensions", "modify", "correction"
+- Email replies that reference a previous quote request are likely modifications
+- If changing specs on an already-requested quote = modification, NOT new quote
+
+**Important:** A quote request must include intent to get pricing for NEW doors.
 Sample requests, color chart requests, and general inquiries are NOT quote requests.
 
 **Output JSON only:**
@@ -314,7 +328,10 @@ Sample requests, color chart requests, and general inquiries are NOT quote reque
   "category": "category_name",
   "confidence": 0.0-1.0,
   "reasoning": "Brief explanation",
-  "is_quote_request": true/false
+  "is_quote_request": true/false,
+  "is_modification": true/false,
+  "referenced_quote_number": "quote number if mentioned, or null",
+  "modification_type": "dimension_change|color_change|quantity_change|spec_change|cancellation|null"
 }}
 ```
 """

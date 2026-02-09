@@ -121,7 +121,8 @@ Subject: {subject}
 Body: {body[:1000]}
 
 **CATEGORIES:**
-- "quote_request" - Explicitly requesting a price quote for doors/products (BE STRICT - must clearly ask for pricing)
+- "quote_request" - Explicitly requesting a NEW price quote for doors/products (BE STRICT - must clearly ask for pricing)
+- "quote_modification" - Modifying/changing an EXISTING quote (references a quote number, asks to change specs, revise dimensions, etc.)
 - "order_confirmation" - Confirming an existing order
 - "invoice" - Invoice or payment related
 - "inquiry" - General question (NOT asking for a quote)
@@ -131,18 +132,27 @@ Body: {body[:1000]}
 - "other" - Doesn't fit above categories
 
 **IMPORTANT GUIDELINES:**
-- A quote request must EXPLICITLY ask for pricing/quote
+- A quote request must EXPLICITLY ask for pricing/quote for NEW doors
 - Questions about products WITHOUT asking for a quote = "inquiry", NOT "quote_request"
 - Order updates, confirmations = "order_confirmation"
 - Invoices, receipts, payment info = "invoice"
 - Be conservative: when unsure, choose "general" or "inquiry" rather than "quote_request"
+
+**QUOTE MODIFICATION DETECTION (CRITICAL):**
+- Look for existing quote references: "Q-12345", "quote #", "AI-QR-", "regarding the quote", "revise", "change"
+- Phrases that indicate modification: "change the dimensions", "update the quote", "revise to", "correction", "modify"
+- Email replies in a thread about an existing quote = likely modification
+- If changing specs on an already-requested quote = "quote_modification", NOT "quote_request"
 
 **Output JSON only:**
 ```json
 {{
   "category": "category_name",
   "confidence": 0.0-1.0,
-  "reasoning": "Specific reason for this categorization (2-3 sentences)"
+  "reasoning": "Specific reason for this categorization (2-3 sentences)",
+  "is_modification": true/false,
+  "referenced_quote_number": "quote number if mentioned, or null",
+  "modification_type": "dimension_change|color_change|quantity_change|spec_change|cancellation|null"
 }}
 ```
 """

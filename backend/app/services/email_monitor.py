@@ -13,6 +13,8 @@ from app.db.database import SessionLocal
 from app.db.models import EmailLog, QuoteRequest, AIDecision
 from app.config import settings
 from app.services.memory_service import get_memory_service
+from app.services.quote_service import QuoteGenerationService
+from app.services.bc_quote_service import BCQuoteService
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +147,7 @@ class EmailMonitorService:
             "emails_checked": 0,
             "new_emails": 0,
             "quotes_parsed": 0,
+            "modifications_parsed": 0,
             "errors": 0
         }
 
@@ -169,6 +172,8 @@ class EmailMonitorService:
                         results["new_emails"] += 1
                         if processed == "quote_request":
                             results["quotes_parsed"] += 1
+                        elif processed == "quote_modification":
+                            results["modifications_parsed"] += 1
                 except Exception as e:
                     logger.error(f"Error processing email {email.get('id')}: {e}")
                     results["errors"] += 1
@@ -184,7 +189,8 @@ class EmailMonitorService:
         """Process a single email
 
         Returns:
-            "quote_request" if email was a quote request
+            "quote_request" if email was a new quote request
+            "quote_modification" if email was modifying an existing quote
             "other" if email was logged but not a quote request
             None if email was already processed
         """
@@ -219,6 +225,9 @@ class EmailMonitorService:
         confidence = category_result.get("confidence", 0.0)
         reasoning = category_result.get("reasoning", "")
         is_quote_request = category == "quote_request"
+        is_quote_modification = category == "quote_modification" or category_result.get("is_modification", False)
+        referenced_quote_number = category_result.get("referenced_quote_number")
+        modification_type = category_result.get("modification_type")
 
         logger.info(f"  -> Categorized as '{category}' (confidence: {confidence:.2f})")
         if reasoning:
@@ -232,20 +241,32 @@ class EmailMonitorService:
             subject=subject,
             body=body,
             attachments=None,  # TODO: Handle attachments in future
-            status="pending" if is_quote_request else "informational",
+            status="pending" if (is_quote_request or is_quote_modification) else "informational",
             # AI Categorization Learning Fields
             ai_category=category,
             ai_category_confidence=confidence,
-            ai_category_reasoning=reasoning
+            ai_category_reasoning=reasoning,
+            # Quote Modification Detection Fields
+            is_modification=is_quote_modification,
+            referenced_quote_number=referenced_quote_number,
+            modification_type=modification_type
         )
         db.add(email_log)
         db.flush()  # Get the ID
 
-        # Step 3: If quote request, parse with AI
+        # Step 3: If quote request or modification, parse with AI
         if is_quote_request:
-            logger.info(f"  -> Identified as quote request, parsing...")
+            logger.info(f"  -> Identified as NEW quote request, parsing...")
             self._parse_quote_request(db, email_log, subject, body, from_name, from_address)
             return "quote_request"
+
+        if is_quote_modification:
+            logger.info(f"  -> Identified as QUOTE MODIFICATION (ref: {referenced_quote_number}), parsing...")
+            self._parse_quote_modification(
+                db, email_log, subject, body, from_name, from_address,
+                referenced_quote_number, modification_type
+            )
+            return "quote_modification"
 
         logger.info(f"  -> Categorized as '{category}', not processing further")
         return "other"
@@ -258,8 +279,18 @@ class EmailMonitorService:
 
         # MEMORY SYSTEM: Retrieve similar examples for RAG
         memory_service = get_memory_service(db)
-        examples = memory_service.retrieve_similar_examples(subject, body, max_examples=3)
+
+        # Get examples with customer-specific matching
+        examples = memory_service.retrieve_similar_examples(
+            subject, body, max_examples=3, customer_email=from_address
+        )
         example_context = memory_service.format_examples_for_prompt(examples)
+
+        # Get customer-specific context if we know this customer
+        customer_context = memory_service.get_customer_context(from_address)
+        if customer_context:
+            example_context = (example_context or "") + customer_context
+            logger.info(f"  -> Known customer, using preferences for parsing")
 
         logger.info(f"  -> Using {len(examples)} examples for enhanced parsing")
 
@@ -274,12 +305,23 @@ class EmailMonitorService:
             return
 
         parsed_data = parse_result.get("data", {})
-        confidence = parse_result.get("confidence", 0.0)
+        raw_confidence = parse_result.get("confidence", 0.0)
 
-        # Extract customer info
+        # Extract customer info and doors for calibration
         customer = parsed_data.get("customer", {})
         doors = parsed_data.get("doors", [])
         project = parsed_data.get("project", {})
+
+        # CONFIDENCE CALIBRATION: Adjust based on historical performance
+        door_model = doors[0].get("model") if doors else None
+        confidence = memory_service.get_calibrated_confidence(
+            raw_confidence,
+            door_model=door_model,
+            customer_email=from_address
+        )
+
+        if confidence != raw_confidence:
+            logger.info(f"  -> Confidence calibrated: {raw_confidence:.2f} -> {confidence:.2f}")
 
         # Create QuoteRequest record
         quote_request = QuoteRequest(
@@ -331,6 +373,171 @@ class EmailMonitorService:
         logger.info(f"  -> Quote request parsed. Confidence: {confidence:.2f}, "
                    f"Customer: {quote_request.customer_name}, "
                    f"Doors: {len(doors)}")
+
+        # AUTO-GENERATE QUOTE: Immediately generate quote items and create in BC
+        if confidence >= 0.7 and doors:  # Only auto-generate for reasonable confidence with doors
+            try:
+                logger.info(f"  -> Auto-generating quote for request {quote_request.id}")
+
+                # Step 1: Generate quote items with BC part numbers
+                quote_service = QuoteGenerationService(db)
+                quote_result = quote_service.generate_quote(quote_request.id)
+
+                logger.info(f"  -> Generated {len(quote_result.get('line_items', []))} line items, "
+                           f"Total: ${quote_result.get('total', 0):.2f}")
+
+                # Step 2: Create quote in Business Central
+                bc_quote_service = BCQuoteService()
+                bc_result = bc_quote_service.create_quote_in_bc(
+                    db=db,
+                    quote_request=quote_request,
+                    user_id="system",
+                    approved_by="auto-generated"
+                )
+
+                if bc_result.get("success"):
+                    logger.info(f"  -> BC Quote created: {bc_result.get('bc_quote_number')}")
+                    quote_request.status = "bc_created"
+
+                    # CUSTOMER LEARNING: Learn from successful quote
+                    try:
+                        memory_service.learn_customer_preferences(
+                            customer_email=quote_request.contact_email,
+                            customer_name=quote_request.customer_name,
+                            quote_request=quote_request
+                        )
+                        logger.info(f"  -> Learned customer preferences for {quote_request.contact_email}")
+                    except Exception as e:
+                        logger.warning(f"Failed to learn customer preferences: {e}")
+                else:
+                    logger.warning(f"  -> Failed to create BC quote: {bc_result.get('error')}")
+                    quote_request.status = "quote_generated"  # Items generated but BC failed
+
+                db.commit()
+
+            except Exception as e:
+                logger.error(f"  -> Auto-generation failed: {e}", exc_info=True)
+                # Don't fail the whole parse - just log and continue
+                quote_request.status = "pending"  # Fall back to manual review
+                db.commit()
+
+    def _parse_quote_modification(self, db, email_log: EmailLog, subject: str, body: str,
+                                   from_name: str, from_address: str,
+                                   referenced_quote_number: Optional[str],
+                                   modification_type: Optional[str]):
+        """Parse quote modification and link to original quote"""
+
+        # Step 1: Try to find the original quote request
+        original_quote = None
+
+        if referenced_quote_number:
+            # Try by BC quote ID
+            original_quote = db.query(QuoteRequest).filter(
+                QuoteRequest.bc_quote_id == referenced_quote_number
+            ).first()
+
+            if not original_quote:
+                # Try by our internal AI-QR-xxx format
+                if referenced_quote_number.startswith("AI-QR-"):
+                    try:
+                        qr_id = int(referenced_quote_number.replace("AI-QR-", ""))
+                        original_quote = db.query(QuoteRequest).filter(
+                            QuoteRequest.id == qr_id
+                        ).first()
+                    except ValueError:
+                        pass
+
+        if not original_quote:
+            # Try by customer email - get the most recent quote
+            original_quote = db.query(QuoteRequest).filter(
+                QuoteRequest.contact_email == from_address
+            ).order_by(QuoteRequest.created_at.desc()).first()
+
+            if original_quote:
+                logger.info(f"  -> Found original quote by customer email: QR-{original_quote.id}")
+
+        # Step 2: Parse the email for modifications
+        sender_info = {"name": from_name, "email": from_address}
+        memory_service = get_memory_service(db)
+        examples = memory_service.retrieve_similar_examples(subject, body, max_examples=3)
+        example_context = memory_service.format_examples_for_prompt(examples)
+
+        parse_result = self.ai_client.parse_email_for_quote(
+            subject, body, sender_info, example_context=example_context
+        )
+
+        if not parse_result.get("success"):
+            logger.error(f"Failed to parse quote modification: {parse_result.get('error')}")
+            email_log.status = "error"
+            return
+
+        parsed_data = parse_result.get("data", {})
+        confidence = parse_result.get("confidence", 0.0)
+        customer = parsed_data.get("customer", {})
+        doors = parsed_data.get("doors", [])
+
+        # Step 3: Create the revision QuoteRequest
+        revision_number = 1
+        if original_quote:
+            # Get the next revision number
+            existing_revisions = db.query(QuoteRequest).filter(
+                QuoteRequest.parent_quote_id == original_quote.id
+            ).count()
+            revision_number = existing_revisions + 2  # 1 = original, 2+ = revisions
+
+        quote_request = QuoteRequest(
+            email_id=email_log.id,
+            customer_name=customer.get("company_name") or customer.get("contact_name") or (original_quote.customer_name if original_quote else None),
+            contact_email=customer.get("email") or from_address,
+            contact_phone=customer.get("phone") or (original_quote.contact_phone if original_quote else None),
+            door_specs={"doors": doors} if doors else (original_quote.door_specs if original_quote else None),
+            parsed_data=parsed_data,
+            confidence_scores={
+                "overall": confidence,
+                "customer": customer.get("confidence", 0.0),
+            },
+            status="modification_pending",  # Special status for modifications
+            # Modification tracking fields
+            is_modification=True,
+            parent_quote_id=original_quote.id if original_quote else None,
+            revision_number=revision_number,
+            modification_type=modification_type,
+            modification_notes=f"Modification detected from email. Original quote: {original_quote.bc_quote_id if original_quote else 'NOT FOUND - needs review'}"
+        )
+        db.add(quote_request)
+        db.flush()
+
+        # Step 4: Record AI decision for audit
+        ai_decision = AIDecision(
+            quote_request_id=quote_request.id,
+            decision_type="email_parse_modification",
+            input_data={
+                "subject": subject,
+                "body_preview": body[:500],
+                "original_quote_id": original_quote.id if original_quote else None
+            },
+            output_data=parsed_data,
+            confidence_score=confidence,
+            model_used=parse_result.get("model", "claude-3-5-sonnet-20241022"),
+            prompt_tokens=parse_result.get("tokens", {}).get("input", 0),
+            completion_tokens=parse_result.get("tokens", {}).get("output", 0),
+            created_at=datetime.utcnow()
+        )
+        db.add(ai_decision)
+
+        email_log.status = "parsed"
+        email_log.parsed_at = datetime.utcnow()
+
+        if original_quote:
+            logger.info(f"  -> Quote MODIFICATION parsed. Linked to original QR-{original_quote.id} "
+                       f"(BC: {original_quote.bc_quote_id}), Revision #{revision_number}")
+        else:
+            logger.info(f"  -> Quote MODIFICATION parsed. Original NOT FOUND - flagged for review. "
+                       f"Modification type: {modification_type}")
+            # If we couldn't find the original, put it in review queue
+            quote_request.status = "needs_original_link"
+
+        db.commit()
 
     def get_pending_quote_requests(self, min_confidence: float = 0.0) -> List[QuoteRequest]:
         """Get quote requests pending review

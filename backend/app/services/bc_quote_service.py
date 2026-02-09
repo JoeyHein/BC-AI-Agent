@@ -226,10 +226,12 @@ class BCQuoteService:
         """
         Add line items to BC quote
 
-        Note: Currently managers add line items manually during approval
-        In the future, this can auto-add items from QuoteItem table
+        Looks up each item in BC to get the system ID and uses BC's pricing.
         """
         bc_quote_id = bc_quote.get("id")
+
+        # Cache for BC item lookups to avoid repeated API calls
+        item_cache = {}
 
         for item in quote_request.quote_items:
             try:
@@ -237,15 +239,49 @@ class BCQuoteService:
                     logger.warning(f"Skipping item {item.id} - no product code")
                     continue
 
-                line_data = {
-                    "itemId": item.product_code,
-                    "description": item.description or "",
-                    "quantity": item.quantity,
-                    "unitPrice": float(item.unit_price) if item.unit_price else 0
-                }
+                # Look up the item in BC by part number
+                bc_item_id = None
+                bc_unit_price = None
+
+                if item.product_code not in item_cache:
+                    # Search BC for the item
+                    bc_items = self.bc_client.search_items(item.product_code)
+                    if bc_items:
+                        bc_item = bc_items[0]
+                        item_cache[item.product_code] = {
+                            "id": bc_item.get("id"),
+                            "unitPrice": bc_item.get("unitPrice", 0)
+                        }
+                        logger.info(f"Found BC item: {item.product_code} -> ID {bc_item.get('id')}, Price ${bc_item.get('unitPrice', 0)}")
+                    else:
+                        item_cache[item.product_code] = None
+                        logger.warning(f"BC item not found: {item.product_code}")
+
+                cached = item_cache.get(item.product_code)
+                if cached:
+                    bc_item_id = cached["id"]
+                    bc_unit_price = cached["unitPrice"]
+
+                # Build line data
+                if bc_item_id:
+                    # Use BC's item ID and let BC handle pricing
+                    line_data = {
+                        "itemId": bc_item_id,
+                        "quantity": item.quantity
+                    }
+                    # Only set unit price if BC has one (otherwise BC uses default)
+                    if bc_unit_price and bc_unit_price > 0:
+                        line_data["unitPrice"] = bc_unit_price
+                else:
+                    # Item not found in BC - add as a text line with description
+                    line_data = {
+                        "lineType": "Comment",
+                        "description": f"{item.product_code}: {item.description or 'Part not in BC'} (Qty: {item.quantity})"
+                    }
 
                 self.bc_client.add_quote_line(bc_quote_id, line_data)
-                logger.info(f"Added line item: {item.product_code} x{item.quantity}")
+                logger.info(f"Added line item: {item.product_code} x{item.quantity}" +
+                           (f" @ ${bc_unit_price}" if bc_unit_price else " (comment line)"))
 
             except Exception as e:
                 logger.error(f"Failed to add line item {item.id}: {e}")

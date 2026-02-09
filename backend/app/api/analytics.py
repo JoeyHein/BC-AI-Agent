@@ -3,11 +3,14 @@ Analytics API Endpoints
 AI-powered quote analysis, customer insights, and demand forecasting.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from typing import Optional
 import logging
+from sqlalchemy.orm import Session
 
 from app.services.quote_analysis_service import quote_analysis_service
+from app.services.memory_service import get_memory_service
+from app.db.database import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -257,4 +260,181 @@ async def get_dashboard_summary(
         }
     except Exception as e:
         logger.error(f"Error getting dashboard summary: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== AI Learning Analytics ====================
+
+@router.get("/learning/summary")
+async def get_learning_summary(db: Session = Depends(get_db)):
+    """
+    Get comprehensive AI learning system summary.
+
+    Returns:
+    - Example library statistics (total, verified, unverified)
+    - Knowledge base stats by type (door models, customer prefs, patterns)
+    - Recent feedback summary (approved, corrected, rejected rates)
+    - Top correction patterns (what the AI commonly gets wrong)
+    - Customer learning stats (known customers, repeat customers)
+
+    Use this for:
+    - Monitoring AI performance over time
+    - Identifying areas needing more training
+    - Understanding customer patterns
+    """
+    try:
+        memory_service = get_memory_service(db)
+        summary = memory_service.get_learning_summary()
+        return {
+            "success": True,
+            "data": summary
+        }
+    except Exception as e:
+        logger.error(f"Error getting learning summary: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/learning/correction-patterns")
+async def get_correction_patterns(
+    limit: int = Query(20, description="Maximum patterns to return"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get detailed correction patterns - what the AI commonly gets wrong.
+
+    Returns list of fields that are frequently corrected, with:
+    - Field name and path
+    - Correction count
+    - Types of corrections (value added, replaced, etc.)
+    - Recent examples
+
+    Use this to understand AI weaknesses and improve prompts.
+    """
+    try:
+        from app.db.models import DomainKnowledge, KnowledgeType
+        from sqlalchemy import desc
+
+        patterns = db.query(DomainKnowledge).filter(
+            DomainKnowledge.entity.like("field_correction_%")
+        ).order_by(desc(DomainKnowledge.confidence)).limit(limit).all()
+
+        result = []
+        for p in patterns:
+            data = p.pattern_data or {}
+            result.append({
+                "field": data.get("field", p.entity),
+                "correction_count": data.get("correction_count", 0),
+                "correction_types": data.get("correction_types", []),
+                "last_seen": data.get("last_seen"),
+                "first_seen": data.get("first_seen"),
+                "confidence": p.confidence
+            })
+
+        return {
+            "success": True,
+            "data": {
+                "patterns": result,
+                "total_patterns": len(patterns)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting correction patterns: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/learning/customer-insights")
+async def get_customer_insights(
+    limit: int = Query(20, description="Maximum customers to return"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get customer learning insights - what we know about each customer.
+
+    Returns list of known customers with:
+    - Quote history count
+    - Preferred door models
+    - Common sizes ordered
+    - Installation preferences
+
+    Use this for understanding customer patterns and personalization.
+    """
+    try:
+        from app.db.models import DomainKnowledge, KnowledgeType
+        from sqlalchemy import desc
+
+        customers = db.query(DomainKnowledge).filter(
+            DomainKnowledge.knowledge_type == KnowledgeType.CUSTOMER_PREFERENCE
+        ).order_by(desc(DomainKnowledge.confidence)).limit(limit).all()
+
+        result = []
+        for c in customers:
+            data = c.pattern_data or {}
+            result.append({
+                "customer_email": c.entity,
+                "customer_name": data.get("customer_name"),
+                "quote_count": data.get("quote_count", 0),
+                "preferred_models": data.get("preferred_models", {}),
+                "common_sizes": data.get("common_sizes", []),
+                "preferred_colors": data.get("preferred_colors", {}),
+                "usually_needs_installation": data.get("usually_needs_installation"),
+                "first_seen": data.get("first_seen"),
+                "last_quote": data.get("last_quote"),
+                "confidence": c.confidence
+            })
+
+        return {
+            "success": True,
+            "data": {
+                "customers": result,
+                "total_known_customers": len(customers)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting customer insights: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/learning/model-accuracy")
+async def get_model_accuracy(db: Session = Depends(get_db)):
+    """
+    Get parsing accuracy by door model.
+
+    Returns accuracy metrics for each door model we've parsed:
+    - Parse count
+    - Correct count
+    - Accuracy rate
+
+    Use this to identify which models need better training.
+    """
+    try:
+        from app.db.models import DomainKnowledge, KnowledgeType
+
+        models = db.query(DomainKnowledge).filter(
+            DomainKnowledge.knowledge_type == KnowledgeType.DOOR_MODEL
+        ).all()
+
+        result = []
+        for m in models:
+            data = m.pattern_data or {}
+            if data.get("parse_count"):  # Only include models with accuracy tracking
+                result.append({
+                    "model": m.entity,
+                    "parse_count": data.get("parse_count", 0),
+                    "correct_count": data.get("correct_count", 0),
+                    "accuracy": data.get("parse_accuracy"),
+                    "confidence": m.confidence
+                })
+
+        # Sort by parse count (most used first)
+        result.sort(key=lambda x: x["parse_count"], reverse=True)
+
+        return {
+            "success": True,
+            "data": {
+                "models": result,
+                "total_models_tracked": len(result)
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting model accuracy: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

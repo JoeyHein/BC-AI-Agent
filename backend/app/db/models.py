@@ -119,11 +119,16 @@ class EmailLog(Base):
     status = Column(String(50), default="pending")  # pending, parsed, quote_created, error
 
     # AI Categorization Learning System
-    ai_category = Column(String(50))  # quote_request, invoice, inquiry, other, etc.
+    ai_category = Column(String(50))  # quote_request, quote_modification, invoice, inquiry, other, etc.
     ai_category_confidence = Column(Float)  # 0.0-1.0
     ai_category_reasoning = Column(Text)  # Why AI chose this category
     user_verified_category = Column(String(50))  # User's correction (if different from AI)
     categorization_correct = Column(Boolean)  # Was AI categorization correct?
+
+    # Quote Modification Detection
+    is_modification = Column(Boolean, default=False)  # Detected as modifying existing quote
+    referenced_quote_number = Column(String(100))  # Quote number mentioned in email
+    modification_type = Column(String(50))  # dimension_change, color_change, etc.
 
     # Relationship
     quote_requests = relationship("QuoteRequest", back_populates="email")
@@ -148,8 +153,16 @@ class QuoteRequest(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     status = Column(String(50), default="pending")  # pending, approved, rejected, created
 
+    # Quote Modification Tracking
+    is_modification = Column(Boolean, default=False)  # True if this modifies an existing quote
+    parent_quote_id = Column(Integer, ForeignKey("quote_requests.id"), nullable=True)  # Original quote being modified
+    revision_number = Column(Integer, default=1)  # 1 = original, 2+ = revisions
+    modification_type = Column(String(50))  # dimension_change, color_change, quantity_change, spec_change, cancellation
+    modification_notes = Column(Text)  # AI-detected changes summary
+
     # Relationships
     email = relationship("EmailLog", back_populates="quote_requests")
+    parent_quote = relationship("QuoteRequest", remote_side=[id], backref="revisions")
     ai_decisions = relationship("AIDecision", back_populates="quote_request")
     user_feedback = relationship("UserFeedback", back_populates="quote_request")
     quote_items = relationship("QuoteItem", back_populates="quote_request", cascade="all, delete-orphan")
