@@ -36,7 +36,10 @@ function DoorDrawings({
     panelColor = 'WHITE',
     panelDesign = 'SHXL',
     windowInsert = null,
+    windowPositions = [],
     windowSection = 1,
+    hasInserts = false,
+    glassColor = 'CLEAR',
     doorType = 'residential',
     doorSeries = 'KANATA',
     trackRadius = '15',
@@ -178,7 +181,10 @@ function DoorDrawings({
                 color={panelColor}
                 panelDesign={panelDesign}
                 windowInsert={windowInsert}
+                windowPositions={windowPositions}
                 windowSection={windowSection}
+                hasInserts={hasInserts}
+                glassColor={glassColor}
                 doorType={doorType}
                 showDimensions={true}
                 scale={1}

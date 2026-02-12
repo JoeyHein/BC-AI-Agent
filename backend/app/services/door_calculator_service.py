@@ -504,6 +504,7 @@ class DoorCalculatorService:
         target_cycles: int = 10000,
         shaft_type: str = "auto",  # 'auto', 'single', 'split'
         spring_inventory: Optional[Dict[str, List[str]]] = None,  # stocked coil/wire combos
+        ceiling_height: Optional[int] = None,  # ceiling height in inches, for high_lift/vertical
     ) -> DoorCalculation:
         """
         Calculate complete door configuration.
@@ -574,10 +575,10 @@ class DoorCalculatorService:
                 f"Changed from {old_track_size}\" to {track_size}\"."
             )
 
-        track = self._calculate_track(dimensions, track_size, lift_config)
+        track = self._calculate_track(dimensions, track_size, lift_config, ceiling_height=ceiling_height)
 
         # 5. Select drum
-        drums = self._select_drum(height_inches, weight.total_weight, lift_config)
+        drums = self._select_drum(height_inches, weight.total_weight, lift_config, ceiling_height=ceiling_height)
         if drums is None:
             warnings.append("No suitable drum found for door specifications")
 
@@ -711,12 +712,23 @@ class DoorCalculatorService:
         self,
         dimensions: DoorDimensions,
         track_size: int,
-        lift_config: Dict
+        lift_config: Dict,
+        ceiling_height: Optional[int] = None,
     ) -> TrackConfiguration:
         """Calculate track configuration"""
 
-        # Vertical track length = door height - 8"
-        vertical_length = dimensions.height - 8
+        lift_type = lift_config.get("type", "standard")
+
+        # Vertical track length depends on lift type
+        if lift_type == "high" and ceiling_height:
+            # High lift: vertical track extends to ceiling height
+            vertical_length = ceiling_height - 8
+        elif lift_type == "vertical" and ceiling_height:
+            # Vertical lift: full vertical track to ceiling
+            vertical_length = ceiling_height
+        else:
+            # Standard: vertical track = door height - 8"
+            vertical_length = dimensions.height - 8
 
         # Horizontal track length = door width (minimum 8')
         horizontal_length = max(dimensions.width, 96)
@@ -735,11 +747,18 @@ class DoorCalculatorService:
         self,
         height_inches: int,
         door_weight: float,
-        lift_config: Dict
+        lift_config: Dict,
+        ceiling_height: Optional[int] = None,
     ) -> Optional[DrumSelection]:
         """Select appropriate drum based on height and weight"""
 
         lift_type = lift_config.get("type", "standard")
+
+        # For high lift/vertical, use ceiling height for drum capacity check
+        # since the drum needs to handle the full cable travel distance
+        effective_height = height_inches
+        if ceiling_height and lift_type in ("high", "vertical"):
+            effective_height = ceiling_height
 
         # Filter drums by lift type
         eligible_drums = [
@@ -749,16 +768,20 @@ class DoorCalculatorService:
 
         # Find smallest drum that can handle the height and weight
         for drum_name, spec in sorted(eligible_drums, key=lambda x: x[1]["max_height"]):
-            if height_inches <= spec["max_height"] and door_weight <= spec["max_weight"]:
+            if effective_height <= spec["max_height"] and door_weight <= spec["max_weight"]:
                 # Select cable diameter based on weight
                 cable_diam = spec["cables"][0] if door_weight < spec["max_weight"] * 0.6 else spec["cables"][1]
 
-                # Calculate cable length
+                # Calculate cable length based on lift type and ceiling height
                 if lift_type == "standard":
                     cable_length = height_inches + 8
+                elif lift_type == "high" and ceiling_height:
+                    cable_length = ceiling_height + 8
+                elif lift_type == "vertical" and ceiling_height:
+                    cable_length = ceiling_height + 8
                 elif lift_type == "high":
-                    cable_length = height_inches + 63  # Add high lift offset
-                else:  # vertical
+                    cable_length = height_inches + 63  # Fallback: old hardcoded offset
+                else:  # vertical fallback
                     cable_length = height_inches + 143
 
                 return DrumSelection(
@@ -771,11 +794,12 @@ class DoorCalculatorService:
         # If no drum found, return largest available for lift type
         if eligible_drums:
             largest = max(eligible_drums, key=lambda x: x[1]["max_height"])
+            cable_length = (ceiling_height + 8) if ceiling_height and lift_type in ("high", "vertical") else height_inches + 8
             return DrumSelection(
                 model=largest[0],
                 offset=largest[1]["offset"],
                 cable_diameter=largest[1]["cables"][1],
-                cable_length=height_inches + 8
+                cable_length=cable_length
             )
 
         return None
@@ -822,8 +846,12 @@ class DoorCalculatorService:
             logger.warning("Door weight must be greater than 0")
             return None
 
-        # Use the drum model from drum selection so spring calculator uses correct multipliers
+        # Use the drum model from drum selection so spring calculator uses correct multipliers.
+        # For high lift/vertical drums that aren't in the spring calculator's multiplier
+        # table, pass None to let it auto-select the standard drum for torque calculation.
         drum_model = drums.model if drums else None
+        if drum_model and drum_model not in spring_calculator.drum_multipliers:
+            drum_model = None
 
         if spring_inventory:
             result = self._calculate_springs_from_inventory(
@@ -1425,6 +1453,7 @@ def calculate_door_from_config(config: Dict[str, Any]) -> Dict[str, Any]:
         heavy_duty_hinges=config.get("heavy_duty_hinges", config.get("heavyDutyHinges", False)),
         target_cycles=config.get("target_cycles", config.get("targetCycles", 10000)),
         shaft_type=config.get("shaft_type", config.get("shaftType", "auto")),
+        ceiling_height=config.get("ceiling_height", config.get("ceilingHeight")),
     )
 
     return door_calculator.get_calculation_summary(calc)

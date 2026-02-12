@@ -379,6 +379,7 @@ class DoorCalculationRequest(BaseModel):
     doubleEndCaps: bool = False
     heavyDutyHinges: bool = False
     targetCycles: int = 10000  # 10000, 15000, 25000, 50000, 100000
+    ceilingHeight: Optional[int] = None  # ceiling height in inches, for high_lift/vertical
 
 
 # ============================================================================
@@ -1090,6 +1091,7 @@ async def calculate_door_specifications(request: DoorCalculationRequest, db: Ses
             heavy_duty_hinges=request.heavyDutyHinges,
             target_cycles=request.targetCycles,
             spring_inventory=spring_inventory,
+            ceiling_height=request.ceilingHeight,
         )
 
         # Get summary

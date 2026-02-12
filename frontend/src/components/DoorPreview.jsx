@@ -253,6 +253,28 @@ function DoorPreview({
   const shadowColor = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.15)'
 
   // Render panel design
+  // Render window overlays for panel types that don't natively handle stamps (flush, ribbed, UDC)
+  const renderWindowOverlays = (y, w, h, padding, sectionIndex) => {
+    const absoluteSection = sectionIndex + 1
+    const cols = getStampColumns(width)
+    const gapX = w * 0.02
+    const cellW = (w - gapX * (cols + 1)) / cols
+    const cellH = h  // Full section height for single-row patterns
+
+    const windows = []
+    for (let col = 0; col < cols; col++) {
+      if (hasWindowAtPosition(absoluteSection, col)) {
+        const x = padding + gapX + col * (cellW + gapX)
+        windows.push(
+          <g key={`window-overlay-${sectionIndex}-${col}`}>
+            {renderStampWindow(x, y, cellW, cellH, col)}
+          </g>
+        )
+      }
+    }
+    return windows
+  }
+
   const renderPanelDesign = (sectionIndex, sectionY, sectionHeight) => {
     const pattern = PANEL_PATTERNS[panelDesign] || PANEL_PATTERNS.FLUSH
     const padding = displayWidth * 0.02
@@ -265,19 +287,31 @@ function DoorPreview({
       return renderCommercialWindows(sectionY + padding, panelWidth, panelHeight, padding)
     }
 
-    // For residential doors, windows are rendered per-stamp within panel functions
+    // Raised and carriage panels handle window rendering inline per-stamp
     switch (pattern.type) {
       case 'raised':
         return renderRaisedPanels(sectionY + padding, panelWidth, panelHeight, padding, pattern, sectionIndex)
       case 'carriage':
         return renderCarriagePanels(sectionY + padding, panelWidth, panelHeight, padding, pattern, sectionIndex)
       case 'ribbed':
-        return renderRibbedPanels(sectionY + padding, panelWidth, panelHeight, padding, pattern)
       case 'horizontal_ribbed':
-        return renderHorizontalRibbedPanels(sectionY + padding, panelWidth, panelHeight, padding, pattern)
       case 'flush':
-      default:
-        return renderFlushPanel(sectionY + padding, panelWidth, panelHeight, padding)
+      default: {
+        // Render base panel pattern, then overlay windows on top
+        let baseElements
+        if (pattern.type === 'ribbed') {
+          baseElements = renderRibbedPanels(sectionY + padding, panelWidth, panelHeight, padding, pattern)
+        } else if (pattern.type === 'horizontal_ribbed') {
+          baseElements = renderHorizontalRibbedPanels(sectionY + padding, panelWidth, panelHeight, padding, pattern)
+        } else {
+          baseElements = renderFlushPanel(sectionY + padding, panelWidth, panelHeight, padding)
+        }
+        const windowOverlays = renderWindowOverlays(sectionY + padding, panelWidth, panelHeight, padding, sectionIndex)
+        if (windowOverlays.length > 0) {
+          return <>{baseElements}{windowOverlays}</>
+        }
+        return baseElements
+      }
     }
   }
 
