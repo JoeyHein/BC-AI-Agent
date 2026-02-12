@@ -213,7 +213,17 @@ class BCQuoteService:
                 doors = quote_request.door_specs.get("doors", [])
                 notes.append(f"Doors requested: {len(doors)}")
 
-            quote_data["externalDocumentNumber"] = f"AI-QR-{quote_request.id}"  # Track AI-generated quotes
+            # Use customer's project tag as external document number if available,
+            # otherwise fall back to AI-QR-{id}
+            project = quote_request.parsed_data.get("project", {})
+            project_tag = project.get("tag") if project else None
+            if project_tag:
+                # Truncate to 35 chars (BC external document number limit)
+                quote_data["externalDocumentNumber"] = str(project_tag)[:35]
+                logger.info(f"Using customer project tag as external doc no: {project_tag}")
+            else:
+                quote_data["externalDocumentNumber"] = f"AI-QR-{quote_request.id}"
+                logger.info(f"No project tag found, using AI-QR-{quote_request.id}")
 
         return quote_data
 

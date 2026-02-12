@@ -5,6 +5,7 @@ Manager approval workflow for quotes
 
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
@@ -14,6 +15,7 @@ from app.db.database import SessionLocal
 from app.db.models import QuoteRequest, User, QuoteItem
 from app.services.bc_quote_service import bc_quote_service
 from app.services.upwardor_service import generate_upwardor_quote_from_request, UpwardorAPIError
+from app.integrations.bc.client import bc_client
 from app.api.auth import get_current_user
 
 router = APIRouter(prefix="/api/quotes", tags=["quotes"])
@@ -325,3 +327,70 @@ def get_quote_stats(
             total_approved / (total_approved + total_rejected) * 100, 1
         ) if (total_approved + total_rejected) > 0 else 0
     }
+
+
+@router.get("/{quote_id}/pdf")
+def download_quote_pdf(
+    quote_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Download the quote PDF from Business Central.
+
+    Uses BC's built-in PDF generation (report layout configured in BC).
+    The quote must have been created in BC first (bc_quote_id must exist).
+    """
+    quote_request = db.query(QuoteRequest).filter(
+        QuoteRequest.id == quote_id
+    ).first()
+
+    if not quote_request:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Quote request not found"
+        )
+
+    if not quote_request.bc_quote_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Quote has not been created in BC yet. Create the BC quote first."
+        )
+
+    try:
+        # Get the BC quote's system ID (GUID) - we need to look it up by quote number
+        bc_quotes = bc_client.get_sales_quotes()
+        bc_quote = next(
+            (q for q in bc_quotes if q.get("number") == quote_request.bc_quote_id),
+            None
+        )
+
+        if not bc_quote:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"BC quote {quote_request.bc_quote_id} not found in Business Central"
+            )
+
+        # Download PDF using BC's built-in PDF generation
+        pdf_bytes = bc_client.get_quote_pdf(bc_quote["id"])
+
+        # Build filename from external doc number or quote number
+        ext_doc = bc_quote.get("externalDocumentNumber", "")
+        filename = f"Quote_{ext_doc or quote_request.bc_quote_id}.pdf"
+
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to download quote PDF: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to download PDF from BC: {str(e)}"
+        )

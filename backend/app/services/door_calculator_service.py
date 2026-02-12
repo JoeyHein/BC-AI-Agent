@@ -333,13 +333,14 @@ STRUT_SCHEDULE_16GA = {
 }
 
 # Lift type configurations
+# NOTE: 12" radius tracks are ONLY available in 2" track (not 3")
+# Low headroom is a completely separate lift type: "2" double track lowhead"
 LIFT_TYPES = {
-    "standard_15": {"name": "Standard Lift 15'' Radius", "radius": 15, "type": "standard"},
-    "standard_12": {"name": "Standard Lift 12'' Radius", "radius": 12, "type": "standard"},
-    "lhr_front": {"name": "Low Head Room Front Mount", "radius": 15, "type": "low_headroom"},
-    "lhr_rear": {"name": "Low Head Room Rear Mount", "radius": 15, "type": "low_headroom"},
-    "high_lift": {"name": "High Lift", "radius": 15, "type": "high"},
-    "vertical": {"name": "Vertical Lift", "radius": None, "type": "vertical"},
+    "standard_15": {"name": "Standard Lift 15'' Radius", "radius": 15, "type": "standard", "allowed_track_sizes": [2, 3]},
+    "standard_12": {"name": "Standard Lift 12'' Radius", "radius": 12, "type": "standard", "allowed_track_sizes": [2]},
+    "low_headroom": {"name": "Low Headroom (2'' Double Track)", "radius": 15, "type": "low_headroom", "allowed_track_sizes": [2]},
+    "high_lift": {"name": "High Lift", "radius": 15, "type": "high", "allowed_track_sizes": [2, 3]},
+    "vertical": {"name": "Vertical Lift", "radius": None, "type": "vertical", "allowed_track_sizes": [2, 3]},
 }
 
 
@@ -400,14 +401,24 @@ class WeightBreakdown:
 
 @dataclass
 class SpringSelection:
-    """Spring configuration"""
-    quantity: int
-    coil_diameter: float
-    wire_diameter: float
-    length: float
+    """Spring configuration
+
+    For duplex springs: outer spring is on 6" coil, inner spring is on 3.75" coil,
+    nested inside the outer spring. duplex_pairs indicates how many shaft positions
+    have duplex springs (each pair = 1 outer + 1 inner).
+    """
+    quantity: int  # Total spring count (for duplex: duplex_pairs * 2)
+    coil_diameter: float  # Outer coil diameter (or only coil for non-duplex)
+    wire_diameter: float  # Outer wire diameter (or only wire for non-duplex)
+    length: float  # Outer spring length
     cycles: int
     turns: float
     galvanized: bool = False
+    is_duplex: bool = False
+    inner_coil_diameter: Optional[float] = None  # 3.75" for duplex
+    inner_wire_diameter: Optional[float] = None
+    inner_length: Optional[float] = None
+    duplex_pairs: int = 0  # Number of shaft positions with duplex (each has outer+inner)
 
 
 @dataclass
@@ -446,6 +457,7 @@ class HardwareList:
     bolts: Dict[str, int] = field(default_factory=dict)
     struts: Dict[str, int] = field(default_factory=dict)
     other: Dict[str, int] = field(default_factory=dict)
+    z_strut_lengths: Optional[List[int]] = None  # Z strut piece lengths per strut (inches), only for Z struts
 
 
 @dataclass
@@ -491,6 +503,7 @@ class DoorCalculatorService:
         heavy_duty_hinges: bool = False,
         target_cycles: int = 10000,
         shaft_type: str = "auto",  # 'auto', 'single', 'split'
+        spring_inventory: Optional[Dict[str, List[str]]] = None,  # stocked coil/wire combos
     ) -> DoorCalculation:
         """
         Calculate complete door configuration.
@@ -533,44 +546,63 @@ class DoorCalculatorService:
         else:
             panel_config.gauge = 24
 
-        # 2. Calculate door weight
+        # 2. Calculate struts (before weight, since struts add to door weight)
+        strut_count = self._calculate_struts(
+            door_model, width_inches, panel_config.total_sections
+        )
+
+        # 3. Calculate door weight (including strut weight)
         weight = self._calculate_weight(
             door_model,
             dimensions,
             panel_config,
             window_type,
-            window_qty
+            window_qty,
+            strut_count
         )
 
-        # 3. Calculate track configuration
+        # 4. Calculate track configuration
         lift_config = LIFT_TYPES.get(lift_type, LIFT_TYPES["standard_15"])
+
+        # Enforce track size constraints
+        allowed_sizes = lift_config.get("allowed_track_sizes", [2, 3])
+        if track_size not in allowed_sizes:
+            old_track_size = track_size
+            track_size = allowed_sizes[0]
+            warnings.append(
+                f"{lift_config['name']} only supports {'/'.join(str(s) for s in allowed_sizes)}\" track. "
+                f"Changed from {old_track_size}\" to {track_size}\"."
+            )
+
         track = self._calculate_track(dimensions, track_size, lift_config)
 
-        # 4. Select drum
+        # 5. Select drum
         drums = self._select_drum(height_inches, weight.total_weight, lift_config)
         if drums is None:
             warnings.append("No suitable drum found for door specifications")
 
-        # 5. Calculate springs
+        # 6. Calculate springs (inventory-aware, progressive scaling, duplex support)
+        track_radius = lift_config.get("radius", 15)
         springs = self._calculate_springs(
             weight.total_weight,
             height_inches,
+            width_inches,
             drums,
-            target_cycles
+            target_cycles,
+            track_radius=track_radius,
+            spring_inventory=spring_inventory,
         )
 
-        # 6. Calculate shaft
+        # 7. Calculate shaft
         shaft = self._calculate_shaft(width_inches, weight.total_weight, shaft_type)
-
-        # 7. Calculate struts
-        strut_count = self._calculate_struts(door_model, width_inches, height_inches)
 
         # 8. Calculate hardware list
         hardware = self._calculate_hardware(
             dimensions,
             panel_config,
             track_size,
-            strut_count
+            strut_count,
+            door_model
         )
 
         return DoorCalculation(
@@ -619,9 +651,10 @@ class DoorCalculatorService:
         dimensions: DoorDimensions,
         panel_config: PanelConfiguration,
         window_type: Optional[str],
-        window_qty: int
+        window_qty: int,
+        strut_count: int = 0
     ) -> WeightBreakdown:
-        """Calculate door weight breakdown"""
+        """Calculate door weight breakdown including strut weight"""
         weight = WeightBreakdown()
 
         # Get model weight factors
@@ -645,6 +678,20 @@ class DoorCalculatorService:
         # Residential 2" hardware: 17 lbs
         is_commercial = door_model.upper().startswith("TX")
         weight.hardware_weight = 27.0 if is_commercial else 17.0
+
+        # Strut weight
+        # Each strut runs the full width of the door
+        # Z strut: 2.45 lbs/ft - used at 28'+ (336"+) width
+        # 2.5" strut (20ga): 0.79 lbs/ft - used on TX380 and residential (KANATA/CRAFT)
+        # 3" strut (16ga): 1.05 lbs/ft - used on TX450/TX500 commercial
+        if strut_count > 0:
+            if dimensions.width >= 336:  # 28'+ width: Z struts
+                strut_lbs_per_ft = 2.45
+            elif door_model.upper() in ["TX380", "KANATA", "CRAFT"]:
+                strut_lbs_per_ft = 0.79   # 2.5" / 20ga strut
+            else:
+                strut_lbs_per_ft = 1.05   # 3" / 16ga strut
+            weight.strut_weight = strut_count * width_ft * strut_lbs_per_ft
 
         # Window weight
         if window_type and window_qty > 0:
@@ -737,10 +784,12 @@ class DoorCalculatorService:
         self,
         door_weight: float,
         height_inches: int,
+        width_inches: int,
         drums: Optional[DrumSelection],
         target_cycles: int,
         track_radius: int = 15,
-        spring_qty: int = 2
+        spring_qty: int = 2,
+        spring_inventory: Optional[Dict[str, List[str]]] = None,
     ) -> Optional[SpringSelection]:
         """
         Calculate spring specifications using Canimex methodology.
@@ -751,13 +800,20 @@ class DoorCalculatorService:
         - Active Coils = (Spring Quantity × Divider) / IPPT
         - Total Spring Length = Active Coils + Dead Coil Factor
 
+        Progressive scaling: tries 2 → 4 → 6 → 8 springs as door gets heavier.
+        Duplex support: for narrow/tall doors, tries duplex springs (6" outer +
+        3-3/4" inner nested) which provide more torque per shaft position.
+
         Args:
             door_weight: Door weight in lbs
             height_inches: Door height in inches
+            width_inches: Door width in inches (used for duplex decision)
             drums: Drum selection (used for fallback if needed)
             target_cycles: Target cycle life (10000, 15000, 25000, 50000, 100000)
             track_radius: Track radius in inches (12 or 15, default 15)
             spring_qty: Number of springs (1 or 2, default 2)
+            spring_inventory: Optional dict of stocked coil/wire combos
+                e.g. {"2.0": ["0.2070", "0.2500"], "6.0": ["0.3750"]}
 
         Returns:
             SpringSelection with complete spring specifications
@@ -766,44 +822,295 @@ class DoorCalculatorService:
             logger.warning("Door weight must be greater than 0")
             return None
 
-        # Use the Canimex spring calculator
-        result = spring_calculator.calculate_spring(
-            door_weight=door_weight,
-            door_height=height_inches,
-            track_radius=track_radius,
-            spring_qty=spring_qty,
-            target_cycles=target_cycles
-        )
+        if spring_inventory:
+            result = self._calculate_springs_from_inventory(
+                door_weight, height_inches, target_cycles,
+                track_radius, spring_inventory, width_inches
+            )
+            if result is not None:
+                return result
+            # If inventory search found nothing, fall through to unfiltered calculation
+            logger.warning("No stocked spring found, falling back to unfiltered calculation")
 
-        if result is None:
-            # Fallback: try with different coil diameters
-            for coil_diam in [2.0, 2.625, 3.75, 6.0]:
+        # Unfiltered calculation (no inventory, or inventory had no match)
+        # Try stocked coil sizes in order of preference, scaling up spring count
+        stocked_coils = [2.0, 2.625, 3.75, 6.0]
+
+        for qty in [2, 4, 6, 8]:
+            for coil_diam in stocked_coils:
+                result = spring_calculator.calculate_spring(
+                    door_weight=door_weight,
+                    door_height=height_inches,
+                    track_radius=track_radius,
+                    spring_qty=qty,
+                    coil_diameter=coil_diam,
+                    target_cycles=target_cycles
+                )
+                if result is not None:
+                    return SpringSelection(
+                        quantity=result.spring_quantity,
+                        coil_diameter=result.coil_diameter,
+                        wire_diameter=result.wire_diameter,
+                        length=result.length,
+                        cycles=result.cycle_life,
+                        turns=result.turns,
+                        galvanized=False
+                    )
+
+        logger.warning(
+            f"No spring found for {door_weight} lbs, {height_inches}\" height, "
+            f"{target_cycles} cycles"
+        )
+        return None
+
+    def _calculate_springs_from_inventory(
+        self,
+        door_weight: float,
+        height_inches: int,
+        target_cycles: int,
+        track_radius: int,
+        inventory: Dict[str, List[str]],
+        width_inches: int = 240,
+    ) -> Optional[SpringSelection]:
+        """
+        Find the best spring from stocked inventory.
+
+        Progressive scaling strategy:
+        1. Try regular springs at 2, 4, 6, 8 count
+        2. Try duplex springs at 2 pairs, 4 pairs (for narrow/tall doors)
+        3. Pick the most economical option:
+           - Fewest total springs
+           - For narrow doors (<=14'), prefer duplex over same-count regular
+           - Shortest spring length
+
+        Duplex springs: 6" outer coil with 3-3/4" inner coil nested inside,
+        providing more torque per shaft position for narrow/tall doors.
+
+        Returns:
+            SpringSelection or None if nothing in inventory works
+        """
+        # Build list of stocked (coil, wire) pairs
+        stocked_pairs = []
+        for coil_str, wire_list in inventory.items():
+            try:
+                coil_diam = float(coil_str)
+            except (ValueError, TypeError):
+                continue
+            for wire_str in wire_list:
+                try:
+                    wire_diam = float(wire_str)
+                except (ValueError, TypeError):
+                    continue
+                stocked_pairs.append((coil_diam, wire_diam))
+
+        if not stocked_pairs:
+            return None
+
+        # Sort by coil diameter (prefer smaller/cheaper coils first)
+        stocked_pairs.sort(key=lambda x: (x[0], x[1]))
+
+        all_candidates = []
+
+        # Try regular springs: 2, 4, 6, 8
+        for spring_qty in [2, 4, 6, 8]:
+            qty_candidates = []
+            for coil_diam, wire_diam in stocked_pairs:
                 result = spring_calculator.calculate_spring(
                     door_weight=door_weight,
                     door_height=height_inches,
                     track_radius=track_radius,
                     spring_qty=spring_qty,
+                    wire_diameter=wire_diam,
                     coil_diameter=coil_diam,
                     target_cycles=target_cycles
                 )
                 if result is not None:
-                    break
+                    # Verify MIP capacity is sufficient
+                    mip_capacity = spring_calculator.get_mip_capacity(wire_diam, target_cycles)
+                    if mip_capacity and mip_capacity >= result.mip_per_spring:
+                        qty_candidates.append(result)
 
-        if result is None:
-            logger.warning(
-                f"No spring found for {door_weight} lbs, {height_inches}\" height, "
-                f"{target_cycles} cycles"
+            if qty_candidates:
+                # Pick shortest spring for this quantity
+                best = min(qty_candidates, key=lambda r: r.length)
+                all_candidates.append(SpringSelection(
+                    quantity=best.spring_quantity,
+                    coil_diameter=best.coil_diameter,
+                    wire_diameter=best.wire_diameter,
+                    length=best.length,
+                    cycles=best.cycle_life,
+                    turns=best.turns,
+                    galvanized=False,
+                    is_duplex=False,
+                ))
+
+            if spring_qty == 2 and not qty_candidates:
+                logger.info(
+                    f"No stocked 2-spring solution for {door_weight} lbs / "
+                    f"{height_inches}\" height, trying more springs..."
+                )
+
+        # Try duplex springs: 2 pairs (4 total) and 4 pairs (8 total)
+        for duplex_pairs in [2, 4]:
+            duplex = self._calculate_duplex_springs(
+                door_weight, height_inches, target_cycles,
+                track_radius, inventory, duplex_pairs
             )
+            if duplex is not None:
+                all_candidates.append(duplex)
+
+        if not all_candidates:
             return None
 
+        # Determine if this is a narrow door (duplex preferred for narrow/tall)
+        is_narrow_tall = width_inches <= 168 and height_inches >= 192  # <=14' wide, >=16' tall
+
+        # Pick best candidate
+        # Max practical spring length is ~48" (4 feet) for handling/shipping
+        MAX_PRACTICAL_LENGTH = 48.0
+
+        def candidate_sort_key(c):
+            is_reasonable = c.length <= MAX_PRACTICAL_LENGTH
+            # For narrow/tall doors prefer duplex; otherwise prefer regular
+            duplex_pref = 0
+            if is_narrow_tall:
+                duplex_pref = 0 if c.is_duplex else 1
+            else:
+                duplex_pref = 1 if c.is_duplex else 0
+
+            if is_reasonable:
+                # Reasonable length: prefer fewer springs, then shorter
+                return (0, c.quantity, duplex_pref, c.coil_diameter, c.length)
+            else:
+                # Overlong: prefer shorter springs first (more practical), then fewer
+                return (1, c.length, c.quantity, duplex_pref, c.coil_diameter)
+
+        best = min(all_candidates, key=candidate_sort_key)
+
+        logger.info(
+            f"Selected {'duplex ' if best.is_duplex else ''}"
+            f"spring: {best.quantity}x "
+            f"{best.coil_diameter}\" coil / {best.wire_diameter}\" wire "
+            f"({best.length}\" long)"
+            f"{f' + inner {best.inner_coil_diameter}\"/{best.inner_wire_diameter}\"' if best.is_duplex else ''}"
+            f" from inventory"
+        )
+        return best
+
+    def _calculate_duplex_springs(
+        self,
+        door_weight: float,
+        height_inches: int,
+        target_cycles: int,
+        track_radius: int,
+        inventory: Dict[str, List[str]],
+        duplex_pairs: int = 2,
+    ) -> Optional[SpringSelection]:
+        """
+        Calculate duplex spring configuration.
+
+        Duplex springs have a 6" outer coil with a 3-3/4" inner coil nested inside.
+        Each shaft position provides torque from both springs combined.
+
+        For N duplex pairs: total_springs = N * 2 (N outer + N inner).
+        The load is distributed across all springs equally using Canimex formulas.
+
+        Args:
+            door_weight: Door weight in lbs
+            height_inches: Door height in inches
+            target_cycles: Target cycle life
+            track_radius: Track radius (12 or 15)
+            inventory: Stocked coil/wire inventory
+            duplex_pairs: Number of duplex pairs (2 = standard, 4 = heavy)
+
+        Returns:
+            SpringSelection with duplex fields populated, or None
+        """
+        total_qty = duplex_pairs * 2  # outer + inner at each position
+
+        # Need both 6.0" and 3.75" coils in inventory
+        outer_wires = inventory.get("6.0", [])
+        inner_wires = inventory.get("3.75", [])
+        if not outer_wires or not inner_wires:
+            return None
+
+        # Calculate what each spring needs to handle
+        drum_data = spring_calculator.get_drum_data(height_inches, track_radius)
+        if drum_data is None:
+            return None
+
+        drum_model, multiplier, turns = drum_data
+        ippt = spring_calculator.calculate_ippt(multiplier, door_weight)
+        mip_per_spring = spring_calculator.calculate_mip(ippt, turns, total_qty)
+
+        # Find viable outer springs (6" coil)
+        outer_candidates = []
+        for wire_str in outer_wires:
+            try:
+                wire_diam = float(wire_str)
+            except (ValueError, TypeError):
+                continue
+            mip_cap = spring_calculator.get_mip_capacity(wire_diam, target_cycles)
+            if mip_cap and mip_cap >= mip_per_spring:
+                result = spring_calculator.calculate_spring(
+                    door_weight=door_weight,
+                    door_height=height_inches,
+                    track_radius=track_radius,
+                    spring_qty=total_qty,
+                    wire_diameter=wire_diam,
+                    coil_diameter=6.0,
+                    target_cycles=target_cycles
+                )
+                if result:
+                    outer_candidates.append(result)
+
+        # Find viable inner springs (3.75" coil)
+        inner_candidates = []
+        for wire_str in inner_wires:
+            try:
+                wire_diam = float(wire_str)
+            except (ValueError, TypeError):
+                continue
+            mip_cap = spring_calculator.get_mip_capacity(wire_diam, target_cycles)
+            if mip_cap and mip_cap >= mip_per_spring:
+                result = spring_calculator.calculate_spring(
+                    door_weight=door_weight,
+                    door_height=height_inches,
+                    track_radius=track_radius,
+                    spring_qty=total_qty,
+                    wire_diameter=wire_diam,
+                    coil_diameter=3.75,
+                    target_cycles=target_cycles
+                )
+                if result:
+                    inner_candidates.append(result)
+
+        if not outer_candidates or not inner_candidates:
+            return None
+
+        # Pick best: smallest wire that works (shortest spring)
+        best_outer = min(outer_candidates, key=lambda r: r.length)
+        best_inner = min(inner_candidates, key=lambda r: r.length)
+
+        logger.info(
+            f"Duplex option: {duplex_pairs} pairs ({total_qty} total springs) - "
+            f"Outer: {best_outer.wire_diameter}\" wire x 6\" coil ({best_outer.length}\") / "
+            f"Inner: {best_inner.wire_diameter}\" wire x 3.75\" coil ({best_inner.length}\")"
+        )
+
         return SpringSelection(
-            quantity=result.spring_quantity,
-            coil_diameter=result.coil_diameter,
-            wire_diameter=result.wire_diameter,
-            length=result.length,
-            cycles=result.cycle_life,
-            turns=result.turns,
-            galvanized=False
+            quantity=total_qty,
+            coil_diameter=best_outer.coil_diameter,
+            wire_diameter=best_outer.wire_diameter,
+            length=best_outer.length,
+            cycles=target_cycles,
+            turns=turns,
+            galvanized=False,
+            is_duplex=True,
+            inner_coil_diameter=best_inner.coil_diameter,
+            inner_wire_diameter=best_inner.wire_diameter,
+            inner_length=best_inner.length,
+            duplex_pairs=duplex_pairs,
         )
 
     def _calculate_shaft(
@@ -861,50 +1168,79 @@ class DoorCalculatorService:
         self,
         door_model: str,
         width_inches: int,
-        height_inches: int
+        total_panels: int
     ) -> int:
-        """Calculate number of struts needed"""
+        """
+        Calculate number of struts needed.
 
-        # Simplified strut calculation
-        # Based on door area and model
+        Rules:
+        - Residential doors (KANATA, CRAFT): always 1 strut per door
+        - Commercial doors:
+            - Over 16' wide (>192"): 1 strut per panel
+            - 16' wide (192"): 1 strut every other panel
+            - 12' to <16' wide (144"-191"): 1 strut
+            - Under 12' (<144"): no struts
+        """
+        is_residential = door_model.upper() in ["KANATA", "CRAFT"]
 
-        area_sqft = (width_inches * height_inches) / 144
+        if is_residential:
+            # Residential: always 1 strut per door
+            return 1
 
-        if door_model in ["TX380"]:
-            # 20ga struts for TX380
-            if area_sqft < 80:
-                return 0
-            elif area_sqft < 120:
-                return 2
-            elif area_sqft < 180:
-                return 3
-            else:
-                return 4
-        else:
-            # 16ga struts for TX450/TX500
-            if width_inches <= 192:  # Up to 16'
-                if height_inches <= 168:  # Up to 14'
-                    return 0
-                elif height_inches <= 240:
-                    return 2
+        # Commercial strut rules based on width
+        if width_inches > 192:  # Over 16'
+            return total_panels  # 1 strut per panel
+        elif width_inches >= 192:  # 16' wide
+            return math.ceil(total_panels / 2)  # Every other panel
+        elif width_inches >= 144:  # 12' to <16'
+            return 1
+        else:  # Under 12'
+            return 0
+
+    def _calculate_z_strut_combo(self, width_inches: int) -> List[int]:
+        """
+        Calculate the best combination of Z strut pieces to span the door width.
+        Z struts only come in 8' (96"), 10' (120"), and 12' (144") lengths.
+        Returns list of piece lengths in inches, e.g. [120, 120, 96] for a 28' door.
+        """
+        target = width_inches
+        best_combo = None
+        best_waste = float('inf')
+        best_count = float('inf')
+
+        max_pieces = target // 96 + 1
+
+        for n12 in range(max_pieces + 1):
+            if n12 * 144 > target + 144:
+                break
+            for n10 in range(max_pieces + 1 - n12):
+                covered = n12 * 144 + n10 * 120
+                if covered > target + 144:
+                    break
+                if covered >= target:
+                    combo = [144] * n12 + [120] * n10
+                    waste = covered - target
+                    count = n12 + n10
                 else:
-                    return 3
-            elif width_inches <= 288:  # Up to 24'
-                if height_inches <= 144:
-                    return 2
-                elif height_inches <= 192:
-                    return 3
-                else:
-                    return 4
-            else:  # Over 24'
-                return 5
+                    n8 = math.ceil((target - covered) / 96)
+                    combo = [144] * n12 + [120] * n10 + [96] * n8
+                    waste = (covered + n8 * 96) - target
+                    count = n12 + n10 + n8
+
+                if waste < best_waste or (waste == best_waste and count < best_count):
+                    best_combo = combo
+                    best_waste = waste
+                    best_count = count
+
+        return best_combo if best_combo else [144] * math.ceil(target / 144)
 
     def _calculate_hardware(
         self,
         dimensions: DoorDimensions,
         panel_config: PanelConfiguration,
         track_size: int,
-        strut_count: int
+        strut_count: int,
+        door_model: str = "TX450"
     ) -> HardwareList:
         """Calculate hardware component list"""
 
@@ -936,10 +1272,17 @@ class DoorCalculatorService:
         hardware.bolts["#14 x 1-1/4'' Washer Lag Screw"] = 21
         hardware.bolts["Tek Screws"] = 27 * panel_config.total_sections
 
-        # Struts
+        # Struts - Z struts at 28'+, TX380/residential use 20ga/2.5", TX450+ use 16ga/3"
         if strut_count > 0:
-            strut_type = "16ga Hat Strut" if dimensions.width > 120 else "20ga Hat Strut"
-            hardware.struts[strut_type] = strut_count
+            if dimensions.width >= 336:  # 28'+ width: Z struts
+                z_combo = self._calculate_z_strut_combo(dimensions.width)
+                hardware.z_strut_lengths = z_combo
+                combo_desc = "+".join(f"{l // 12}'" for l in z_combo)
+                hardware.struts[f"Z Strut ({combo_desc} per strut)"] = strut_count
+            else:
+                is_light = door_model.upper() in ["TX380", "KANATA", "CRAFT"]
+                strut_type = "20ga Hat Strut" if is_light else "16ga Hat Strut"
+                hardware.struts[strut_type] = strut_count
             hardware.struts["Strut Clips"] = strut_count * 4
 
         # Other
@@ -983,6 +1326,11 @@ class DoorCalculatorService:
                 "length": calc.springs.length if calc.springs else None,
                 "cycles": calc.springs.cycles if calc.springs else None,
                 "turns": calc.springs.turns if calc.springs else None,
+                "is_duplex": calc.springs.is_duplex if calc.springs else False,
+                "inner_coil_diameter": calc.springs.inner_coil_diameter if calc.springs else None,
+                "inner_wire_diameter": calc.springs.inner_wire_diameter if calc.springs else None,
+                "inner_length": calc.springs.inner_length if calc.springs else None,
+                "duplex_pairs": calc.springs.duplex_pairs if calc.springs else 0,
             } if calc.springs else None,
             "drum": {
                 "model": calc.drums.model if calc.drums else None,
@@ -1008,7 +1356,8 @@ class DoorCalculatorService:
                 "brackets": calc.hardware.brackets if calc.hardware else {},
                 "bolts": calc.hardware.bolts if calc.hardware else {},
                 "struts": calc.hardware.struts if calc.hardware else {},
-                "other": calc.hardware.other if calc.hardware else {}
+                "other": calc.hardware.other if calc.hardware else {},
+                "z_strut_lengths": calc.hardware.z_strut_lengths if calc.hardware else None,
             } if calc.hardware else None,
             "warnings": calc.warnings
         }

@@ -6,6 +6,7 @@ Saved quotes, BC quotes, orders, and history for customer users
 import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List, Any
@@ -525,6 +526,62 @@ def get_bc_quote_detail(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch quote details"
+        )
+
+
+@router.get("/bc-quotes/{quote_id}/pdf")
+def download_customer_quote_pdf(
+    quote_id: str,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db)
+):
+    """
+    Download quote PDF from Business Central for the customer portal.
+
+    Uses BC's built-in PDF generation. Verifies the quote belongs to the customer.
+    """
+    if not current_user.bc_customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account not linked to Business Central customer"
+        )
+
+    try:
+        # Verify quote belongs to customer
+        quote = bc_client.get_sales_quote(quote_id)
+        if not quote:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Quote not found"
+            )
+
+        if quote.get("customerId") != current_user.bc_customer_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied"
+            )
+
+        # Download PDF from BC
+        pdf_bytes = bc_client.get_quote_pdf(quote_id)
+
+        ext_doc = quote.get("externalDocumentNumber", "")
+        filename = f"Quote_{ext_doc or quote.get('number', quote_id)}.pdf"
+
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading quote PDF: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to download quote PDF"
         )
 
 

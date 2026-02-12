@@ -66,6 +66,7 @@ function DoorConfigurator() {
       // Hardware
       trackRadius: '15',
       trackThickness: '2',
+      liftType: 'standard',
       hardware: {
         tracks: true,
         springs: true,
@@ -1120,52 +1121,126 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
   // Warn if single shaft selected for wide door
   const shaftWarning = door.shaftType === 'single' && door.doorWidth > 170
 
+  // Determine allowed track thickness based on selected radius
+  const selectedRadius = trackOptions.radius?.find(r => r.id === door.trackRadius)
+  const allowedThickness = selectedRadius?.allowedThickness || ['2', '3']
+  const isLowHeadroom = door.liftType === 'low_headroom'
+
+  // Handle radius change - auto-correct track thickness if needed
+  const handleRadiusChange = (radiusId) => {
+    const radius = trackOptions.radius?.find(r => r.id === radiusId)
+    const allowed = radius?.allowedThickness || ['2', '3']
+    const updates = { trackRadius: radiusId }
+    // If current thickness is not allowed for new radius, switch to first allowed
+    if (!allowed.includes(door.trackThickness)) {
+      updates.trackThickness = allowed[0]
+    }
+    onChange(updates)
+  }
+
+  // Handle lift type change - enforce constraints
+  const handleLiftTypeChange = (liftTypeId) => {
+    const liftOption = trackOptions.liftType?.find(lt => lt.id === liftTypeId)
+    const updates = { liftType: liftTypeId }
+    // Low headroom forces 2" track
+    if (liftOption?.forcedTrackSize) {
+      updates.trackThickness = String(liftOption.forcedTrackSize)
+    }
+    onChange(updates)
+  }
+
   return (
     <div className="space-y-6">
-      {/* Track Configuration */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Lift Type */}
+      {trackOptions.liftType && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Track Radius
+            Lift Type
           </label>
-          <div className="space-y-2">
-            {trackOptions.radius.map((option) => (
-              <label key={option.id} className="flex items-center">
-                <input
-                  type="radio"
-                  name="trackRadius"
-                  value={option.id}
-                  checked={door.trackRadius === option.id}
-                  onChange={(e) => onChange({ trackRadius: e.target.value })}
-                  className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
-                />
-                <span className="ml-2 text-sm text-gray-700">{option.name}</span>
-              </label>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {trackOptions.liftType.map((option) => (
+              <button
+                key={option.id}
+                onClick={() => handleLiftTypeChange(option.id)}
+                className={`p-3 rounded-lg border-2 text-center transition-all ${
+                  door.liftType === option.id
+                    ? 'border-indigo-500 bg-indigo-50'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div className="text-sm font-medium">{option.name}</div>
+                <div className="text-xs text-gray-500 mt-1">{option.description}</div>
+              </button>
             ))}
           </div>
         </div>
+      )}
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Track Thickness
-          </label>
-          <div className="space-y-2">
-            {trackOptions.thickness.map((option) => (
-              <label key={option.id} className="flex items-center">
-                <input
-                  type="radio"
-                  name="trackThickness"
-                  value={option.id}
-                  checked={door.trackThickness === option.id}
-                  onChange={(e) => onChange({ trackThickness: e.target.value })}
-                  className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
-                />
-                <span className="ml-2 text-sm text-gray-700">{option.name}</span>
-              </label>
-            ))}
+      {/* Track Configuration - only show radius/thickness for standard lift */}
+      {door.liftType === 'standard' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Track Radius
+            </label>
+            <div className="space-y-2">
+              {trackOptions.radius.map((option) => (
+                <label key={option.id} className="flex items-center">
+                  <input
+                    type="radio"
+                    name="trackRadius"
+                    value={option.id}
+                    checked={door.trackRadius === option.id}
+                    onChange={(e) => handleRadiusChange(e.target.value)}
+                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                  />
+                  <span className="ml-2 text-sm text-gray-700">
+                    {option.name}
+                    {option.note && <span className="text-xs text-amber-600 ml-1">({option.note})</span>}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Track Thickness
+            </label>
+            <div className="space-y-2">
+              {trackOptions.thickness.map((option) => {
+                const isDisabled = !allowedThickness.includes(option.id)
+                return (
+                  <label key={option.id} className={`flex items-center ${isDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                    <input
+                      type="radio"
+                      name="trackThickness"
+                      value={option.id}
+                      checked={door.trackThickness === option.id}
+                      onChange={(e) => onChange({ trackThickness: e.target.value })}
+                      disabled={isDisabled}
+                      className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                    />
+                    <span className="ml-2 text-sm text-gray-700">
+                      {option.name}
+                      {isDisabled && <span className="text-xs text-red-500 ml-1">(not available with {door.trackRadius}" radius)</span>}
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Low headroom info */}
+      {isLowHeadroom && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <p className="text-sm text-blue-800">
+            <span className="font-medium">2" Double Track Low Headroom</span> - Uses 2" track with double track configuration for minimal headroom clearance.
+          </p>
+        </div>
+      )}
 
       {/* Spring Cycles */}
       <div>
@@ -1311,7 +1386,8 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult 
             windowSection: door.windowSection,
             glazingType: door.glazingType !== 'NONE' ? door.glazingType : null,
             trackRadius: door.trackRadius,
-            trackThickness: door.trackThickness,
+            trackThickness: door.liftType === 'low_headroom' ? '2' : door.trackThickness,
+            liftType: door.liftType,
             hardware: door.hardware,
             operator: door.operator !== 'NONE' ? door.operator : null,
           }))
@@ -1337,8 +1413,11 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult 
               widthInches: door.doorWidth % 12,
               heightFeet: Math.floor(door.doorHeight / 12),
               heightInches: door.doorHeight % 12,
-              liftType: door.trackRadius === '12' ? 'standard_12' : 'standard_15',
-              trackSize: parseInt(door.trackThickness),
+              liftType: door.liftType === 'low_headroom' ? 'low_headroom'
+                : door.liftType === 'high_lift' ? 'high_lift'
+                : door.liftType === 'vertical' ? 'vertical'
+                : door.trackRadius === '12' ? 'standard_12' : 'standard_15',
+              trackSize: door.liftType === 'low_headroom' ? 2 : parseInt(door.trackThickness),
               windowType: door.windowInsert !== 'NONE' ? '24x12' : null,
               windowQty: door.windowInsert !== 'NONE' ? 1 : 0,
               doubleEndCaps: false,
@@ -1441,7 +1520,13 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult 
               )}
               <div>
                 <span className="text-gray-500">Track:</span>
-                <span className="ml-2 text-gray-900">{door.trackRadius}" / {door.trackThickness}"</span>
+                <span className="ml-2 text-gray-900">
+                  {door.liftType === 'low_headroom'
+                    ? '2" Double Track Low Headroom'
+                    : `${door.trackRadius}" radius / ${door.trackThickness}" track`}
+                  {door.liftType === 'high_lift' && ' (High Lift)'}
+                  {door.liftType === 'vertical' && ' (Vertical Lift)'}
+                </span>
               </div>
               <div>
                 <span className="text-gray-500">Operator:</span>
@@ -1504,6 +1589,14 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult 
                                 <span className="text-gray-500">Hardware:</span>
                                 <span className="font-medium">{item.calculation.weight?.hardware_lbs?.toFixed(1)} lbs</span>
                               </div>
+                              {item.calculation.weight?.strut_lbs > 0 && (
+                                <div className="flex justify-between">
+                                  <span className="text-gray-500">
+                                    Struts{item.calculation.hardware?.z_strut_lengths ? ' (Z)' : ''}:
+                                  </span>
+                                  <span className="font-medium">{item.calculation.weight?.strut_lbs?.toFixed(1)} lbs</span>
+                                </div>
+                              )}
                               {item.calculation.weight?.glazing_lbs > 0 && (
                                 <div className="flex justify-between">
                                   <span className="text-gray-500">Glazing:</span>
@@ -1514,6 +1607,11 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult 
                                 <span className="text-gray-700 font-medium">Total:</span>
                                 <span className="font-bold text-indigo-600">{item.calculation.weight?.total_lbs?.toFixed(1)} lbs</span>
                               </div>
+                              {item.calculation.hardware?.z_strut_lengths && (
+                                <div className="mt-2 pt-2 border-t border-dashed text-xs text-gray-500">
+                                  Z Strut: {item.calculation.hardware.z_strut_lengths.map(l => `${l/12}'`).join(' + ')} per strut
+                                </div>
+                              )}
                             </div>
                           </div>
 
@@ -1543,20 +1641,67 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult 
                           {/* Springs */}
                           {item.calculation.springs && (
                             <div className="bg-white rounded-lg p-3 shadow-sm">
-                              <h5 className="text-sm font-medium text-gray-700 mb-2">Spring Specifications</h5>
+                              <h5 className="text-sm font-medium text-gray-700 mb-2">
+                                Spring Specifications
+                                {item.calculation.springs.is_duplex && (
+                                  <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
+                                    DUPLEX
+                                  </span>
+                                )}
+                              </h5>
                               <div className="space-y-1 text-sm">
                                 <div className="flex justify-between">
-                                  <span className="text-gray-500">Quantity:</span>
-                                  <span className="font-medium">{item.calculation.springs.quantity}</span>
+                                  <span className="text-gray-500">Total Springs:</span>
+                                  <span className="font-medium">
+                                    {item.calculation.springs.quantity}
+                                    {item.calculation.springs.is_duplex && (
+                                      <span className="text-gray-400 text-xs ml-1">
+                                        ({item.calculation.springs.duplex_pairs} duplex pairs)
+                                      </span>
+                                    )}
+                                  </span>
                                 </div>
-                                <div className="flex justify-between">
-                                  <span className="text-gray-500">Coil Diameter:</span>
-                                  <span className="font-medium">{item.calculation.springs.coil_diameter}"</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="text-gray-500">Wire Diameter:</span>
-                                  <span className="font-medium">{item.calculation.springs.wire_diameter}"</span>
-                                </div>
+                                {item.calculation.springs.is_duplex ? (
+                                  <>
+                                    <div className="mt-2 pt-2 border-t border-gray-100">
+                                      <span className="text-xs font-medium text-gray-600">Outer Spring (6" coil):</span>
+                                    </div>
+                                    <div className="flex justify-between pl-2">
+                                      <span className="text-gray-500">Wire:</span>
+                                      <span className="font-medium">{item.calculation.springs.wire_diameter}"</span>
+                                    </div>
+                                    <div className="flex justify-between pl-2">
+                                      <span className="text-gray-500">Length:</span>
+                                      <span className="font-medium">{item.calculation.springs.length}"</span>
+                                    </div>
+                                    <div className="mt-1 pt-1 border-t border-gray-100">
+                                      <span className="text-xs font-medium text-gray-600">Inner Spring (3-3/4" coil):</span>
+                                    </div>
+                                    <div className="flex justify-between pl-2">
+                                      <span className="text-gray-500">Wire:</span>
+                                      <span className="font-medium">{item.calculation.springs.inner_wire_diameter}"</span>
+                                    </div>
+                                    <div className="flex justify-between pl-2">
+                                      <span className="text-gray-500">Length:</span>
+                                      <span className="font-medium">{item.calculation.springs.inner_length}"</span>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div className="flex justify-between">
+                                      <span className="text-gray-500">Coil Diameter:</span>
+                                      <span className="font-medium">{item.calculation.springs.coil_diameter}"</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-gray-500">Wire Diameter:</span>
+                                      <span className="font-medium">{item.calculation.springs.wire_diameter}"</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-gray-500">Length:</span>
+                                      <span className="font-medium">{item.calculation.springs.length}"</span>
+                                    </div>
+                                  </>
+                                )}
                                 <div className="flex justify-between">
                                   <span className="text-gray-500">Cycles:</span>
                                   <span className="font-medium">{item.calculation.springs.cycles?.toLocaleString()}</span>

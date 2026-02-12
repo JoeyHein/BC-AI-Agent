@@ -223,6 +223,65 @@ class BusinessCentralClient:
         )
         return result
 
+    # ==================== Quote PDF (BC built-in) ====================
+
+    def get_quote_pdf(self, quote_id: str, company_id: Optional[str] = None) -> bytes:
+        """
+        Download the PDF for a sales quote using BC's built-in PDF generation.
+
+        BC generates the PDF from the report layout configured for Sales Quotes.
+        The pdfDocument endpoint returns base64-encoded content.
+
+        Args:
+            quote_id: The BC sales quote ID (GUID)
+            company_id: Optional company ID
+
+        Returns:
+            PDF file content as bytes
+        """
+        import base64
+
+        cid = company_id or self.company_id
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/salesQuotes({quote_id})/pdfDocument"
+        )
+
+        # BC returns pdfDocumentContent as base64
+        pdf_content = result.get("pdfDocumentContent")
+        if not pdf_content:
+            # Some BC versions return it in a value array
+            values = result.get("value", [])
+            if values:
+                pdf_content = values[0].get("pdfDocumentContent")
+
+        if not pdf_content:
+            raise ValueError(f"No PDF content returned for quote {quote_id}")
+
+        logger.info(f"Downloaded PDF for quote {quote_id}")
+        return base64.b64decode(pdf_content)
+
+    def download_quote_pdf_to_file(self, quote_id: str, output_path: str,
+                                    company_id: Optional[str] = None) -> str:
+        """
+        Download quote PDF and save to a file.
+
+        Args:
+            quote_id: The BC sales quote ID (GUID)
+            output_path: File path to save the PDF
+            company_id: Optional company ID
+
+        Returns:
+            The output file path
+        """
+        pdf_bytes = self.get_quote_pdf(quote_id, company_id)
+
+        with open(output_path, "wb") as f:
+            f.write(pdf_bytes)
+
+        logger.info(f"Saved quote PDF to {output_path}")
+        return output_path
+
     # ==================== Vendors ====================
 
     def get_vendors(self, company_id: Optional[str] = None, top: int = 100) -> List[Dict[str, Any]]:

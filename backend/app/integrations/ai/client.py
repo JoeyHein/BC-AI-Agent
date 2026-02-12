@@ -80,6 +80,7 @@ Analyze the following email and extract structured quote request information.
    - Any special features or notes
 
 3. **Project Information:**
+   - Project tag/reference - the customer's identifier for this project, often found in the email subject line (e.g., "Smith Warehouse", "Project 2025-44", "Lot 12 Calgary"). This is how the customer refers to the quote. If no clear tag exists, use null.
    - Project name/location
    - Delivery date or deadline
    - Installation required? (yes/no)
@@ -118,6 +119,7 @@ Analyze the following email and extract structured quote request information.
     }}
   ],
   "project": {{
+    "tag": "Customer's project tag/reference from subject or body, or null",
     "name": "Project name or null",
     "delivery_date": "Date or null",
     "installation_required": true/false/null,

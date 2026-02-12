@@ -3,14 +3,17 @@ Door Configurator API - Provides configuration options for building door quotes
 Based on Upwardor brochure specifications (Residential 2025 & Commercial 2023)
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import logging
 
 from app.services.part_number_service import get_parts_for_door_config, part_number_service, DoorConfiguration
 from app.services.door_calculator_service import door_calculator, calculate_door_from_config
+from app.services.spring_data_service import get_spring_inventory_settings
 from app.integrations.bc.client import bc_client
+from app.db.database import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -277,9 +280,15 @@ GLAZING_OPTIONS = {
 
 TRACK_OPTIONS = {
     "radius": [
-        {"id": "12", "name": "12\" (Low Headroom)", "minClearance": 12},
-        {"id": "15", "name": "15\" (Standard Residential)", "minClearance": 15},
-        {"id": "20", "name": "20\" (Craft Series Standard)", "minClearance": 20},
+        {"id": "12", "name": "12\" Radius", "minClearance": 12, "note": "2\" track only", "allowedThickness": ["2"]},
+        {"id": "15", "name": "15\" Radius (Standard)", "minClearance": 15, "allowedThickness": ["2", "3"]},
+        {"id": "20", "name": "20\" Radius (Craft Series)", "minClearance": 20, "allowedThickness": ["2", "3"]},
+    ],
+    "liftType": [
+        {"id": "standard", "name": "Standard Lift", "description": "Standard radius track"},
+        {"id": "low_headroom", "name": "Low Headroom (2\" Double Track)", "description": "2\" double track lowhead - for minimal headroom clearance", "forcedTrackSize": 2},
+        {"id": "high_lift", "name": "High Lift", "description": "Extended vertical track above door opening"},
+        {"id": "vertical", "name": "Vertical Lift", "description": "Full vertical track - no horizontal"},
     ],
     "thickness": [
         {"id": "2", "name": "2\" Track"},
@@ -1040,18 +1049,20 @@ async def get_parts_for_quote(request: QuoteGenerationRequest):
 
 
 @router.post("/calculate-door")
-async def calculate_door_specifications(request: DoorCalculationRequest):
+async def calculate_door_specifications(request: DoorCalculationRequest, db: Session = Depends(get_db)):
     """
     Calculate complete door specifications including:
     - Panel configuration (sections, gauge)
     - Door weight breakdown
-    - Spring selection (coil, wire, length, cycles)
+    - Spring selection (coil, wire, length, cycles) - filtered by stocked inventory
     - Drum selection with cable specifications
     - Shaft configuration
     - Track configuration
     - Hardware component list
 
     Based on Thermalex Door Weight Calculator formulas.
+    Spring selection respects the spring inventory settings - only stocked springs
+    will be selected. If no stocked 2-spring solution exists, falls back to 4 springs.
     """
     try:
         # Convert feet + inches to total inches
@@ -1062,6 +1073,9 @@ async def calculate_door_specifications(request: DoorCalculationRequest):
             raise HTTPException(status_code=400, detail="Door width must be between 60\" and 360\" (5' to 30')")
         if height_inches < 60 or height_inches > 288:
             raise HTTPException(status_code=400, detail="Door height must be between 60\" and 288\" (5' to 24')")
+
+        # Load spring inventory so we only select stocked springs
+        spring_inventory = get_spring_inventory_settings(db)
 
         # Calculate door
         calc = door_calculator.calculate_door(
@@ -1075,6 +1089,7 @@ async def calculate_door_specifications(request: DoorCalculationRequest):
             double_end_caps=request.doubleEndCaps,
             heavy_duty_hinges=request.heavyDutyHinges,
             target_cycles=request.targetCycles,
+            spring_inventory=spring_inventory,
         )
 
         # Get summary
