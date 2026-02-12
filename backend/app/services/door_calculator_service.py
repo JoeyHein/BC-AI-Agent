@@ -822,10 +822,14 @@ class DoorCalculatorService:
             logger.warning("Door weight must be greater than 0")
             return None
 
+        # Use the drum model from drum selection so spring calculator uses correct multipliers
+        drum_model = drums.model if drums else None
+
         if spring_inventory:
             result = self._calculate_springs_from_inventory(
                 door_weight, height_inches, target_cycles,
-                track_radius, spring_inventory, width_inches
+                track_radius, spring_inventory, width_inches,
+                drum_model=drum_model,
             )
             if result is not None:
                 return result
@@ -844,7 +848,8 @@ class DoorCalculatorService:
                     track_radius=track_radius,
                     spring_qty=qty,
                     coil_diameter=coil_diam,
-                    target_cycles=target_cycles
+                    target_cycles=target_cycles,
+                    drum_model=drum_model,
                 )
                 if result is not None:
                     return SpringSelection(
@@ -871,6 +876,7 @@ class DoorCalculatorService:
         track_radius: int,
         inventory: Dict[str, List[str]],
         width_inches: int = 240,
+        drum_model: Optional[str] = None,
     ) -> Optional[SpringSelection]:
         """
         Find the best spring from stocked inventory.
@@ -922,7 +928,8 @@ class DoorCalculatorService:
                     spring_qty=spring_qty,
                     wire_diameter=wire_diam,
                     coil_diameter=coil_diam,
-                    target_cycles=target_cycles
+                    target_cycles=target_cycles,
+                    drum_model=drum_model,
                 )
                 if result is not None:
                     # Verify MIP capacity is sufficient
@@ -954,7 +961,8 @@ class DoorCalculatorService:
         for duplex_pairs in [2, 4]:
             duplex = self._calculate_duplex_springs(
                 door_weight, height_inches, target_cycles,
-                track_radius, inventory, duplex_pairs
+                track_radius, inventory, duplex_pairs,
+                drum_model=drum_model,
             )
             if duplex is not None:
                 all_candidates.append(duplex)
@@ -1005,6 +1013,7 @@ class DoorCalculatorService:
         track_radius: int,
         inventory: Dict[str, List[str]],
         duplex_pairs: int = 2,
+        drum_model: Optional[str] = None,
     ) -> Optional[SpringSelection]:
         """
         Calculate duplex spring configuration.
@@ -1035,7 +1044,7 @@ class DoorCalculatorService:
             return None
 
         # Calculate what each spring needs to handle
-        drum_data = spring_calculator.get_drum_data(height_inches, track_radius)
+        drum_data = spring_calculator.get_drum_data(height_inches, track_radius, drum_model)
         if drum_data is None:
             return None
 
@@ -1059,7 +1068,8 @@ class DoorCalculatorService:
                     spring_qty=total_qty,
                     wire_diameter=wire_diam,
                     coil_diameter=6.0,
-                    target_cycles=target_cycles
+                    target_cycles=target_cycles,
+                    drum_model=drum_model
                 )
                 if result:
                     outer_candidates.append(result)
@@ -1080,7 +1090,8 @@ class DoorCalculatorService:
                     spring_qty=total_qty,
                     wire_diameter=wire_diam,
                     coil_diameter=3.75,
-                    target_cycles=target_cycles
+                    target_cycles=target_cycles,
+                    drum_model=drum_model
                 )
                 if result:
                     inner_candidates.append(result)
