@@ -15,26 +15,22 @@ import { useMemo } from 'react'
 const STAMP_WIDTH = 42 // inches
 const STAMP_HEIGHT = 14 // inches
 
-const getStampColumns = (widthInches) => {
-  // Calculate how many 42" stamps fit with reasonable spacing
-  // Refer to Upwardor stamp layout PDFs for exact values per width
+const getStampColumns = (widthInches, stampType = 'long') => {
+  // Calculate stamp columns based on door width and stamp type
+  // Long stamps (SHXL, BCXL): 42" wide - based on Upwardor layout PDFs
+  // Standard stamps (SH, BC): ~21" wide - always 2× the long stamp count
   const widthFeet = widthInches / 12
 
-  // Exact mappings from Upwardor layout documents
-  if (widthFeet <= 8) return 3
-  if (widthFeet <= 9) return 3
-  if (widthFeet <= 10) return 3
-  if (widthFeet <= 11) return 3
-  if (widthFeet <= 12) return 3  // 12' = 144", fits 3 stamps (3x42=126") with spacing
-  if (widthFeet <= 13) return 4
-  if (widthFeet <= 14) return 4
-  if (widthFeet <= 15) return 4
-  if (widthFeet <= 16) return 4  // 16' = 192", fits 4 stamps (4x42=168") with spacing
-  if (widthFeet <= 17) return 5
-  if (widthFeet <= 18) return 5
-  if (widthFeet <= 19) return 5
-  if (widthFeet <= 20) return 6  // 20' = 240", fits 6 stamps (6x42=252") tight
-  return 6
+  // Long stamp counts (SHXL, BCXL)
+  let longCols
+  if (widthFeet <= 9) longCols = 2
+  else if (widthFeet <= 12) longCols = 3
+  else if (widthFeet <= 16) longCols = 4
+  else if (widthFeet <= 19) longCols = 5
+  else longCols = 6
+
+  if (stampType === 'standard') return longCols * 2
+  return longCols
 }
 
 const PANEL_PATTERNS = {
@@ -43,14 +39,16 @@ const PANEL_PATTERNS = {
     type: 'raised',
     rows: 1,
     cols: 'dynamic', // Will be calculated based on door width
+    stampType: 'long',
     style: 'sheridan',
     description: 'Sheridan XL - Long Raised Panel'
   },
-  // Sheridan - Short raised panel (2 rows, columns based on width)
+  // Sheridan - Short raised panel (1 row per section, more square stamps)
   SH: {
     type: 'raised',
-    rows: 2,
+    rows: 1,
     cols: 'dynamic',
+    stampType: 'standard',
     style: 'sheridan',
     description: 'Sheridan - Short Raised Panel'
   },
@@ -59,21 +57,23 @@ const PANEL_PATTERNS = {
     type: 'carriage',
     rows: 1,
     cols: 'dynamic',
+    stampType: 'long',
     style: 'bronte',
     description: 'Bronte Creek XL - Long Carriage Panel'
   },
-  // Bronte Creek - Short carriage panel (2 rows, columns based on width)
+  // Bronte Creek - Short carriage panel (1 row per section, more square stamps)
   BC: {
     type: 'carriage',
-    rows: 2,
+    rows: 1,
     cols: 'dynamic',
+    stampType: 'standard',
     style: 'bronte',
     description: 'Bronte Creek - Short Carriage Panel'
   },
-  // Trafalgar - Vertical ribbed
+  // Trafalgar - Horizontal ribbed
   TRAFALGAR: {
-    type: 'ribbed',
-    ribs: 8,
+    type: 'horizontal_ribbed',
+    ribs: 5,
     style: 'modern',
     description: 'Trafalgar - Ribbed'
   },
@@ -217,8 +217,9 @@ function DoorPreview({
     (windowPositions && windowPositions.length > 0) || windowSection
   )
 
-  // Calculate stamp columns for current door width
-  const stampColumns = getStampColumns(width)
+  // Calculate stamp columns for current door width using pattern's stamp type
+  const currentPattern = PANEL_PATTERNS[panelDesign] || PANEL_PATTERNS.SHXL
+  const stampColumns = getStampColumns(width, currentPattern.stampType)
 
   // Calculate section heights
   const sectionConfig = useMemo(() => {
@@ -256,7 +257,7 @@ function DoorPreview({
   // Render window overlays for panel types that don't natively handle stamps (flush, ribbed, UDC)
   const renderWindowOverlays = (y, w, h, padding, sectionIndex) => {
     const absoluteSection = sectionIndex + 1
-    const cols = getStampColumns(width)
+    const cols = getStampColumns(width, currentPattern.stampType)
     const gapX = w * 0.02
     const cellW = (w - gapX * (cols + 1)) / cols
     const cellH = h  // Full section height for single-row patterns
@@ -545,11 +546,11 @@ function DoorPreview({
 
   const renderRaisedPanels = (y, w, h, padding, pattern, sectionIndex) => {
     const { rows } = pattern
-    // Calculate columns dynamically based on door width
-    const cols = pattern.cols === 'dynamic' ? getStampColumns(width) : pattern.cols
+    // Calculate columns dynamically based on door width and stamp type
+    const cols = pattern.cols === 'dynamic' ? getStampColumns(width, pattern.stampType) : pattern.cols
     // Gap between stamps
-    const gapX = w * 0.02
-    const gapY = h * 0.05
+    const gapX = w * 0.012
+    const gapY = h * 0.03
     // Calculate cell dimensions accounting for gaps
     const cellW = (w - gapX * (cols + 1)) / cols
     const cellH = (h - gapY * (rows + 1)) / rows
@@ -668,11 +669,11 @@ function DoorPreview({
 
   const renderCarriagePanels = (y, w, h, padding, pattern, sectionIndex) => {
     const { rows } = pattern
-    // Calculate columns dynamically based on door width for Bronte Creek styles
-    const cols = pattern.cols === 'dynamic' ? getStampColumns(width) : pattern.cols
+    // Calculate columns dynamically based on door width and stamp type for Bronte Creek styles
+    const cols = pattern.cols === 'dynamic' ? getStampColumns(width, pattern.stampType) : pattern.cols
     // Gap between stamps
-    const gapX = w * 0.02
-    const gapY = h * 0.05
+    const gapX = w * 0.012
+    const gapY = h * 0.03
     const cellW = (w - gapX * (cols + 1)) / cols
     const cellH = (h - gapY * (rows + 1)) / rows
 
@@ -751,8 +752,33 @@ function DoorPreview({
               stroke={lineColor}
               strokeWidth="1"
             />
-            {/* Vertical divider line for Bronte Creek carriage style */}
-            {(pattern.style === 'bronte' || pattern.style === 'carriage') && (
+            {/* Vertical board groove lines for Bronte Creek carriage style */}
+            {(pattern.style === 'bronte') && (() => {
+              const innerX = x + outerInset + innerInset
+              const innerY2 = cellY + outerInset + innerInset
+              const innerW = cellW - (outerInset + innerInset) * 2
+              const innerH = cellH - (outerInset + innerInset) * 2
+              // Dense vertical grooves: ~6 for short stamps, ~12 for long stamps
+              const numGrooves = pattern.stampType === 'long' ? 11 : 6
+              const grooveSpacing = innerW / (numGrooves + 1)
+              const grooves = []
+              for (let g = 1; g <= numGrooves; g++) {
+                grooves.push(
+                  <line
+                    key={`groove-${sectionIndex}-${row}-${col}-${g}`}
+                    x1={innerX + grooveSpacing * g}
+                    y1={innerY2}
+                    x2={innerX + grooveSpacing * g}
+                    y2={innerY2 + innerH}
+                    stroke={lineColor}
+                    strokeWidth="0.75"
+                  />
+                )
+              }
+              return grooves
+            })()}
+            {/* Single vertical divider for other carriage styles */}
+            {(pattern.style !== 'bronte' && (pattern.style === 'carriage' || pattern.style === 'muskoka' || pattern.style === 'denison' || pattern.style === 'granville')) && (
               <line
                 x1={x + cellW * 0.5}
                 y1={cellY + outerInset + innerInset}
@@ -828,31 +854,35 @@ function DoorPreview({
     return lines
   }
 
-  // Render horizontal ribbed panels (for UDC commercial)
+  // Render horizontal ribbed panels (for UDC commercial and Trafalgar)
+  // y and h already include padding offset - use full section edges for even spacing
   const renderHorizontalRibbedPanels = (y, w, h, padding, pattern) => {
     const { ribs } = pattern
-    const ribSpacing = h / (ribs + 1)
+    // Space ribs evenly from section edges: equal gap at top, between, and bottom
+    const sectionTop = y - padding
+    const sectionH = h + padding * 2
+    const ribSpacing = sectionH / (ribs + 1)
     const lines = []
 
     for (let i = 1; i <= ribs; i++) {
-      const lineY = y + ribSpacing * i
+      const lineY = sectionTop + ribSpacing * i
       lines.push(
         <g key={`h-rib-${i}`}>
           <line
-            x1={padding}
-            y1={lineY - 1}
-            x2={padding + w}
-            y2={lineY - 1}
+            x1={0}
+            y1={lineY - 0.5}
+            x2={displayWidth}
+            y2={lineY - 0.5}
             stroke={shadowColor}
-            strokeWidth="2"
+            strokeWidth="1"
           />
           <line
-            x1={padding}
-            y1={lineY}
-            x2={padding + w}
-            y2={lineY}
+            x1={0}
+            y1={lineY + 0.5}
+            x2={displayWidth}
+            y2={lineY + 0.5}
             stroke={isDark ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.6)'}
-            strokeWidth="1"
+            strokeWidth="0.5"
           />
         </g>
       )
@@ -892,7 +922,7 @@ function DoorPreview({
     const windowHeightDisplay = windowSizeInches.height * scaleRatio
 
     // For short stamp patterns (SH/BC) with long windows (14x40), window spans 2 stamp columns
-    const cols = pattern.cols === 'dynamic' ? getStampColumns(width) : pattern.cols
+    const cols = pattern.cols === 'dynamic' ? getStampColumns(width, pattern.stampType) : pattern.cols
     const gapX = w * 0.02
     const stampWidth = (w - gapX * (cols + 1)) / cols
 
