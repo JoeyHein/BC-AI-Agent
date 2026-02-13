@@ -9,12 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 
 from app.db.database import SessionLocal
 from app.db.models import User, SavedQuoteConfig, SalesOrder, Shipment, Invoice, BCCustomer
 from app.api.customer_auth import get_current_customer
 from app.integrations.bc.client import bc_client
+from app.services.part_number_service import get_parts_for_door_config
 
 router = APIRouter(prefix="/api/customer/portal", tags=["customer-portal"])
 logger = logging.getLogger(__name__)
@@ -251,6 +252,15 @@ def update_saved_quote(
         config.description = update_data.description
     if update_data.config_data is not None:
         config.config_data = update_data.config_data
+        # Config changed - clear stale BC quote so pricing must be re-requested
+        if config.bc_quote_id:
+            try:
+                bc_client.delete_sales_quote(config.bc_quote_id)
+                logger.info(f"Deleted stale BC quote {config.bc_quote_number} after config update")
+            except Exception as e:
+                logger.warning(f"Could not delete stale BC quote {config.bc_quote_id}: {e}")
+            config.bc_quote_id = None
+            config.bc_quote_number = None
 
     config.updated_at = datetime.utcnow()
     db.commit()
@@ -293,13 +303,482 @@ def delete_saved_quote(
     return {"message": "Configuration deleted successfully"}
 
 
+# ============================================================================
+# QUOTE PRICING HELPERS (mirrors admin door_configurator.py generate-quote logic)
+# ============================================================================
+
+# Standard line item ordering for BC quotes (same as door_configurator.py)
+LINE_ORDER = [
+    "comment", "panel", "retainer", "astragal", "strut", "window",
+    "track", "highlift_track", "hardware", "spring", "spring_accessory",
+    "shaft", "weather_stripping", "accessory", "operator",
+]
+
+
+def _sort_parts_by_category(parts: List[dict]) -> List[dict]:
+    """Sort parts list according to BC quote line ordering standard."""
+    def sort_key(part):
+        category = part.get("category", "other").lower()
+        try:
+            return LINE_ORDER.index(category)
+        except ValueError:
+            return len(LINE_ORDER)
+    return sorted(parts, key=sort_key)
+
+
+def _format_door_description(door: dict) -> str:
+    """Format door description for BC quote comment line."""
+    width_ft = door.get("doorWidth", 0) // 12
+    height_ft = door.get("doorHeight", 0) // 12
+    track_display = f"{door.get('trackThickness', '2')}\" HW"
+    lift_type = "LHR" if door.get("trackRadius") == "12" else "STD LIFT"
+    return (
+        f"({door.get('doorCount', 1)}) {width_ft}x{height_ft} "
+        f"{door.get('doorSeries', '')}, {door.get('panelColor', '')}, "
+        f"{door.get('panelDesign', '')}, {track_display}, {lift_type}"
+    )
+
+
+def _validate_doors_config(config_data: dict) -> List[dict]:
+    """Validate and extract doors from config_data. Raises HTTPException on failure."""
+    doors = config_data.get("doors", [])
+    if not doors:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No doors found in configuration. Please add at least one door."
+        )
+    for i, door in enumerate(doors):
+        missing = []
+        if not door.get("doorSeries"):
+            missing.append("series")
+        if not door.get("doorWidth"):
+            missing.append("width")
+        if not door.get("doorHeight"):
+            missing.append("height")
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Door {i + 1} is missing required fields: {', '.join(missing)}"
+            )
+    return doors
+
+
+def _generate_bc_quote_with_items(
+    doors: List[dict],
+    bc_customer_id: str,
+    config_id: int,
+) -> Dict[str, Any]:
+    """
+    Create a BC sales quote with real item lines for all doors.
+
+    Returns dict with: bc_quote_id, bc_quote_number, lines_added, lines_failed,
+    pricing, line_pricing, door_results
+    """
+    # Step 1: Build all ordered lines from door configs
+    all_lines = []
+    door_results = []
+
+    for i, door in enumerate(doors):
+        door_index = i + 1
+        door_desc = _format_door_description(door)
+
+        # Comment line for this door
+        all_lines.append({
+            "lineType": "Comment",
+            "description": door_desc,
+            "category": "COMMENT",
+            "door_index": door_index,
+        })
+
+        # Get parts for this door configuration
+        config_dict = {
+            "doorType": door.get("doorType", "residential"),
+            "doorSeries": door.get("doorSeries"),
+            "doorWidth": door.get("doorWidth"),
+            "doorHeight": door.get("doorHeight"),
+            "doorCount": door.get("doorCount", 1),
+            "panelColor": door.get("panelColor", "WHITE"),
+            "panelDesign": door.get("panelDesign", "SHXL"),
+            "windowInsert": door.get("windowInsert"),
+            "windowPositions": door.get("windowPositions", []),
+            "windowCount": door.get("windowCount") or (
+                len(door.get("windowPositions", [])) if door.get("windowPositions")
+                else (door.get("windowQty", 0) if door.get("windowQty")
+                      else (1 if door.get("windowSection") else 0))
+            ),
+            "windowSection": door.get("windowSection"),
+            "glazingType": door.get("glazingType"),
+            "trackRadius": door.get("trackRadius", "15"),
+            "trackThickness": door.get("trackThickness", "2"),
+            "hardware": door.get("hardware", {}),
+            "operator": door.get("operator"),
+        }
+
+        try:
+            door_parts = get_parts_for_door_config(config_dict)
+            parts_list = door_parts.get("parts_list", [])
+            sorted_parts = _sort_parts_by_category(parts_list)
+
+            for part in sorted_parts:
+                part["door_index"] = door_index
+                all_lines.append(part)
+
+            door_results.append({
+                "door_index": door_index,
+                "door_description": door_desc,
+                "parts_count": len(parts_list),
+                "success": True,
+            })
+        except Exception as e:
+            logger.warning(f"Failed to get parts for door {door_index}: {e}")
+            door_results.append({
+                "door_index": door_index,
+                "door_description": door_desc,
+                "parts_count": 0,
+                "success": False,
+                "error": str(e),
+            })
+
+    # Step 2: Create BC Quote
+    quote_data = {
+        "customerId": bc_customer_id,
+        "externalDocumentNumber": f"PORTAL-{config_id}",
+    }
+    bc_quote = bc_client.create_sales_quote(quote_data)
+    if not bc_quote:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create quote in Business Central"
+        )
+    bc_quote_id = bc_quote.get("id")
+    bc_quote_number = bc_quote.get("number")
+    logger.info(f"Created BC quote: {bc_quote_number} (ID: {bc_quote_id})")
+
+    # Step 3: Add line items
+    lines_added = 0
+    lines_failed = []
+
+    for line in all_lines:
+        try:
+            if line.get("lineType") == "Comment":
+                line_data = {
+                    "lineType": "Comment",
+                    "description": line["description"],
+                }
+            else:
+                line_data = {
+                    "lineType": "Item",
+                    "lineObjectNumber": line["part_number"],
+                    "description": line.get("description", ""),
+                    "quantity": line["quantity"],
+                }
+
+            bc_client.add_quote_line(bc_quote_id, line_data)
+            lines_added += 1
+
+        except Exception as line_error:
+            part_id = line.get("part_number", line.get("description", "unknown"))
+            logger.warning(f"Failed to add line {part_id}: {line_error}")
+
+            # Fall back to comment line for failed items
+            if line.get("lineType") != "Comment" and line.get("part_number"):
+                try:
+                    comment_line = {
+                        "lineType": "Comment",
+                        "description": f"{line['part_number']} - {line.get('description', '')} (Qty: {line['quantity']})",
+                    }
+                    bc_client.add_quote_line(bc_quote_id, comment_line)
+                    lines_added += 1
+                    lines_failed.append({
+                        "part_number": line.get("part_number"),
+                        "description": line.get("description", ""),
+                        "error": str(line_error),
+                        "fallback": "comment",
+                    })
+                except Exception:
+                    lines_failed.append({
+                        "part_number": line.get("part_number"),
+                        "description": line.get("description", ""),
+                        "error": str(line_error),
+                        "fallback": "failed",
+                    })
+            else:
+                lines_failed.append({
+                    "part_number": part_id,
+                    "error": str(line_error),
+                })
+
+    # Step 4: Fetch pricing back from BC
+    pricing = None
+    line_pricing = []
+    try:
+        updated_quote = bc_client.get_sales_quote(bc_quote_id)
+        quote_lines = bc_client.get_quote_lines(bc_quote_id)
+
+        subtotal = updated_quote.get("totalAmountExcludingTax", 0)
+        total_with_tax = updated_quote.get("totalAmountIncludingTax", 0)
+        tax_amount = total_with_tax - subtotal
+
+        pricing = {
+            "subtotal": round(subtotal, 2),
+            "tax": round(tax_amount, 2),
+            "total": round(total_with_tax, 2),
+            "currency": "CAD",
+        }
+
+        for ql in quote_lines:
+            line_pricing.append({
+                "line_type": ql.get("lineType", ""),
+                "part_number": ql.get("lineObjectNumber", ""),
+                "description": ql.get("description", ""),
+                "quantity": ql.get("quantity", 0),
+                "unit_price": ql.get("unitPrice", 0),
+                "line_total": ql.get("netAmount", 0),
+                "door_index": None,  # BC doesn't track this, but comments delimit doors
+            })
+
+    except Exception as pricing_error:
+        logger.warning(f"Could not fetch pricing for quote {bc_quote_number}: {pricing_error}")
+
+    return {
+        "bc_quote_id": bc_quote_id,
+        "bc_quote_number": bc_quote_number,
+        "lines_added": lines_added,
+        "lines_failed": lines_failed if lines_failed else None,
+        "pricing": pricing,
+        "line_pricing": line_pricing if line_pricing else None,
+        "door_results": door_results,
+    }
+
+
+# ============================================================================
+# PRICING ENDPOINTS
+# ============================================================================
+
+@router.post("/saved-quotes/{config_id}/get-pricing")
+def get_pricing_for_saved_quote(
+    config_id: int,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db)
+):
+    """
+    Generate a real BC sales quote with item lines to get customer-specific pricing.
+
+    Creates the quote in BC with the customer's ID so BC applies their pricing.
+    Stores the bc_quote_id on the saved config but does NOT mark as submitted.
+    """
+    config = db.query(SavedQuoteConfig).filter(
+        SavedQuoteConfig.id == config_id,
+        SavedQuoteConfig.user_id == current_user.id
+    ).first()
+
+    if not config:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Saved configuration not found"
+        )
+
+    if config.is_submitted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Configuration has already been submitted"
+        )
+
+    if not current_user.bc_customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Your account is not linked to a Business Central customer. Please contact support."
+        )
+
+    # If there's already a BC quote from a previous pricing request, delete it first
+    if config.bc_quote_id:
+        try:
+            bc_client.delete_sales_quote(config.bc_quote_id)
+            logger.info(f"Deleted previous BC quote {config.bc_quote_number} for config {config_id}")
+        except Exception as e:
+            logger.warning(f"Could not delete previous BC quote {config.bc_quote_id}: {e}")
+
+    try:
+        doors = _validate_doors_config(config.config_data or {})
+
+        result = _generate_bc_quote_with_items(
+            doors=doors,
+            bc_customer_id=current_user.bc_customer_id,
+            config_id=config.id,
+        )
+
+        # Store BC quote reference (but NOT submitted)
+        config.bc_quote_id = result["bc_quote_id"]
+        config.bc_quote_number = result["bc_quote_number"]
+        config.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(config)
+
+        logger.info(
+            f"Pricing generated for config {config_id}: "
+            f"BC Quote {result['bc_quote_number']}, "
+            f"{result['lines_added']} lines"
+        )
+
+        return {
+            "success": True,
+            "config_id": config.id,
+            "bc_quote_id": result["bc_quote_id"],
+            "bc_quote_number": result["bc_quote_number"],
+            "lines_added": result["lines_added"],
+            "lines_failed": result["lines_failed"],
+            "pricing": result["pricing"],
+            "line_pricing": result["line_pricing"],
+            "door_results": result["door_results"],
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating pricing for config {config_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate pricing: {str(e)}"
+        )
+
+
+@router.post("/saved-quotes/{config_id}/confirm", response_model=SavedQuoteConfigResponse)
+def confirm_saved_quote(
+    config_id: int,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db)
+):
+    """
+    Confirm a priced quote - marks it as submitted.
+
+    Requires that pricing has already been generated (bc_quote_id exists).
+    """
+    config = db.query(SavedQuoteConfig).filter(
+        SavedQuoteConfig.id == config_id,
+        SavedQuoteConfig.user_id == current_user.id
+    ).first()
+
+    if not config:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Saved configuration not found"
+        )
+
+    if config.is_submitted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Configuration has already been submitted"
+        )
+
+    if not config.bc_quote_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Pricing has not been generated yet. Please get pricing first."
+        )
+
+    config.is_submitted = True
+    config.submitted_at = datetime.utcnow()
+    db.commit()
+    db.refresh(config)
+
+    logger.info(f"Quote confirmed: config {config_id}, BC Quote {config.bc_quote_number}")
+
+    return config
+
+
+@router.post("/saved-quotes/{config_id}/refresh-pricing")
+def refresh_pricing_for_saved_quote(
+    config_id: int,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db)
+):
+    """
+    Refresh pricing for a saved quote after config changes.
+
+    Deletes the old BC quote (if any) and generates a new one.
+    """
+    config = db.query(SavedQuoteConfig).filter(
+        SavedQuoteConfig.id == config_id,
+        SavedQuoteConfig.user_id == current_user.id
+    ).first()
+
+    if not config:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Saved configuration not found"
+        )
+
+    if config.is_submitted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot refresh pricing on a submitted configuration"
+        )
+
+    if not current_user.bc_customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Your account is not linked to a Business Central customer. Please contact support."
+        )
+
+    # Delete old BC quote if one exists
+    if config.bc_quote_id:
+        try:
+            bc_client.delete_sales_quote(config.bc_quote_id)
+            logger.info(f"Deleted old BC quote {config.bc_quote_number} for refresh")
+        except Exception as e:
+            logger.warning(f"Could not delete old BC quote {config.bc_quote_id}: {e}")
+
+    try:
+        doors = _validate_doors_config(config.config_data or {})
+
+        result = _generate_bc_quote_with_items(
+            doors=doors,
+            bc_customer_id=current_user.bc_customer_id,
+            config_id=config.id,
+        )
+
+        config.bc_quote_id = result["bc_quote_id"]
+        config.bc_quote_number = result["bc_quote_number"]
+        config.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(config)
+
+        logger.info(f"Pricing refreshed for config {config_id}: BC Quote {result['bc_quote_number']}")
+
+        return {
+            "success": True,
+            "config_id": config.id,
+            "bc_quote_id": result["bc_quote_id"],
+            "bc_quote_number": result["bc_quote_number"],
+            "lines_added": result["lines_added"],
+            "lines_failed": result["lines_failed"],
+            "pricing": result["pricing"],
+            "line_pricing": result["line_pricing"],
+            "door_results": result["door_results"],
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error refreshing pricing for config {config_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to refresh pricing: {str(e)}"
+        )
+
+
 @router.post("/saved-quotes/{config_id}/submit", response_model=SavedQuoteConfigResponse)
 def submit_saved_quote(
     config_id: int,
     current_user: User = Depends(get_current_customer),
     db: Session = Depends(get_db)
 ):
-    """Submit a saved configuration to create a BC quote"""
+    """
+    Submit a saved configuration.
+
+    If the quote already has BC pricing (bc_quote_id), just confirms it.
+    If no pricing yet, generates the full BC quote with item lines first, then confirms.
+    """
     config = db.query(SavedQuoteConfig).filter(
         SavedQuoteConfig.id == config_id,
         SavedQuoteConfig.user_id == current_user.id
@@ -324,102 +803,31 @@ def submit_saved_quote(
         )
 
     try:
-        # Parse config data
-        door_config = config.config_data or {}
+        # If no BC quote yet, generate one with real item lines
+        if not config.bc_quote_id:
+            doors = _validate_doors_config(config.config_data or {})
 
-        # Build description from config
-        description_parts = []
-        if door_config.get("door_type"):
-            description_parts.append(door_config["door_type"].title())
-        if door_config.get("width") and door_config.get("height"):
-            description_parts.append(f'{door_config["width"]}" x {door_config["height"]}"')
-        if door_config.get("color"):
-            description_parts.append(door_config["color"])
-        if door_config.get("window_type") and door_config["window_type"] != "none":
-            description_parts.append(f"Windows: {door_config['window_type']}")
-
-        door_description = " - ".join(description_parts) if description_parts else "Custom Door Configuration"
-
-        # Create quote in BC
-        quote_data = {
-            "customerId": current_user.bc_customer_id,
-            "externalDocumentNumber": f"PORTAL-{config.id}",
-        }
-
-        # Try to create quote in BC
-        bc_quote = bc_client.create_sales_quote(quote_data)
-
-        if not bc_quote:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create quote in Business Central"
+            result = _generate_bc_quote_with_items(
+                doors=doors,
+                bc_customer_id=current_user.bc_customer_id,
+                config_id=config.id,
             )
 
-        quote_id = bc_quote.get("id")
+            config.bc_quote_id = result["bc_quote_id"]
+            config.bc_quote_number = result["bc_quote_number"]
 
-        # Add line item for the door configuration
-        try:
-            line_data = {
-                "lineType": "Comment",  # Use Comment for custom descriptions, or "Item" if you have item numbers
-                "description": door_description,
-            }
-
-            # If we have more detailed config, add additional comment lines
-            bc_client.add_quote_line(quote_id, line_data)
-
-            # Add notes as a separate line if present
-            if door_config.get("notes"):
-                notes_line = {
-                    "lineType": "Comment",
-                    "description": f"Notes: {door_config['notes'][:250]}"  # Truncate long notes
-                }
-                bc_client.add_quote_line(quote_id, notes_line)
-
-            # Add detailed specifications as comment lines
-            spec_lines = []
-            if door_config.get("door_type"):
-                spec_lines.append(f"Type: {door_config['door_type'].title()}")
-            if door_config.get("width"):
-                spec_lines.append(f"Width: {door_config['width']}\"")
-            if door_config.get("height"):
-                spec_lines.append(f"Height: {door_config['height']}\"")
-            if door_config.get("color"):
-                spec_lines.append(f"Color: {door_config['color']}")
-            if door_config.get("panel_design"):
-                spec_lines.append(f"Panel Design: {door_config['panel_design']}")
-            if door_config.get("window_type") and door_config["window_type"] != "none":
-                spec_lines.append(f"Windows: {door_config['window_type']}")
-            if door_config.get("track_type"):
-                spec_lines.append(f"Track: {door_config['track_type']}")
-
-            if spec_lines:
-                for spec in spec_lines:
-                    spec_line_data = {
-                        "lineType": "Comment",
-                        "description": spec
-                    }
-                    bc_client.add_quote_line(quote_id, spec_line_data)
-
-            logger.info(f"Added {len(spec_lines) + 2} line items to BC quote {quote_id}")
-
-        except Exception as line_error:
-            logger.warning(f"Failed to add some line items to quote: {line_error}")
-            # Continue - quote header was created successfully
-
-        # Update local record
+        # Mark as submitted
         config.is_submitted = True
         config.submitted_at = datetime.utcnow()
-        config.bc_quote_id = quote_id
-        config.bc_quote_number = bc_quote.get("number")
         db.commit()
         db.refresh(config)
 
-        logger.info(f"Quote submitted to BC: {config.bc_quote_number} for config {config_id}")
+        logger.info(f"Quote submitted: config {config_id}, BC Quote {config.bc_quote_number}")
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error submitting quote to BC: {e}")
+        logger.error(f"Error submitting quote for config {config_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to submit quote: {str(e)}"

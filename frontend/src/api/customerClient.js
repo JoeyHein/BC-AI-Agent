@@ -86,6 +86,18 @@ export const savedQuotesApi = {
   // Submit saved quote to BC
   submit: (id) =>
     customerApiClient.post(`/api/customer/portal/saved-quotes/${id}/submit`),
+
+  // Get pricing for a saved quote (creates real BC quote with item lines)
+  getPricing: (id) =>
+    customerApiClient.post(`/api/customer/portal/saved-quotes/${id}/get-pricing`),
+
+  // Confirm a priced quote (marks as submitted)
+  confirm: (id) =>
+    customerApiClient.post(`/api/customer/portal/saved-quotes/${id}/confirm`),
+
+  // Refresh pricing after config changes
+  refreshPricing: (id) =>
+    customerApiClient.post(`/api/customer/portal/saved-quotes/${id}/refresh-pricing`),
 };
 
 // BC Quotes API (Customer's BC quotes)

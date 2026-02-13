@@ -2,7 +2,10 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { savedQuotesApi, customerDoorConfigApi } from '../../api/customerClient'
+import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
 import DoorPreview from '../DoorPreview'
+import DoorDrawings from '../DoorDrawings'
+import QuotePricingDisplay from './QuotePricingDisplay'
 
 const STEPS = [
   { id: 'type', title: 'Door Type', description: 'Select door category' },
@@ -11,6 +14,7 @@ const STEPS = [
   { id: 'design', title: 'Design', description: 'Color and panel style' },
   { id: 'windows', title: 'Windows', description: 'Window configuration' },
   { id: 'hardware', title: 'Hardware', description: 'Track and hardware' },
+  { id: 'drawings', title: 'Drawings', description: 'View and export' },
   { id: 'review', title: 'Review', description: 'Review and save' },
 ]
 
@@ -27,6 +31,10 @@ function QuoteBuilder() {
   const [currentDoorIndex, setCurrentDoorIndex] = useState(0)
   const [errors, setErrors] = useState({})
   const [saving, setSaving] = useState(false)
+  const [pricingData, setPricingData] = useState(null)
+  const [pricingLoading, setPricingLoading] = useState(false)
+  const [savedQuoteId, setSavedQuoteId] = useState(id ? parseInt(id) : null)
+  const { isBCLinked } = useCustomerAuth()
 
   // Fetch existing quote if editing
   const { data: existingQuote, isLoading: loadingQuote } = useQuery({
@@ -77,13 +85,21 @@ function QuoteBuilder() {
       doorCount: 1,
       panelColor: '',
       panelDesign: '',
-      windowInsert: 'NONE',
-      windowSection: 1,
+      // Window configuration
+      hasWindows: false,
+      windowPositions: [],  // Array of {section, col} for multi-stamp windows
+      glassPaneType: null,  // 'INSULATED' or 'SINGLE'
+      glassColor: null,  // 'CLEAR', 'ETCHED', 'SUPER_GREY'
+      hasInserts: false,  // Whether decorative inserts are added
+      windowInsert: 'NONE',  // Insert style if hasInserts is true
+      windowSection: 1,  // Legacy fallback
       windowQty: 0,  // For commercial doors
       windowFrameColor: 'WHITE',  // For commercial doors (WHITE or BLACK)
-      glazingType: 'NONE',
+      glazingType: 'NONE',  // Legacy
+      // Hardware
       trackRadius: '15',
       trackThickness: '2',
+      liftType: 'standard',
       hardware: {
         tracks: true,
         springs: true,
@@ -94,6 +110,11 @@ function QuoteBuilder() {
         shafts: true,
       },
       operator: 'NONE',
+      // Spring and shaft options
+      targetCycles: 10000,
+      shaftType: 'auto', // 'auto', 'single', 'split'
+      // Ceiling height (only used for high_lift and vertical)
+      ceilingHeight: null,  // inches
     }
   }
 
@@ -148,6 +169,8 @@ function QuoteBuilder() {
         return true // Windows are optional
       case 'hardware':
         return true // Hardware has defaults
+      case 'drawings':
+        return true // Drawings are view-only
       case 'review':
         return !!quoteName.trim()
       default:
@@ -186,6 +209,66 @@ function QuoteBuilder() {
     } catch (error) {
       console.error('Save error:', error)
       setErrors({ submit: error.response?.data?.detail || 'Failed to save quote' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleGetPricing() {
+    if (!quoteName.trim()) {
+      setErrors({ name: 'Quote name is required' })
+      return
+    }
+
+    setErrors({})
+    setPricingLoading(true)
+    setPricingData(null)
+
+    try {
+      // Save the quote first if not yet saved
+      let quoteId = savedQuoteId
+      if (!quoteId) {
+        const saveResponse = await savedQuotesApi.create({
+          name: quoteName.trim(),
+          description: quoteDescription.trim(),
+          config_data: { doors },
+        })
+        quoteId = saveResponse.data.id
+        setSavedQuoteId(quoteId)
+      } else {
+        // Update existing
+        await savedQuotesApi.update(quoteId, {
+          name: quoteName.trim(),
+          description: quoteDescription.trim(),
+          config_data: { doors },
+        })
+      }
+
+      // Request pricing
+      const response = await savedQuotesApi.getPricing(quoteId)
+      setPricingData(response.data)
+      queryClient.invalidateQueries(['savedQuotes'])
+    } catch (error) {
+      console.error('Pricing error:', error)
+      setErrors({ pricing: error.response?.data?.detail || 'Failed to get pricing' })
+    } finally {
+      setPricingLoading(false)
+    }
+  }
+
+  async function handleConfirmSubmit() {
+    if (!savedQuoteId || !pricingData) return
+
+    setSaving(true)
+    setErrors({})
+
+    try {
+      await savedQuotesApi.confirm(savedQuoteId)
+      queryClient.invalidateQueries(['savedQuotes'])
+      navigate('/saved-quotes')
+    } catch (error) {
+      console.error('Confirm error:', error)
+      setErrors({ submit: error.response?.data?.detail || 'Failed to submit quote' })
     } finally {
       setSaving(false)
     }
@@ -397,7 +480,22 @@ function QuoteBuilder() {
           />
         )}
 
-        {/* Step 7: Review */}
+        {/* Step 7: Drawings */}
+        {STEPS[currentStep].id === 'drawings' && (
+          <div className="space-y-4">
+            <div className="text-sm text-gray-600 mb-4">
+              View and export door drawings including visual preview, framing diagram, and side elevation.
+              Use these drawings for installation planning and architectural documentation.
+            </div>
+            <DoorDrawings
+              doorConfig={currentDoor}
+              showExport={true}
+              defaultTab="preview"
+            />
+          </div>
+        )}
+
+        {/* Step 8: Review */}
         {STEPS[currentStep].id === 'review' && (
           <ReviewStep
             doors={doors}
@@ -409,6 +507,11 @@ function QuoteBuilder() {
             onSave={handleSave}
             isSaving={saving}
             errors={errors}
+            isBCLinked={isBCLinked}
+            pricingData={pricingData}
+            pricingLoading={pricingLoading}
+            onGetPricing={handleGetPricing}
+            onConfirmSubmit={handleConfirmSubmit}
           />
         )}
       </div>
@@ -640,113 +743,277 @@ function DesignStep({ door, colors, panelDesigns, onChange }) {
 
   return (
     <div className="space-y-6">
-      {/* Live Door Preview */}
-      <div className="flex flex-col md:flex-row gap-6">
-        <div className="flex-shrink-0 flex justify-center md:justify-start">
-          <DoorPreview
-            width={door.doorWidth}
-            height={door.doorHeight}
-            color={door.panelColor || 'WHITE'}
-            panelDesign={door.panelDesign || 'FLUSH'}
-            windowInsert={door.windowInsert}
-            windowSection={door.windowSection}
-            windowQty={door.windowQty || 0}
-            windowFrameColor={door.windowFrameColor || 'WHITE'}
-            doorType={door.doorType}
-            showDimensions={false}
-            scale={0.5}
-          />
+      {/* Colors */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Panel Color
+        </label>
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+          {availableColors.map((color) => (
+            <button
+              key={color.id}
+              onClick={() => onChange({ panelColor: color.id })}
+              className={`p-3 rounded-lg border-2 text-center transition-all ${
+                door.panelColor === color.id
+                  ? 'border-blue-500 ring-2 ring-blue-200'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              {/* Color swatch - with woodgrain pattern for wood finishes */}
+              {color.type === 'woodgrain' && color.grain ? (
+                <svg className="w-10 h-10 rounded-full mx-auto border border-gray-300 overflow-hidden" viewBox="0 0 40 40">
+                  <rect width="40" height="40" fill={color.grain[0]} />
+                  <path d="M0,8 Q10,6 20,8 T40,8" stroke={color.grain[2]} strokeWidth="1" fill="none" opacity="0.7" />
+                  <path d="M0,16 Q15,14 30,16 T40,16" stroke={color.grain[1]} strokeWidth="0.8" fill="none" opacity="0.5" />
+                  <path d="M0,24 Q12,22 24,24 T40,24" stroke={color.grain[2]} strokeWidth="1" fill="none" opacity="0.6" />
+                  <path d="M0,32 Q8,30 16,32 T40,32" stroke={color.grain[1]} strokeWidth="0.8" fill="none" opacity="0.5" />
+                </svg>
+              ) : (
+                <div
+                  className="w-10 h-10 rounded-full mx-auto border border-gray-300"
+                  style={{ backgroundColor: color.hex || '#ccc' }}
+                />
+              )}
+              <span className="mt-1 block text-xs text-gray-700">{color.name}</span>
+              {color.ral && <span className="block text-xs text-gray-400">{color.ral}</span>}
+              {color.note && <span className="block text-xs text-orange-500">{color.note}</span>}
+            </button>
+          ))}
         </div>
+      </div>
 
-        <div className="flex-grow space-y-6">
-          {/* Colors */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Panel Color
-            </label>
-            <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
-              {availableColors.map((color) => (
-                <button
-                  key={color.id}
-                  onClick={() => onChange({ panelColor: color.id })}
-                  className={`p-3 rounded-lg border-2 text-center transition-all ${
-                    door.panelColor === color.id
-                      ? 'border-blue-500 ring-2 ring-blue-200'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <div
-                    className="w-8 h-8 rounded-full mx-auto border border-gray-300"
-                    style={{ backgroundColor: color.hex || '#ccc' }}
-                  />
-                  <span className="mt-1 block text-xs text-gray-700">{color.name}</span>
-                  {color.note && <span className="text-xs text-gray-400">{color.note}</span>}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Panel Designs */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Panel Design
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              {availableDesigns.map((design) => (
-                <button
-                  key={design.id}
-                  onClick={() => onChange({ panelDesign: design.code || design.id })}
-                  className={`p-4 rounded-lg border-2 text-left transition-all ${
-                    door.panelDesign === (design.code || design.id)
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <h4 className="font-medium text-gray-900">{design.name}</h4>
-                  <p className="mt-1 text-xs text-gray-500">{design.type}</p>
-                  {design.code && <p className="mt-1 text-xs text-gray-400">Code: {design.code}</p>}
-                </button>
-              ))}
-            </div>
-          </div>
+      {/* Panel Designs */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Panel Design
+        </label>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          {availableDesigns.map((design) => (
+            <button
+              key={design.id}
+              onClick={() => onChange({ panelDesign: design.code || design.id })}
+              className={`p-4 rounded-lg border-2 text-left transition-all ${
+                door.panelDesign === (design.code || design.id)
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <h4 className="font-medium text-gray-900">{design.name}</h4>
+              <p className="mt-1 text-xs text-gray-500">{design.type}</p>
+              {design.code && <p className="mt-1 text-xs text-gray-400">Code: {design.code}</p>}
+            </button>
+          ))}
         </div>
       </div>
     </div>
   )
 }
 
+// Window Insert Preview Component - renders SVG representations
+function WindowInsertPreview({ insertId, size = 60 }) {
+  const width = size
+  const height = size * 0.6  // Window aspect ratio
+
+  // Define grid patterns for different insert types
+  const getGridPattern = () => {
+    switch (insertId) {
+      case 'STOCKTON_STANDARD':
+        return { rows: 2, cols: 4, arched: false }
+      case 'STOCKTON_TEN_SQUARE_XL':
+        return { rows: 2, cols: 5, arched: false }
+      case 'STOCKTON_ARCHED_XL':
+        return { rows: 2, cols: 5, arched: true }
+      case 'STOCKTON_EIGHT_SQUARE':
+        return { rows: 2, cols: 4, arched: false }
+      case 'STOCKTON_ARCHED':
+        return { rows: 2, cols: 4, arched: true }
+      case 'STOCKBRIDGE_STRAIGHT':
+        return { type: 'prairie', arched: false }
+      case 'STOCKBRIDGE_STRAIGHT_XL':
+        return { type: 'prairie', arched: false, xl: true }
+      case 'STOCKBRIDGE_ARCHED_XL':
+        return { type: 'prairie', arched: true, xl: true }
+      case 'STOCKBRIDGE_ARCHED':
+        return { type: 'prairie', arched: true }
+      default:
+        return { rows: 2, cols: 4, arched: false }
+    }
+  }
+
+  const pattern = getGridPattern()
+  const frameColor = '#444'
+  const glassColor = '#87CEEB'
+
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+      {/* Glass background */}
+      <rect x={2} y={2} width={width - 4} height={height - 4} fill={glassColor} rx={2} />
+
+      {/* Frame */}
+      <rect x={2} y={2} width={width - 4} height={height - 4} fill="none" stroke={frameColor} strokeWidth={2} rx={2} />
+
+      {pattern.type === 'prairie' ? (
+        // Prairie style - border pattern with center clear
+        <>
+          <rect
+            x={width * 0.15}
+            y={height * 0.2}
+            width={width * 0.7}
+            height={height * 0.6}
+            fill="none"
+            stroke={frameColor}
+            strokeWidth={1.5}
+          />
+          {/* Corner squares */}
+          {[[2, 2], [width - width * 0.15, 2], [2, height - height * 0.2], [width - width * 0.15, height - height * 0.2]].map(([cx, cy], i) => (
+            <rect key={i} x={cx} y={cy} width={width * 0.12} height={height * 0.18} fill="none" stroke={frameColor} strokeWidth={1} />
+          ))}
+          {pattern.arched && (
+            <path
+              d={`M 4 ${height * 0.25} Q ${width / 2} ${-height * 0.1} ${width - 4} ${height * 0.25}`}
+              fill="none"
+              stroke={frameColor}
+              strokeWidth={1.5}
+            />
+          )}
+        </>
+      ) : (
+        // Grid pattern
+        <>
+          {/* Vertical grid lines */}
+          {[...Array(pattern.cols - 1)].map((_, i) => {
+            const x = 2 + ((width - 4) / pattern.cols) * (i + 1)
+            return <line key={`v${i}`} x1={x} y1={2} x2={x} y2={height - 2} stroke={frameColor} strokeWidth={1.5} />
+          })}
+          {/* Horizontal grid lines */}
+          {[...Array(pattern.rows - 1)].map((_, i) => {
+            const y = 2 + ((height - 4) / pattern.rows) * (i + 1)
+            return <line key={`h${i}`} x1={2} y1={y} x2={width - 2} y2={y} stroke={frameColor} strokeWidth={1.5} />
+          })}
+          {/* Arched top */}
+          {pattern.arched && (
+            <path
+              d={`M 4 ${height * 0.3} Q ${width / 2} ${-height * 0.15} ${width - 4} ${height * 0.3}`}
+              fill="none"
+              stroke={frameColor}
+              strokeWidth={2}
+            />
+          )}
+        </>
+      )}
+
+      {/* Reflection */}
+      <rect x={4} y={4} width={width * 0.2} height={height * 0.3} fill="white" opacity={0.3} rx={1} />
+    </svg>
+  )
+}
+
 function WindowsStep({ door, windowInserts, commercialWindowInserts, glazingOptions, config, onChange }) {
-  const hasWindows = door.windowInsert !== 'NONE' && door.windowInsert
+  const [hoveredStamp, setHoveredStamp] = useState(null)
+  const hasWindows = door.hasWindows || false
   const isCommercial = door.doorType === 'commercial'
 
-  // Calculate panel count based on height (must match DoorPreview sectionConfig)
-  // <= 84": 4 panels (21" each)
-  // <= 96": 4 panels (24" each)
-  // <= 120": 5 panels
-  // <= 144": 6 panels
-  // <= 168": 7 panels
-  // > 168": 8 panels
-  const panelCount = door.doorHeight <= 96 ? 4 : door.doorHeight <= 120 ? 5 : door.doorHeight <= 144 ? 6 : door.doorHeight <= 168 ? 7 : 8
+  // Calculate panel count based on height (matching DoorPreview.jsx sectionConfig)
+  const getPanelCount = (heightInches) => {
+    if (heightInches <= 96) return 4   // 7' and 8' doors = 4 panels
+    if (heightInches <= 120) return 5  // 9' and 10' doors = 5 panels
+    if (heightInches <= 144) return 6  // 11' and 12' doors = 6 panels
+    if (heightInches <= 168) return 7  // 13' and 14' doors = 7 panels
+    return 8
+  }
+  const panelCount = getPanelCount(door.doorHeight)
+
+  // Calculate stamp columns based on door width and panel design (same logic as DoorPreview)
+  const getStampColumns = (widthInches, panelDesign) => {
+    const widthFeet = widthInches / 12
+    let longCols
+    if (widthFeet <= 9) longCols = 2
+    else if (widthFeet <= 12) longCols = 3
+    else if (widthFeet <= 16) longCols = 4
+    else if (widthFeet <= 19) longCols = 5
+    else longCols = 6
+    if (['SH', 'BC'].includes(panelDesign)) return longCols * 2
+    return longCols
+  }
+  const stampColumns = getStampColumns(door.doorWidth, door.panelDesign)
+
+  // Get window positions, defaulting to empty array
+  const windowPositions = door.windowPositions || []
+
+  // Check if a position has a window
+  const hasWindowAt = (section, col) => {
+    return windowPositions.some(pos => pos.section === section && pos.col === col)
+  }
+
+  // Toggle window at a stamp position
+  const toggleWindow = (section, col) => {
+    const existing = windowPositions.find(pos => pos.section === section && pos.col === col)
+    let newPositions
+    if (existing) {
+      newPositions = windowPositions.filter(pos => !(pos.section === section && pos.col === col))
+    } else {
+      newPositions = [...windowPositions, { section, col }]
+    }
+    onChange({ windowPositions: newPositions })
+  }
+
+  // Quick actions for common patterns
+  const setTopRowWindows = () => {
+    const positions = []
+    for (let col = 0; col < stampColumns; col++) {
+      positions.push({ section: 1, col })
+    }
+    onChange({ windowPositions: positions })
+  }
+
+  const setLeftColumnWindows = () => {
+    const positions = []
+    for (let section = 1; section <= panelCount; section++) {
+      positions.push({ section, col: 0 })
+    }
+    onChange({ windowPositions: positions })
+  }
+
+  const setRightColumnWindows = () => {
+    const positions = []
+    for (let section = 1; section <= panelCount; section++) {
+      positions.push({ section, col: stampColumns - 1 })
+    }
+    onChange({ windowPositions: positions })
+  }
+
+  const clearAllWindows = () => {
+    onChange({ windowPositions: [] })
+  }
+
+  // Glass color options with visual representation
+  const glassColorOptions = [
+    { id: 'CLEAR', name: 'Clear', color: '#87CEEB', description: 'Standard clear glass' },
+    { id: 'ETCHED', name: 'Etched', color: '#D3D3D3', description: 'Frosted privacy glass' },
+    { id: 'SUPER_GREY', name: 'Super Grey', color: '#2D2D2D', description: 'Dark tinted glass' },
+  ]
+
+  // Glass pane type options
+  const glassPaneOptions = [
+    { id: 'INSULATED', name: 'Insulated', description: 'Double-pane for energy efficiency' },
+    { id: 'SINGLE', name: 'Single Pane', description: 'Standard single glass' },
+  ]
 
   // Get the appropriate window inserts based on door type
   const availableInserts = isCommercial ? commercialWindowInserts : windowInserts
 
-  // Default window for toggle
-  const defaultWindow = isCommercial ? '24X12_THERMOPANE' : 'STOCKTON_STANDARD'
-
-  // Calculate recommended window quantity for commercial doors
+  // Commercial-specific helpers
   const calculateRecommendedWindows = () => {
     if (!isCommercial || !door.windowInsert || door.windowInsert === 'NONE') return 0
     const windowSize = config?.commercialWindowSizes?.[door.windowInsert]
     if (!windowSize) return 0
     const windowWidth = windowSize.width
-    const panelWidth = door.doorWidth - 4  // Account for frame
+    const panelWidth = door.doorWidth - 4
     const optimalSpacing = 10
     const recommended = Math.floor((panelWidth - optimalSpacing) / (windowWidth + optimalSpacing))
     return Math.max(0, recommended)
   }
 
-  // Calculate spacing based on current quantity
   const calculateSpacing = () => {
     if (!isCommercial || !door.windowInsert || door.windowInsert === 'NONE' || !door.windowQty) return null
     const windowSize = config?.commercialWindowSizes?.[door.windowInsert]
@@ -762,28 +1029,6 @@ function WindowsStep({ door, windowInserts, commercialWindowInserts, glazingOpti
   const recommendedQty = calculateRecommendedWindows()
   const spacing = calculateSpacing()
 
-  // Handle window toggle with default quantity for commercial
-  const handleWindowToggle = (checked) => {
-    if (checked) {
-      const updates = { windowInsert: defaultWindow }
-      if (isCommercial) {
-        // Set recommended quantity for commercial
-        const windowSize = config?.commercialWindowSizes?.[defaultWindow]
-        if (windowSize) {
-          const windowWidth = windowSize.width
-          const panelWidth = door.doorWidth - 4
-          const optimalSpacing = 10
-          const qty = Math.max(1, Math.floor((panelWidth - optimalSpacing) / (windowWidth + optimalSpacing)))
-          updates.windowQty = qty
-        }
-      }
-      onChange(updates)
-    } else {
-      onChange({ windowInsert: 'NONE', windowQty: 0 })
-    }
-  }
-
-  // Handle window type change for commercial (recalculate quantity)
   const handleCommercialWindowChange = (windowType) => {
     const windowSize = config?.commercialWindowSizes?.[windowType]
     if (windowSize) {
@@ -805,7 +1050,14 @@ function WindowsStep({ door, windowInserts, commercialWindowInserts, glazingOpti
           type="checkbox"
           id="hasWindows"
           checked={hasWindows}
-          onChange={(e) => handleWindowToggle(e.target.checked)}
+          onChange={(e) => onChange({
+            hasWindows: e.target.checked,
+            windowPositions: [],
+            glassPaneType: e.target.checked ? 'INSULATED' : null,
+            glassColor: e.target.checked ? 'CLEAR' : null,
+            windowInsert: 'NONE',
+            hasInserts: false,
+          })}
           className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
         />
         <label htmlFor="hasWindows" className="text-sm font-medium text-gray-700">
@@ -813,12 +1065,249 @@ function WindowsStep({ door, windowInserts, commercialWindowInserts, glazingOpti
         </label>
       </div>
 
-      {hasWindows && (
+      {hasWindows && !isCommercial && (
+        <>
+          {/* Step 1: Window Placement - Interactive Door Preview */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              1. Select Window Positions
+            </label>
+            <p className="text-xs text-gray-500 mb-3">Click stamps to add/remove windows</p>
+            <div className="flex flex-col lg:flex-row gap-6">
+              {/* Interactive Door Preview */}
+              <div className="flex-shrink-0">
+                <DoorPreview
+                  width={door.doorWidth}
+                  height={door.doorHeight}
+                  color={door.panelColor || 'WHITE'}
+                  panelDesign={door.panelDesign || 'SHXL'}
+                  windowInsert={door.windowInsert}
+                  windowPositions={windowPositions}
+                  hasInserts={door.hasInserts || false}
+                  glassColor={door.glassColor || 'CLEAR'}
+                  showDimensions={false}
+                  scale={0.7}
+                  interactive={true}
+                  onStampClick={toggleWindow}
+                  highlightStamp={hoveredStamp}
+                  onStampHover={(section, col) => setHoveredStamp(section !== null ? { section, col } : null)}
+                />
+                <p className="mt-2 text-xs text-center text-gray-500">
+                  Click any stamp to toggle window
+                </p>
+              </div>
+
+              {/* Quick Actions & Info */}
+              <div className="flex-1 space-y-4">
+                {/* Quick Actions */}
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-2">Quick Patterns:</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={setTopRowWindows}
+                      className="px-3 py-2 text-xs rounded-md border border-gray-300 hover:border-blue-400 hover:bg-blue-50"
+                    >
+                      Top Row
+                    </button>
+                    <button
+                      onClick={setLeftColumnWindows}
+                      className="px-3 py-2 text-xs rounded-md border border-gray-300 hover:border-blue-400 hover:bg-blue-50"
+                    >
+                      Left Column
+                    </button>
+                    <button
+                      onClick={setRightColumnWindows}
+                      className="px-3 py-2 text-xs rounded-md border border-gray-300 hover:border-blue-400 hover:bg-blue-50"
+                    >
+                      Right Column
+                    </button>
+                    <button
+                      onClick={clearAllWindows}
+                      className="px-3 py-2 text-xs rounded-md border border-red-200 text-red-600 hover:border-red-400 hover:bg-red-50"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                </div>
+
+                {/* Grid Info */}
+                <div className="p-3 bg-gray-50 rounded-md">
+                  <p className="text-sm text-gray-600">
+                    <strong>Door Grid:</strong> {panelCount} sections x {stampColumns} stamps
+                  </p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    <strong>Windows Selected:</strong> {windowPositions.length}
+                  </p>
+                </div>
+
+                {/* Selected Windows List */}
+                {windowPositions.length > 0 && (
+                  <div className="p-3 bg-blue-50 rounded-md">
+                    <p className="text-sm font-medium text-blue-700 mb-2">Window Positions:</p>
+                    <div className="flex flex-wrap gap-1">
+                      {windowPositions.map((pos, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center px-2 py-1 text-xs rounded bg-white border border-blue-200 text-blue-700"
+                        >
+                          S{pos.section}-C{pos.col + 1}
+                          <button
+                            onClick={() => toggleWindow(pos.section, pos.col)}
+                            className="ml-1 text-blue-400 hover:text-red-500"
+                          >
+                            x
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Stamp Grid Selector (alternative to clicking preview) */}
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-2">Or click grid cells:</p>
+                  <div className="inline-block border border-gray-300 rounded-lg p-2 bg-white">
+                    {[...Array(panelCount)].map((_, section) => (
+                      <div key={section} className="flex gap-1 mb-1 last:mb-0">
+                        {[...Array(stampColumns)].map((_, col) => (
+                          <button
+                            key={col}
+                            onClick={() => toggleWindow(section + 1, col)}
+                            onMouseEnter={() => setHoveredStamp({ section: section + 1, col })}
+                            onMouseLeave={() => setHoveredStamp(null)}
+                            className={`w-8 h-8 rounded text-xs font-medium transition-all ${
+                              hasWindowAt(section + 1, col)
+                                ? 'bg-sky-400 text-white border-2 border-sky-500'
+                                : hoveredStamp?.section === section + 1 && hoveredStamp?.col === col
+                                  ? 'bg-blue-100 border-2 border-blue-300'
+                                  : 'bg-gray-100 border border-gray-300 hover:bg-gray-200'
+                            }`}
+                            title={`Section ${section + 1}, Column ${col + 1}`}
+                          >
+                            {hasWindowAt(section + 1, col) ? '\u2610' : ''}
+                          </button>
+                        ))}
+                        <span className="text-xs text-gray-400 ml-1 self-center">S{section + 1}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Step 2: Glass Pane Type */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              2. Glass Pane Type
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              {glassPaneOptions.map((option) => (
+                <button
+                  key={option.id}
+                  onClick={() => onChange({ glassPaneType: option.id })}
+                  className={`p-4 rounded-lg border-2 text-left transition-all ${
+                    door.glassPaneType === option.id
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-gray-400'
+                  }`}
+                >
+                  <span className="block font-medium text-gray-900">{option.name}</span>
+                  <span className="block text-xs text-gray-500 mt-1">{option.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Step 3: Glass Color */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              3. Glass Color
+            </label>
+            <div className="grid grid-cols-3 gap-3">
+              {glassColorOptions.map((option) => (
+                <button
+                  key={option.id}
+                  onClick={() => onChange({ glassColor: option.id })}
+                  className={`p-3 rounded-lg border-2 flex flex-col items-center transition-all ${
+                    door.glassColor === option.id
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-gray-400'
+                  }`}
+                >
+                  {/* Glass color preview */}
+                  <div
+                    className="w-16 h-10 rounded border border-gray-300 mb-2"
+                    style={{ backgroundColor: option.color }}
+                  />
+                  <span className="font-medium text-gray-900 text-sm">{option.name}</span>
+                  <span className="text-xs text-gray-500 text-center">{option.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Step 4: Optional Window Inserts */}
+          <div className="border-t pt-6">
+            <div className="flex items-center space-x-3 mb-4">
+              <input
+                type="checkbox"
+                id="hasInserts"
+                checked={door.hasInserts || false}
+                onChange={(e) => onChange({
+                  hasInserts: e.target.checked,
+                  windowInsert: e.target.checked ? 'STOCKTON_STANDARD' : 'NONE'
+                })}
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+              />
+              <label htmlFor="hasInserts" className="text-sm font-medium text-gray-700">
+                Add decorative window inserts (optional upgrade)
+              </label>
+            </div>
+
+            {door.hasInserts && windowInserts && (
+              <div className="pl-7">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  4. Select Insert Style
+                </label>
+                <div className="space-y-4">
+                  {Object.entries(windowInserts).map(([style, inserts]) => (
+                    <div key={style}>
+                      <h4 className="text-sm font-medium text-gray-600 mb-2">{style}</h4>
+                      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                        {inserts.map((insert) => (
+                          <button
+                            key={insert.id}
+                            onClick={() => onChange({ windowInsert: insert.id })}
+                            className={`p-2 rounded-lg border-2 flex flex-col items-center transition-all ${
+                              door.windowInsert === insert.id
+                                ? 'border-blue-500 bg-blue-50'
+                                : 'border-gray-200 hover:border-gray-400'
+                            }`}
+                          >
+                            <WindowInsertPreview insertId={insert.id} size={60} />
+                            <span className="mt-2 text-xs text-center text-gray-700 leading-tight">
+                              {insert.name}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Commercial window flow - keep existing commercial-specific UI */}
+      {hasWindows && isCommercial && (
         <>
           {/* Window Style */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              {isCommercial ? 'Window Type' : 'Window Insert Style'}
+              Window Type
             </label>
             <div className="space-y-4">
               {availableInserts && Object.entries(availableInserts).map(([style, inserts]) => (
@@ -828,7 +1317,7 @@ function WindowsStep({ door, windowInserts, commercialWindowInserts, glazingOpti
                     {inserts.map((insert) => (
                       <button
                         key={insert.id}
-                        onClick={() => isCommercial ? handleCommercialWindowChange(insert.id) : onChange({ windowInsert: insert.id })}
+                        onClick={() => handleCommercialWindowChange(insert.id)}
                         className={`px-3 py-2 text-sm rounded-md border text-left ${
                           door.windowInsert === insert.id
                             ? 'border-blue-500 bg-blue-50 text-blue-700'
@@ -848,53 +1337,51 @@ function WindowsStep({ door, windowInserts, commercialWindowInserts, glazingOpti
           </div>
 
           {/* Commercial Window Quantity */}
-          {isCommercial && (
-            <div className="bg-blue-50 rounded-lg p-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Window Quantity
-              </label>
-              <div className="flex items-center space-x-4">
-                <button
-                  onClick={() => onChange({ windowQty: Math.max(0, (door.windowQty || 0) - 1) })}
-                  className="w-10 h-10 rounded-md border border-gray-300 bg-white hover:bg-gray-50 text-xl font-bold"
-                >
-                  -
-                </button>
-                <input
-                  type="number"
-                  value={door.windowQty || 0}
-                  onChange={(e) => onChange({ windowQty: Math.max(0, parseInt(e.target.value) || 0) })}
-                  className="w-20 text-center border border-gray-300 rounded-md shadow-sm px-3 py-2"
-                  min={0}
-                />
-                <button
-                  onClick={() => onChange({ windowQty: (door.windowQty || 0) + 1 })}
-                  className="w-10 h-10 rounded-md border border-gray-300 bg-white hover:bg-gray-50 text-xl font-bold"
-                >
-                  +
-                </button>
-                <button
-                  onClick={() => onChange({ windowQty: recommendedQty })}
-                  className="px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                >
-                  Use Recommended ({recommendedQty})
-                </button>
-              </div>
-              {spacing && (
-                <p className="mt-2 text-sm text-blue-700">
-                  Spacing between windows: <strong>{spacing}"</strong>
-                </p>
-              )}
-              {door.windowQty > 0 && !spacing && (
-                <p className="mt-2 text-sm text-red-600">
-                  Too many windows for this door width. Please reduce quantity.
-                </p>
-              )}
+          <div className="bg-blue-50 rounded-lg p-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Window Quantity
+            </label>
+            <div className="flex items-center space-x-4">
+              <button
+                onClick={() => onChange({ windowQty: Math.max(0, (door.windowQty || 0) - 1) })}
+                className="w-10 h-10 rounded-md border border-gray-300 bg-white hover:bg-gray-50 text-xl font-bold"
+              >
+                -
+              </button>
+              <input
+                type="number"
+                value={door.windowQty || 0}
+                onChange={(e) => onChange({ windowQty: Math.max(0, parseInt(e.target.value) || 0) })}
+                className="w-20 text-center border border-gray-300 rounded-md shadow-sm px-3 py-2"
+                min={0}
+              />
+              <button
+                onClick={() => onChange({ windowQty: (door.windowQty || 0) + 1 })}
+                className="w-10 h-10 rounded-md border border-gray-300 bg-white hover:bg-gray-50 text-xl font-bold"
+              >
+                +
+              </button>
+              <button
+                onClick={() => onChange({ windowQty: recommendedQty })}
+                className="px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                Use Recommended ({recommendedQty})
+              </button>
             </div>
-          )}
+            {spacing && (
+              <p className="mt-2 text-sm text-blue-700">
+                Spacing between windows: <strong>{spacing}"</strong>
+              </p>
+            )}
+            {door.windowQty > 0 && !spacing && (
+              <p className="mt-2 text-sm text-red-600">
+                Too many windows for this door width. Please reduce quantity.
+              </p>
+            )}
+          </div>
 
           {/* Commercial Window Section Selection */}
-          {isCommercial && door.windowQty > 0 && (
+          {door.windowQty > 0 && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Window Section (1 = Top)
@@ -921,7 +1408,7 @@ function WindowsStep({ door, windowInserts, commercialWindowInserts, glazingOpti
           )}
 
           {/* Commercial Frame Color */}
-          {isCommercial && config?.commercialWindowFrameColors && (
+          {config?.commercialWindowFrameColors && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Frame Color (Outside)
@@ -949,33 +1436,6 @@ function WindowsStep({ door, windowInserts, commercialWindowInserts, glazingOpti
                   </button>
                 ))}
               </div>
-            </div>
-          )}
-
-          {/* Window Section (Residential only) */}
-          {!isCommercial && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Window Section (1 = Top)
-              </label>
-              <div className="flex space-x-2">
-                {[...Array(panelCount)].map((_, i) => (
-                  <button
-                    key={i + 1}
-                    onClick={() => onChange({ windowSection: i + 1 })}
-                    className={`w-12 h-12 rounded-md border-2 text-sm font-medium ${
-                      door.windowSection === i + 1
-                        ? 'border-blue-500 bg-blue-50 text-blue-700'
-                        : 'border-gray-300 hover:border-gray-400'
-                    }`}
-                  >
-                    {i + 1}
-                  </button>
-                ))}
-              </div>
-              <p className="mt-1 text-xs text-gray-500">
-                This door has {panelCount} panels. Section 1 is the top.
-              </p>
             </div>
           )}
 
@@ -1009,51 +1469,231 @@ function WindowsStep({ door, windowInserts, commercialWindowInserts, glazingOpti
 function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, onChange }) {
   const operators = operatorOptions?.[door.doorType] || operatorOptions?.residential || []
 
+  // Spring cycle options
+  const springCycleOptions = [
+    { id: 10000, name: '10,000 cycles', description: 'Standard residential' },
+    { id: 15000, name: '15,000 cycles', description: 'Extended life' },
+    { id: 25000, name: '25,000 cycles', description: 'Commercial light duty' },
+    { id: 50000, name: '50,000 cycles', description: 'Commercial standard' },
+    { id: 100000, name: '100,000 cycles', description: 'High cycle commercial' },
+  ]
+
+  // Shaft type options - auto-detect based on width (14'2" = 170")
+  const shaftTypeOptions = [
+    { id: 'auto', name: 'Auto (Recommended)', description: door.doorWidth <= 170 ? 'Single shaft (\u226414\'2")' : 'Split shaft with coupler (>14\'2")' },
+    { id: 'single', name: 'Single Shaft', description: 'No coupler - up to 14\'2" wide' },
+    { id: 'split', name: 'Split Shaft', description: 'Two pieces with coupler' },
+  ]
+
+  // Warn if single shaft selected for wide door
+  const shaftWarning = door.shaftType === 'single' && door.doorWidth > 170
+
+  // Determine allowed track thickness based on selected radius
+  const selectedRadius = trackOptions?.radius?.find(r => r.id === door.trackRadius)
+  const allowedThickness = selectedRadius?.allowedThickness || ['2', '3']
+  const isLowHeadroom = door.liftType === 'low_headroom'
+
+  // Handle radius change - auto-correct track thickness if needed
+  const handleRadiusChange = (radiusId) => {
+    const radius = trackOptions?.radius?.find(r => r.id === radiusId)
+    const allowed = radius?.allowedThickness || ['2', '3']
+    const updates = { trackRadius: radiusId }
+    // If current thickness is not allowed for new radius, switch to first allowed
+    if (!allowed.includes(door.trackThickness)) {
+      updates.trackThickness = allowed[0]
+    }
+    onChange(updates)
+  }
+
+  // Handle lift type change - enforce constraints
+  const handleLiftTypeChange = (liftTypeId) => {
+    const liftOption = trackOptions?.liftType?.find(lt => lt.id === liftTypeId)
+    const updates = { liftType: liftTypeId }
+    // Low headroom forces 2" track
+    if (liftOption?.forcedTrackSize) {
+      updates.trackThickness = String(liftOption.forcedTrackSize)
+    }
+    // Clear ceiling height when switching away from high lift/vertical
+    if (liftTypeId !== 'high_lift' && liftTypeId !== 'vertical') {
+      updates.ceilingHeight = null
+    }
+    onChange(updates)
+  }
+
   return (
     <div className="space-y-6">
-      {/* Track Configuration */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Lift Type */}
+      {trackOptions?.liftType && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Track Radius
+            Lift Type
           </label>
-          <div className="space-y-2">
-            {trackOptions?.radius?.map((option) => (
-              <label key={option.id} className="flex items-center">
-                <input
-                  type="radio"
-                  name="trackRadius"
-                  value={option.id}
-                  checked={door.trackRadius === option.id}
-                  onChange={(e) => onChange({ trackRadius: e.target.value })}
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
-                />
-                <span className="ml-2 text-sm text-gray-700">{option.name}</span>
-              </label>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {trackOptions.liftType.map((option) => (
+              <button
+                key={option.id}
+                onClick={() => handleLiftTypeChange(option.id)}
+                className={`p-3 rounded-lg border-2 text-center transition-all ${
+                  door.liftType === option.id
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div className="text-sm font-medium">{option.name}</div>
+                <div className="text-xs text-gray-500 mt-1">{option.description}</div>
+              </button>
             ))}
           </div>
         </div>
+      )}
 
-        <div>
+      {/* Ceiling Height - shown for High Lift and Vertical */}
+      {(door.liftType === 'high_lift' || door.liftType === 'vertical') && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Track Thickness
+            Ceiling Height (inches)
           </label>
-          <div className="space-y-2">
-            {trackOptions?.thickness?.map((option) => (
-              <label key={option.id} className="flex items-center">
-                <input
-                  type="radio"
-                  name="trackThickness"
-                  value={option.id}
-                  checked={door.trackThickness === option.id}
-                  onChange={(e) => onChange({ trackThickness: e.target.value })}
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
-                />
-                <span className="ml-2 text-sm text-gray-700">{option.name}</span>
-              </label>
-            ))}
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={door.doorHeight + 12}
+              value={door.ceilingHeight || ''}
+              onChange={(e) => onChange({ ceilingHeight: parseInt(e.target.value) || null })}
+              className="w-24 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+              placeholder="inches"
+            />
+            <span className="text-sm text-gray-500">inches</span>
+          </div>
+          {door.ceilingHeight && door.ceilingHeight > door.doorHeight && (
+            <div className="mt-2 text-sm text-amber-700">
+              High Lift Distance: {door.ceilingHeight - door.doorHeight}" above door height ({door.doorHeight}")
+            </div>
+          )}
+          {door.ceilingHeight && door.ceilingHeight <= door.doorHeight && (
+            <div className="mt-2 text-sm text-red-600">
+              Ceiling height must be greater than door height ({door.doorHeight}")
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Track Configuration - only show radius/thickness for standard lift */}
+      {door.liftType === 'standard' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Track Radius
+            </label>
+            <div className="space-y-2">
+              {trackOptions?.radius?.map((option) => (
+                <label key={option.id} className="flex items-center">
+                  <input
+                    type="radio"
+                    name="trackRadius"
+                    value={option.id}
+                    checked={door.trackRadius === option.id}
+                    onChange={(e) => handleRadiusChange(e.target.value)}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                  />
+                  <span className="ml-2 text-sm text-gray-700">
+                    {option.name}
+                    {option.note && <span className="text-xs text-amber-600 ml-1">({option.note})</span>}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Track Thickness
+            </label>
+            <div className="space-y-2">
+              {trackOptions?.thickness?.map((option) => {
+                const isDisabled = !allowedThickness.includes(option.id)
+                return (
+                  <label key={option.id} className={`flex items-center ${isDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                    <input
+                      type="radio"
+                      name="trackThickness"
+                      value={option.id}
+                      checked={door.trackThickness === option.id}
+                      onChange={(e) => onChange({ trackThickness: e.target.value })}
+                      disabled={isDisabled}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                    />
+                    <span className="ml-2 text-sm text-gray-700">
+                      {option.name}
+                      {isDisabled && <span className="text-xs text-red-500 ml-1">(not available with {door.trackRadius}" radius)</span>}
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
           </div>
         </div>
+      )}
+
+      {/* Low headroom info */}
+      {isLowHeadroom && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <p className="text-sm text-blue-800">
+            <span className="font-medium">2" Double Track Low Headroom</span> - Uses 2" track with double track configuration for minimal headroom clearance.
+          </p>
+        </div>
+      )}
+
+      {/* Spring Cycles */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Spring Cycle Life
+        </label>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          {springCycleOptions.map((option) => (
+            <button
+              key={option.id}
+              onClick={() => onChange({ targetCycles: option.id })}
+              className={`p-3 rounded-lg border-2 text-center transition-all ${
+                door.targetCycles === option.id
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <span className="block text-sm font-medium text-gray-900">{option.name}</span>
+              <span className="block text-xs text-gray-500">{option.description}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Shaft Type */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Shaft Configuration
+        </label>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {shaftTypeOptions.map((option) => (
+            <button
+              key={option.id}
+              onClick={() => onChange({ shaftType: option.id })}
+              className={`p-3 rounded-lg border-2 text-left transition-all ${
+                door.shaftType === option.id
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <span className="block text-sm font-medium text-gray-900">{option.name}</span>
+              <span className="block text-xs text-gray-500">{option.description}</span>
+            </button>
+          ))}
+        </div>
+        {shaftWarning && (
+          <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
+            <p className="text-xs text-yellow-700">
+              Warning: Single shaft is only recommended for doors up to 14'2" wide. Your door is {Math.floor(door.doorWidth / 12)}'{door.doorWidth % 12}".
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Hardware Options */}
@@ -1121,7 +1761,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
   )
 }
 
-function ReviewStep({ doors, config, quoteName, quoteDescription, onNameChange, onDescriptionChange, onSave, isSaving, errors }) {
+function ReviewStep({ doors, config, quoteName, quoteDescription, onNameChange, onDescriptionChange, onSave, isSaving, errors, isBCLinked, pricingData, pricingLoading, onGetPricing, onConfirmSubmit }) {
   function getSeriesName(doorType, seriesId) {
     const series = config?.doorSeries?.[doorType]?.find(s => s.id === seriesId)
     return series?.name || seriesId
@@ -1197,6 +1837,9 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, onNameChange, 
                   panelDesign={door.panelDesign}
                   windowInsert={door.windowInsert}
                   windowSection={door.windowSection}
+                  windowPositions={door.windowPositions}
+                  hasInserts={door.hasInserts || false}
+                  glassColor={door.glassColor || 'CLEAR'}
                   windowQty={door.windowQty || 0}
                   windowFrameColor={door.windowFrameColor || 'WHITE'}
                   doorType={door.doorType}
@@ -1219,7 +1862,7 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, onNameChange, 
                   <div>
                     <span className="text-gray-500">Size:</span>
                     <span className="ml-2 text-gray-900">
-                      {Math.floor(door.doorWidth / 12)}'{door.doorWidth % 12}" × {Math.floor(door.doorHeight / 12)}'{door.doorHeight % 12}"
+                      {Math.floor(door.doorWidth / 12)}'{door.doorWidth % 12}" x {Math.floor(door.doorHeight / 12)}'{door.doorHeight % 12}"
                     </span>
                   </div>
                   <div>
@@ -1233,16 +1876,59 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, onNameChange, 
                   <div>
                     <span className="text-gray-500">Windows:</span>
                     <span className="ml-2 text-gray-900">
-                      {door.windowInsert !== 'NONE'
-                        ? (door.doorType === 'commercial'
-                            ? `${door.windowQty || 0} windows (${door.windowFrameColor || 'WHITE'} frame)`
-                            : `Yes (Section ${door.windowSection})`)
-                        : 'No'}
+                      {door.hasWindows && door.windowPositions?.length > 0
+                        ? `${door.windowPositions.length} window${door.windowPositions.length > 1 ? 's' : ''}`
+                        : door.doorType === 'commercial' && door.windowInsert !== 'NONE'
+                          ? `${door.windowQty || 0} windows (${door.windowFrameColor || 'WHITE'} frame)`
+                          : 'No'}
                     </span>
                   </div>
+                  {door.hasWindows && (
+                    <>
+                      <div>
+                        <span className="text-gray-500">Glass:</span>
+                        <span className="ml-2 text-gray-900">
+                          {door.glassPaneType === 'INSULATED' ? 'Insulated' : door.glassPaneType === 'SINGLE' ? 'Single' : '-'}, {door.glassColor || 'Clear'}
+                        </span>
+                      </div>
+                      {door.hasInserts && (
+                        <div>
+                          <span className="text-gray-500">Inserts:</span>
+                          <span className="ml-2 text-gray-900">{door.windowInsert}</span>
+                        </div>
+                      )}
+                    </>
+                  )}
                   <div>
                     <span className="text-gray-500">Track:</span>
-                    <span className="ml-2 text-gray-900">{door.trackRadius}" / {door.trackThickness}"</span>
+                    <span className="ml-2 text-gray-900">
+                      {door.liftType === 'low_headroom'
+                        ? '2" Double Track Low Headroom'
+                        : `${door.trackRadius}" radius / ${door.trackThickness}" track`}
+                      {door.liftType === 'high_lift' && ' (High Lift)'}
+                      {door.liftType === 'vertical' && ' (Vertical Lift)'}
+                    </span>
+                  </div>
+                  {(door.liftType === 'high_lift' || door.liftType === 'vertical') && door.ceilingHeight && (
+                    <div>
+                      <span className="text-gray-500">Ceiling Height:</span>
+                      <span className="ml-2 text-gray-900">
+                        {door.ceilingHeight}"
+                        {door.ceilingHeight > door.doorHeight && (
+                          <span className="text-amber-600 ml-1">
+                            (+{door.ceilingHeight - door.doorHeight}" high lift)
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  )}
+                  <div>
+                    <span className="text-gray-500">Spring Cycles:</span>
+                    <span className="ml-2 text-gray-900">{(door.targetCycles || 10000).toLocaleString()}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Shaft:</span>
+                    <span className="ml-2 text-gray-900 capitalize">{door.shaftType || 'auto'}</span>
                   </div>
                   <div>
                     <span className="text-gray-500">Operator:</span>
@@ -1266,27 +1952,102 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, onNameChange, 
         ))}
       </div>
 
-      {/* Save Button */}
-      <button
-        onClick={onSave}
-        disabled={isSaving || !quoteName.trim()}
-        className="w-full inline-flex justify-center items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {isSaving ? (
-          <>
-            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            Saving...
-          </>
-        ) : (
-          'Save Quote'
-        )}
-      </button>
+      {/* Error Messages */}
+      {errors.pricing && (
+        <div className="bg-red-50 border border-red-200 rounded-md p-3">
+          <p className="text-sm text-red-700">{errors.pricing}</p>
+        </div>
+      )}
+      {errors.submit && (
+        <div className="bg-red-50 border border-red-200 rounded-md p-3">
+          <p className="text-sm text-red-700">{errors.submit}</p>
+        </div>
+      )}
 
+      {/* Pricing Display */}
+      {pricingData && pricingData.pricing && (
+        <QuotePricingDisplay
+          pricing={pricingData.pricing}
+          linePricing={pricingData.line_pricing}
+          linesFailed={pricingData.lines_failed}
+          bcQuoteNumber={pricingData.bc_quote_number}
+          doorResults={pricingData.door_results}
+        />
+      )}
+
+      {/* Action Buttons */}
+      <div className="space-y-3">
+        {/* Get Pricing Button (for BC-linked accounts) */}
+        {isBCLinked && !pricingData && (
+          <button
+            onClick={onGetPricing}
+            disabled={pricingLoading || !quoteName.trim()}
+            className="w-full inline-flex justify-center items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {pricingLoading ? (
+              <>
+                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Generating Pricing...
+              </>
+            ) : (
+              'Get Quote Pricing'
+            )}
+          </button>
+        )}
+
+        {/* Confirm & Submit (after pricing is loaded) */}
+        {pricingData && pricingData.pricing && (
+          <button
+            onClick={onConfirmSubmit}
+            disabled={isSaving}
+            className="w-full inline-flex justify-center items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSaving ? (
+              <>
+                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Submitting...
+              </>
+            ) : (
+              'Confirm & Submit Quote'
+            )}
+          </button>
+        )}
+
+        {/* Save as Draft (always available) */}
+        <button
+          onClick={onSave}
+          disabled={isSaving || !quoteName.trim()}
+          className={`w-full inline-flex justify-center items-center px-6 py-3 border text-base font-medium rounded-md shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${
+            pricingData
+              ? 'border-gray-300 text-gray-700 bg-white hover:bg-gray-50'
+              : 'border-transparent text-white bg-blue-600 hover:bg-blue-700'
+          }`}
+        >
+          {isSaving && !pricingData ? (
+            <>
+              <svg className="animate-spin -ml-1 mr-3 h-5 w-5" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Saving...
+            </>
+          ) : (
+            'Save as Draft'
+          )}
+        </button>
+      </div>
+
+      {/* Helper text */}
       <p className="text-xs text-gray-500 text-center">
-        Your quote will be saved as a draft. You can submit it later for processing.
+        {isBCLinked
+          ? 'Get pricing to see your customer-specific prices before submitting.'
+          : 'Save your quote as a draft. Contact support to link your account for pricing.'}
       </p>
     </div>
   )

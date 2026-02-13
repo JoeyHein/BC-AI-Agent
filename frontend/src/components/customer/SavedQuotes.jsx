@@ -3,9 +3,11 @@ import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { savedQuotesApi } from '../../api/customerClient'
 import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
+import QuotePricingDisplay from './QuotePricingDisplay'
 
 function SavedQuotes() {
   const [filter, setFilter] = useState('all') // all, draft, submitted
+  const [pricingState, setPricingState] = useState({}) // { [quoteId]: { loading, data, error } }
   const { isBCLinked } = useCustomerAuth()
   const queryClient = useQueryClient()
 
@@ -24,6 +26,13 @@ function SavedQuotes() {
     }
   })
 
+  const confirmMutation = useMutation({
+    mutationFn: (id) => savedQuotesApi.confirm(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['savedQuotes'])
+    }
+  })
+
   const submitMutation = useMutation({
     mutationFn: (id) => savedQuotesApi.submit(id),
     onSuccess: () => {
@@ -34,6 +43,38 @@ function SavedQuotes() {
   const handleDelete = async (id, name) => {
     if (window.confirm(`Are you sure you want to delete "${name || 'this quote'}"?`)) {
       deleteMutation.mutate(id)
+    }
+  }
+
+  const handleGetPricing = async (id) => {
+    if (!isBCLinked) {
+      alert('Your account must be linked to get pricing. Please contact support.')
+      return
+    }
+
+    setPricingState(prev => ({
+      ...prev,
+      [id]: { loading: true, data: null, error: null }
+    }))
+
+    try {
+      const response = await savedQuotesApi.getPricing(id)
+      setPricingState(prev => ({
+        ...prev,
+        [id]: { loading: false, data: response.data, error: null }
+      }))
+      queryClient.invalidateQueries(['savedQuotes'])
+    } catch (error) {
+      setPricingState(prev => ({
+        ...prev,
+        [id]: { loading: false, data: null, error: error.response?.data?.detail || 'Failed to get pricing' }
+      }))
+    }
+  }
+
+  const handleConfirm = async (id, name) => {
+    if (window.confirm(`Confirm and submit "${name || 'this quote'}"? This cannot be undone.`)) {
+      confirmMutation.mutate(id)
     }
   }
 
@@ -172,21 +213,60 @@ function SavedQuotes() {
                           Submitted
                           {quote.bc_quote_number && ` - ${quote.bc_quote_number}`}
                         </span>
+                      ) : quote.bc_quote_id ? (
+                        /* Priced but not yet submitted */
+                        <div className="flex items-center space-x-2">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            Priced
+                            {quote.bc_quote_number && ` - ${quote.bc_quote_number}`}
+                          </span>
+                          <button
+                            onClick={() => handleConfirm(quote.id, quote.name)}
+                            disabled={confirmMutation.isPending}
+                            className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded-md text-white bg-green-600 hover:bg-green-700 disabled:opacity-50"
+                          >
+                            Confirm & Submit
+                          </button>
+                          <button
+                            onClick={() => handleGetPricing(quote.id)}
+                            disabled={pricingState[quote.id]?.loading}
+                            className="inline-flex items-center px-3 py-1 border border-blue-300 text-xs font-medium rounded-md text-blue-700 bg-white hover:bg-blue-50 disabled:opacity-50"
+                          >
+                            Refresh Pricing
+                          </button>
+                          <button
+                            onClick={() => handleDelete(quote.id, quote.name)}
+                            disabled={deleteMutation.isPending}
+                            className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            Delete
+                          </button>
+                        </div>
                       ) : (
+                        /* Draft - no pricing yet */
                         <div className="flex items-center space-x-2">
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
                             Draft
                           </span>
+                          {isBCLinked && (
+                            <button
+                              onClick={() => handleGetPricing(quote.id)}
+                              disabled={pricingState[quote.id]?.loading}
+                              className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded-md text-white bg-green-600 hover:bg-green-700 disabled:opacity-50"
+                            >
+                              {pricingState[quote.id]?.loading ? 'Getting Pricing...' : 'Get Pricing'}
+                            </button>
+                          )}
                           <button
                             onClick={() => handleSubmit(quote.id, quote.name)}
-                            disabled={submitMutation.isLoading}
-                            className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded-md text-white bg-green-600 hover:bg-green-700 disabled:opacity-50"
+                            disabled={submitMutation.isPending}
+                            className="inline-flex items-center px-3 py-1 border border-blue-300 text-xs font-medium rounded-md text-blue-700 bg-white hover:bg-blue-50 disabled:opacity-50"
                           >
                             Submit
                           </button>
                           <button
                             onClick={() => handleDelete(quote.id, quote.name)}
-                            disabled={deleteMutation.isLoading}
+                            disabled={deleteMutation.isPending}
                             className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
                           >
                             Delete
@@ -241,6 +321,27 @@ function SavedQuotes() {
                           )}
                         </>
                       )}
+                    </div>
+                  )}
+
+                  {/* Pricing display (from get-pricing action) */}
+                  {pricingState[quote.id]?.data?.pricing && (
+                    <div className="mt-2">
+                      <QuotePricingDisplay
+                        pricing={pricingState[quote.id].data.pricing}
+                        linePricing={pricingState[quote.id].data.line_pricing}
+                        linesFailed={pricingState[quote.id].data.lines_failed}
+                        bcQuoteNumber={pricingState[quote.id].data.bc_quote_number}
+                        doorResults={pricingState[quote.id].data.door_results}
+                        compact={true}
+                      />
+                    </div>
+                  )}
+
+                  {/* Pricing error */}
+                  {pricingState[quote.id]?.error && (
+                    <div className="mt-2 bg-red-50 border border-red-200 rounded p-2">
+                      <p className="text-xs text-red-700">{pricingState[quote.id].error}</p>
                     </div>
                   )}
                 </div>

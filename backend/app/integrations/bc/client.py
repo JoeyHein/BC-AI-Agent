@@ -205,6 +205,13 @@ class BusinessCentralClient:
         )
         return result
 
+    def delete_sales_quote(self, quote_id: str, company_id: Optional[str] = None) -> bool:
+        """Delete a sales quote"""
+        cid = company_id or self.company_id
+        self._make_request("DELETE", f"companies({cid})/salesQuotes({quote_id})")
+        logger.info(f"Deleted sales quote: {quote_id}")
+        return True
+
     # ==================== Sales Quote Lines ====================
 
     def get_quote_lines(self, quote_id: str, company_id: Optional[str] = None) -> List[Dict[str, Any]]:

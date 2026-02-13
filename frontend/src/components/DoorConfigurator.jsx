@@ -767,15 +767,19 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
   }
   const panelCount = getPanelCount(door.doorHeight)
 
-  // Calculate stamp columns based on door width (same logic as DoorPreview)
-  const getStampColumns = (widthInches) => {
+  // Calculate stamp columns based on door width and panel design (same logic as DoorPreview)
+  const getStampColumns = (widthInches, panelDesign) => {
     const widthFeet = widthInches / 12
-    if (widthFeet <= 12) return 3
-    if (widthFeet <= 16) return 4
-    if (widthFeet <= 19) return 5
-    return 6
+    let longCols
+    if (widthFeet <= 9) longCols = 2
+    else if (widthFeet <= 12) longCols = 3
+    else if (widthFeet <= 16) longCols = 4
+    else if (widthFeet <= 19) longCols = 5
+    else longCols = 6
+    if (['SH', 'BC'].includes(panelDesign)) return longCols * 2
+    return longCols
   }
-  const stampColumns = getStampColumns(door.doorWidth)
+  const stampColumns = getStampColumns(door.doorWidth, door.panelDesign)
 
   // Get window positions, defaulting to empty array
   const windowPositions = door.windowPositions || []
