@@ -46,6 +46,8 @@ function DoorDrawings({
     doorSeries = 'KANATA',
     trackRadius = '15',
     trackThickness = '2',
+    liftType: configLiftType = null,
+    highLiftInches = null,
   } = doorConfig
 
   // Convert string values
@@ -54,8 +56,8 @@ function DoorDrawings({
   const radius = parseInt(trackRadius) || 15
   const trackSize = parseInt(trackThickness) || 2
 
-  // Determine lift type from track settings
-  const liftType = radius === 12 ? 'low_headroom' : 'standard'
+  // Use config-provided lift type, or derive from track settings as fallback
+  const liftType = configLiftType || (radius === 12 ? 'low_headroom' : 'standard')
 
   // Handle export
   const handleExport = () => {
@@ -248,6 +250,7 @@ function DoorDrawings({
               trackRadius={radius}
               trackSize={trackSize}
               liftType={liftType}
+              highLiftInches={highLiftInches}
               scale={0.6}
               title={`SIDE ELEVATION - ${doorSeries}`}
             />

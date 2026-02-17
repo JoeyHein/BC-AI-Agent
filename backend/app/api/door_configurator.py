@@ -289,8 +289,8 @@ TRACK_OPTIONS = {
     "liftType": [
         {"id": "standard", "name": "Standard Lift", "description": "Standard radius track"},
         {"id": "low_headroom", "name": "Low Headroom (2\" Double Track)", "description": "2\" double track lowhead - for minimal headroom clearance", "forcedTrackSize": 2},
-        {"id": "high_lift", "name": "High Lift", "description": "Extended vertical track above door opening"},
-        {"id": "vertical", "name": "Vertical Lift", "description": "Full vertical track - no horizontal"},
+        {"id": "high_lift", "name": "High Lift", "description": "Extra vertical track above door — specify inches of high lift"},
+        {"id": "vertical", "name": "Vertical Lift", "description": "Full vertical track — door lifts straight up, no horizontal"},
     ],
     "thickness": [
         {"id": "2", "name": "2\" Track"},
@@ -383,7 +383,7 @@ class DoorCalculationRequest(BaseModel):
     doubleEndCaps: bool = False
     heavyDutyHinges: bool = False
     targetCycles: int = 10000  # 10000, 15000, 25000, 50000, 100000
-    ceilingHeight: Optional[int] = None  # ceiling height in inches, for high_lift/vertical
+    highLiftInches: Optional[int] = None  # extra inches above door for high_lift
 
 
 # ============================================================================
@@ -1107,7 +1107,7 @@ async def calculate_door_specifications(request: DoorCalculationRequest, db: Ses
             heavy_duty_hinges=request.heavyDutyHinges,
             target_cycles=request.targetCycles,
             spring_inventory=spring_inventory,
-            ceiling_height=request.ceilingHeight,
+            high_lift_inches=request.highLiftInches,
         )
 
         # Get summary

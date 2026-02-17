@@ -11,7 +11,7 @@ function SideElevationDrawing({
   trackRadius = 15,
   trackSize = 2,
   liftType = 'standard', // standard, low_headroom, high_lift, vertical
-  ceilingHeight = null,
+  highLiftInches = null,
   scale = 0.5,
   title = 'SIDE ELEVATION',
 }) {
@@ -26,8 +26,7 @@ function SideElevationDrawing({
         backRoom = horizontalTrack + 6
         break
       case 'high_lift':
-        const highLiftExtra = ceilingHeight ? ceilingHeight - height - trackRadius : 48
-        headRoom = highLiftExtra + trackRadius
+        headRoom = (highLiftInches || 48) + trackRadius
         horizontalTrack = height + 18
         backRoom = horizontalTrack + 6
         break
@@ -42,14 +41,19 @@ function SideElevationDrawing({
         backRoom = horizontalTrack + 6
     }
 
+    // Derive ceiling height for drawing purposes
+    const ceilingHeight = liftType === 'high_lift'
+      ? height + headRoom
+      : (height + headRoom + 12)
+
     return {
       headRoom,
       backRoom,
       horizontalTrack,
       verticalTrack: height,
-      ceilingHeight: ceilingHeight || (height + headRoom + 12),
+      ceilingHeight,
     }
-  }, [height, trackRadius, liftType, ceilingHeight])
+  }, [height, trackRadius, liftType, highLiftInches])
 
   // Drawing dimensions
   const margin = 60

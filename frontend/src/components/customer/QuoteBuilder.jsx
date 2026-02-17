@@ -113,8 +113,8 @@ function QuoteBuilder() {
       // Spring and shaft options
       targetCycles: 10000,
       shaftType: 'auto', // 'auto', 'single', 'split'
-      // Ceiling height (only used for high_lift and vertical)
-      ceilingHeight: null,  // inches
+      // High lift inches (only used for high_lift)
+      highLiftInches: null,  // extra inches above door opening
     }
   }
 
@@ -1699,9 +1699,9 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
     if (liftOption?.forcedTrackSize) {
       updates.trackThickness = String(liftOption.forcedTrackSize)
     }
-    // Clear ceiling height when switching away from high lift/vertical
-    if (liftTypeId !== 'high_lift' && liftTypeId !== 'vertical') {
-      updates.ceilingHeight = null
+    // Clear high lift inches when switching away from high_lift
+    if (liftTypeId !== 'high_lift') {
+      updates.highLiftInches = null
     }
     onChange(updates)
   }
@@ -1733,31 +1733,26 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         </div>
       )}
 
-      {/* Ceiling Height - shown for High Lift and Vertical */}
-      {(door.liftType === 'high_lift' || door.liftType === 'vertical') && (
+      {/* High Lift Inches - only shown for high_lift */}
+      {door.liftType === 'high_lift' && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Ceiling Height (inches)
+            High Lift (inches)
           </label>
           <div className="flex items-center gap-2">
             <input
               type="number"
-              min={door.doorHeight + 12}
-              value={door.ceilingHeight || ''}
-              onChange={(e) => onChange({ ceilingHeight: parseInt(e.target.value) || null })}
+              min={1}
+              value={door.highLiftInches || ''}
+              onChange={(e) => onChange({ highLiftInches: parseInt(e.target.value) || null })}
               className="w-24 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
               placeholder="inches"
             />
-            <span className="text-sm text-gray-500">inches</span>
+            <span className="text-sm text-gray-500">inches above door opening</span>
           </div>
-          {door.ceilingHeight && door.ceilingHeight > door.doorHeight && (
+          {door.highLiftInches > 0 && (
             <div className="mt-2 text-sm text-amber-700">
-              High Lift Distance: {door.ceilingHeight - door.doorHeight}" above door height ({door.doorHeight}")
-            </div>
-          )}
-          {door.ceilingHeight && door.ceilingHeight <= door.doorHeight && (
-            <div className="mt-2 text-sm text-red-600">
-              Ceiling height must be greater than door height ({door.doorHeight}")
+              Total effective height: {door.doorHeight + door.highLiftInches}"
             </div>
           )}
         </div>
@@ -2100,17 +2095,18 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, onNameChange, 
                       {door.liftType === 'vertical' && ' (Vertical Lift)'}
                     </span>
                   </div>
-                  {(door.liftType === 'high_lift' || door.liftType === 'vertical') && door.ceilingHeight && (
+                  {door.liftType === 'high_lift' && door.highLiftInches > 0 && (
                     <div>
-                      <span className="text-gray-500">Ceiling Height:</span>
+                      <span className="text-gray-500">High Lift:</span>
                       <span className="ml-2 text-gray-900">
-                        {door.ceilingHeight}"
-                        {door.ceilingHeight > door.doorHeight && (
-                          <span className="text-amber-600 ml-1">
-                            (+{door.ceilingHeight - door.doorHeight}" high lift)
-                          </span>
-                        )}
+                        +{door.highLiftInches}" (effective height: {door.doorHeight + door.highLiftInches}")
                       </span>
+                    </div>
+                  )}
+                  {door.liftType === 'vertical' && (
+                    <div>
+                      <span className="text-gray-500">Lift:</span>
+                      <span className="ml-2 text-gray-900">Full vertical</span>
                     </div>
                   )}
                   <div>

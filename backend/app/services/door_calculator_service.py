@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 DOOR_MODEL_WEIGHTS = {
     # Commercial models
     "TX380": {"18": 3.4991, "21": 3.4991, "24": 3.933, "28": 4.5, "32": 5.0},
-    "TX450": {"18": 3.83, "21": 3.83, "24": 4.38, "28": 5.0, "32": 5.5},
+    "TX450": {"18": 3.83, "21": 3.83, "24": 4.2656, "28": 5.0, "32": 5.5},
     "TX450-20": {"18": 5.18, "21": 5.18, "24": 5.6813, "28": 6.2, "32": 6.8},
     "TX500": {"18": 4.002, "21": 4.002, "24": 4.57, "28": 5.2, "32": 5.7},
     "TX500-20": {"18": 5.2865, "21": 5.2865, "24": 5.63, "28": 6.1, "32": 6.6},
@@ -300,36 +300,41 @@ DEAD_COIL_FACTORS = {
     6.0: (1.22, 0.73),
 }
 
-# Strut schedule tables (door width x height -> number of struts)
-# Format: {door_width_range: {height_range: strut_count}}
-STRUT_SCHEDULE_20GA = {
-    # TX380 (20ga struts)
-    "TX380": {
-        # (min_width, max_width): {(min_height, max_height): strut_count}
-        (0, 121): {(0, 193): 0, (193, 217): 0, (217, 241): 0, (241, 265): 0, (265, 289): 12, (289, 313): 13},
-        (121, 145): {(0, 193): 0, (193, 217): 0, (217, 241): 0, (241, 265): 0, (265, 289): 12, (289, 313): 13},
-        (145, 169): {(0, 193): 0, (193, 217): 0, (217, 241): 0, (241, 265): 0, (265, 289): 12, (289, 313): 13},
-        (169, 193): {(0, 193): 0, (193, 217): 0, (217, 241): 0, (241, 265): 0, (265, 289): 12, (289, 313): 13},
-        (193, 217): {(0, 193): 0, (193, 217): 5, (217, 241): 6, (241, 265): 7, (265, 289): 12, (289, 313): 13},
-        (217, 289): {(0, 193): 0, (193, 217): 5, (217, 241): 6, (241, 265): 7, (265, 289): 12, (289, 313): 14},
-    },
-}
-
-STRUT_SCHEDULE_16GA = {
-    # TX450/TX500 (16ga struts)
-    "TX450": {
-        (0, 97): {(0, 193): 0, (193, 265): 0, (265, 313): 12},
-        (97, 121): {(0, 193): 0, (193, 265): 0, (265, 313): 12},
-        (121, 145): {(0, 193): 0, (193, 265): 0, (265, 313): 12},
-        (145, 169): {(0, 193): 0, (193, 265): 0, (265, 313): 12},
-        (169, 193): {(0, 265): 0, (265, 313): 12},
-        (193, 217): {(0, 193): 0, (193, 217): 5, (217, 241): 6, (241, 265): 7, (265, 289): 12, (289, 313): 14},
-        (217, 241): {(0, 193): 3, (193, 217): 5, (217, 241): 6, (241, 265): 7, (265, 289): 12, (289, 313): 14},
-        (241, 265): {(0, 193): 4, (193, 217): 5, (217, 241): 6, (241, 265): 7, (265, 289): 12, (289, 313): 14},
-        (265, 289): {(0, 193): 4, (193, 217): 6, (217, 241): 7, (241, 265): 8, (265, 289): 12, (289, 313): 14},
-        (289, 313): {(0, 193): 5, (193, 217): 7, (217, 241): 8, (241, 265): 9, (265, 289): 12, (289, 313): 14},
-        (313, 337): {(0, 193): 8, (193, 217): 10, (217, 241): 12, (241, 265): 14, (265, 289): 16, (289, 313): 18},
-    },
+# Thermalex Strutting Chart (commercial doors only)
+# 2D lookup: width breakpoints (rows) × height breakpoints (columns) → strut count
+# Strut TYPE determined by height column:
+#   Height ≤ 121" (10'-1") → 20 gauge hat struts
+#   Height 145"-217" (12'-1" to 18'-1") → 16 gauge hat struts
+#   Height ≥ 241" (20'-1") → Z struts
+THERMALEX_STRUT_WIDTH_BREAKS = [98, 110, 122, 134, 146, 158, 170, 182, 194, 206, 218, 230, 242, 254, 266, 278, 290, 302, 314]
+THERMALEX_STRUT_HEIGHT_BREAKS = [98, 121, 145, 169, 193, 217, 241, 265, 289, 313]
+THERMALEX_STRUT_TABLE = [
+    # 98  121  145  169  193  217  241  265  289  313   ← door height (inches)
+    [  0,   0,   0,   0,   0,   0,   0,  12,  13,  14],  #  98" width (8'-2")
+    [  0,   0,   0,   0,   0,   0,   0,  12,  13,  14],  # 110" (9'-2")
+    [  0,   0,   0,   0,   0,   0,   0,  12,  13,  14],  # 122" (10'-2")
+    [  0,   0,   0,   0,   0,   0,   0,  12,  13,  14],  # 134" (11'-2")
+    [  0,   0,   0,   0,   0,   0,   0,  12,  13,  14],  # 146" (12'-2")
+    [  0,   0,   0,   0,   0,   0,   0,  12,  13,  14],  # 158" (13'-2")
+    [  0,   0,   0,   0,   0,   0,   0,  12,  13,  14],  # 170" (14'-2")
+    [  0,   0,   0,   0,   5,   6,   7,  12,  13,  14],  # 182" (15'-2")
+    [  0,   0,   0,   5,   5,   6,   7,  12,  13,  14],  # 194" (16'-2")
+    [  3,   4,   4,   5,   5,   6,   7,  12,  13,  14],  # 206" (17'-2")
+    [  3,   4,   4,   5,   5,   6,   7,  12,  13,  14],  # 218" (18'-2")
+    [  3,   4,   4,   5,   5,   6,   7,  12,  13,  14],  # 230" (19'-2")
+    [  3,   4,   4,   5,   5,   6,   7,  12,  13,  14],  # 242" (20'-2")
+    [  4,   5,   6,   7,   8,   9,  10,  12,  13,  14],  # 254" (21'-2")
+    [  4,   5,   6,   7,   8,   9,  10,  12,  13,  14],  # 266" (22'-2")
+    [  4,   5,   6,   7,   8,   9,  10,  12,  13,  14],  # 278" (23'-2")
+    [  4,   5,   6,   7,   8,   9,  10,  12,  13,  14],  # 290" (24'-2")
+    [  5,   6,   7,   8,   9,  10,  11,  12,  13,  14],  # 302" (25'-2")
+    [  5,   6,   7,   8,   9,  10,  11,  12,  13,  14],  # 314" (26'-2"+)
+]
+# Strut weight per foot by type
+STRUT_WEIGHT_PER_FT = {
+    "20ga": 0.79,
+    "16ga": 1.05,
+    "z": 0.8,
 }
 
 # Lift type configurations
@@ -504,7 +509,7 @@ class DoorCalculatorService:
         target_cycles: int = 10000,
         shaft_type: str = "auto",  # 'auto', 'single', 'split'
         spring_inventory: Optional[Dict[str, List[str]]] = None,  # stocked coil/wire combos
-        ceiling_height: Optional[int] = None,  # ceiling height in inches, for high_lift/vertical
+        high_lift_inches: Optional[int] = None,  # extra inches above door for high_lift
     ) -> DoorCalculation:
         """
         Calculate complete door configuration.
@@ -548,8 +553,8 @@ class DoorCalculatorService:
             panel_config.gauge = 24
 
         # 2. Calculate struts (before weight, since struts add to door weight)
-        strut_count = self._calculate_struts(
-            door_model, width_inches, panel_config.total_sections
+        strut_count, strut_type = self._calculate_struts(
+            door_model, width_inches, height_inches, panel_config.total_sections
         )
 
         # 3. Calculate door weight (including strut weight)
@@ -557,9 +562,11 @@ class DoorCalculatorService:
             door_model,
             dimensions,
             panel_config,
+            track_size,
             window_type,
             window_qty,
-            strut_count
+            strut_count,
+            strut_type
         )
 
         # 4. Calculate track configuration
@@ -575,10 +582,18 @@ class DoorCalculatorService:
                 f"Changed from {old_track_size}\" to {track_size}\"."
             )
 
-        track = self._calculate_track(dimensions, track_size, lift_config, ceiling_height=ceiling_height)
+        # Compute effective height based on lift type
+        lift_type_str = lift_config.get("type", "standard")
+        if lift_type_str == "high" and high_lift_inches:
+            effective_height = height_inches + high_lift_inches
+        else:
+            # Standard and vertical both use door height
+            effective_height = height_inches
+
+        track = self._calculate_track(dimensions, track_size, lift_config, effective_height=effective_height)
 
         # 5. Select drum
-        drums = self._select_drum(height_inches, weight.total_weight, lift_config, ceiling_height=ceiling_height)
+        drums = self._select_drum(height_inches, weight.total_weight, lift_config, effective_height=effective_height)
         if drums is None:
             warnings.append("No suitable drum found for door specifications")
 
@@ -603,6 +618,7 @@ class DoorCalculatorService:
             panel_config,
             track_size,
             strut_count,
+            strut_type,
             door_model
         )
 
@@ -651,81 +667,104 @@ class DoorCalculatorService:
         door_model: str,
         dimensions: DoorDimensions,
         panel_config: PanelConfiguration,
+        track_size: int,
         window_type: Optional[str],
         window_qty: int,
-        strut_count: int = 0
+        strut_count: int = 0,
+        strut_type: str = "16ga"
     ) -> WeightBreakdown:
-        """Calculate door weight breakdown including strut weight"""
+        """Calculate door weight breakdown including strut weight and component hardware"""
         weight = WeightBreakdown()
 
         # Get model weight factors
         model_weights = self.model_weights.get(door_model, self.model_weights["TX450"])
-
-        # Calculate steel weight based on sections
         width_ft = dimensions.width_ft
 
-        # Weight for 21" sections
+        # Steel weight: section panels
         if panel_config.sections_21 > 0:
-            weight_21 = model_weights["21"] * width_ft * panel_config.sections_21
-            weight.steel_weight += weight_21
-
-        # Weight for 24" sections
+            weight.steel_weight += model_weights["21"] * width_ft * panel_config.sections_21
         if panel_config.sections_24 > 0:
-            weight_24 = model_weights["24"] * width_ft * panel_config.sections_24
-            weight.steel_weight += weight_24
+            weight.steel_weight += model_weights["24"] * width_ft * panel_config.sections_24
 
-        # Hardware weight
-        # Commercial 3" hardware: 27 lbs (includes brackets, hinges, rollers, screws, step kit)
-        # Residential 2" hardware: 17 lbs
-        is_commercial = door_model.upper().startswith("TX")
-        weight.hardware_weight = 27.0 if is_commercial else 17.0
+        # Hardware weight: calculated from components (Thermalex methodology)
+        hardware_grams = self._calculate_hardware_weight_grams(
+            dimensions, panel_config, track_size, door_model
+        )
+        weight.hardware_weight = round(hardware_grams / 454)
 
-        # Strut weight
-        # Each strut runs the full width of the door
-        # Z strut: 2.45 lbs/ft - used at 28'+ (336"+) width
-        # 2.5" strut (20ga): 0.79 lbs/ft - used on TX380 and residential (KANATA/CRAFT)
-        # 3" strut (16ga): 1.05 lbs/ft - used on TX450/TX500 commercial
+        # Strut weight (using type from strutting chart)
         if strut_count > 0:
-            if dimensions.width >= 336:  # 28'+ width: Z struts
-                strut_lbs_per_ft = 2.45
-            elif door_model.upper() in ["TX380", "KANATA", "CRAFT"]:
-                strut_lbs_per_ft = 0.79   # 2.5" / 20ga strut
-            else:
-                strut_lbs_per_ft = 1.05   # 3" / 16ga strut
+            strut_lbs_per_ft = STRUT_WEIGHT_PER_FT.get(strut_type, 1.05)
             weight.strut_weight = strut_count * width_ft * strut_lbs_per_ft
 
         # Window weight
         if window_type and window_qty > 0:
             window_weights = WINDOW_WEIGHTS.get(door_model, WINDOW_WEIGHTS["TX450"])
             cutout_weights = WINDOW_CUTOUT_WEIGHTS.get(door_model, WINDOW_CUTOUT_WEIGHTS["TX450"])
-
             gross_window_wt = window_weights.get(window_type, 0)
             cutout_wt = cutout_weights.get(window_type, 0)
-            net_window_wt = (gross_window_wt - cutout_wt) * window_qty
-
-            weight.glazing_weight = net_window_wt
+            weight.glazing_weight = (gross_window_wt - cutout_wt) * window_qty
 
         weight.calculate_total()
         return weight
+
+    def _calculate_hardware_weight_grams(
+        self,
+        dimensions: DoorDimensions,
+        panel_config: PanelConfiguration,
+        track_size: int,
+        door_model: str,
+    ) -> int:
+        """
+        Calculate total hardware weight in grams per Thermalex methodology.
+
+        Hardware = hinges + top brackets + bottom brackets + L/S + S/S + step kit + tek screws.
+        Calibrated against Thermalex calculator reference values:
+          - 8'x10' TX450 3" track: 10903g → 24 lbs (K30)
+          - 16'x8' TX450 3" track: ~9534g → 21 lbs (user-verified)
+
+        Model: base_grams + per_section × sections + per_width_inch × width
+        where base = fixed components (brackets, S/S, step kit).
+        """
+        sections = panel_config.total_sections
+
+        if track_size == 3:
+            # Fixed: 2×top(312) + 2×bottom(785) + 2×S/S(308) + step(605)
+            base_grams = 3415
+            # Per section: hinges + L/S at each section level
+            per_section_grams = 1476
+            # Per inch of width: tek screws and width-dependent items
+            per_width_inch_grams = 1.12
+        else:
+            # 2" track: lighter brackets and hinges
+            # Fixed: 2×top(207) + 2×bottom(785) + 2×S/S(158) + step(605)
+            base_grams = 2905
+            # Scale per-section by ~0.65 (lighter hinges and L/S)
+            per_section_grams = 960
+            per_width_inch_grams = 1.12
+
+        total_grams = base_grams + per_section_grams * sections + per_width_inch_grams * dimensions.width
+        return int(round(total_grams))
 
     def _calculate_track(
         self,
         dimensions: DoorDimensions,
         track_size: int,
         lift_config: Dict,
-        ceiling_height: Optional[int] = None,
+        effective_height: Optional[int] = None,
     ) -> TrackConfiguration:
         """Calculate track configuration"""
 
         lift_type = lift_config.get("type", "standard")
+        eff_h = effective_height or dimensions.height
 
         # Vertical track length depends on lift type
-        if lift_type == "high" and ceiling_height:
-            # High lift: vertical track extends to ceiling height
-            vertical_length = ceiling_height - 8
-        elif lift_type == "vertical" and ceiling_height:
-            # Vertical lift: full vertical track to ceiling
-            vertical_length = ceiling_height
+        if lift_type == "high":
+            # High lift: vertical track extends to effective height minus 8"
+            vertical_length = eff_h - 8
+        elif lift_type == "vertical":
+            # Vertical lift: full vertical track = door height
+            vertical_length = dimensions.height
         else:
             # Standard: vertical track = door height - 8"
             vertical_length = dimensions.height - 8
@@ -748,17 +787,12 @@ class DoorCalculatorService:
         height_inches: int,
         door_weight: float,
         lift_config: Dict,
-        ceiling_height: Optional[int] = None,
+        effective_height: Optional[int] = None,
     ) -> Optional[DrumSelection]:
         """Select appropriate drum based on height and weight"""
 
         lift_type = lift_config.get("type", "standard")
-
-        # For high lift/vertical, use ceiling height for drum capacity check
-        # since the drum needs to handle the full cable travel distance
-        effective_height = height_inches
-        if ceiling_height and lift_type in ("high", "vertical"):
-            effective_height = ceiling_height
+        eff_h = effective_height or height_inches
 
         # Filter drums by lift type
         eligible_drums = [
@@ -766,23 +800,20 @@ class DoorCalculatorService:
             if spec["lift"] == lift_type
         ]
 
-        # Find smallest drum that can handle the height and weight
+        # Find smallest drum that can handle the effective height and weight
+        # Sort by max_height ascending so we pick the smallest drum that fits
         for drum_name, spec in sorted(eligible_drums, key=lambda x: x[1]["max_height"]):
-            if effective_height <= spec["max_height"] and door_weight <= spec["max_weight"]:
+            if eff_h <= spec["max_height"] and door_weight <= spec["max_weight"]:
                 # Select cable diameter based on weight
                 cable_diam = spec["cables"][0] if door_weight < spec["max_weight"] * 0.6 else spec["cables"][1]
 
-                # Calculate cable length based on lift type and ceiling height
-                if lift_type == "standard":
+                # Cable length based on lift type
+                if lift_type == "high":
+                    cable_length = eff_h + 8
+                elif lift_type == "vertical":
                     cable_length = height_inches + 8
-                elif lift_type == "high" and ceiling_height:
-                    cable_length = ceiling_height + 8
-                elif lift_type == "vertical" and ceiling_height:
-                    cable_length = ceiling_height + 8
-                elif lift_type == "high":
-                    cable_length = height_inches + 63  # Fallback: old hardcoded offset
-                else:  # vertical fallback
-                    cable_length = height_inches + 143
+                else:
+                    cable_length = height_inches + 8
 
                 return DrumSelection(
                     model=drum_name,
@@ -794,7 +825,12 @@ class DoorCalculatorService:
         # If no drum found, return largest available for lift type
         if eligible_drums:
             largest = max(eligible_drums, key=lambda x: x[1]["max_height"])
-            cable_length = (ceiling_height + 8) if ceiling_height and lift_type in ("high", "vertical") else height_inches + 8
+            if lift_type == "high":
+                cable_length = eff_h + 8
+            elif lift_type == "vertical":
+                cable_length = height_inches + 8
+            else:
+                cable_length = height_inches + 8
             return DrumSelection(
                 model=largest[0],
                 offset=largest[1]["offset"],
@@ -1207,34 +1243,47 @@ class DoorCalculatorService:
         self,
         door_model: str,
         width_inches: int,
+        height_inches: int,
         total_panels: int
-    ) -> int:
+    ) -> Tuple[int, str]:
         """
-        Calculate number of struts needed.
+        Calculate number of struts and strut type.
 
-        Rules:
-        - Residential doors (KANATA, CRAFT): always 1 strut per door
-        - Commercial doors:
-            - Over 16' wide (>192"): 1 strut per panel
-            - 16' wide (192"): 1 strut every other panel
-            - 12' to <16' wide (144"-191"): 1 strut
-            - Under 12' (<144"): no struts
+        Residential doors (KANATA, CRAFT): always 1 x 20ga strut.
+        Commercial doors: Thermalex Strutting Chart lookup (width × height).
+        Strut type determined by height:
+          ≤121" → 20ga, 145"-217" → 16ga, ≥241" → Z struts.
+
+        Returns:
+            (strut_count, strut_type) where strut_type is "20ga", "16ga", or "z"
         """
         is_residential = door_model.upper() in ["KANATA", "CRAFT"]
 
         if is_residential:
-            # Residential: always 1 strut per door
-            return 1
+            return (1, "20ga")
 
-        # Commercial strut rules based on width
-        if width_inches > 192:  # Over 16'
-            return total_panels  # 1 strut per panel
-        elif width_inches >= 192:  # 16' wide
-            return math.ceil(total_panels / 2)  # Every other panel
-        elif width_inches >= 144:  # 12' to <16'
-            return 1
-        else:  # Under 12'
-            return 0
+        # Commercial: Thermalex strutting chart lookup
+        import bisect
+
+        # Find width row: largest breakpoint ≤ width (clamp to first/last)
+        w_idx = bisect.bisect_right(THERMALEX_STRUT_WIDTH_BREAKS, width_inches) - 1
+        w_idx = max(0, min(w_idx, len(THERMALEX_STRUT_WIDTH_BREAKS) - 1))
+
+        # Find height column: largest breakpoint ≤ height (clamp to first/last)
+        h_idx = bisect.bisect_right(THERMALEX_STRUT_HEIGHT_BREAKS, height_inches) - 1
+        h_idx = max(0, min(h_idx, len(THERMALEX_STRUT_HEIGHT_BREAKS) - 1))
+
+        strut_count = THERMALEX_STRUT_TABLE[w_idx][h_idx]
+
+        # Determine strut type from height index
+        if h_idx <= 1:      # ≤121" (10'-1")
+            strut_type = "20ga"
+        elif h_idx <= 5:    # 145"-217" (12'-1" to 18'-1")
+            strut_type = "16ga"
+        else:               # ≥241" (20'-1"+)
+            strut_type = "z"
+
+        return (strut_count, strut_type)
 
     def _calculate_z_strut_combo(self, width_inches: int) -> List[int]:
         """
@@ -1279,55 +1328,48 @@ class DoorCalculatorService:
         panel_config: PanelConfiguration,
         track_size: int,
         strut_count: int,
+        strut_type: str,
         door_model: str = "TX450"
     ) -> HardwareList:
         """Calculate hardware component list"""
 
         hardware = HardwareList()
+        sections = panel_config.total_sections
 
-        # Hinges (based on panel count)
-        # Each panel typically has 2-4 hinges depending on width
-        panels_wide = max(2, dimensions.width // 48)  # 1 hinge per ~4 feet
+        # Hinges: (sections + 1) rows × hinges_per_row
+        hinges_per_row = max(2, math.ceil(dimensions.width / 48))
+        hinge_rows = sections + 1
 
         if panel_config.heavy_duty_hinges:
-            hardware.hinges["#3 Hinge"] = panel_config.total_sections * panels_wide
+            hardware.hinges["#3 Hinge"] = hinge_rows * hinges_per_row
         else:
-            hardware.hinges["#1 Hinge"] = panel_config.total_sections * panels_wide
+            hardware.hinges["#1 Hinge"] = hinge_rows * hinges_per_row
 
         # Brackets
-        hardware.brackets[f"{track_size}'' Top Bracket"] = 4
+        hardware.brackets[f"{track_size}'' Top Bracket"] = 2
         hardware.brackets["EZ123 Bottom Bracket"] = 2
-        hardware.brackets[f"{track_size}'' L/S"] = 8
+        ls_count = (sections - 1) * 2
+        hardware.brackets[f"{track_size}'' L/S"] = ls_count
         hardware.brackets[f"{track_size}'' S/S"] = 2
-        hardware.brackets["#5 Angle Bracket"] = 2
-        hardware.brackets["#6 Angle Bracket"] = 2
-        hardware.brackets["#7 Angle Bracket"] = 2
 
-        # Bolts and screws
-        hardware.bolts["1/4 x 3/4'' Carriage Bolt"] = 27
-        hardware.bolts["1/4 x 3/4'' Track Bolt"] = 12
-        hardware.bolts["1/4'' Hex Washer Nut"] = 39
-        hardware.bolts["5/16 x 1-5/8'' Washer Lag Screw"] = 22
-        hardware.bolts["#14 x 1-1/4'' Washer Lag Screw"] = 21
-        hardware.bolts["Tek Screws"] = 27 * panel_config.total_sections
+        # Tek screws (~2.2 per section per foot of width)
+        tek_per_section = max(12, round(2.2 * dimensions.width_ft))
+        hardware.bolts["Tek Screws"] = tek_per_section * sections
 
-        # Struts - Z struts at 28'+, TX380/residential use 20ga/2.5", TX450+ use 16ga/3"
+        # Struts
         if strut_count > 0:
-            if dimensions.width >= 336:  # 28'+ width: Z struts
+            if strut_type == "z":
                 z_combo = self._calculate_z_strut_combo(dimensions.width)
                 hardware.z_strut_lengths = z_combo
                 combo_desc = "+".join(f"{l // 12}'" for l in z_combo)
                 hardware.struts[f"Z Strut ({combo_desc} per strut)"] = strut_count
             else:
-                is_light = door_model.upper() in ["TX380", "KANATA", "CRAFT"]
-                strut_type = "20ga Hat Strut" if is_light else "16ga Hat Strut"
-                hardware.struts[strut_type] = strut_count
+                strut_label = "20ga Hat Strut" if strut_type == "20ga" else "16ga Hat Strut"
+                hardware.struts[strut_label] = strut_count
             hardware.struts["Strut Clips"] = strut_count * 4
 
         # Other
         hardware.other["Step Kit"] = 1
-        hardware.other["Pull Rope #10"] = 5 if dimensions.width <= 144 else 0
-        hardware.other["3 Slot Splice Angle"] = 2
 
         return hardware
 
@@ -1453,7 +1495,7 @@ def calculate_door_from_config(config: Dict[str, Any]) -> Dict[str, Any]:
         heavy_duty_hinges=config.get("heavy_duty_hinges", config.get("heavyDutyHinges", False)),
         target_cycles=config.get("target_cycles", config.get("targetCycles", 10000)),
         shaft_type=config.get("shaft_type", config.get("shaftType", "auto")),
-        ceiling_height=config.get("ceiling_height", config.get("ceilingHeight")),
+        high_lift_inches=config.get("high_lift_inches", config.get("highLiftInches")),
     )
 
     return door_calculator.get_calculation_summary(calc)
