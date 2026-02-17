@@ -309,7 +309,8 @@ def delete_saved_quote(
 
 # Standard line item ordering for BC quotes (same as door_configurator.py)
 LINE_ORDER = [
-    "comment", "panel", "retainer", "astragal", "strut", "window",
+    "comment", "panel", "v130g_section", "v130g_glass", "commercial_window",
+    "retainer", "astragal", "strut", "window",
     "track", "highlift_track", "hardware", "spring", "spring_accessory",
     "shaft", "weather_stripping", "accessory", "operator",
 ]
@@ -407,6 +408,8 @@ def _generate_bc_quote_with_items(
                       else (1 if door.get("windowSection") else 0))
             ),
             "windowSection": door.get("windowSection"),
+            "windowQty": door.get("windowQty", 0),
+            "windowFrameColor": door.get("windowFrameColor", "BLACK"),
             "glazingType": door.get("glazingType"),
             "trackRadius": door.get("trackRadius", "15"),
             "trackThickness": door.get("trackThickness", "2"),

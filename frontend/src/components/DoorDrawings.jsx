@@ -38,6 +38,8 @@ function DoorDrawings({
     windowInsert = null,
     windowPositions = [],
     windowSection = 1,
+    windowQty = 0,
+    windowFrameColor = 'MATCH',
     hasInserts = false,
     glassColor = 'CLEAR',
     doorType = 'residential',
@@ -183,9 +185,12 @@ function DoorDrawings({
                 windowInsert={windowInsert}
                 windowPositions={windowPositions}
                 windowSection={windowSection}
+                windowQty={windowQty}
+                windowFrameColor={windowFrameColor}
                 hasInserts={hasInserts}
                 glassColor={glassColor}
                 doorType={doorType}
+                doorSeries={doorSeries}
                 showDimensions={true}
                 scale={1}
               />

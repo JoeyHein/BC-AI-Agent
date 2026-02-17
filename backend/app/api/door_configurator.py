@@ -188,9 +188,10 @@ PANEL_DESIGNS = {
         {"id": "FLUSH", "code": "FLUSH", "name": "Flush", "type": "Flush/Flat"},
     ],
     "CRAFT": [
-        {"id": "MUSKOKA", "code": "MUSKOKA", "name": "Muskoka", "type": "Carriage House"},
-        {"id": "DENISON", "code": "DENISON", "name": "Denison", "type": "Carriage House"},
-        {"id": "GRANVILLE", "code": "GRANVILLE", "name": "Granville", "type": "Carriage House"},
+        {"id": "MUSKOKA", "code": "MUSKOKA", "name": "Muskoka", "type": "X-Brace Barn Door"},
+        {"id": "DENISON", "code": "DENISON", "name": "Denison", "type": "Raised Panel Grid"},
+        {"id": "GRANVILLE", "code": "GRANVILLE", "name": "Granville", "type": "Raised Panels (Wide)"},
+        {"id": "FLUSH", "code": "FLUSH", "name": "Flush", "type": "Flush/Flat"},
     ],
     "COMMERCIAL": [
         # Standard commercial (TX450, TX500): UDC only
@@ -232,20 +233,22 @@ WINDOW_INSERTS = {
     ],
 }
 
-# Commercial window inserts (different from residential)
-# Commercial windows: width x height, frame colors available
-# Inside frame is always white, outside can be white or black
-COMMERCIAL_WINDOW_INSERTS = {
+# Commercial window sizes — no decorative inserts on commercial doors
+# Frame colors: standard black, optional white. Inside always white.
+COMMERCIAL_WINDOW_TYPES = {
     "THERMOPANE": [
-        {"id": "24X12_THERMOPANE", "name": "24\" x 12\" Thermopane", "width": 24, "height": 12, "sectionType": "24\" section"},
-        {"id": "34X16_THERMOPANE", "name": "34\" x 16\" Thermopane", "width": 34, "height": 16, "sectionType": "24\" section"},
-        {"id": "18X8_THERMOPANE", "name": "18\" x 8\" Thermopane", "width": 18, "height": 8, "sectionType": "21\" or 24\" section"},
+        {"id": "24X12_THERMOPANE", "name": "24\" x 12\" Thermopane", "width": 24, "height": 12, "sectionType": "24\" section", "glassOptions": ["thermal"]},
+        {"id": "34X16_THERMOPANE", "name": "34\" x 16\" Thermopane", "width": 34, "height": 16, "sectionType": "24\" section", "glassOptions": ["thermal"]},
+        {"id": "18X8_THERMOPANE", "name": "18\" x 8\" Thermopane", "width": 18, "height": 8, "sectionType": "21\" or 24\" section", "glassOptions": ["thermal"]},
+    ],
+    "FULL VIEW": [
+        {"id": "V130G", "name": "V130G Full View Section", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glassOptions": ["single", "thermal"], "material": "AL976", "note": "Full aluminum/glass section"},
     ],
 }
 
 COMMERCIAL_WINDOW_FRAME_COLORS = [
+    {"id": "BLACK", "name": "Black Frame", "hex": "#1a1a1a", "description": "Black outside, white inside", "default": True},
     {"id": "WHITE", "name": "White Frame", "hex": "#FFFFFF", "description": "White outside, white inside"},
-    {"id": "BLACK", "name": "Black Frame", "hex": "#1a1a1a", "description": "Black outside, white inside"},
 ]
 
 # Commercial window sizes lookup for spacing calculator
@@ -257,7 +260,6 @@ COMMERCIAL_WINDOW_SIZES = {
 
 GLAZING_OPTIONS = {
     "standard": [
-        {"id": "NONE", "name": "No Windows"},
         {"id": "CLEAR", "name": "Clear Glass"},
         {"id": "INSULATED", "name": "Insulated Glass"},
         {"id": "ETCHED", "name": "Etched Glass"},
@@ -350,6 +352,8 @@ class DoorConfigRequest(BaseModel):
     windowInsert: Optional[str] = None
     windowPositions: Optional[List[WindowPosition]] = []  # Multi-stamp window positions
     windowSection: Optional[int] = None  # Legacy: single section (for backward compatibility)
+    windowQty: int = 0  # Commercial: V130G section count or window qty
+    windowFrameColor: str = "BLACK"  # Commercial window frame color
     glazingType: Optional[str] = None
     trackRadius: str = "15"
     trackThickness: str = "2"
@@ -439,9 +443,9 @@ async def get_panel_designs(series_id: str):
 
 @router.get("/window-inserts")
 async def get_window_inserts(door_type: Optional[str] = None):
-    """Get available window insert styles, optionally filtered by door type"""
+    """Get available window insert styles. Commercial doors have no decorative inserts."""
     if door_type == "commercial":
-        return {"success": True, "data": COMMERCIAL_WINDOW_INSERTS}
+        return {"success": True, "data": {}}
     return {"success": True, "data": WINDOW_INSERTS}
 
 
@@ -490,7 +494,7 @@ async def get_full_configuration():
             "colors": COLORS,
             "panelDesigns": PANEL_DESIGNS,
             "windowInserts": WINDOW_INSERTS,
-            "commercialWindowInserts": COMMERCIAL_WINDOW_INSERTS,
+            "commercialWindowTypes": COMMERCIAL_WINDOW_TYPES,
             "commercialWindowFrameColors": COMMERCIAL_WINDOW_FRAME_COLORS,
             "commercialWindowSizes": COMMERCIAL_WINDOW_SIZES,
             "glazingOptions": GLAZING_OPTIONS,
@@ -624,10 +628,13 @@ def _format_door_description(door: DoorConfigRequest) -> str:
 LINE_ORDER = [
     "comment",           # 1. Door description
     "panel",             # 2. Panels (PN45, PN46, PN65, PN95, etc.)
+    "v130g_section",     # 2b. V130G full-view sections (right after panels)
+    "v130g_glass",       # 2c. V130G glass (with sections)
+    "commercial_window", # 2d. Commercial thermopane windows
     "retainer",          # 3. Retainer (top/bottom)
     "astragal",          # 4. Astragal (bottom rubber)
     "strut",             # 5. Struts
-    "window",            # 6. Windows (if applicable)
+    "window",            # 6. Windows / inserts (residential)
     "track",             # 7. Track
     "highlift_track",    # 7b. Highlift track (if applicable)
     "hardware",          # 8. Hardware box
@@ -711,6 +718,8 @@ async def generate_door_quote(request: QuoteGenerationRequest):
                 "windowPositions": [{"section": p.section, "col": p.col} for p in door.windowPositions] if door.windowPositions else [],
                 "windowCount": window_count,
                 "windowSection": door.windowSection,
+                "windowQty": door.windowQty,
+                "windowFrameColor": door.windowFrameColor,
                 "glazingType": door.glazingType,
                 "trackRadius": door.trackRadius,
                 "trackThickness": door.trackThickness,
@@ -958,6 +967,8 @@ async def get_part_numbers(config: DoorConfigRequest):
             "windowPositions": [{"section": p.section, "col": p.col} for p in config.windowPositions] if config.windowPositions else [],
             "windowCount": window_count,
             "windowSection": config.windowSection,
+            "windowQty": config.windowQty,
+            "windowFrameColor": config.windowFrameColor,
             "glazingType": config.glazingType,
             "trackRadius": config.trackRadius,
             "trackThickness": config.trackThickness,
@@ -1006,6 +1017,8 @@ async def get_parts_for_quote(request: QuoteGenerationRequest):
                 "windowPositions": [{"section": p.section, "col": p.col} for p in door.windowPositions] if door.windowPositions else [],
                 "windowCount": window_count,
                 "windowSection": door.windowSection,
+                "windowQty": door.windowQty,
+                "windowFrameColor": door.windowFrameColor,
                 "glazingType": door.glazingType,
                 "trackRadius": door.trackRadius,
                 "trackThickness": door.trackThickness,
@@ -1033,13 +1046,16 @@ async def get_parts_for_quote(request: QuoteGenerationRequest):
             else:
                 consolidated[pn] = part.copy()
 
+        # Sort consolidated parts by standard line ordering
+        sorted_consolidated = _sort_parts_by_category(list(consolidated.values()))
+
         return {
             "success": True,
             "data": {
                 "total_doors": len(request.doors),
                 "total_unique_parts": len(consolidated),
                 "parts_by_door": parts_by_door,
-                "consolidated_parts": list(consolidated.values())
+                "consolidated_parts": sorted_consolidated
             },
             "message": f"Generated part list for {len(request.doors)} door(s)"
         }
@@ -1161,9 +1177,10 @@ async def get_drum_models():
 async def get_commercial_window_types():
     """Get commercial window types with weights"""
     window_types = [
-        {"id": "24X12_THERMOPANE", "name": "24\" x 12\" Thermopane", "width": 24, "height": 12, "section": "24\" only"},
-        {"id": "34X16_THERMOPANE", "name": "34\" x 16\" Thermopane", "width": 34, "height": 16, "section": "24\" only"},
-        {"id": "18X8_THERMOPANE", "name": "18\" x 8\" Thermopane", "width": 18, "height": 8, "section": "21\" or 24\""},
+        {"id": "24X12_THERMOPANE", "name": "24\" x 12\" Thermopane", "width": 24, "height": 12, "section": "24\" only", "glassOptions": ["thermal"]},
+        {"id": "34X16_THERMOPANE", "name": "34\" x 16\" Thermopane", "width": 34, "height": 16, "section": "24\" only", "glassOptions": ["thermal"]},
+        {"id": "18X8_THERMOPANE", "name": "18\" x 8\" Thermopane", "width": 18, "height": 8, "section": "21\" or 24\"", "glassOptions": ["thermal"]},
+        {"id": "V130G", "name": "V130G Full View Section", "width": "full", "height": "full", "section": "Replaces insulated section", "glassOptions": ["single", "thermal"], "material": "AL976"},
     ]
     return {"success": True, "data": window_types}
 
@@ -1178,20 +1195,13 @@ class CommercialWindowSpacingRequest(BaseModel):
 @router.post("/calculate-window-spacing")
 async def calculate_commercial_window_spacing(request: CommercialWindowSpacingRequest):
     """
-    Calculate window spacing for commercial doors (TX450, TX450-20, TX500, TX500-20, TX380).
+    Calculate window spacing for commercial doors.
 
-    Based on COMMERCIAL WINDOW SPACING CALCULATOR:
-    - Panel width = Door width (the width that windows span)
-    - Window spaces = Window Qty + 1 (space on each end + between windows)
-    - Space between = (Panel Width - Total Window Width) / Window Spaces
-
-    Args:
-        doorWidthInches: Total door width in inches
-        windowType: Type of window (determines width)
-        windowQty: Number of windows to place
-
-    Returns:
-        Window spacing calculation including recommended quantity and spacing
+    Based on COMMERCIAL WINDOW SPACING CALCULATOR spreadsheet:
+    - Panel width = Door width in inches (full width)
+    - Window Spaces = Window Qty + 1
+    - Total Length of windows = Window Width × Qty
+    - Space between = (Panel Width - Total Window Length) / Window Spaces
     """
     # Get window dimensions
     window_size = COMMERCIAL_WINDOW_SIZES.get(request.windowType)
@@ -1201,9 +1211,8 @@ async def calculate_commercial_window_spacing(request: CommercialWindowSpacingRe
     window_width = window_size["width"]
     window_height = window_size["height"]
 
-    # Calculate spacing
-    # Panel width is approximately door width minus frame (using door width as reference)
-    panel_width = request.doorWidthInches - 4  # Account for side rails/frames
+    # Panel width = door width (matches spreadsheet exactly)
+    panel_width = request.doorWidthInches
 
     # Calculate with requested quantity
     total_window_width = window_width * request.windowQty
@@ -1225,9 +1234,8 @@ async def calculate_commercial_window_spacing(request: CommercialWindowSpacingRe
 
     space_between = (panel_width - total_window_width) / window_spaces
 
-    # Calculate recommended window quantity (optimal spacing around 8-12 inches)
-    # Start with max that gives at least 6" spacing
-    optimal_spacing = 10  # Target spacing
+    # Calculate recommended qty (target ~10" spacing)
+    optimal_spacing = 10
     recommended_qty = int((panel_width - optimal_spacing) / (window_width + optimal_spacing))
     recommended_qty = max(1, recommended_qty)
 
@@ -1260,20 +1268,14 @@ async def calculate_commercial_window_spacing(request: CommercialWindowSpacingRe
 async def get_default_window_count(door_width_inches: int, window_type: str = "24X12_THERMOPANE"):
     """
     Get the default/recommended window count for a commercial door width.
-
-    Args:
-        door_width_inches: Door width in inches
-        window_type: Type of window (default 24x12)
-
-    Returns:
-        Recommended window count and spacing
+    Uses same formula as the COMMERCIAL WINDOW SPACING CALCULATOR spreadsheet.
     """
     window_size = COMMERCIAL_WINDOW_SIZES.get(window_type)
     if not window_size:
         window_size = {"width": 24, "height": 12}  # Default to 24x12
 
     window_width = window_size["width"]
-    panel_width = door_width_inches - 4
+    panel_width = door_width_inches  # Full door width per spreadsheet
 
     # Calculate recommended quantity (target 8-12" spacing)
     optimal_spacing = 10

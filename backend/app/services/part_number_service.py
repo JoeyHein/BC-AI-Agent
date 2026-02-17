@@ -83,7 +83,7 @@ class PartSelection:
     """Represents a selected part with metadata"""
     part_number: str
     description: str
-    quantity: int
+    quantity: float  # int for count-based, float for sqft (e.g. glass)
     category: str  # panel, track, hardware, spring, etc.
     unit_price: Optional[float] = None
     notes: Optional[str] = None
@@ -102,6 +102,8 @@ class DoorConfiguration:
     window_insert: Optional[str] = None
     window_section: Optional[int] = None
     window_count: int = 0  # Number of windows (calculated from windowPositions)
+    window_qty: int = 0  # Commercial: number of windows per section, or V130G section count
+    window_frame_color: str = "BLACK"  # Commercial window frame color
     glazing_type: Optional[str] = None
     track_radius: str = "15"
     track_thickness: str = "2"
@@ -521,6 +523,10 @@ class PartNumberService:
         )
 
         panel_count = self._calculate_panel_count(config.door_height)
+
+        # V130G replaces insulated sections — reduce panel count
+        if config.window_insert == "V130G" and config.window_qty > 0:
+            panel_count = max(1, panel_count - config.window_qty)
 
         return [PartSelection(
             part_number=panel.part_number,
@@ -958,7 +964,15 @@ class PartNumberService:
         if not config.window_insert:
             return []
 
-        # Find the base window part number
+        # V130G: full-view aluminum section + glass (separate line items)
+        if config.window_insert == "V130G":
+            return self._get_v130g_parts(config)
+
+        # Commercial thermopane windows (24x12, 34x16, 18x8)
+        if config.window_insert in ("24X12_THERMOPANE", "34X16_THERMOPANE", "18X8_THERMOPANE"):
+            return self._get_commercial_window_parts(config)
+
+        # Residential window inserts (Stockton/Stockbridge)
         base_pn = None
         for style, inserts in self.window_rules.items():
             if style in ["glazing_suffix"]:
@@ -973,9 +987,8 @@ class PartNumberService:
         # Add glazing suffix
         glazing_suffix = self.window_rules.get("glazing_suffix", {}).get(config.glazing_type, "-CL")
 
-        # Window quantity based on section width
-        panels_wide = config.door_width // 24  # Approximate panels per section
-        window_qty = max(1, panels_wide)
+        # Window quantity based on positions
+        window_qty = config.window_count or max(1, config.door_width // 24)
 
         return [PartSelection(
             part_number=f"{base_pn}{glazing_suffix}",
@@ -983,6 +996,131 @@ class PartNumberService:
             quantity=window_qty,
             category="window",
             notes=f"For section {config.window_section or 1}"
+        )]
+
+    def _get_v130g_parts(self, config: DoorConfiguration) -> List[PartSelection]:
+        """
+        Get V130G full-view section parts using real BC PN10 part numbers.
+
+        BC part number format: PN10-{hh}{w}{fff}{pp}-{wwww}
+          hh  = section height (21 or 24)
+          w   = width group (2=8', 3=10', 4=12'-14', 5=16', 6=18'+)
+          fff = finish (000=Clear Ano, 001=Mill, 003=White, 008=Black)
+          pp  = position (SEF: 10=TOP, 20=INT, 30=BOT | DEF: 45=TOP, 52=INT, 61=BOT)
+          wwww = section width (0802=8'2", 1602=16'2", 2200=22'0", etc.)
+
+        Glass is separate: GL20-xxxxx-xx
+        """
+        parts = []
+        v130g_qty = config.window_qty or 1
+
+        # Section height: 21" for residential/7' doors, 24" for commercial/8'+ doors
+        section_height = 21 if config.door_type == "residential" or config.door_height <= 84 else 24
+        hh = str(section_height)
+
+        # Width group
+        door_width_feet = config.door_width / 12
+        if door_width_feet <= 9:
+            w = "2"
+        elif door_width_feet <= 10:
+            w = "3"
+        elif door_width_feet <= 14:
+            w = "4"
+        elif door_width_feet <= 16:
+            w = "5"
+        else:
+            w = "6"
+
+        # Finish code based on door color
+        finish_map = {
+            "WHITE": ("003", "WHITE"),
+            "BRIGHT_WHITE": ("003", "WHITE"),
+            "BLACK": ("008", "BLACK"),
+            "STEEL_GREY": ("000", "CLEAR ANO"),
+        }
+        fff, finish_name = finish_map.get(config.panel_color, ("000", "CLEAR ANO"))
+
+        # SEC vs DEC: match the door's end cap type (>16' uses DEC)
+        is_dec = door_width_feet > 16
+
+        # Position codes
+        sef_positions = {"TOP": "10", "INT": "20", "BOT": "30"}
+        def_positions = {"TOP": "45", "INT": "52", "BOT": "61"}
+        pos_codes = def_positions if is_dec else sef_positions
+        end_cap_label = "DEF" if is_dec else "SEF"
+
+        # Width code: door width + 2" overhang (exception: 22' = 2200)
+        width_ft = config.door_width // 12
+        width_extra = config.door_width % 12 + 2
+        if width_extra >= 12:
+            width_ft += 1
+            width_extra -= 12
+        # Special case: 22' doors use 2200 not 2202
+        if config.door_width == 264:  # 22'
+            wwww = "2200"
+        else:
+            wwww = f"{width_ft:02d}{width_extra:02d}"
+
+        # Determine position for each V130G section
+        section_start = config.window_section or 1
+        panel_count = self._calculate_panel_count(config.door_height)
+
+        for i in range(v130g_qty):
+            section_num = section_start + i
+            if section_num == 1:
+                position = "TOP"
+            elif section_num >= panel_count:
+                position = "BOT"
+            else:
+                position = "INT"
+
+            pp = pos_codes[position]
+            pn = f"PN10-{hh}{w}{fff}{pp}-{wwww}"
+
+            parts.append(PartSelection(
+                part_number=pn,
+                description=f"V130G FULL VIEW SECTION, {section_height}\" x {width_ft}'{width_extra}\", {position} {end_cap_label}, {finish_name}",
+                quantity=1,
+                category="v130g_section",
+                notes=f"Full view aluminum section - replaces insulated panel at section {section_num}"
+            ))
+
+        # V130G Glass (GL20 series, separate from section frame)
+        # GL20-00300-01 = 3MM THERMO CLEAR/CLEAR (standard)
+        # Quantity is in SQFT: (section_width × section_height) / 144 per section
+        glass_pn = "GL20-00300-01"
+        glass_desc = "GLASS, 3MM V130G THERMO CLEAR/CLEAR"
+
+        # Calculate glass square footage per section, then multiply by number of sections
+        glass_sqft_per_section = (config.door_width * section_height) / 144
+        total_glass_sqft = round(glass_sqft_per_section * v130g_qty, 2)
+
+        parts.append(PartSelection(
+            part_number=glass_pn,
+            description=glass_desc,
+            quantity=total_glass_sqft,
+            category="v130g_glass",
+            notes=f"Thermopane glass for {v130g_qty} V130G section(s) ({glass_sqft_per_section:.2f} sqft each)"
+        ))
+
+        return parts
+
+    def _get_commercial_window_parts(self, config: DoorConfiguration) -> List[PartSelection]:
+        """Get commercial thermopane window parts (24x12, 34x16, 18x8)"""
+        window_sizes = {
+            "24X12_THERMOPANE": {"width": 24, "height": 12, "desc": "24\" x 12\""},
+            "34X16_THERMOPANE": {"width": 34, "height": 16, "desc": "34\" x 16\""},
+            "18X8_THERMOPANE": {"width": 18, "height": 8, "desc": "18\" x 8\""},
+        }
+        ws = window_sizes.get(config.window_insert, {"width": 24, "height": 12, "desc": "24\" x 12\""})
+        qty = config.window_qty or 1
+
+        return [PartSelection(
+            part_number=f"CW-{config.window_insert}",
+            description=f"Commercial Window {ws['desc']} Thermopane",
+            quantity=qty,
+            category="commercial_window",
+            notes=f"Section {config.window_section or 1}, {config.window_frame_color} frame"
         )]
 
     def _get_operator_parts(self, config: DoorConfiguration) -> List[PartSelection]:
@@ -1059,6 +1197,8 @@ def get_parts_for_door_config(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         window_insert=config_dict.get("windowInsert"),
         window_section=config_dict.get("windowSection"),
         window_count=config_dict.get("windowCount", 0),
+        window_qty=config_dict.get("windowQty", 0),
+        window_frame_color=config_dict.get("windowFrameColor", "BLACK"),
         glazing_type=config_dict.get("glazingType"),
         track_radius=config_dict.get("trackRadius", "15"),
         track_thickness=config_dict.get("trackThickness", "2"),

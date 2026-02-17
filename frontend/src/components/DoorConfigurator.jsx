@@ -61,6 +61,7 @@ function DoorConfigurator() {
       glassColor: null,  // 'CLEAR', 'ETCHED', 'SUPER_GREY'
       hasInserts: false,  // Whether decorative inserts are added
       windowInsert: 'NONE',  // Insert style if hasInserts is true
+      windowFrameColor: 'MATCH',  // 'MATCH' = match door color, or a color ID
       windowSection: 1,  // Legacy fallback
       glazingType: 'NONE',  // Legacy
       // Hardware
@@ -159,9 +160,13 @@ function DoorConfigurator() {
         glassPaneType: door.glassPaneType,
         glassColor: door.glassColor,
         hasInserts: door.hasInserts || false,
-        windowInsert: door.hasInserts && door.windowInsert !== 'NONE' ? door.windowInsert : null,
-        windowSection: door.windowSection,  // Legacy fallback
-        glazingType: door.glazingType !== 'NONE' ? door.glazingType : null,  // Legacy
+        windowInsert: door.doorType === 'commercial'
+          ? (door.windowInsert || null)
+          : (door.hasInserts && door.windowInsert !== 'NONE' ? door.windowInsert : null),
+        windowSection: door.windowSection,
+        windowQty: door.windowQty || 0,
+        windowFrameColor: door.windowFrameColor || (door.doorType === 'commercial' ? 'BLACK' : 'MATCH'),
+        glazingType: door.glazingType !== 'NONE' ? door.glazingType : null,
         // Hardware
         trackRadius: door.trackRadius,
         trackThickness: door.trackThickness,
@@ -298,7 +303,11 @@ function DoorConfigurator() {
           <DoorSeriesStep
             series={config.doorSeries[currentDoor.doorType] || []}
             selected={currentDoor.doorSeries}
-            onSelect={(series) => updateCurrentDoor({ doorSeries: series, panelColor: '', panelDesign: '' })}
+            onSelect={(series) => updateCurrentDoor({
+              doorSeries: series, panelColor: '', panelDesign: '',
+              // Craft series includes windows as standard
+              ...(series === 'CRAFT' ? { hasWindows: true, windowInsert: '34X16_THERMOPANE', windowPositions: [] } : {})
+            })}
           />
         )}
 
@@ -317,7 +326,35 @@ function DoorConfigurator() {
             door={currentDoor}
             colors={config.colors}
             panelDesigns={config.panelDesigns}
-            onChange={updateCurrentDoor}
+            onChange={(updates) => {
+              // Craft series: auto-fill windows in top panel when design is selected
+              // Flush design has no windows
+              if (currentDoor.doorSeries === 'CRAFT' && updates.panelDesign && updates.panelDesign !== 'FLUSH') {
+                const widthFeet = currentDoor.doorWidth / 12
+                let windowCount
+                if (widthFeet <= 9) windowCount = 2
+                else if (widthFeet <= 12) windowCount = 3
+                else windowCount = 4
+                const topPanelWindows = Array.from({ length: windowCount }, (_, col) => ({ section: 1, col }))
+                updateCurrentDoor({
+                  ...updates,
+                  hasWindows: true,
+                  windowInsert: '34X16_THERMOPANE',
+                  windowPositions: topPanelWindows,
+                  glassPaneType: 'INSULATED',
+                  glassColor: 'CLEAR',
+                })
+              } else if (currentDoor.doorSeries === 'CRAFT' && updates.panelDesign === 'FLUSH') {
+                updateCurrentDoor({
+                  ...updates,
+                  hasWindows: false,
+                  windowInsert: null,
+                  windowPositions: [],
+                })
+              } else {
+                updateCurrentDoor(updates)
+              }
+            }}
           />
         )}
 
@@ -327,6 +364,8 @@ function DoorConfigurator() {
             door={currentDoor}
             windowInserts={config.windowInserts}
             glazingOptions={config.glazingOptions}
+            colors={config.colors}
+            config={config}
             onChange={updateCurrentDoor}
           />
         )}
@@ -753,21 +792,24 @@ function WindowInsertPreview({ insertId, size = 60 }) {
   )
 }
 
-function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
+function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onChange }) {
   const [hoveredStamp, setHoveredStamp] = useState(null)
   const hasWindows = door.hasWindows || false
+  const isCommercial = door.doorType === 'commercial'
 
   // Calculate panel count based on height (matching DoorPreview.jsx sectionConfig)
-  const getPanelCount = (heightInches) => {
+  const getPanelCount = (heightInches, series) => {
+    if (series === 'CRAFT') return 3  // Craft series: always 3 panels
     if (heightInches <= 96) return 4   // 7' and 8' doors = 4 panels
     if (heightInches <= 120) return 5  // 9' and 10' doors = 5 panels
     if (heightInches <= 144) return 6  // 11' and 12' doors = 6 panels
     if (heightInches <= 168) return 7  // 13' and 14' doors = 7 panels
     return 8
   }
-  const panelCount = getPanelCount(door.doorHeight)
+  const panelCount = getPanelCount(door.doorHeight, door.doorSeries)
 
   // Calculate stamp columns based on door width and panel design (same logic as DoorPreview)
+  const isCraft = door.doorSeries === 'CRAFT'
   const getStampColumns = (widthInches, panelDesign) => {
     const widthFeet = widthInches / 12
     let longCols
@@ -776,6 +818,8 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
     else if (widthFeet <= 16) longCols = 4
     else if (widthFeet <= 19) longCols = 5
     else longCols = 6
+    // Craft series: all stamps use same count (no doubling for short stamps)
+    if (isCraft) return longCols
     if (['SH', 'BC'].includes(panelDesign)) return longCols * 2
     return longCols
   }
@@ -791,6 +835,9 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
 
   // Toggle window at a stamp position
   const toggleWindow = (section, col) => {
+    // Craft series: windows only in top panel (section 1)
+    if (door.doorSeries === 'CRAFT' && section !== 1) return
+
     const existing = windowPositions.find(pos => pos.section === section && pos.col === col)
     let newPositions
     if (existing) {
@@ -858,6 +905,7 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
             glassColor: e.target.checked ? 'CLEAR' : null,
             windowInsert: 'NONE',
             hasInserts: false,
+            ...(isCommercial && e.target.checked ? { windowFrameColor: 'BLACK' } : {}),
           })}
           className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
         />
@@ -866,7 +914,45 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
         </label>
       </div>
 
-      {hasWindows && (
+      {hasWindows && isCraft && (
+        <>
+          {/* Craft series: windows auto-placed in top section, only glass color is configurable */}
+          <div className="p-3 bg-indigo-50 rounded-md">
+            <p className="text-sm text-indigo-700">
+              Windows are automatically placed in the top section for Craft series doors.
+            </p>
+          </div>
+
+          {/* Glass Color */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Glass Color
+            </label>
+            <div className="grid grid-cols-3 gap-3">
+              {glassColorOptions.map((option) => (
+                <button
+                  key={option.id}
+                  onClick={() => onChange({ glassColor: option.id })}
+                  className={`p-3 rounded-lg border-2 flex flex-col items-center transition-all ${
+                    door.glassColor === option.id
+                      ? 'border-indigo-500 bg-indigo-50'
+                      : 'border-gray-200 hover:border-gray-400'
+                  }`}
+                >
+                  <div
+                    className="w-16 h-10 rounded border border-gray-300 mb-2"
+                    style={{ backgroundColor: option.color }}
+                  />
+                  <span className="font-medium text-gray-900 text-sm">{option.name}</span>
+                  <span className="text-xs text-gray-500 text-center">{option.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {hasWindows && !isCraft && !isCommercial && (
         <>
           {/* Step 1: Window Placement - Interactive Door Preview */}
           <div>
@@ -886,11 +972,16 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
                   windowPositions={windowPositions}
                   hasInserts={door.hasInserts || false}
                   glassColor={door.glassColor || 'CLEAR'}
+                  windowFrameColor={door.windowFrameColor || 'MATCH'}
+                  doorType={door.doorType || 'residential'}
+                  doorSeries={door.doorSeries || ''}
+                  windowQty={door.windowQty || 0}
+                  windowSection={door.windowSection || 1}
                   showDimensions={false}
                   scale={0.7}
-                  interactive={true}
-                  onStampClick={toggleWindow}
-                  highlightStamp={hoveredStamp}
+                  interactive={!isCommercial}
+                  onStampClick={isCommercial ? undefined : toggleWindow}
+                  highlightStamp={isCommercial ? null : hoveredStamp}
                   onStampHover={(section, col) => setHoveredStamp(section !== null ? { section, col } : null)}
                 />
                 <p className="mt-2 text-xs text-center text-gray-500">
@@ -1048,7 +1139,28 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
             </div>
           </div>
 
-          {/* Step 4: Optional Window Inserts */}
+          {/* Step 4: Window Frame Color */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              4. Window Frame Color
+            </label>
+            <select
+              value={door.windowFrameColor || 'MATCH'}
+              onChange={(e) => onChange({ windowFrameColor: e.target.value })}
+              className="w-full max-w-xs rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            >
+              <option value="MATCH">Match Door Color (Standard)</option>
+              {colors && Object.values(colors).flat()
+                .filter((c, i, arr) => arr.findIndex(x => x.id === c.id) === i)
+                .filter(c => c.id !== door.panelColor && c.id !== 'CUSTOM')
+                .map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))
+              }
+            </select>
+          </div>
+
+          {/* Step 5: Optional Window Inserts */}
           <div className="border-t pt-6">
             <div className="flex items-center space-x-3 mb-4">
               <input
@@ -1101,6 +1213,232 @@ function WindowsStep({ door, windowInserts, glazingOptions, onChange }) {
           </div>
         </>
       )}
+
+      {/* Commercial window flow */}
+      {hasWindows && isCommercial && (
+        <>
+          {/* Door Preview */}
+          <div className="flex-shrink-0">
+            <DoorPreview
+              width={door.doorWidth}
+              height={door.doorHeight}
+              color={door.panelColor || 'WHITE'}
+              panelDesign={door.panelDesign || 'FLUSH'}
+              windowInsert={door.windowInsert}
+              windowPositions={[]}
+              hasInserts={false}
+              glassColor={door.glassColor || 'CLEAR'}
+              windowFrameColor={door.windowFrameColor || 'BLACK'}
+              doorType={door.doorType || 'commercial'}
+              doorSeries={door.doorSeries || ''}
+              windowQty={door.windowQty || 0}
+              windowSection={door.windowSection || 1}
+              showDimensions={true}
+              scale={0.6}
+            />
+          </div>
+
+          {/* Window Size */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Window Size
+            </label>
+            <div className="space-y-4">
+              {config?.commercialWindowTypes && Object.entries(config.commercialWindowTypes).map(([category, types]) => (
+                <div key={category}>
+                  <h4 className="text-sm font-medium text-gray-600 mb-2">{category}</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    {types.map((wt) => (
+                      <button
+                        key={wt.id}
+                        onClick={() => {
+                          if (wt.id === 'V130G') {
+                            onChange({ windowInsert: wt.id, windowQty: 1, windowSection: 1 })
+                          } else {
+                            const windowSize = config?.commercialWindowSizes?.[wt.id]
+                            if (windowSize) {
+                              const panelWidth = door.doorWidth
+                              const qty = Math.max(1, Math.floor((panelWidth - 10) / (windowSize.width + 10)))
+                              onChange({ windowInsert: wt.id, windowQty: qty })
+                            } else {
+                              onChange({ windowInsert: wt.id })
+                            }
+                          }
+                        }}
+                        className={`px-3 py-2 text-sm rounded-md border text-left ${
+                          door.windowInsert === wt.id
+                            ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                            : 'border-gray-300 hover:border-gray-400'
+                        }`}
+                      >
+                        <span className="font-medium">{wt.name}</span>
+                        {wt.sectionType && (
+                          <span className="block text-xs text-gray-400">{wt.sectionType}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* V130G options */}
+          {door.windowInsert === 'V130G' && (
+            <div className="bg-indigo-50 rounded-lg p-4">
+              <p className="text-sm text-indigo-700">
+                <strong>V130G Full View</strong> — replaces an insulated section with a full aluminum/glass panel (AL976 material).
+              </p>
+              <div className="mt-3">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Glass Type</label>
+                <div className="flex space-x-3">
+                  {['thermal', 'single'].map(gt => (
+                    <button
+                      key={gt}
+                      onClick={() => onChange({ glassPaneType: gt === 'thermal' ? 'INSULATED' : 'SINGLE' })}
+                      className={`px-4 py-2 text-sm rounded-md border ${
+                        (gt === 'thermal' && door.glassPaneType === 'INSULATED') || (gt === 'single' && door.glassPaneType === 'SINGLE')
+                          ? 'border-indigo-500 bg-indigo-100 text-indigo-700'
+                          : 'border-gray-300 hover:border-gray-400'
+                      }`}
+                    >
+                      {gt === 'thermal' ? 'Thermal Glass' : 'Single Glass'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-3">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Number of V130G sections
+                </label>
+                <div className="flex items-center space-x-4">
+                  <button
+                    onClick={() => onChange({ windowQty: Math.max(1, (door.windowQty || 1) - 1) })}
+                    className="w-10 h-10 rounded-md border border-gray-300 bg-white hover:bg-gray-50 text-xl font-bold"
+                  >-</button>
+                  <span className="text-lg font-medium w-10 text-center">{door.windowQty || 1}</span>
+                  <button
+                    onClick={() => onChange({ windowQty: Math.min(panelCount, (door.windowQty || 1) + 1) })}
+                    className="w-10 h-10 rounded-md border border-gray-300 bg-white hover:bg-gray-50 text-xl font-bold"
+                  >+</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Window Quantity (non-V130G) */}
+          {door.windowInsert && door.windowInsert !== 'NONE' && door.windowInsert !== 'V130G' && (() => {
+            const windowSize = config?.commercialWindowSizes?.[door.windowInsert]
+            const windowWidth = windowSize?.width || 24
+            const panelWidth = door.doorWidth
+            const recommendedQty = Math.max(1, Math.floor((panelWidth - 10) / (windowWidth + 10)))
+            const totalWindowWidth = windowWidth * (door.windowQty || 0)
+            const spaces = (door.windowQty || 0) + 1
+            const spacing = totalWindowWidth < panelWidth && door.windowQty > 0
+              ? ((panelWidth - totalWindowWidth) / spaces).toFixed(1)
+              : null
+            return (
+              <div className="bg-indigo-50 rounded-lg p-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Window Quantity
+                </label>
+                <div className="flex items-center space-x-4">
+                  <button
+                    onClick={() => onChange({ windowQty: Math.max(0, (door.windowQty || 0) - 1) })}
+                    className="w-10 h-10 rounded-md border border-gray-300 bg-white hover:bg-gray-50 text-xl font-bold"
+                  >-</button>
+                  <input
+                    type="number"
+                    value={door.windowQty || 0}
+                    onChange={(e) => onChange({ windowQty: Math.max(0, parseInt(e.target.value) || 0) })}
+                    className="w-20 text-center border border-gray-300 rounded-md shadow-sm px-3 py-2"
+                    min={0}
+                  />
+                  <button
+                    onClick={() => onChange({ windowQty: (door.windowQty || 0) + 1 })}
+                    className="w-10 h-10 rounded-md border border-gray-300 bg-white hover:bg-gray-50 text-xl font-bold"
+                  >+</button>
+                  <button
+                    onClick={() => onChange({ windowQty: recommendedQty })}
+                    className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+                  >
+                    Use Recommended ({recommendedQty})
+                  </button>
+                </div>
+                {spacing && (
+                  <p className="mt-2 text-sm text-indigo-700">
+                    Spacing between windows: <strong>{spacing}"</strong>
+                  </p>
+                )}
+                {door.windowQty > 0 && !spacing && (
+                  <p className="mt-2 text-sm text-red-600">
+                    Too many windows for this door width. Please reduce quantity.
+                  </p>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* Window Section Selection */}
+          {door.windowQty > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Window Section (1 = Top)
+              </label>
+              <div className="flex space-x-2">
+                {[...Array(panelCount)].map((_, i) => (
+                  <button
+                    key={i + 1}
+                    onClick={() => onChange({ windowSection: i + 1 })}
+                    className={`w-12 h-12 rounded-md border-2 text-sm font-medium ${
+                      door.windowSection === i + 1
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                        : 'border-gray-300 hover:border-gray-400'
+                    }`}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                This door has {panelCount} panels. Select which panel to place the {door.windowQty} window{door.windowQty > 1 ? 's' : ''} in.
+              </p>
+            </div>
+          )}
+
+          {/* Commercial Frame Color */}
+          {config?.commercialWindowFrameColors && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Frame Color
+              </label>
+              <p className="text-xs text-gray-500 mb-2">Standard is black. Inside frame is always white.</p>
+              <div className="grid grid-cols-2 gap-3">
+                {config.commercialWindowFrameColors.map((color) => (
+                  <button
+                    key={color.id}
+                    onClick={() => onChange({ windowFrameColor: color.id })}
+                    className={`p-3 rounded-lg border-2 flex items-center space-x-3 ${
+                      (door.windowFrameColor || 'BLACK') === color.id
+                        ? 'border-indigo-500 bg-indigo-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <div
+                      className="w-8 h-8 rounded-full border border-gray-300"
+                      style={{ backgroundColor: color.hex }}
+                    />
+                    <div className="text-left">
+                      <span className="text-sm font-medium text-gray-900">{color.name}{color.default && ' (Standard)'}</span>
+                      <span className="block text-xs text-gray-500">{color.description}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }
@@ -1127,9 +1465,18 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
   // Warn if single shaft selected for wide door
   const shaftWarning = door.shaftType === 'single' && door.doorWidth > 170
 
+  // Craft series: only 2" track and no 12" radius option
+  const isCraftDoor = door.doorSeries === 'CRAFT'
+  const filteredRadius = isCraftDoor
+    ? trackOptions.radius?.filter(r => r.id !== '12')
+    : trackOptions.radius
+  const filteredThickness = isCraftDoor
+    ? trackOptions.thickness?.filter(t => t.id !== '3')
+    : trackOptions.thickness
+
   // Determine allowed track thickness based on selected radius
-  const selectedRadius = trackOptions.radius?.find(r => r.id === door.trackRadius)
-  const allowedThickness = selectedRadius?.allowedThickness || ['2', '3']
+  const selectedRadius = filteredRadius?.find(r => r.id === door.trackRadius)
+  const allowedThickness = selectedRadius?.allowedThickness?.filter(t => !isCraftDoor || t !== '3') || ['2']
   const isLowHeadroom = door.liftType === 'low_headroom'
 
   // Handle radius change - auto-correct track thickness if needed
@@ -1224,7 +1571,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
               Track Radius
             </label>
             <div className="space-y-2">
-              {trackOptions.radius.map((option) => (
+              {filteredRadius?.map((option) => (
                 <label key={option.id} className="flex items-center">
                   <input
                     type="radio"
@@ -1248,7 +1595,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
               Track Thickness
             </label>
             <div className="space-y-2">
-              {trackOptions.thickness.map((option) => {
+              {filteredThickness?.map((option) => {
                 const isDisabled = !allowedThickness.includes(option.id)
                 return (
                   <label key={option.id} className={`flex items-center ${isDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}>
@@ -1282,58 +1629,62 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         </div>
       )}
 
-      {/* Spring Cycles */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Spring Cycle Life
-        </label>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-          {springCycleOptions.map((option) => (
-            <button
-              key={option.id}
-              onClick={() => onChange({ targetCycles: option.id })}
-              className={`p-3 rounded-lg border-2 text-center transition-all ${
-                door.targetCycles === option.id
-                  ? 'border-indigo-500 bg-indigo-50'
-                  : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <span className="block text-sm font-medium text-gray-900">{option.name}</span>
-              <span className="block text-xs text-gray-500">{option.description}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Shaft Type */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Shaft Configuration
-        </label>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {shaftTypeOptions.map((option) => (
-            <button
-              key={option.id}
-              onClick={() => onChange({ shaftType: option.id })}
-              className={`p-3 rounded-lg border-2 text-left transition-all ${
-                door.shaftType === option.id
-                  ? 'border-indigo-500 bg-indigo-50'
-                  : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <span className="block text-sm font-medium text-gray-900">{option.name}</span>
-              <span className="block text-xs text-gray-500">{option.description}</span>
-            </button>
-          ))}
-        </div>
-        {shaftWarning && (
-          <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
-            <p className="text-xs text-yellow-700">
-              Warning: Single shaft is only recommended for doors up to 14'2" wide. Your door is {Math.floor(door.doorWidth / 12)}'{door.doorWidth % 12}".
-            </p>
+      {/* Spring Cycles - commercial only */}
+      {door.doorType === 'commercial' && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Spring Cycle Life
+          </label>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+            {springCycleOptions.map((option) => (
+              <button
+                key={option.id}
+                onClick={() => onChange({ targetCycles: option.id })}
+                className={`p-3 rounded-lg border-2 text-center transition-all ${
+                  door.targetCycles === option.id
+                    ? 'border-indigo-500 bg-indigo-50'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <span className="block text-sm font-medium text-gray-900">{option.name}</span>
+                <span className="block text-xs text-gray-500">{option.description}</span>
+              </button>
+            ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Shaft Type - commercial only */}
+      {door.doorType === 'commercial' && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Shaft Configuration
+          </label>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {shaftTypeOptions.map((option) => (
+              <button
+                key={option.id}
+                onClick={() => onChange({ shaftType: option.id })}
+                className={`p-3 rounded-lg border-2 text-left transition-all ${
+                  door.shaftType === option.id
+                    ? 'border-indigo-500 bg-indigo-50'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <span className="block text-sm font-medium text-gray-900">{option.name}</span>
+                <span className="block text-xs text-gray-500">{option.description}</span>
+              </button>
+            ))}
+          </div>
+          {shaftWarning && (
+            <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
+              <p className="text-xs text-yellow-700">
+                Warning: Single shaft is only recommended for doors up to 14'2" wide. Your door is {Math.floor(door.doorWidth / 12)}'{door.doorWidth % 12}".
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Hardware Options */}
       <div>
@@ -1422,8 +1773,12 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult 
             glassPaneType: door.glassPaneType,
             glassColor: door.glassColor,
             hasInserts: door.hasInserts || false,
-            windowInsert: door.hasInserts && door.windowInsert !== 'NONE' ? door.windowInsert : null,
+            windowInsert: door.doorType === 'commercial'
+              ? (door.windowInsert || null)
+              : (door.hasInserts && door.windowInsert !== 'NONE' ? door.windowInsert : null),
             windowSection: door.windowSection,
+            windowQty: door.windowQty || 0,
+            windowFrameColor: door.windowFrameColor || (door.doorType === 'commercial' ? 'BLACK' : 'MATCH'),
             glazingType: door.glazingType !== 'NONE' ? door.glazingType : null,
             trackRadius: door.trackRadius,
             trackThickness: door.liftType === 'low_headroom' ? '2' : door.trackThickness,
