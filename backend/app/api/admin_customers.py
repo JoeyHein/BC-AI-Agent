@@ -4,7 +4,8 @@ Manage customer portal accounts from the admin interface
 """
 
 import logging
-from datetime import datetime
+import secrets
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -12,9 +13,11 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 
 from app.db.database import SessionLocal
-from app.db.models import User, UserRole, BCCustomer, SavedQuoteConfig
+from app.db.models import User, UserRole, BCCustomer, SavedQuoteConfig, SalesOrder
 from app.services.auth_service import auth_service
+from app.services.bc_sync_service import bc_sync_service
 from app.integrations.bc.client import bc_client
+from app.config import settings
 
 router = APIRouter(prefix="/api/admin/customers", tags=["admin-customers"])
 logger = logging.getLogger(__name__)
@@ -106,6 +109,7 @@ class CustomerListResponse(BaseModel):
     email_verified: bool
     bc_customer_id: Optional[str]
     bc_company_name: Optional[str]
+    bc_price_multiplier: Optional[float]
     created_at: datetime
     last_login_at: Optional[datetime]
     saved_quotes_count: int
@@ -122,6 +126,7 @@ class CustomerDetailResponse(BaseModel):
     email_verified: bool
     bc_customer_id: Optional[str]
     bc_company_name: Optional[str]
+    bc_price_multiplier: Optional[float]
     bc_contact_name: Optional[str]
     bc_email: Optional[str]
     bc_phone: Optional[str]
@@ -174,14 +179,16 @@ def list_customers(
 
     result = []
     for customer in customers:
-        # Get BC company name if linked
+        # Get BC company name and multiplier if linked
         bc_company_name = None
+        bc_price_multiplier = None
         if customer.bc_customer_id:
             bc_customer = db.query(BCCustomer).filter(
                 BCCustomer.bc_customer_id == customer.bc_customer_id
             ).first()
             if bc_customer:
                 bc_company_name = bc_customer.company_name
+                bc_price_multiplier = bc_customer.price_multiplier
 
         # Count saved quotes
         saved_quotes_count = db.query(SavedQuoteConfig).filter(
@@ -196,6 +203,7 @@ def list_customers(
             email_verified=customer.email_verified or False,
             bc_customer_id=customer.bc_customer_id,
             bc_company_name=bc_company_name,
+            bc_price_multiplier=bc_price_multiplier,
             created_at=customer.created_at,
             last_login_at=customer.last_login_at,
             saved_quotes_count=saved_quotes_count
@@ -245,6 +253,131 @@ def search_bc_customers(
     return result
 
 
+@router.post("/sync-bc-customers")
+async def sync_bc_customers(
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Trigger a sync of all BC customers to local cache, including price multipliers"""
+    logger.info(f"Admin {current_admin.email} triggered BC customer sync")
+
+    results = await bc_sync_service.sync_customers(db=db)
+
+    return {
+        "message": "BC customer sync complete",
+        "customers_synced": results.get("customers_synced", 0),
+        "customers_updated": results.get("customers_updated", 0),
+        "errors": results.get("errors", [])
+    }
+
+
+@router.post("/bulk-create-from-bc")
+def bulk_create_from_bc(
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Bulk-create customer portal accounts from BC customer data.
+    Skips Amazon customers, customers without email, and already-linked customers.
+    Creates accounts silently (no welcome emails).
+    """
+    logger.info(f"Admin {current_admin.email} triggered bulk create from BC")
+
+    # Load all BC customers
+    bc_customers = db.query(BCCustomer).all()
+
+    # Pre-load existing emails and linked bc_customer_ids for O(1) lookup
+    existing_emails = set(
+        u.email.lower() for u in db.query(User.email).all()
+    )
+    linked_bc_ids = set(
+        u.bc_customer_id for u in
+        db.query(User.bc_customer_id).filter(User.bc_customer_id.isnot(None)).all()
+    )
+
+    created = 0
+    skipped_existing = 0
+    skipped_no_email = 0
+    skipped_amazon = 0
+    created_customers = []
+    errors = []
+
+    for bc in bc_customers:
+        try:
+            # Skip Amazon customers
+            if bc.company_name and "amazon" in bc.company_name.lower():
+                skipped_amazon += 1
+                continue
+
+            # Skip if no email
+            if not bc.email:
+                skipped_no_email += 1
+                continue
+
+            # Skip if email already exists
+            if bc.email.lower() in existing_emails:
+                skipped_existing += 1
+                continue
+
+            # Skip if bc_customer_id already linked
+            if bc.bc_customer_id in linked_bc_ids:
+                skipped_existing += 1
+                continue
+
+            # Create user with unusable random password
+            random_password = secrets.token_urlsafe(32)
+            password_hash = auth_service.get_password_hash(random_password)
+
+            user = User(
+                email=bc.email.lower(),
+                password_hash=password_hash,
+                name=bc.contact_name or bc.company_name,
+                role=UserRole.VIEWER,
+                user_type='CUSTOMER',
+                is_active=True,
+                email_verified=True,
+                bc_customer_id=bc.bc_customer_id
+            )
+            db.add(user)
+
+            # Track for O(1) duplicate prevention within this batch
+            existing_emails.add(bc.email.lower())
+            linked_bc_ids.add(bc.bc_customer_id)
+
+            created += 1
+            created_customers.append({
+                "email": bc.email,
+                "name": bc.contact_name or bc.company_name,
+                "company": bc.company_name,
+                "bc_customer_id": bc.bc_customer_id
+            })
+
+        except Exception as e:
+            errors.append({
+                "bc_customer_id": bc.bc_customer_id,
+                "company": bc.company_name,
+                "error": str(e)
+            })
+
+    # Single commit for atomicity
+    if created > 0:
+        db.commit()
+
+    logger.info(
+        f"Bulk create complete: {created} created, {skipped_existing} existing, "
+        f"{skipped_no_email} no email, {skipped_amazon} Amazon, {len(errors)} errors"
+    )
+
+    return {
+        "created": created,
+        "skipped_existing": skipped_existing,
+        "skipped_no_email": skipped_no_email,
+        "skipped_amazon": skipped_amazon,
+        "created_customers": created_customers,
+        "errors": errors
+    }
+
+
 @router.get("/{customer_id}", response_model=CustomerDetailResponse)
 def get_customer(
     customer_id: int,
@@ -265,6 +398,7 @@ def get_customer(
 
     # Get BC customer info if linked
     bc_company_name = None
+    bc_price_multiplier = None
     bc_contact_name = None
     bc_email = None
     bc_phone = None
@@ -275,6 +409,7 @@ def get_customer(
         ).first()
         if bc_customer:
             bc_company_name = bc_customer.company_name
+            bc_price_multiplier = bc_customer.price_multiplier
             bc_contact_name = bc_customer.contact_name
             bc_email = bc_customer.email
             bc_phone = bc_customer.phone
@@ -297,6 +432,7 @@ def get_customer(
         email_verified=customer.email_verified or False,
         bc_customer_id=customer.bc_customer_id,
         bc_company_name=bc_company_name,
+        bc_price_multiplier=bc_price_multiplier,
         bc_contact_name=bc_contact_name,
         bc_email=bc_email,
         bc_phone=bc_phone,
@@ -497,3 +633,98 @@ def delete_customer(
     logger.info(f"Admin {current_admin.email} deleted customer account {email}")
 
     return {"message": f"Customer account {email} deleted successfully"}
+
+
+@router.get("/{customer_id}/activity")
+def get_customer_activity(
+    customer_id: int,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Get customer activity - saved quotes and orders"""
+    customer = db.query(User).filter(
+        User.id == customer_id,
+        User.user_type == 'CUSTOMER'
+    ).first()
+
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+
+    # Get saved quotes
+    quotes = db.query(SavedQuoteConfig).filter(
+        SavedQuoteConfig.user_id == customer.id
+    ).order_by(SavedQuoteConfig.created_at.desc()).all()
+
+    quotes_data = [
+        {
+            "id": q.id,
+            "name": q.name,
+            "status": "submitted" if q.is_submitted else "draft",
+            "bc_quote_number": q.bc_quote_number,
+            "created_at": q.created_at.isoformat() if q.created_at else None,
+            "submitted_at": q.submitted_at.isoformat() if q.submitted_at else None,
+        }
+        for q in quotes
+    ]
+
+    # Get orders via bc_customer_id
+    orders_data = []
+    if customer.bc_customer_id:
+        orders = db.query(SalesOrder).filter(
+            SalesOrder.customer_id == customer.bc_customer_id
+        ).order_by(SalesOrder.created_at.desc()).all()
+
+        orders_data = [
+            {
+                "id": o.id,
+                "bc_order_number": o.bc_order_number,
+                "status": o.status.value,
+                "total_amount": float(o.total_amount) if o.total_amount else None,
+                "created_at": o.created_at.isoformat() if o.created_at else None,
+            }
+            for o in orders
+        ]
+
+    return {
+        "quotes": quotes_data,
+        "orders": orders_data,
+        "last_login_at": customer.last_login_at.isoformat() if customer.last_login_at else None,
+    }
+
+
+@router.post("/{customer_id}/reset-password")
+def admin_reset_password(
+    customer_id: int,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Generate a password reset link for a customer (admin-initiated)"""
+    customer = db.query(User).filter(
+        User.id == customer_id,
+        User.user_type == 'CUSTOMER'
+    ).first()
+
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+
+    # Generate reset token with 1-hour expiry
+    reset_token = secrets.token_urlsafe(32)
+    customer.password_reset_token = reset_token
+    customer.password_reset_expires = datetime.utcnow() + timedelta(hours=1)
+    db.commit()
+
+    reset_link = f"{settings.CUSTOMER_PORTAL_URL}#/reset-password/{reset_token}"
+
+    logger.info(f"Admin {current_admin.email} generated password reset for customer {customer.email}")
+
+    return {
+        "reset_token": reset_token,
+        "reset_link": reset_link,
+        "expires_in_hours": 1,
+    }

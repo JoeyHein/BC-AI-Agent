@@ -40,6 +40,26 @@ const deleteCustomer = async (id) => {
   return response.data
 }
 
+const syncBCCustomers = async () => {
+  const response = await apiClient.post('/api/admin/customers/sync-bc-customers')
+  return response.data
+}
+
+const bulkCreateFromBC = async () => {
+  const response = await apiClient.post('/api/admin/customers/bulk-create-from-bc')
+  return response.data
+}
+
+const fetchCustomerActivity = async (id) => {
+  const response = await apiClient.get(`/api/admin/customers/${id}/activity`)
+  return response.data
+}
+
+const resetCustomerPassword = async (id) => {
+  const response = await apiClient.post(`/api/admin/customers/${id}/reset-password`)
+  return response.data
+}
+
 // Customer List Component
 function CustomerList({ customers, onSelect, selectedId }) {
   return (
@@ -52,6 +72,9 @@ function CustomerList({ customers, onSelect, selectedId }) {
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
               BC Account
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Price Multiplier
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
               Status
@@ -70,14 +93,14 @@ function CustomerList({ customers, onSelect, selectedId }) {
               key={customer.id}
               onClick={() => onSelect(customer)}
               className={`cursor-pointer hover:bg-gray-50 ${
-                selectedId === customer.id ? 'bg-indigo-50' : ''
+                selectedId === customer.id ? 'bg-odc-50' : ''
               }`}
             >
               <td className="px-6 py-4 whitespace-nowrap">
                 <div className="flex items-center">
                   <div className="flex-shrink-0 h-10 w-10">
-                    <div className="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center">
-                      <span className="text-indigo-600 font-medium text-sm">
+                    <div className="h-10 w-10 rounded-full bg-odc-100 flex items-center justify-center">
+                      <span className="text-odc-600 font-medium text-sm">
                         {customer.name?.charAt(0) || customer.email.charAt(0).toUpperCase()}
                       </span>
                     </div>
@@ -98,6 +121,23 @@ function CustomerList({ customers, onSelect, selectedId }) {
                   </div>
                 ) : (
                   <span className="text-sm text-gray-400">Not linked</span>
+                )}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap">
+                {customer.bc_price_multiplier != null ? (
+                  <span
+                    className={`inline-flex px-2 text-xs leading-5 font-semibold rounded-full ${
+                      customer.bc_price_multiplier > 0
+                        ? 'bg-green-100 text-green-800'
+                        : customer.bc_price_multiplier < 0
+                        ? 'bg-red-100 text-red-800'
+                        : 'bg-gray-100 text-gray-600'
+                    }`}
+                  >
+                    {customer.bc_price_multiplier > 0 ? '+' : ''}{customer.bc_price_multiplier}%
+                  </span>
+                ) : (
+                  <span className="text-sm text-gray-400">-</span>
                 )}
               </td>
               <td className="px-6 py-4 whitespace-nowrap">
@@ -146,6 +186,7 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
   const queryClient = useQueryClient()
   const [showLinkModal, setShowLinkModal] = useState(false)
   const [editing, setEditing] = useState(false)
+  const [resetLink, setResetLink] = useState(null)
   const [editForm, setEditForm] = useState({
     name: customer?.name || '',
     is_active: customer?.is_active ?? true,
@@ -185,6 +226,19 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
       queryClient.invalidateQueries(['customers'])
       onClose()
     }
+  })
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: () => resetCustomerPassword(customer.id),
+    onSuccess: (data) => {
+      setResetLink(data.reset_link)
+    }
+  })
+
+  const { data: activity } = useQuery({
+    queryKey: ['customer-activity', customer?.id],
+    queryFn: () => fetchCustomerActivity(customer.id),
+    enabled: !!customer?.id
   })
 
   const handleSave = () => {
@@ -227,7 +281,7 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
               type="text"
               value={editForm.name}
               onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-odc-500 focus:border-odc-500 sm:text-sm"
             />
           </div>
           <div className="flex items-center gap-4">
@@ -236,7 +290,7 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
                 type="checkbox"
                 checked={editForm.is_active}
                 onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })}
-                className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
               />
               <span className="ml-2 text-sm text-gray-700">Active</span>
             </label>
@@ -245,7 +299,7 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
                 type="checkbox"
                 checked={editForm.email_verified}
                 onChange={(e) => setEditForm({ ...editForm, email_verified: e.target.checked })}
-                className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
               />
               <span className="ml-2 text-sm text-gray-700">Email Verified</span>
             </label>
@@ -254,7 +308,7 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
             <button
               onClick={handleSave}
               disabled={updateMutation.isLoading}
-              className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-odc-600 hover:bg-odc-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-odc-500"
             >
               {updateMutation.isLoading ? 'Saving...' : 'Save'}
             </button>
@@ -320,6 +374,22 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
                 <div className="text-sm">
                   <p className="font-medium text-gray-900">{customer.bc_company_name}</p>
                   <p className="text-gray-500">ID: {customer.bc_customer_id}</p>
+                  {customer.bc_price_multiplier != null && (
+                    <p className="text-gray-500">
+                      Price Multiplier:{' '}
+                      <span
+                        className={`inline-flex px-2 text-xs leading-5 font-semibold rounded-full ${
+                          customer.bc_price_multiplier > 0
+                            ? 'bg-green-100 text-green-800'
+                            : customer.bc_price_multiplier < 0
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-gray-100 text-gray-600'
+                        }`}
+                      >
+                        {customer.bc_price_multiplier > 0 ? '+' : ''}{customer.bc_price_multiplier}%
+                      </span>
+                    </p>
+                  )}
                   {customer.bc_contact_name && (
                     <p className="text-gray-500">Contact: {customer.bc_contact_name}</p>
                   )}
@@ -353,12 +423,70 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
             )}
           </div>
 
+          {/* Activity Section */}
+          {activity && (
+            <div className="border-t border-gray-200 pt-4">
+              <h4 className="text-sm font-medium text-gray-900 mb-2">Activity</h4>
+
+              {/* Saved Quotes */}
+              {activity.quotes?.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-xs font-medium text-gray-500 uppercase mb-1">Saved Quotes ({activity.quotes.length})</p>
+                  <div className="max-h-32 overflow-y-auto space-y-1">
+                    {activity.quotes.map((q) => (
+                      <div key={q.id} className="flex items-center justify-between text-xs bg-gray-50 rounded px-2 py-1">
+                        <span className="text-gray-900 truncate mr-2">{q.name || 'Unnamed'}</span>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className={`px-1.5 py-0.5 rounded-full font-medium ${
+                            q.status === 'submitted' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                          }`}>
+                            {q.status}
+                          </span>
+                          <span className="text-gray-400">{q.created_at ? new Date(q.created_at).toLocaleDateString() : ''}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Orders */}
+              {activity.orders?.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-xs font-medium text-gray-500 uppercase mb-1">Orders ({activity.orders.length})</p>
+                  <div className="max-h-32 overflow-y-auto space-y-1">
+                    {activity.orders.map((o) => (
+                      <div key={o.id} className="flex items-center justify-between text-xs bg-gray-50 rounded px-2 py-1">
+                        <span className="text-gray-900">{o.bc_order_number || `#${o.id}`}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-600">{o.status}</span>
+                          {o.total_amount && <span className="text-gray-900 font-medium">${o.total_amount.toLocaleString()}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {!activity.quotes?.length && !activity.orders?.length && (
+                <p className="text-xs text-gray-400">No activity yet</p>
+              )}
+            </div>
+          )}
+
           <div className="flex gap-2 pt-4 border-t border-gray-200">
             <button
               onClick={() => setEditing(true)}
               className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
             >
               Edit
+            </button>
+            <button
+              onClick={() => resetPasswordMutation.mutate()}
+              disabled={resetPasswordMutation.isPending}
+              className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+            >
+              {resetPasswordMutation.isPending ? 'Generating...' : 'Reset Password'}
             </button>
             <button
               onClick={handleDelete}
@@ -368,6 +496,36 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
               {deleteMutation.isLoading ? 'Deleting...' : 'Delete Account'}
             </button>
           </div>
+
+          {/* Reset Password Link Dialog */}
+          {resetLink && (
+            <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-md">
+              <p className="text-sm font-medium text-blue-900 mb-1">Password Reset Link (expires in 1 hour)</p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={resetLink}
+                  className="flex-1 text-xs bg-white border border-blue-300 rounded px-2 py-1 font-mono"
+                />
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(resetLink)
+                    alert('Link copied to clipboard!')
+                  }}
+                  className="inline-flex items-center px-2 py-1 border border-blue-300 text-xs font-medium rounded-md text-blue-700 bg-white hover:bg-blue-50"
+                >
+                  Copy
+                </button>
+              </div>
+              <button
+                onClick={() => setResetLink(null)}
+                className="mt-1 text-xs text-blue-600 hover:text-blue-800"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -431,7 +589,7 @@ function LinkBCCustomerModal({ customerId, onClose, onSuccess }) {
               placeholder="Search by company name, contact, or email..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-odc-500 focus:border-odc-500 sm:text-sm"
             />
           </div>
         </div>
@@ -439,7 +597,7 @@ function LinkBCCustomerModal({ customerId, onClose, onSuccess }) {
         <div className="flex-1 overflow-y-auto p-6">
           {isLoading ? (
             <div className="text-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto"></div>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-odc-600 mx-auto"></div>
             </div>
           ) : bcCustomers?.length > 0 ? (
             <div className="space-y-2">
@@ -449,7 +607,7 @@ function LinkBCCustomerModal({ customerId, onClose, onSuccess }) {
                   className={`border rounded-lg p-4 ${
                     bc.already_linked
                       ? 'bg-gray-50 border-gray-200'
-                      : 'hover:border-indigo-300 cursor-pointer'
+                      : 'hover:border-odc-300 cursor-pointer'
                   }`}
                   onClick={() => !bc.already_linked && handleLink(bc.bc_customer_id)}
                 >
@@ -467,7 +625,7 @@ function LinkBCCustomerModal({ customerId, onClose, onSuccess }) {
                         Already linked
                       </span>
                     ) : (
-                      <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-indigo-100 text-indigo-600">
+                      <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-odc-100 text-odc-600">
                         Click to link
                       </span>
                     )}
@@ -487,7 +645,7 @@ function LinkBCCustomerModal({ customerId, onClose, onSuccess }) {
         {linkMutation.isLoading && (
           <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
             <div className="flex items-center justify-center text-sm text-gray-500">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-600 mr-2"></div>
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-odc-600 mr-2"></div>
               Linking customer...
             </div>
           </div>
@@ -558,7 +716,7 @@ function CreateCustomerModal({ onClose, onSuccess }) {
               required
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-odc-500 focus:border-odc-500 sm:text-sm"
             />
           </div>
 
@@ -569,7 +727,7 @@ function CreateCustomerModal({ onClose, onSuccess }) {
               required
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-odc-500 focus:border-odc-500 sm:text-sm"
             />
           </div>
 
@@ -581,7 +739,7 @@ function CreateCustomerModal({ onClose, onSuccess }) {
               minLength={8}
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-odc-500 focus:border-odc-500 sm:text-sm"
             />
             <p className="mt-1 text-xs text-gray-500">Minimum 8 characters</p>
           </div>
@@ -609,7 +767,7 @@ function CreateCustomerModal({ onClose, onSuccess }) {
                   placeholder="Search BC customers..."
                   value={bcSearchQuery}
                   onChange={(e) => setBCSearchQuery(e.target.value)}
-                  className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-odc-500 focus:border-odc-500 sm:text-sm"
                 />
                 {bcCustomers?.length > 0 && (
                   <div className="mt-2 max-h-40 overflow-y-auto border rounded-md">
@@ -641,7 +799,7 @@ function CreateCustomerModal({ onClose, onSuccess }) {
               <button
                 type="button"
                 onClick={() => setShowBCSearch(true)}
-                className="mt-1 text-sm text-indigo-600 hover:text-indigo-800"
+                className="mt-1 text-sm text-odc-600 hover:text-odc-800"
               >
                 + Link to BC customer
               </button>
@@ -658,7 +816,7 @@ function CreateCustomerModal({ onClose, onSuccess }) {
             <button
               type="submit"
               disabled={createMutation.isLoading}
-              className="flex-1 inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              className="flex-1 inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-odc-600 hover:bg-odc-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-odc-500"
             >
               {createMutation.isLoading ? 'Creating...' : 'Create Account'}
             </button>
@@ -687,6 +845,36 @@ function CustomerManagement() {
     queryFn: fetchCustomers
   })
 
+  const syncMutation = useMutation({
+    mutationFn: syncBCCustomers,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries(['customers'])
+      queryClient.invalidateQueries(['bc-customers'])
+      alert(`Sync complete: ${data.customers_synced} new, ${data.customers_updated} updated${data.errors?.length ? `\nErrors: ${data.errors.join(', ')}` : ''}`)
+    },
+    onError: (err) => {
+      alert(`Sync failed: ${err.response?.data?.detail || err.message}`)
+    }
+  })
+
+  const bulkCreateMutation = useMutation({
+    mutationFn: bulkCreateFromBC,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries(['customers'])
+      alert(
+        `Bulk Create Complete:\n` +
+        `- Created: ${data.created}\n` +
+        `- Skipped (existing): ${data.skipped_existing}\n` +
+        `- Skipped (no email): ${data.skipped_no_email}\n` +
+        `- Skipped (Amazon): ${data.skipped_amazon}` +
+        (data.errors?.length ? `\n- Errors: ${data.errors.length}` : '')
+      )
+    },
+    onError: (err) => {
+      alert(`Bulk create failed: ${err.response?.data?.detail || err.message}`)
+    }
+  })
+
   const handleSelectCustomer = async (customer) => {
     // Fetch full details
     try {
@@ -701,7 +889,7 @@ function CustomerManagement() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-odc-600"></div>
       </div>
     )
   }
@@ -723,15 +911,63 @@ function CustomerManagement() {
             Manage customer portal accounts and BC customer links
           </p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-        >
-          <svg className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Create Customer
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isLoading}
+            className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-odc-500 disabled:opacity-50"
+          >
+            {syncMutation.isLoading ? (
+              <svg className="animate-spin h-5 w-5 mr-2 text-gray-500" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            ) : (
+              <svg className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            )}
+            {syncMutation.isLoading ? 'Syncing...' : 'Sync BC Customers'}
+          </button>
+          <button
+            onClick={() => {
+              if (window.confirm(
+                'Bulk Create Portal Accounts\n\n' +
+                'This will create customer portal accounts for all BC customers that:\n' +
+                '- Have an email address\n' +
+                '- Don\'t already have a portal account\n' +
+                '- Are not Amazon customers\n\n' +
+                'Accounts will be created silently (no emails sent).\n\n' +
+                'Continue?'
+              )) {
+                bulkCreateMutation.mutate()
+              }
+            }}
+            disabled={bulkCreateMutation.isPending}
+            className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-odc-500 disabled:opacity-50"
+          >
+            {bulkCreateMutation.isPending ? (
+              <svg className="animate-spin h-5 w-5 mr-2 text-gray-500" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            ) : (
+              <svg className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            )}
+            {bulkCreateMutation.isPending ? 'Creating...' : 'Bulk Create from BC'}
+          </button>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-odc-600 hover:bg-odc-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-odc-500"
+          >
+            <svg className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Create Customer
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

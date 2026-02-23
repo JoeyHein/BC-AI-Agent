@@ -4,7 +4,7 @@ Saved quotes, BC quotes, orders, and history for customer users
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Any, Dict
 
 from app.db.database import SessionLocal
-from app.db.models import User, SavedQuoteConfig, SalesOrder, Shipment, Invoice, BCCustomer
+from app.db.models import User, SavedQuoteConfig, SalesOrder, OrderStatus, Shipment, Invoice, BCCustomer
 from app.api.customer_auth import get_current_customer
 from app.integrations.bc.client import bc_client
 from app.services.part_number_service import get_parts_for_door_config
@@ -149,6 +149,7 @@ class TrackingEvent(BaseModel):
     description: str
     timestamp: Optional[datetime]
     status: str  # completed, current, pending
+    estimated_date: Optional[str] = None
 
 
 class OrderTrackingResponse(BaseModel):
@@ -839,6 +840,121 @@ def submit_saved_quote(
     return config
 
 
+@router.post("/saved-quotes/{config_id}/place-order")
+def place_order_from_quote(
+    config_id: int,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db)
+):
+    """
+    Convert a priced/submitted quote to a sales order via BC's makeOrder action.
+    Auto-converts immediately (no admin approval gate).
+    """
+    config = db.query(SavedQuoteConfig).filter(
+        SavedQuoteConfig.id == config_id,
+        SavedQuoteConfig.user_id == current_user.id
+    ).first()
+
+    if not config:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Saved configuration not found"
+        )
+
+    if not config.bc_quote_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This quote has not been priced yet. Please get pricing first."
+        )
+
+    if not current_user.bc_customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Your account is not linked to a Business Central customer."
+        )
+
+    # Check if an order already exists for this quote
+    existing_order = db.query(SalesOrder).filter(
+        SalesOrder.bc_quote_number == config.bc_quote_number
+    ).first()
+
+    if existing_order:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"An order has already been placed for this quote (Order #{existing_order.bc_order_number})"
+        )
+
+    try:
+        # Convert quote to order in BC
+        bc_order = bc_client.convert_quote_to_order(config.bc_quote_id)
+
+        bc_order_id = bc_order.get("id")
+        bc_order_number = bc_order.get("number")
+        total_amount = bc_order.get("totalAmountIncludingTax", 0)
+
+        # Create local SalesOrder record
+        sales_order = SalesOrder(
+            quote_request_id=None,  # Portal-originated, not from email QuoteRequest
+            bc_order_id=bc_order_id,
+            bc_order_number=bc_order_number,
+            bc_quote_number=config.bc_quote_number,
+            customer_id=current_user.bc_customer_id,
+            bc_customer_id=current_user.bc_customer_id,
+            customer_name=current_user.name,
+            customer_email=current_user.email,
+            status=OrderStatus.CONFIRMED,
+            total_amount=total_amount,
+            currency="CAD",
+            order_date=datetime.utcnow(),
+            confirmed_at=datetime.utcnow(),
+        )
+        db.add(sales_order)
+
+        # Mark as submitted if not already
+        if not config.is_submitted:
+            config.is_submitted = True
+            config.submitted_at = datetime.utcnow()
+
+        db.commit()
+        db.refresh(sales_order)
+
+        logger.info(
+            f"Order placed from quote: config {config_id}, "
+            f"BC Order {bc_order_number}, Amount: {total_amount}"
+        )
+
+        return {
+            "success": True,
+            "order_id": sales_order.id,
+            "bc_order_number": bc_order_number,
+            "total_amount": float(total_amount) if total_amount else None,
+            "message": f"Order {bc_order_number} placed successfully!"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Error placing order from quote config {config_id}: {error_msg}", exc_info=True)
+
+        # Handle common BC errors
+        if "DialogException" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Business Central error: {error_msg}"
+            )
+        if "50005" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This quote cannot be converted to an order. It may have already been converted or archived."
+            )
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to place order: {error_msg}"
+        )
+
+
 # ============================================================================
 # BC QUOTES ENDPOINTS
 # ============================================================================
@@ -1031,6 +1147,79 @@ def list_orders(
     ]
 
 
+@router.get("/orders/estimated-timelines")
+def get_estimated_timelines(
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db)
+):
+    """
+    Get estimated timelines for order steps based on historical data.
+    Uses averages from the last 4 months of completed/invoiced orders.
+    Falls back to static defaults if < 3 completed orders.
+    """
+    from sqlalchemy import func
+
+    # Static defaults (in days): confirmed, production, production_complete, shipped, invoiced
+    DEFAULTS = [
+        {"from_step": "order_placed", "to_step": "order_confirmed", "avg_days": 1},
+        {"from_step": "order_confirmed", "to_step": "in_production", "avg_days": 3},
+        {"from_step": "in_production", "to_step": "production_complete", "avg_days": 10},
+        {"from_step": "production_complete", "to_step": "shipped", "avg_days": 2},
+        {"from_step": "shipped", "to_step": "invoiced", "avg_days": 1},
+    ]
+
+    cutoff = datetime.utcnow() - timedelta(days=120)
+
+    # Get completed/invoiced orders from last 4 months
+    completed_orders = db.query(SalesOrder).filter(
+        SalesOrder.status.in_([OrderStatus.COMPLETED, OrderStatus.INVOICED]),
+        SalesOrder.created_at >= cutoff
+    ).all()
+
+    if len(completed_orders) < 3:
+        return {
+            "transitions": DEFAULTS,
+            "data_source": "defaults",
+            "sample_size": len(completed_orders)
+        }
+
+    # Calculate averages for each transition
+    def avg_days_between(orders, from_attr, to_attr):
+        deltas = []
+        for o in orders:
+            from_val = getattr(o, from_attr)
+            to_val = getattr(o, to_attr)
+            if from_val and to_val:
+                delta = (to_val - from_val).total_seconds() / 86400
+                if delta >= 0:
+                    deltas.append(delta)
+        return round(sum(deltas) / len(deltas), 1) if deltas else None
+
+    transitions = []
+    pairs = [
+        ("order_placed", "order_confirmed", "created_at", "confirmed_at"),
+        ("order_confirmed", "in_production", "confirmed_at", "production_started_at"),
+        ("in_production", "production_complete", "production_started_at", "production_completed_at"),
+        ("production_complete", "shipped", "production_completed_at", "shipped_at"),
+        ("shipped", "invoiced", "shipped_at", "invoiced_at"),
+    ]
+
+    for from_step, to_step, from_attr, to_attr in pairs:
+        avg = avg_days_between(completed_orders, from_attr, to_attr)
+        default = next((d for d in DEFAULTS if d["from_step"] == from_step), None)
+        transitions.append({
+            "from_step": from_step,
+            "to_step": to_step,
+            "avg_days": avg if avg is not None else (default["avg_days"] if default else 1),
+        })
+
+    return {
+        "transitions": transitions,
+        "data_source": "historical",
+        "sample_size": len(completed_orders)
+    }
+
+
 @router.get("/orders/{order_id}", response_model=OrderDetailResponse)
 def get_order_detail(
     order_id: int,
@@ -1131,6 +1320,10 @@ def get_order_tracking(
             detail="Order not found"
         )
 
+    # Fetch estimated timelines for pending step estimation
+    est_data = get_estimated_timelines(current_user, db)
+    est_transitions = {t["from_step"]: t["avg_days"] for t in est_data.get("transitions", [])}
+
     # Build tracking timeline
     timeline = []
 
@@ -1208,6 +1401,37 @@ def get_order_tracking(
             status="completed"
         ))
 
+    # Calculate estimated dates for pending/current steps
+    # Find last completed step's timestamp as baseline
+    last_completed_time = None
+    last_completed_type = None
+    for step in timeline:
+        if step.status == "completed" and step.timestamp:
+            last_completed_time = step.timestamp
+            last_completed_type = step.event_type
+
+    if last_completed_time:
+        cumulative_days = 0
+        started_accumulating = False
+        for step in timeline:
+            if step.event_type == last_completed_type:
+                started_accumulating = True
+                continue
+            if started_accumulating and step.status in ("current", "pending"):
+                # Get days for the previous step's transition
+                prev_step = None
+                for i, s in enumerate(timeline):
+                    if s.event_type == step.event_type and i > 0:
+                        prev_step = timeline[i - 1].event_type
+                        break
+                if prev_step and prev_step in est_transitions:
+                    cumulative_days += est_transitions[prev_step]
+                else:
+                    cumulative_days += 2  # default fallback
+
+                est_date = last_completed_time + timedelta(days=cumulative_days)
+                step.estimated_date = est_date.strftime("%B %d")
+
     # Get shipments
     shipments = db.query(Shipment).filter(
         Shipment.sales_order_id == order.id
@@ -1230,6 +1454,56 @@ def get_order_tracking(
             for s in shipments
         ]
     )
+
+
+@router.get("/orders/{order_id}/acknowledgement")
+def download_order_acknowledgement(
+    order_id: int,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db)
+):
+    """Download order acknowledgement PDF from Business Central"""
+    if not current_user.bc_customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account not linked to Business Central customer"
+        )
+
+    order = db.query(SalesOrder).filter(
+        SalesOrder.id == order_id,
+        SalesOrder.customer_id == current_user.bc_customer_id
+    ).first()
+
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Order not found"
+        )
+
+    if not order.bc_order_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Order does not have a BC reference"
+        )
+
+    try:
+        pdf_bytes = bc_client.get_order_confirmation_pdf(order.bc_order_id)
+
+        filename = f"Order_Acknowledgement_{order.bc_order_number or order_id}.pdf"
+
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error downloading order acknowledgement PDF: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to download order acknowledgement PDF"
+        )
 
 
 # ============================================================================

@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { savedQuotesApi } from '../../api/customerClient'
+import { savedQuotesApi, bcQuotesApi } from '../../api/customerClient'
 import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
 import QuotePricingDisplay from './QuotePricingDisplay'
 
 function SavedQuotes() {
   const [filter, setFilter] = useState('all') // all, draft, submitted
   const [pricingState, setPricingState] = useState({}) // { [quoteId]: { loading, data, error } }
+  const [downloadingPdf, setDownloadingPdf] = useState({}) // { [quoteId]: boolean }
   const { isBCLinked } = useCustomerAuth()
   const queryClient = useQueryClient()
 
@@ -37,6 +38,19 @@ function SavedQuotes() {
     mutationFn: (id) => savedQuotesApi.submit(id),
     onSuccess: () => {
       queryClient.invalidateQueries(['savedQuotes'])
+    }
+  })
+
+  const placeOrderMutation = useMutation({
+    mutationFn: (id) => savedQuotesApi.placeOrder(id),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries(['savedQuotes'])
+      queryClient.invalidateQueries(['orders'])
+      const data = response.data
+      alert(`Order placed successfully!\n\nOrder Number: ${data.bc_order_number}${data.total_amount ? `\nTotal: $${data.total_amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} CAD` : ''}`)
+    },
+    onError: (err) => {
+      alert(`Failed to place order: ${err.response?.data?.detail || err.message}`)
     }
   })
 
@@ -88,6 +102,31 @@ function SavedQuotes() {
     }
   }
 
+  const handlePlaceOrder = (id, name) => {
+    if (window.confirm(`Place an order for "${name || 'this quote'}"?\n\nThis will convert the quote into a sales order in Business Central. This action cannot be undone.`)) {
+      placeOrderMutation.mutate(id)
+    }
+  }
+
+  const handleDownloadPdf = async (quoteId, bcQuoteId, quoteNumber) => {
+    setDownloadingPdf(prev => ({ ...prev, [quoteId]: true }))
+    try {
+      const response = await bcQuotesApi.getPdf(bcQuoteId)
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `Quote_${quoteNumber || quoteId}.pdf`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      alert('Failed to download quote PDF')
+    } finally {
+      setDownloadingPdf(prev => ({ ...prev, [quoteId]: false }))
+    }
+  }
+
   const filteredQuotes = quotes?.filter(q => {
     if (filter === 'draft') return !q.is_submitted
     if (filter === 'submitted') return q.is_submitted
@@ -97,7 +136,7 @@ function SavedQuotes() {
   if (isLoading) {
     return (
       <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-odc-600"></div>
       </div>
     )
   }
@@ -122,7 +161,7 @@ function SavedQuotes() {
         </div>
         <Link
           to="new"
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-odc-600 hover:bg-odc-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-odc-500"
         >
           <PlusIcon className="h-5 w-5 mr-2" />
           New Quote
@@ -142,13 +181,13 @@ function SavedQuotes() {
               onClick={() => setFilter(tab.key)}
               className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${
                 filter === tab.key
-                  ? 'border-blue-500 text-blue-600'
+                  ? 'border-odc-500 text-odc-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
               {tab.label}
               <span className={`ml-2 py-0.5 px-2.5 rounded-full text-xs ${
-                filter === tab.key ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-900'
+                filter === tab.key ? 'bg-blue-100 text-odc-600' : 'bg-gray-100 text-gray-900'
               }`}>
                 {tab.count}
               </span>
@@ -171,7 +210,7 @@ function SavedQuotes() {
             <div className="mt-6">
               <Link
                 to="new"
-                className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-odc-600 hover:bg-odc-700"
               >
                 <PlusIcon className="-ml-1 mr-2 h-5 w-5" />
                 New Quote
@@ -188,7 +227,7 @@ function SavedQuotes() {
                   <div className="flex items-center justify-between">
                     <div className="flex-1 min-w-0">
                       <Link to={`${quote.id}`} className="block">
-                        <p className="text-sm font-medium text-blue-600 truncate hover:text-blue-800">
+                        <p className="text-sm font-medium text-odc-600 truncate hover:text-blue-800">
                           {quote.name || 'Unnamed Quote'}
                         </p>
                         <p className="mt-1 text-sm text-gray-500">
@@ -209,10 +248,30 @@ function SavedQuotes() {
                       </div>
 
                       {quote.is_submitted ? (
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          Submitted
-                          {quote.bc_quote_number && ` - ${quote.bc_quote_number}`}
-                        </span>
+                        <div className="flex items-center space-x-2">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            Submitted
+                            {quote.bc_quote_number && ` - ${quote.bc_quote_number}`}
+                          </span>
+                          {quote.bc_quote_id && (
+                            <>
+                              <button
+                                onClick={() => handlePlaceOrder(quote.id, quote.name)}
+                                disabled={placeOrderMutation.isPending}
+                                className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded-md text-white bg-odc-600 hover:bg-odc-700 disabled:opacity-50"
+                              >
+                                {placeOrderMutation.isPending ? 'Placing...' : 'Place Order'}
+                              </button>
+                              <button
+                                onClick={() => handleDownloadPdf(quote.id, quote.bc_quote_id, quote.bc_quote_number)}
+                                disabled={downloadingPdf[quote.id]}
+                                className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                              >
+                                {downloadingPdf[quote.id] ? 'Downloading...' : 'Download PDF'}
+                              </button>
+                            </>
+                          )}
+                        </div>
                       ) : quote.bc_quote_id ? (
                         /* Priced but not yet submitted */
                         <div className="flex items-center space-x-2">
@@ -228,11 +287,25 @@ function SavedQuotes() {
                             Confirm & Submit
                           </button>
                           <button
+                            onClick={() => handlePlaceOrder(quote.id, quote.name)}
+                            disabled={placeOrderMutation.isPending}
+                            className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded-md text-white bg-odc-600 hover:bg-odc-700 disabled:opacity-50"
+                          >
+                            {placeOrderMutation.isPending ? 'Placing...' : 'Place Order'}
+                          </button>
+                          <button
                             onClick={() => handleGetPricing(quote.id)}
                             disabled={pricingState[quote.id]?.loading}
-                            className="inline-flex items-center px-3 py-1 border border-blue-300 text-xs font-medium rounded-md text-blue-700 bg-white hover:bg-blue-50 disabled:opacity-50"
+                            className="inline-flex items-center px-3 py-1 border border-blue-300 text-xs font-medium rounded-md text-odc-700 bg-white hover:bg-blue-50 disabled:opacity-50"
                           >
                             Refresh Pricing
+                          </button>
+                          <button
+                            onClick={() => handleDownloadPdf(quote.id, quote.bc_quote_id, quote.bc_quote_number)}
+                            disabled={downloadingPdf[quote.id]}
+                            className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            {downloadingPdf[quote.id] ? 'Downloading...' : 'Download PDF'}
                           </button>
                           <button
                             onClick={() => handleDelete(quote.id, quote.name)}
@@ -260,7 +333,7 @@ function SavedQuotes() {
                           <button
                             onClick={() => handleSubmit(quote.id, quote.name)}
                             disabled={submitMutation.isPending}
-                            className="inline-flex items-center px-3 py-1 border border-blue-300 text-xs font-medium rounded-md text-blue-700 bg-white hover:bg-blue-50 disabled:opacity-50"
+                            className="inline-flex items-center px-3 py-1 border border-blue-300 text-xs font-medium rounded-md text-odc-700 bg-white hover:bg-blue-50 disabled:opacity-50"
                           >
                             Submit
                           </button>

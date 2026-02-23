@@ -98,6 +98,10 @@ export const savedQuotesApi = {
   // Refresh pricing after config changes
   refreshPricing: (id) =>
     customerApiClient.post(`/api/customer/portal/saved-quotes/${id}/refresh-pricing`),
+
+  // Place order from a priced/submitted quote
+  placeOrder: (id) =>
+    customerApiClient.post(`/api/customer/portal/saved-quotes/${id}/place-order`),
 };
 
 // BC Quotes API (Customer's BC quotes)
@@ -109,6 +113,12 @@ export const bcQuotesApi = {
   // Get BC quote details
   get: (quoteId) =>
     customerApiClient.get(`/api/customer/portal/bc-quotes/${quoteId}`),
+
+  // Download quote PDF
+  getPdf: (quoteId) =>
+    customerApiClient.get(`/api/customer/portal/bc-quotes/${quoteId}/pdf`, {
+      responseType: 'blob'
+    }),
 };
 
 // Orders API
@@ -124,6 +134,16 @@ export const ordersApi = {
   // Get order tracking timeline
   getTracking: (orderId) =>
     customerApiClient.get(`/api/customer/portal/orders/${orderId}/tracking`),
+
+  // Get estimated timelines for order steps
+  getEstimatedTimelines: () =>
+    customerApiClient.get('/api/customer/portal/orders/estimated-timelines'),
+
+  // Download order acknowledgement PDF
+  getAcknowledgementPdf: (orderId) =>
+    customerApiClient.get(`/api/customer/portal/orders/${orderId}/acknowledgement`, {
+      responseType: 'blob'
+    }),
 };
 
 // Customer History API

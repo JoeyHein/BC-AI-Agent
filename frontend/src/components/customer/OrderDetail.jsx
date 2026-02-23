@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ordersApi } from '../../api/customerClient'
@@ -7,6 +8,7 @@ function OrderDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { isBCLinked } = useCustomerAuth()
+  const [downloadingPdf, setDownloadingPdf] = useState(false)
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['order', id],
@@ -31,7 +33,7 @@ function OrderDetail() {
   if (isLoading) {
     return (
       <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-odc-600"></div>
       </div>
     )
   }
@@ -42,7 +44,7 @@ function OrderDetail() {
         <p className="text-red-700">Failed to load order details. Please try again.</p>
         <button
           onClick={() => navigate('/orders')}
-          className="mt-4 text-blue-600 hover:text-blue-500"
+          className="mt-4 text-odc-600 hover:text-odc-500"
         >
           Back to orders
         </button>
@@ -68,13 +70,42 @@ function OrderDetail() {
             Order {order.bc_order_number || `#${order.id}`}
           </h1>
         </div>
-        <Link
-          to="tracking"
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700"
-        >
-          <TruckIcon className="h-5 w-5 mr-2" />
-          Track Order
-        </Link>
+        <div className="flex gap-3">
+          {order?.bc_order_id && (
+            <button
+              onClick={async () => {
+                setDownloadingPdf(true)
+                try {
+                  const response = await ordersApi.getAcknowledgementPdf(id)
+                  const url = window.URL.createObjectURL(new Blob([response.data]))
+                  const link = document.createElement('a')
+                  link.href = url
+                  link.setAttribute('download', `Order_Acknowledgement_${order.bc_order_number || id}.pdf`)
+                  document.body.appendChild(link)
+                  link.click()
+                  link.remove()
+                  window.URL.revokeObjectURL(url)
+                } catch (err) {
+                  alert('Failed to download acknowledgement PDF')
+                } finally {
+                  setDownloadingPdf(false)
+                }
+              }}
+              disabled={downloadingPdf}
+              className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+            >
+              <DownloadIcon className="h-5 w-5 mr-2" />
+              {downloadingPdf ? 'Downloading...' : 'Download Acknowledgement'}
+            </button>
+          )}
+          <Link
+            to="tracking"
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-odc-600 hover:bg-odc-700"
+          >
+            <TruckIcon className="h-5 w-5 mr-2" />
+            Track Order
+          </Link>
+        </div>
       </div>
 
       {/* Order summary */}
@@ -170,7 +201,7 @@ function OrderDetail() {
                   {shipment.tracking_number && (
                     <div className="text-right">
                       <p className="text-sm text-gray-500">Tracking Number</p>
-                      <p className="font-medium text-blue-600">{shipment.tracking_number}</p>
+                      <p className="font-medium text-odc-600">{shipment.tracking_number}</p>
                       {shipment.carrier && (
                         <p className="text-xs text-gray-500">{shipment.carrier}</p>
                       )}
@@ -259,7 +290,7 @@ function StatusBadge({ status }) {
     confirmed: 'bg-blue-100 text-blue-800',
     in_production: 'bg-yellow-100 text-yellow-800',
     ready_to_ship: 'bg-purple-100 text-purple-800',
-    shipped: 'bg-indigo-100 text-indigo-800',
+    shipped: 'bg-cyan-100 text-cyan-800',
     invoiced: 'bg-green-100 text-green-800',
     completed: 'bg-green-100 text-green-800',
     cancelled: 'bg-red-100 text-red-800'
@@ -341,6 +372,14 @@ function ArrowLeftIcon({ className }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+    </svg>
+  )
+}
+
+function DownloadIcon({ className }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
     </svg>
   )
 }

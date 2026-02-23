@@ -133,6 +133,27 @@ class BusinessCentralClient:
         )
         return result.get("value", [])
 
+    # ==================== Customers with Price Multiplier ====================
+
+    def get_customers_with_multiplier(self, company_id: Optional[str] = None,
+                                       top: int = 1000) -> List[Dict[str, Any]]:
+        """
+        Get all customers including priceMultiplierPercent field.
+        Falls back to standard customers endpoint if custom field isn't available.
+        """
+        cid = company_id or self.company_id
+        result = self._make_request("GET", f"companies({cid})/customers?$top={top}")
+        return result.get("value", [])
+
+    def get_customer_with_multiplier(self, customer_id: str,
+                                      company_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get a single customer including priceMultiplierPercent field.
+        """
+        cid = company_id or self.company_id
+        result = self._make_request("GET", f"companies({cid})/customers({customer_id})")
+        return result
+
     # ==================== Items ====================
 
     def get_items(self, company_id: Optional[str] = None, top: int = 100) -> List[Dict[str, Any]]:
@@ -288,6 +309,39 @@ class BusinessCentralClient:
 
         logger.info(f"Saved quote PDF to {output_path}")
         return output_path
+
+    # ==================== Order PDF (BC built-in) ====================
+
+    def get_order_confirmation_pdf(self, order_id: str, company_id: Optional[str] = None) -> bytes:
+        """
+        Download the PDF for a sales order using BC's built-in PDF generation.
+
+        Args:
+            order_id: The BC sales order ID (GUID)
+            company_id: Optional company ID
+
+        Returns:
+            PDF file content as bytes
+        """
+        import base64
+
+        cid = company_id or self.company_id
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/salesOrders({order_id})/pdfDocument"
+        )
+
+        pdf_content = result.get("pdfDocumentContent")
+        if not pdf_content:
+            values = result.get("value", [])
+            if values:
+                pdf_content = values[0].get("pdfDocumentContent")
+
+        if not pdf_content:
+            raise ValueError(f"No PDF content returned for order {order_id}")
+
+        logger.info(f"Downloaded PDF for order {order_id}")
+        return base64.b64decode(pdf_content)
 
     # ==================== Vendors ====================
 

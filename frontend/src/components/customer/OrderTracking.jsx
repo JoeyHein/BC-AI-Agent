@@ -31,7 +31,7 @@ function OrderTracking() {
   if (isLoading) {
     return (
       <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-odc-600"></div>
       </div>
     )
   }
@@ -42,7 +42,7 @@ function OrderTracking() {
         <p className="text-red-700">Failed to load tracking information. Please try again.</p>
         <button
           onClick={() => navigate('/orders')}
-          className="mt-4 text-blue-600 hover:text-blue-500"
+          className="mt-4 text-odc-600 hover:text-odc-500"
         >
           Back to orders
         </button>
@@ -52,8 +52,12 @@ function OrderTracking() {
 
   const { order_number, current_status, timeline, shipments } = data
 
-  // Find current step index
+  // Find current step index and calculate progress percentage
+  const completedSteps = timeline.filter(t => t.status === 'completed').length
   const currentStepIndex = timeline.findIndex(t => t.status === 'current')
+  const progressPercent = currentStepIndex >= 0
+    ? ((currentStepIndex + 0.5) / timeline.length) * 100
+    : (completedSteps / timeline.length) * 100
 
   return (
     <div className="space-y-6">
@@ -80,34 +84,40 @@ function OrderTracking() {
 
         {/* Progress bar */}
         <div className="relative">
-          <div className="overflow-hidden h-2 text-xs flex rounded bg-gray-200">
+          <div className="overflow-hidden h-3 text-xs flex rounded-full bg-gray-200">
             <div
-              style={{ width: `${((currentStepIndex + 1) / timeline.length) * 100}%` }}
-              className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-blue-600 transition-all duration-500"
+              style={{ width: `${progressPercent}%` }}
+              className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-gradient-to-r from-odc-500 to-odc-600 rounded-full transition-all duration-1000 ease-out"
             />
           </div>
 
           {/* Steps */}
-          <div className="flex justify-between mt-2">
+          <div className="flex justify-between mt-4">
             {timeline.map((step, index) => (
               <div
                 key={step.event_type}
                 className={`flex flex-col items-center ${index === 0 ? 'items-start' : index === timeline.length - 1 ? 'items-end' : ''}`}
               >
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                  step.status === 'completed'
-                    ? 'bg-green-500 text-white'
-                    : step.status === 'current'
-                    ? 'bg-blue-500 text-white animate-pulse'
-                    : 'bg-gray-200 text-gray-500'
-                }`}>
-                  {step.status === 'completed' ? (
-                    <CheckIcon className="h-5 w-5" />
-                  ) : (
-                    index + 1
+                <div className="relative">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium ${
+                    step.status === 'completed'
+                      ? 'bg-green-500 text-white'
+                      : step.status === 'current'
+                      ? 'bg-odc-500 text-white'
+                      : 'bg-gray-200 text-gray-500'
+                  }`}>
+                    {step.status === 'completed' ? (
+                      <CheckIcon className="h-5 w-5" />
+                    ) : (
+                      index + 1
+                    )}
+                  </div>
+                  {/* Animated ping ring on current step */}
+                  {step.status === 'current' && (
+                    <span className="absolute inset-0 rounded-full animate-ping bg-odc-400 opacity-30" />
                   )}
                 </div>
-                <p className={`mt-2 text-xs font-medium ${
+                <p className={`mt-2 text-xs font-medium text-center ${
                   step.status === 'completed' || step.status === 'current'
                     ? 'text-gray-900'
                     : 'text-gray-400'
@@ -117,6 +127,11 @@ function OrderTracking() {
                 {step.timestamp && (
                   <p className="text-xs text-gray-500">
                     {new Date(step.timestamp).toLocaleDateString()}
+                  </p>
+                )}
+                {!step.timestamp && step.estimated_date && (
+                  <p className="text-xs text-odc-500 font-medium">
+                    Est. {step.estimated_date}
                   </p>
                 )}
               </div>
@@ -147,7 +162,7 @@ function OrderTracking() {
                         event.status === 'completed'
                           ? 'bg-green-500'
                           : event.status === 'current'
-                          ? 'bg-blue-500 animate-pulse'
+                          ? 'bg-odc-500'
                           : 'bg-gray-200'
                       }`}>
                         {event.status === 'completed' ? (
@@ -158,6 +173,10 @@ function OrderTracking() {
                           <div className="h-2 w-2 rounded-full bg-gray-400" />
                         )}
                       </span>
+                      {/* Ping ring on current step in timeline */}
+                      {event.status === 'current' && (
+                        <span className="absolute top-0 left-0 h-8 w-8 rounded-full animate-ping bg-odc-400 opacity-20" />
+                      )}
                     </div>
                     <div className="min-w-0 flex-1 pt-1.5 flex justify-between space-x-4">
                       <div>
@@ -167,7 +186,15 @@ function OrderTracking() {
                           {event.description}
                         </p>
                         {event.status === 'current' && (
-                          <p className="mt-1 text-xs text-blue-600">In progress...</p>
+                          <p className="mt-1 text-xs text-odc-600">
+                            In progress...
+                            {event.estimated_date && ` (Est. ${event.estimated_date})`}
+                          </p>
+                        )}
+                        {event.status === 'pending' && event.estimated_date && (
+                          <p className="mt-1 text-xs text-gray-400">
+                            Est. {event.estimated_date}
+                          </p>
                         )}
                       </div>
                       {event.timestamp && (
@@ -229,7 +256,7 @@ function OrderTracking() {
                 {shipment.tracking_number && (
                   <div className="mt-4 p-3 bg-gray-50 rounded-md">
                     <p className="text-sm text-gray-500">Tracking Number</p>
-                    <p className="font-mono text-lg font-medium text-blue-600">
+                    <p className="font-mono text-lg font-medium text-odc-600">
                       {shipment.tracking_number}
                     </p>
                     {shipment.carrier && (
@@ -237,7 +264,7 @@ function OrderTracking() {
                         href={getTrackingUrl(shipment.carrier, shipment.tracking_number)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="mt-2 inline-flex items-center text-sm text-blue-600 hover:text-blue-500"
+                        className="mt-2 inline-flex items-center text-sm text-odc-600 hover:text-odc-500"
                       >
                         Track on {shipment.carrier} website
                         <ExternalLinkIcon className="ml-1 h-4 w-4" />
@@ -290,7 +317,7 @@ function StatusBadge({ status }) {
     confirmed: 'bg-blue-100 text-blue-800',
     in_production: 'bg-yellow-100 text-yellow-800',
     ready_to_ship: 'bg-purple-100 text-purple-800',
-    shipped: 'bg-indigo-100 text-indigo-800',
+    shipped: 'bg-cyan-100 text-cyan-800',
     invoiced: 'bg-green-100 text-green-800',
     completed: 'bg-green-100 text-green-800',
     cancelled: 'bg-red-100 text-red-800'
