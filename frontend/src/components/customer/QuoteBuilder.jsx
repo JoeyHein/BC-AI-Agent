@@ -101,6 +101,7 @@ function QuoteBuilder() {
       trackThickness: '2',
       liftType: 'standard',
       hardware: {
+        panels: true,
         tracks: true,
         springs: true,
         struts: true,
@@ -277,7 +278,7 @@ function QuoteBuilder() {
   if (configLoading || loadingQuote) {
     return (
       <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-odc-600"></div>
         <span className="ml-3 text-gray-500">Loading configuration...</span>
       </div>
     )
@@ -293,7 +294,7 @@ function QuoteBuilder() {
         </p>
         <button
           onClick={() => navigate('/saved-quotes')}
-          className="mt-4 text-blue-600 hover:text-blue-500"
+          className="mt-4 text-odc-600 hover:text-odc-500"
         >
           Back to quotes
         </button>
@@ -336,7 +337,7 @@ function QuoteBuilder() {
                 }}
                 className={`flex items-center px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap ${
                   currentDoorIndex === index
-                    ? 'bg-blue-100 text-blue-700'
+                    ? 'bg-blue-100 text-odc-700'
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
               >
@@ -376,9 +377,9 @@ function QuoteBuilder() {
                     onClick={() => setCurrentStep(index)}
                     className={`relative flex h-8 w-8 items-center justify-center rounded-full ${
                       index < currentStep
-                        ? 'bg-blue-600 hover:bg-blue-800'
+                        ? 'bg-odc-600 hover:bg-blue-800'
                         : index === currentStep
-                        ? 'border-2 border-blue-600 bg-white'
+                        ? 'border-2 border-odc-600 bg-white'
                         : 'border-2 border-gray-300 bg-white'
                     }`}
                   >
@@ -387,17 +388,17 @@ function QuoteBuilder() {
                         <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                       </svg>
                     ) : (
-                      <span className={index === currentStep ? 'text-blue-600' : 'text-gray-500'}>
+                      <span className={index === currentStep ? 'text-odc-600' : 'text-gray-500'}>
                         {index + 1}
                       </span>
                     )}
                   </button>
                   {index !== STEPS.length - 1 && (
-                    <div className={`absolute top-4 w-full h-0.5 ${index < currentStep ? 'bg-blue-600' : 'bg-gray-300'}`} style={{ left: '2rem' }} />
+                    <div className={`absolute top-4 w-full h-0.5 ${index < currentStep ? 'bg-odc-600' : 'bg-gray-300'}`} style={{ left: '2rem' }} />
                   )}
                 </div>
                 <div className="mt-2 hidden sm:block">
-                  <span className={`text-xs font-medium ${index <= currentStep ? 'text-blue-600' : 'text-gray-500'}`}>
+                  <span className={`text-xs font-medium ${index <= currentStep ? 'text-odc-600' : 'text-gray-500'}`}>
                     {step.title}
                   </span>
                 </div>
@@ -569,7 +570,7 @@ function QuoteBuilder() {
             <button
               onClick={nextStep}
               disabled={!canProceed()}
-              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-odc-600 hover:bg-odc-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Next
             </button>
@@ -591,7 +592,7 @@ function DoorTypeStep({ doorTypes, selected, onSelect }) {
           onClick={() => onSelect(type.id)}
           className={`p-4 rounded-lg border-2 text-left transition-all ${
             selected === type.id
-              ? 'border-blue-500 bg-blue-50'
+              ? 'border-odc-500 bg-blue-50'
               : 'border-gray-200 hover:border-gray-300'
           }`}
         >
@@ -616,7 +617,7 @@ function DoorSeriesStep({ series, selected, onSelect }) {
           onClick={() => onSelect(s.id)}
           className={`p-4 rounded-lg border-2 text-left transition-all ${
             selected === s.id
-              ? 'border-blue-500 bg-blue-50'
+              ? 'border-odc-500 bg-blue-50'
               : 'border-gray-200 hover:border-gray-300'
           }`}
         >
@@ -663,7 +664,7 @@ function DimensionsStep({ door, onChange, series }) {
               onClick={() => onChange({ doorWidth: size.width, doorHeight: size.height })}
               className={`px-3 py-2 text-sm rounded-md border ${
                 door.doorWidth === size.width && door.doorHeight === size.height
-                  ? 'border-blue-500 bg-blue-50 text-blue-700'
+                  ? 'border-odc-500 bg-blue-50 text-odc-700'
                   : 'border-gray-300 hover:border-gray-400'
               }`}
             >
@@ -685,7 +686,7 @@ function DimensionsStep({ door, onChange, series }) {
             onChange={(e) => onChange({ doorWidth: parseInt(e.target.value) || 0 })}
             min={specs.minWidth || 60}
             max={specs.maxWidth || 288}
-            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
           />
           <p className="mt-1 text-xs text-gray-500">
             {Math.floor(door.doorWidth / 12)}' {door.doorWidth % 12}"
@@ -701,7 +702,7 @@ function DimensionsStep({ door, onChange, series }) {
             onChange={(e) => onChange({ doorHeight: parseInt(e.target.value) || 0 })}
             min={specs.minHeight || 72}
             max={specs.maxHeight || 192}
-            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
           />
           <p className="mt-1 text-xs text-gray-500">
             {Math.floor(door.doorHeight / 12)}' {door.doorHeight % 12}"
@@ -717,7 +718,7 @@ function DimensionsStep({ door, onChange, series }) {
             onChange={(e) => onChange({ doorCount: parseInt(e.target.value) || 1 })}
             min={1}
             max={100}
-            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
           />
         </div>
       </div>
@@ -725,7 +726,7 @@ function DimensionsStep({ door, onChange, series }) {
       {/* Constraints Info */}
       {specs.maxWidth && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-          <p className="text-sm text-blue-700">
+          <p className="text-sm text-odc-700">
             <strong>{series?.name}:</strong> Max width {specs.maxWidth}" ({Math.floor(specs.maxWidth / 12)}')
             {specs.sectionHeights && `, Section heights: ${specs.sectionHeights.join('", ')}`}
           </p>
@@ -786,7 +787,7 @@ function DesignStep({ door, colors, panelDesigns, onChange }) {
               onClick={() => onChange({ panelColor: color.id })}
               className={`p-3 rounded-lg border-2 text-center transition-all ${
                 door.panelColor === color.id
-                  ? 'border-blue-500 ring-2 ring-blue-200'
+                  ? 'border-odc-500 ring-2 ring-blue-200'
                   : 'border-gray-200 hover:border-gray-300'
               }`}
             >
@@ -825,7 +826,7 @@ function DesignStep({ door, colors, panelDesigns, onChange }) {
               onClick={() => onChange({ panelDesign: design.code || design.id })}
               className={`p-4 rounded-lg border-2 text-left transition-all ${
                 door.panelDesign === (design.code || design.id)
-                  ? 'border-blue-500 bg-blue-50'
+                  ? 'border-odc-500 bg-blue-50'
                   : 'border-gray-200 hover:border-gray-300'
               }`}
             >
@@ -1105,7 +1106,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
             hasInserts: false,
             ...(isCommercial && e.target.checked ? { windowFrameColor: 'BLACK' } : {}),
           })}
-          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+          className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
         />
         <label htmlFor="hasWindows" className="text-sm font-medium text-gray-700">
           Include windows in this door
@@ -1116,7 +1117,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
         <>
           {/* Craft series: windows auto-placed in top section, only glass color is configurable */}
           <div className="p-3 bg-blue-50 rounded-md">
-            <p className="text-sm text-blue-700">
+            <p className="text-sm text-odc-700">
               Windows are automatically placed in the top section for Craft series doors.
             </p>
           </div>
@@ -1133,7 +1134,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                   onClick={() => onChange({ glassColor: option.id })}
                   className={`p-3 rounded-lg border-2 flex flex-col items-center transition-all ${
                     door.glassColor === option.id
-                      ? 'border-blue-500 bg-blue-50'
+                      ? 'border-odc-500 bg-blue-50'
                       : 'border-gray-200 hover:border-gray-400'
                   }`}
                 >
@@ -1233,12 +1234,12 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                 {/* Selected Windows List */}
                 {windowPositions.length > 0 && (
                   <div className="p-3 bg-blue-50 rounded-md">
-                    <p className="text-sm font-medium text-blue-700 mb-2">Window Positions:</p>
+                    <p className="text-sm font-medium text-odc-700 mb-2">Window Positions:</p>
                     <div className="flex flex-wrap gap-1">
                       {windowPositions.map((pos, idx) => (
                         <span
                           key={idx}
-                          className="inline-flex items-center px-2 py-1 text-xs rounded bg-white border border-blue-200 text-blue-700"
+                          className="inline-flex items-center px-2 py-1 text-xs rounded bg-white border border-blue-200 text-odc-700"
                         >
                           S{pos.section}-C{pos.col + 1}
                           <button
@@ -1298,7 +1299,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                   onClick={() => onChange({ glassPaneType: option.id })}
                   className={`p-4 rounded-lg border-2 text-left transition-all ${
                     door.glassPaneType === option.id
-                      ? 'border-blue-500 bg-blue-50'
+                      ? 'border-odc-500 bg-blue-50'
                       : 'border-gray-200 hover:border-gray-400'
                   }`}
                 >
@@ -1321,7 +1322,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                   onClick={() => onChange({ glassColor: option.id })}
                   className={`p-3 rounded-lg border-2 flex flex-col items-center transition-all ${
                     door.glassColor === option.id
-                      ? 'border-blue-500 bg-blue-50'
+                      ? 'border-odc-500 bg-blue-50'
                       : 'border-gray-200 hover:border-gray-400'
                   }`}
                 >
@@ -1345,7 +1346,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
             <select
               value={door.windowFrameColor || 'MATCH'}
               onChange={(e) => onChange({ windowFrameColor: e.target.value })}
-              className="w-full max-w-xs rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              className="w-full max-w-xs rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-odc-500 focus:ring-1 focus:ring-odc-500"
             >
               <option value="MATCH">Match Door Color (Standard)</option>
               {config?.colors && Object.values(config.colors).flat()
@@ -1369,7 +1370,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                   hasInserts: e.target.checked,
                   windowInsert: e.target.checked ? 'STOCKTON_STANDARD' : 'NONE'
                 })}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
               />
               <label htmlFor="hasInserts" className="text-sm font-medium text-gray-700">
                 Add decorative window inserts (optional upgrade)
@@ -1392,7 +1393,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                             onClick={() => onChange({ windowInsert: insert.id })}
                             className={`p-2 rounded-lg border-2 flex flex-col items-center transition-all ${
                               door.windowInsert === insert.id
-                                ? 'border-blue-500 bg-blue-50'
+                                ? 'border-odc-500 bg-blue-50'
                                 : 'border-gray-200 hover:border-gray-400'
                             }`}
                           >
@@ -1452,7 +1453,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                         onClick={() => handleCommercialWindowChange(insert.id)}
                         className={`px-3 py-2 text-sm rounded-md border text-left ${
                           door.windowInsert === insert.id
-                            ? 'border-blue-500 bg-blue-50 text-blue-700'
+                            ? 'border-odc-500 bg-blue-50 text-odc-700'
                             : 'border-gray-300 hover:border-gray-400'
                         }`}
                       >
@@ -1471,7 +1472,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
           {/* V130G: full view section info */}
           {isV130G && (
             <div className="bg-blue-50 rounded-lg p-4">
-              <p className="text-sm text-blue-700">
+              <p className="text-sm text-odc-700">
                 <strong>V130G Full View</strong> — replaces an insulated section with a full aluminum/glass panel (AL976 material).
               </p>
               <div className="mt-3">
@@ -1483,7 +1484,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                       onClick={() => onChange({ glassPaneType: gt === 'thermal' ? 'INSULATED' : 'SINGLE' })}
                       className={`px-4 py-2 text-sm rounded-md border ${
                         (gt === 'thermal' && door.glassPaneType === 'INSULATED') || (gt === 'single' && door.glassPaneType === 'SINGLE')
-                          ? 'border-blue-500 bg-blue-100 text-blue-700'
+                          ? 'border-odc-500 bg-blue-100 text-odc-700'
                           : 'border-gray-300 hover:border-gray-400'
                       }`}
                     >
@@ -1539,13 +1540,13 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                 </button>
                 <button
                   onClick={() => onChange({ windowQty: recommendedQty })}
-                  className="px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  className="px-3 py-2 text-sm bg-odc-600 text-white rounded-md hover:bg-odc-700"
                 >
                   Use Recommended ({recommendedQty})
                 </button>
               </div>
               {spacing && (
-                <p className="mt-2 text-sm text-blue-700">
+                <p className="mt-2 text-sm text-odc-700">
                   Spacing between windows: <strong>{spacing}"</strong>
                 </p>
               )}
@@ -1570,7 +1571,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                     onClick={() => onChange({ windowSection: i + 1 })}
                     className={`w-12 h-12 rounded-md border-2 text-sm font-medium ${
                       door.windowSection === i + 1
-                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                        ? 'border-odc-500 bg-blue-50 text-odc-700'
                         : 'border-gray-300 hover:border-gray-400'
                     }`}
                   >
@@ -1598,7 +1599,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                     onClick={() => onChange({ windowFrameColor: color.id })}
                     className={`p-3 rounded-lg border-2 flex items-center space-x-3 ${
                       (door.windowFrameColor || 'BLACK') === color.id
-                        ? 'border-blue-500 bg-blue-50'
+                        ? 'border-odc-500 bg-blue-50'
                         : 'border-gray-200 hover:border-gray-300'
                     }`}
                   >
@@ -1628,7 +1629,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                   onClick={() => onChange({ glazingType: option.id })}
                   className={`px-3 py-2 text-sm rounded-md border ${
                     door.glazingType === option.id
-                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      ? 'border-odc-500 bg-blue-50 text-odc-700'
                       : 'border-gray-300 hover:border-gray-400'
                   }`}
                 >
@@ -1721,7 +1722,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
                 onClick={() => handleLiftTypeChange(option.id)}
                 className={`p-3 rounded-lg border-2 text-center transition-all ${
                   door.liftType === option.id
-                    ? 'border-blue-500 bg-blue-50'
+                    ? 'border-odc-500 bg-blue-50'
                     : 'border-gray-200 hover:border-gray-300'
                 }`}
               >
@@ -1745,7 +1746,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
               min={1}
               value={door.highLiftInches || ''}
               onChange={(e) => onChange({ highLiftInches: parseInt(e.target.value) || null })}
-              className="w-24 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+              className="w-24 rounded-md border-gray-300 shadow-sm focus:border-odc-500 focus:ring-odc-500 text-sm"
               placeholder="inches"
             />
             <span className="text-sm text-gray-500">inches above door opening</span>
@@ -1774,7 +1775,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
                     value={option.id}
                     checked={door.trackRadius === option.id}
                     onChange={(e) => handleRadiusChange(e.target.value)}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                    className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300"
                   />
                   <span className="ml-2 text-sm text-gray-700">
                     {option.name}
@@ -1801,7 +1802,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
                       checked={door.trackThickness === option.id}
                       onChange={(e) => onChange({ trackThickness: e.target.value })}
                       disabled={isDisabled}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                      className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300"
                     />
                     <span className="ml-2 text-sm text-gray-700">
                       {option.name}
@@ -1837,7 +1838,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
                 onClick={() => onChange({ targetCycles: option.id })}
                 className={`p-3 rounded-lg border-2 text-center transition-all ${
                   door.targetCycles === option.id
-                    ? 'border-blue-500 bg-blue-50'
+                    ? 'border-odc-500 bg-blue-50'
                     : 'border-gray-200 hover:border-gray-300'
                 }`}
               >
@@ -1862,7 +1863,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
                 onClick={() => onChange({ shaftType: option.id })}
                 className={`p-3 rounded-lg border-2 text-left transition-all ${
                   door.shaftType === option.id
-                    ? 'border-blue-500 bg-blue-50'
+                    ? 'border-odc-500 bg-blue-50'
                     : 'border-gray-200 hover:border-gray-300'
                 }`}
               >
@@ -1886,6 +1887,48 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         <label className="block text-sm font-medium text-gray-700 mb-2">
           Hardware Components
         </label>
+
+        {/* Preset buttons */}
+        <div className="flex gap-2 mb-3">
+          <button
+            onClick={() => onChange({
+              hardware: { panels: true, tracks: true, springs: true, struts: true, hardwareKits: true, weatherStripping: true, bottomRetainer: true, shafts: true }
+            })}
+            className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
+              door.hardware.panels !== false && door.hardware.tracks !== false && door.hardware.springs !== false
+                && door.hardware.hardwareKits !== false && door.hardware.shafts !== false
+                ? 'border-odc-500 bg-blue-50 text-odc-700'
+                : 'border-gray-300 text-gray-600 hover:border-gray-400'
+            }`}
+          >
+            Complete Door
+          </button>
+          <button
+            onClick={() => onChange({
+              hardware: { panels: true, tracks: false, springs: false, struts: false, hardwareKits: false, weatherStripping: false, bottomRetainer: true, shafts: false }
+            })}
+            className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
+              door.hardware.panels !== false && door.hardware.tracks === false && door.hardware.springs === false
+                ? 'border-odc-500 bg-blue-50 text-odc-700'
+                : 'border-gray-300 text-gray-600 hover:border-gray-400'
+            }`}
+          >
+            Door Face Only
+          </button>
+          <button
+            onClick={() => onChange({
+              hardware: { panels: false, tracks: true, springs: true, struts: true, hardwareKits: true, weatherStripping: true, bottomRetainer: true, shafts: true }
+            })}
+            className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
+              door.hardware.panels === false && door.hardware.tracks !== false && door.hardware.springs !== false
+                ? 'border-odc-500 bg-blue-50 text-odc-700'
+                : 'border-gray-300 text-gray-600 hover:border-gray-400'
+            }`}
+          >
+            Hardware Only
+          </button>
+        </div>
+
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {hardwareOptions?.map((option) => (
             <label key={option.id} className="flex items-start p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
@@ -1895,7 +1938,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
                 onChange={(e) => onChange({
                   hardware: { ...door.hardware, [option.id]: e.target.checked }
                 })}
-                className="h-4 w-4 mt-0.5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                className="h-4 w-4 mt-0.5 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
               />
               <div className="ml-2">
                 <span className="text-sm font-medium text-gray-700">{option.name}</span>
@@ -1916,7 +1959,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
             onClick={() => onChange({ operator: 'NONE' })}
             className={`p-4 rounded-lg border-2 text-left transition-all ${
               door.operator === 'NONE'
-                ? 'border-blue-500 bg-blue-50'
+                ? 'border-odc-500 bg-blue-50'
                 : 'border-gray-200 hover:border-gray-300'
             }`}
           >
@@ -1929,7 +1972,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
               onClick={() => onChange({ operator: op.id })}
               className={`p-4 rounded-lg border-2 text-left transition-all ${
                 door.operator === op.id
-                  ? 'border-blue-500 bg-blue-50'
+                  ? 'border-odc-500 bg-blue-50'
                   : 'border-gray-200 hover:border-gray-300'
               }`}
             >
@@ -1981,7 +2024,7 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, onNameChange, 
               onChange={(e) => onNameChange(e.target.value)}
               className={`mt-1 block w-full rounded-md shadow-sm sm:text-sm ${
                 errors.name ? 'border-red-300' : 'border-gray-300'
-              } focus:border-blue-500 focus:ring-blue-500`}
+              } focus:border-odc-500 focus:ring-odc-500`}
               placeholder="e.g., Main Garage Door"
             />
             {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name}</p>}
@@ -1994,7 +2037,7 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, onNameChange, 
               value={quoteDescription}
               onChange={(e) => onDescriptionChange(e.target.value)}
               rows={2}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-odc-500 focus:ring-odc-500 sm:text-sm"
               placeholder="Any additional notes..."
             />
           </div>
@@ -2007,7 +2050,7 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, onNameChange, 
 
         {doors.map((door, index) => (
           <div key={index} className="mb-6 last:mb-0">
-            <h4 className="text-sm font-medium text-blue-600 mb-2">
+            <h4 className="text-sm font-medium text-odc-600 mb-2">
               Door {index + 1} {door.doorCount > 1 && `(Qty: ${door.doorCount})`}
             </h4>
 
@@ -2190,7 +2233,7 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, onNameChange, 
           <button
             onClick={onConfirmSubmit}
             disabled={isSaving}
-            className="w-full inline-flex justify-center items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full inline-flex justify-center items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-odc-600 hover:bg-odc-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSaving ? (
               <>
@@ -2213,7 +2256,7 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, onNameChange, 
           className={`w-full inline-flex justify-center items-center px-6 py-3 border text-base font-medium rounded-md shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${
             pricingData
               ? 'border-gray-300 text-gray-700 bg-white hover:bg-gray-50'
-              : 'border-transparent text-white bg-blue-600 hover:bg-blue-700'
+              : 'border-transparent text-white bg-odc-600 hover:bg-odc-700'
           }`}
         >
           {isSaving && !pricingData ? (

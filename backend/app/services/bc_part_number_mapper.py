@@ -996,6 +996,48 @@ class BCPartNumberMapper:
             category="HARDWARE"
         )
 
+    def get_glass_kit(
+        self,
+        constructed_pn: str,
+        door_type: str = "residential"
+    ) -> Optional[BCPartNumber]:
+        """
+        Validate a constructed GK15/GK16 part number against BC items.
+
+        Falls back to searching by description prefix if exact match fails.
+
+        Args:
+            constructed_pn: The constructed part number (e.g., GK15-11200-00)
+            door_type: 'residential' (GK15) or 'commercial' (GK16)
+
+        Returns:
+            BCPartNumber if found in BC items, None otherwise
+        """
+        # Check exact match in loaded BC items
+        if constructed_pn in self.bc_items:
+            item = self.bc_items[constructed_pn]
+            return BCPartNumber(
+                part_number=constructed_pn,
+                description=item.get('displayName', item.get('description', '')),
+                category="GLASS_KIT",
+                bc_item_id=item.get('id')
+            )
+
+        # Try prefix search: look for items starting with GK15- or GK16-
+        prefix = "GK15-" if door_type == "residential" else "GK16-"
+        for item_number, item in self.bc_items.items():
+            if item_number == constructed_pn:
+                return BCPartNumber(
+                    part_number=item_number,
+                    description=item.get('displayName', item.get('description', '')),
+                    category="GLASS_KIT",
+                    bc_item_id=item.get('id')
+                )
+
+        # No match found — caller will use the constructed PN with a generated description
+        logger.debug(f"Glass kit {constructed_pn} not found in BC items, using constructed PN")
+        return None
+
     def generate_door_parts(
         self,
         door_width_feet: float,

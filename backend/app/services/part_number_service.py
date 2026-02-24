@@ -105,6 +105,8 @@ class DoorConfiguration:
     window_qty: int = 0  # Commercial: number of windows per section, or V130G section count
     window_frame_color: str = "BLACK"  # Commercial window frame color
     glazing_type: Optional[str] = None
+    glass_pane_type: Optional[str] = None  # 'INSULATED' or 'SINGLE'
+    glass_color: Optional[str] = None      # 'CLEAR', 'ETCHED', 'SUPER_GREY'
     track_radius: str = "15"
     track_thickness: str = "2"
     hardware: Dict[str, bool] = None
@@ -405,8 +407,9 @@ class PartNumberService:
         ))
 
         # 2. PANELS
-        panel_parts = self._get_panel_parts(config)
-        parts.extend(panel_parts)
+        if hardware.get("panels", True):
+            panel_parts = self._get_panel_parts(config)
+            parts.extend(panel_parts)
 
         # 3. RETAINER (from bottom retainer parts - just retainer, not astragal)
         if hardware.get("bottomRetainer", True):
@@ -730,14 +733,14 @@ class PartNumberService:
         parts.append(PartSelection(
             part_number=winder_lh.part_number,
             description=winder_lh.description,
-            quantity=config.spring_quantity,
+            quantity=1,  # One LH set per door (contains cones for all LH springs)
             category="spring_accessory"
         ))
 
         parts.append(PartSelection(
             part_number=winder_rh.part_number,
             description=winder_rh.description,
-            quantity=config.spring_quantity,
+            quantity=1,  # One RH set per door (contains cones for all RH springs)
             category="spring_accessory"
         ))
 
@@ -960,7 +963,7 @@ class PartNumberService:
         return []
 
     def _get_window_parts(self, config: DoorConfiguration) -> List[PartSelection]:
-        """Get window/glass kit part numbers"""
+        """Get window/glass kit part numbers using GK15 (residential) or GK16 (commercial)"""
         if not config.window_insert:
             return []
 
@@ -972,30 +975,63 @@ class PartNumberService:
         if config.window_insert in ("24X12_THERMOPANE", "34X16_THERMOPANE", "18X8_THERMOPANE"):
             return self._get_commercial_window_parts(config)
 
-        # Residential window inserts (Stockton/Stockbridge)
-        base_pn = None
-        for style, inserts in self.window_rules.items():
-            if style in ["glazing_suffix"]:
-                continue
-            if config.window_insert in inserts:
-                base_pn = inserts[config.window_insert]
-                break
+        # Residential window glass kits — build GK15 part number
+        mapper = get_bc_mapper()
 
-        if not base_pn:
-            base_pn = f"GK-{config.window_insert}"
+        # Determine section height: door_height / panel_count
+        panel_count = self._calculate_panel_count(config.door_height)
+        section_height = config.door_height / panel_count  # inches per section
 
-        # Add glazing suffix
-        glazing_suffix = self.window_rules.get("glazing_suffix", {}).get(config.glazing_type, "-CL")
+        # SS: Series+Size code
+        # SHORT (≤18") vs LONG (>18")
+        is_short = section_height <= 18
+        series_upper = config.door_series.upper()
+        if series_upper in ("KANATA", "KANATA_EXECUTIVE"):
+            ss = "10" if is_short else "11"  # KANATA SHORT / KANATA LONG
+        elif series_upper == "CRAFT":
+            ss = "55"  # CRAFT LONG (Craft sections are 28"/32", always LONG)
+        else:
+            ss = "11"  # Default to KANATA LONG
+
+        # G: Glass type digit
+        glass_type_map = {
+            ("SINGLE", None): "1",
+            ("SINGLE", "CLEAR"): "1",
+            ("INSULATED", None): "2",
+            ("INSULATED", "CLEAR"): "2",
+            ("INSULATED", "ETCHED"): "4",
+            ("INSULATED", "SUPER_GREY"): "9",
+        }
+        pane = (config.glass_pane_type or "INSULATED").upper()
+        color = (config.glass_color or "CLEAR").upper()
+        g = glass_type_map.get((pane, color), glass_type_map.get((pane, None), "2"))
+
+        # CC: Color code (reuse mapper's COLOR_CODES)
+        panel_color_normalized = config.panel_color.replace("_", " ").upper()
+        cc = mapper.COLOR_CODES.get(panel_color_normalized, "00")
+
+        # Build GK15 part number
+        gk15_pn = f"GK15-{ss}{g}{cc}-00"
+
+        # Validate against BC items; fall back to description search if needed
+        validated = mapper.get_glass_kit(gk15_pn, "residential")
+        if validated:
+            part_number = validated.part_number
+            description = validated.description
+        else:
+            part_number = gk15_pn
+            glass_label = {"1": "SINGLE", "2": "THERM-CLEAR", "4": "THERM-ETCHED", "9": "SUPER GREY"}.get(g, "THERM-CLEAR")
+            description = f"GLASS KIT, RESIDENTIAL, {glass_label}, {panel_color_normalized}"
 
         # Window quantity based on positions
         window_qty = config.window_count or max(1, config.door_width // 24)
 
         return [PartSelection(
-            part_number=f"{base_pn}{glazing_suffix}",
-            description=f"Window Insert {config.window_insert} - {config.glazing_type or 'Clear'}",
+            part_number=part_number,
+            description=description,
             quantity=window_qty,
             category="window",
-            notes=f"For section {config.window_section or 1}"
+            notes=f"GK15 glass kit for section {config.window_section or 1}"
         )]
 
     def _get_v130g_parts(self, config: DoorConfiguration) -> List[PartSelection]:
@@ -1106,21 +1142,62 @@ class PartNumberService:
         return parts
 
     def _get_commercial_window_parts(self, config: DoorConfiguration) -> List[PartSelection]:
-        """Get commercial thermopane window parts (24x12, 34x16, 18x8)"""
+        """Get commercial thermopane window parts using GK16 part numbers.
+
+        GK16 format: GK16-{S}3{G}{CC}-{VV}
+          S  = Series: 2=TX450 (1-3/4"), 4=TX500 (2")
+          G  = Glass type: 2=THERM-CLEAR
+          CC = Color: 00=WHITE, 05=BLACK
+          VV = Variant: 00=24x12, 01=24x8
+        """
+        mapper = get_bc_mapper()
+
+        # S: Series digit
+        series_upper = config.door_series.upper()
+        if series_upper.startswith("TX500"):
+            s = "4"
+        else:
+            s = "2"  # TX450 or default
+
+        # G: Glass type (always THERM for commercial)
+        g = "2"
+
+        # CC: Frame color
+        frame_color = config.window_frame_color.upper()
+        if frame_color == "BLACK":
+            cc = "05"
+        else:
+            cc = "00"  # WHITE or default
+
+        # VV: Window size variant
         window_sizes = {
-            "24X12_THERMOPANE": {"width": 24, "height": 12, "desc": "24\" x 12\""},
-            "34X16_THERMOPANE": {"width": 34, "height": 16, "desc": "34\" x 16\""},
-            "18X8_THERMOPANE": {"width": 18, "height": 8, "desc": "18\" x 8\""},
+            "24X12_THERMOPANE": {"vv": "00", "desc": "24\" x 12\""},
+            "18X8_THERMOPANE": {"vv": "01", "desc": "24\" x 8\""},
+            "34X16_THERMOPANE": {"vv": "00", "desc": "34\" x 16\""},  # Uses same variant as 24x12
         }
-        ws = window_sizes.get(config.window_insert, {"width": 24, "height": 12, "desc": "24\" x 12\""})
+        ws = window_sizes.get(config.window_insert, {"vv": "00", "desc": "24\" x 12\""})
+        vv = ws["vv"]
+
+        # Build GK16 part number
+        gk16_pn = f"GK16-{s}3{g}{cc}-{vv}"
+
+        # Validate against BC items
+        validated = mapper.get_glass_kit(gk16_pn, "commercial")
+        if validated:
+            part_number = validated.part_number
+            description = validated.description
+        else:
+            part_number = gk16_pn
+            description = f"GLASS KIT, COMMERCIAL, THERM-CLEAR, {ws['desc']}, {frame_color}"
+
         qty = config.window_qty or 1
 
         return [PartSelection(
-            part_number=f"CW-{config.window_insert}",
-            description=f"Commercial Window {ws['desc']} Thermopane",
+            part_number=part_number,
+            description=description,
             quantity=qty,
             category="commercial_window",
-            notes=f"Section {config.window_section or 1}, {config.window_frame_color} frame"
+            notes=f"GK16 glass kit, section {config.window_section or 1}, {frame_color} frame"
         )]
 
     def _get_operator_parts(self, config: DoorConfiguration) -> List[PartSelection]:
@@ -1200,6 +1277,8 @@ def get_parts_for_door_config(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         window_qty=config_dict.get("windowQty", 0),
         window_frame_color=config_dict.get("windowFrameColor", "BLACK"),
         glazing_type=config_dict.get("glazingType"),
+        glass_pane_type=config_dict.get("glassPaneType"),
+        glass_color=config_dict.get("glassColor"),
         track_radius=config_dict.get("trackRadius", "15"),
         track_thickness=config_dict.get("trackThickness", "2"),
         hardware=config_dict.get("hardware", {}),

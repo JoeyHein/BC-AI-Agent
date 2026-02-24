@@ -303,6 +303,7 @@ TRACK_OPTIONS = {
 }
 
 HARDWARE_OPTIONS = [
+    {"id": "panels", "name": "Door Panels", "description": "Insulated door sections", "default": True},
     {"id": "tracks", "name": "Tracks", "description": "Vertical and horizontal track system", "default": True},
     {"id": "springs", "name": "Springs", "description": "Torsion spring assembly", "default": True},
     {"id": "struts", "name": "Struts", "description": "Reinforcing struts", "default": True},
@@ -355,6 +356,8 @@ class DoorConfigRequest(BaseModel):
     windowQty: int = 0  # Commercial: V130G section count or window qty
     windowFrameColor: str = "BLACK"  # Commercial window frame color
     glazingType: Optional[str] = None
+    glassPaneType: Optional[str] = None  # 'INSULATED' or 'SINGLE'
+    glassColor: Optional[str] = None     # 'CLEAR', 'ETCHED', 'SUPER_GREY'
     trackRadius: str = "15"
     trackThickness: str = "2"
     hardware: Dict[str, bool] = {}
@@ -721,6 +724,8 @@ async def generate_door_quote(request: QuoteGenerationRequest):
                 "windowQty": door.windowQty,
                 "windowFrameColor": door.windowFrameColor,
                 "glazingType": door.glazingType,
+                "glassPaneType": door.glassPaneType,
+                "glassColor": door.glassColor,
                 "trackRadius": door.trackRadius,
                 "trackThickness": door.trackThickness,
                 "hardware": door.hardware,
@@ -970,6 +975,8 @@ async def get_part_numbers(config: DoorConfigRequest):
             "windowQty": config.windowQty,
             "windowFrameColor": config.windowFrameColor,
             "glazingType": config.glazingType,
+            "glassPaneType": config.glassPaneType,
+            "glassColor": config.glassColor,
             "trackRadius": config.trackRadius,
             "trackThickness": config.trackThickness,
             "hardware": config.hardware,
@@ -1020,6 +1027,8 @@ async def get_parts_for_quote(request: QuoteGenerationRequest):
                 "windowQty": door.windowQty,
                 "windowFrameColor": door.windowFrameColor,
                 "glazingType": door.glazingType,
+                "glassPaneType": door.glassPaneType,
+                "glassColor": door.glassColor,
                 "trackRadius": door.trackRadius,
                 "trackThickness": door.trackThickness,
                 "hardware": door.hardware,

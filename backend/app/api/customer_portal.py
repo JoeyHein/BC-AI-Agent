@@ -412,6 +412,8 @@ def _generate_bc_quote_with_items(
             "windowQty": door.get("windowQty", 0),
             "windowFrameColor": door.get("windowFrameColor", "BLACK"),
             "glazingType": door.get("glazingType"),
+            "glassPaneType": door.get("glassPaneType"),
+            "glassColor": door.get("glassColor"),
             "trackRadius": door.get("trackRadius", "15"),
             "trackThickness": door.get("trackThickness", "2"),
             "hardware": door.get("hardware", {}),
