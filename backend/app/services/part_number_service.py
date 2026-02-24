@@ -510,10 +510,11 @@ class PartNumberService:
         door_width_feet = config.door_width / 12
         end_cap_type = EndCapType.DOUBLE if door_width_feet > 16 else EndCapType.SINGLE
 
-        # Panel height (typical: 21" or 24")
-        panel_height = 24  # Default commercial height
-        if config.door_type == "residential":
-            panel_height = 21
+        # Derive panel height from door height / panel count, snap to nearest standard
+        panel_count = self._calculate_panel_count(config.door_height)
+        section_height = config.door_height / panel_count
+        standard_heights = [18, 21, 24]
+        panel_height = min(standard_heights, key=lambda h: abs(h - section_height))
 
         # Get panel part number
         panel = mapper.get_panel_part_number(
@@ -524,8 +525,6 @@ class PartNumberService:
             end_cap_type=end_cap_type,
             stamp="UDC" if config.door_type == "commercial" else "STD"
         )
-
-        panel_count = self._calculate_panel_count(config.door_height)
 
         # V130G replaces insulated sections — reduce panel count
         if config.window_insert == "V130G" and config.window_qty > 0:
@@ -588,15 +587,10 @@ class PartNumberService:
         door_height_in = config.door_height
         num_sections = self._calculate_panel_count(door_height_in)
 
-        # Determine section height based on door height
-        # Standard residential (7', 8') uses 21" sections
-        # Taller doors may use 24" sections
-        if door_height_in <= 96:  # Up to 8'
-            section_height = "21"
-        elif door_height_in <= 120:  # 8' to 10'
-            section_height = "24"
-        else:
-            section_height = "24"  # Default to 24" for tall doors
+        # Derive section height from door height / panel count, snap to nearest standard
+        calc_height = door_height_in / num_sections
+        standard_heights = [18, 21, 24]
+        section_height = str(min(standard_heights, key=lambda h: abs(h - calc_height)))
 
         # Get weight per linear foot for this section height
         weight_per_ft = model_weights.get(section_height, model_weights.get("21", 4.0))
@@ -879,14 +873,15 @@ class PartNumberService:
         parts = []
         mapper = get_bc_mapper()
 
-        # Get retainer for top and bottom
+        # Commercial gets top + bottom retainer; residential gets bottom only
         retainer = mapper.get_retainer()
-        parts.append(PartSelection(
-            part_number=retainer.part_number,
-            description=f"{retainer.description} (TOP)",
-            quantity=1,
-            category="retainer"
-        ))
+        if config.door_type != "residential":
+            parts.append(PartSelection(
+                part_number=retainer.part_number,
+                description=f"{retainer.description} (TOP)",
+                quantity=1,
+                category="retainer"
+            ))
         parts.append(PartSelection(
             part_number=retainer.part_number,
             description=f"{retainer.description} (BOTTOM)",

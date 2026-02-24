@@ -104,55 +104,23 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
         </div>
       </div>
 
-      {/* Door Sections with Line Items */}
+      {/* Door Sections - package price only (no line-item detail) */}
       {doorSections.length > 0 && (
         <div className="divide-y divide-gray-100">
           {doorSections.map((door, doorIdx) => (
             <div key={doorIdx} className="px-4 py-3">
-              {/* Door header */}
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="text-sm font-medium text-blue-700">
-                  {door.description}
-                </h4>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-medium text-odc-700">
+                    {door.description}
+                  </h4>
+                  <span className="text-xs text-gray-500">
+                    {door.items.length} item{door.items.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
                 <span className="text-sm font-medium text-gray-700">
                   {formatCurrency(door.subtotal)}
                 </span>
-              </div>
-
-              {/* Line items table */}
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-xs">
-                  <thead>
-                    <tr className="text-gray-500">
-                      <th className="text-left pr-4 pb-1 font-medium">Part #</th>
-                      <th className="text-left pr-4 pb-1 font-medium">Description</th>
-                      <th className="text-right pr-4 pb-1 font-medium">Qty</th>
-                      <th className="text-right pr-4 pb-1 font-medium">Unit Price</th>
-                      <th className="text-right pb-1 font-medium">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {door.items.map((item, itemIdx) => (
-                      <tr key={itemIdx} className="text-gray-700">
-                        <td className="pr-4 py-0.5 font-mono text-gray-500">
-                          {item.part_number || '-'}
-                        </td>
-                        <td className="pr-4 py-0.5 truncate max-w-[200px]">
-                          {item.description}
-                        </td>
-                        <td className="pr-4 py-0.5 text-right">
-                          {item.quantity}
-                        </td>
-                        <td className="pr-4 py-0.5 text-right">
-                          {formatCurrency(item.unit_price)}
-                        </td>
-                        <td className="py-0.5 text-right font-medium">
-                          {formatCurrency(item.line_total)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
               </div>
             </div>
           ))}
