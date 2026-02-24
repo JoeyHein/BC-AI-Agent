@@ -13,6 +13,7 @@ import { useState } from 'react'
  */
 function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber, doorResults, compact = false }) {
   const [expanded, setExpanded] = useState(!compact)
+  const [expandedDoors, setExpandedDoors] = useState(new Set())
 
   if (!pricing) {
     return null
@@ -48,6 +49,15 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
     if (currentDoor) {
       doorSections.push(currentDoor)
     }
+  }
+
+  const toggleDoor = (idx) => {
+    setExpandedDoors(prev => {
+      const next = new Set(prev)
+      if (next.has(idx)) next.delete(idx)
+      else next.add(idx)
+      return next
+    })
   }
 
   // Compact view - just totals
@@ -104,26 +114,52 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
         </div>
       </div>
 
-      {/* Door Sections - package price only (no line-item detail) */}
+      {/* Door Sections - subtotaled pricing with expandable line items */}
       {doorSections.length > 0 && (
         <div className="divide-y divide-gray-100">
-          {doorSections.map((door, doorIdx) => (
-            <div key={doorIdx} className="px-4 py-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-sm font-medium text-odc-700">
-                    {door.description}
-                  </h4>
-                  <span className="text-xs text-gray-500">
-                    {door.items.length} item{door.items.length !== 1 ? 's' : ''}
+          {doorSections.map((door, doorIdx) => {
+            const isOpen = expandedDoors.has(doorIdx)
+            return (
+              <div key={doorIdx}>
+                <button
+                  type="button"
+                  onClick={() => toggleDoor(doorIdx)}
+                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                >
+                  <div className="flex items-center space-x-2">
+                    <ChevronIcon className="h-4 w-4 text-gray-400 flex-shrink-0" expanded={isOpen} />
+                    <div className="text-left">
+                      <h4 className="text-sm font-medium text-odc-700">
+                        {door.description}
+                      </h4>
+                      <span className="text-xs text-gray-500">
+                        {door.items.length} item{door.items.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-sm font-medium text-gray-700">
+                    {formatCurrency(door.subtotal)}
                   </span>
-                </div>
-                <span className="text-sm font-medium text-gray-700">
-                  {formatCurrency(door.subtotal)}
-                </span>
+                </button>
+                {isOpen && door.items.length > 0 && (
+                  <div className="px-4 pb-3">
+                    <table className="w-full ml-6">
+                      <tbody className="text-xs text-gray-600">
+                        {door.items.map((item, itemIdx) => (
+                          <tr key={itemIdx}>
+                            <td className="py-0.5 pr-4">{item.description}</td>
+                            <td className="py-0.5 text-right whitespace-nowrap text-gray-500">
+                              qty {item.quantity}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -182,6 +218,19 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
         </div>
       )}
     </div>
+  )
+}
+
+function ChevronIcon({ className, expanded }) {
+  return (
+    <svg
+      className={`${className} transition-transform ${expanded ? 'rotate-90' : ''}`}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+    </svg>
   )
 }
 
