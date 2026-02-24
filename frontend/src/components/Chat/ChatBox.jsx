@@ -143,7 +143,7 @@ function ChatBox({ onAction }) {
         className={`fixed bottom-6 right-6 w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-white z-50 transition-all duration-200 ${
           isOpen
             ? 'bg-gray-600 hover:bg-gray-700'
-            : 'bg-indigo-600 hover:bg-indigo-700'
+            : 'bg-odc-600 hover:bg-odc-700'
         }`}
         title={isOpen ? 'Close chat' : 'Open AI assistant'}
       >

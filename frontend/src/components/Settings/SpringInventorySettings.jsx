@@ -100,7 +100,7 @@ function SpringInventorySettings() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-odc-600"></div>
         <span className="ml-3 text-gray-500">Loading spring data...</span>
       </div>
     )
@@ -127,8 +127,8 @@ function SpringInventorySettings() {
             className={`
               inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white
               ${saving || !hasChanges
-                ? 'bg-indigo-300 cursor-not-allowed'
-                : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
+                ? 'bg-odc-300 cursor-not-allowed'
+                : 'bg-odc-600 hover:bg-odc-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-odc-500'
               }
             `}
           >
@@ -180,7 +180,7 @@ function SpringInventorySettings() {
       <div className="bg-gray-50 rounded-lg p-4">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="text-center">
-            <div className="text-2xl font-bold text-indigo-600">{getTotalSelected()}</div>
+            <div className="text-2xl font-bold text-odc-600">{getTotalSelected()}</div>
             <div className="text-xs text-gray-500">Wire Sizes Selected</div>
           </div>
           {coils.map(coil => (
@@ -223,7 +223,7 @@ function SpringInventorySettings() {
                 </span>
                 <div className="h-2 w-24 bg-gray-200 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-indigo-500 transition-all"
+                    className="h-full bg-odc-500 transition-all"
                     style={{
                       width: `${((inventory[coil.id] || []).length / coil.wireSizeCount) * 100}%`
                     }}
@@ -239,7 +239,7 @@ function SpringInventorySettings() {
                 <div className="flex gap-2 mb-4">
                   <button
                     onClick={() => selectAllForCoil(coil.id)}
-                    className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
+                    className="text-sm text-odc-600 hover:text-odc-800 font-medium"
                   >
                     Select All
                   </button>
@@ -263,7 +263,7 @@ function SpringInventorySettings() {
                         className={`
                           p-2 rounded-md text-sm font-medium transition-all border-2
                           ${isSelected
-                            ? 'bg-indigo-100 border-indigo-500 text-indigo-700 shadow-sm'
+                            ? 'bg-odc-100 border-odc-500 text-odc-700 shadow-sm'
                             : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
                           }
                         `}
@@ -278,7 +278,7 @@ function SpringInventorySettings() {
                 {/* Legend */}
                 <div className="mt-4 pt-3 border-t border-gray-100 text-xs text-gray-500">
                   <span className="inline-flex items-center mr-4">
-                    <span className="w-3 h-3 bg-indigo-100 border-2 border-indigo-500 rounded mr-1"></span>
+                    <span className="w-3 h-3 bg-odc-100 border-2 border-odc-500 rounded mr-1"></span>
                     In Stock
                   </span>
                   <span className="inline-flex items-center">

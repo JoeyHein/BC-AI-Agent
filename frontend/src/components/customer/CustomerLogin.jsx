@@ -65,7 +65,7 @@ function CustomerLogin() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-md w-full space-y-8">
           <div>
-            <h1 className="text-center text-3xl font-bold text-blue-600">OPENDC</h1>
+            <img src="/assets/opendc-logo.jpg" alt="OpenDC" className="h-16 mx-auto" />
             <h2 className="mt-6 text-center text-2xl font-bold text-gray-900">
               Reset your password
             </h2>
@@ -84,7 +84,7 @@ function CustomerLogin() {
                   setShowForgotPassword(false)
                   setResetEmailSent(false)
                 }}
-                className="mt-4 text-sm font-medium text-blue-600 hover:text-blue-500"
+                className="mt-4 text-sm font-medium text-odc-600 hover:text-odc-500"
               >
                 Back to login
               </button>
@@ -108,7 +108,7 @@ function CustomerLogin() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-odc-500 focus:border-odc-500 sm:text-sm"
                   placeholder="you@example.com"
                 />
               </div>
@@ -117,7 +117,7 @@ function CustomerLogin() {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                  className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-odc-600 hover:bg-odc-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-odc-500 disabled:opacity-50"
                 >
                   {loading ? 'Sending...' : 'Send reset link'}
                 </button>
@@ -127,7 +127,7 @@ function CustomerLogin() {
                 <button
                   type="button"
                   onClick={() => setShowForgotPassword(false)}
-                  className="text-sm font-medium text-blue-600 hover:text-blue-500"
+                  className="text-sm font-medium text-odc-600 hover:text-odc-500"
                 >
                   Back to login
                 </button>
@@ -143,7 +143,7 @@ function CustomerLogin() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         <div>
-          <h1 className="text-center text-3xl font-bold text-blue-600">OPENDC</h1>
+          <img src="/assets/opendc-logo.jpg" alt="OpenDC" className="h-16 mx-auto" />
           <h2 className="mt-6 text-center text-2xl font-bold text-gray-900">
             {isLogin ? 'Sign in to your account' : 'Create your account'}
           </h2>
@@ -154,7 +154,7 @@ function CustomerLogin() {
                 setIsLogin(!isLogin)
                 setError('')
               }}
-              className="font-medium text-blue-600 hover:text-blue-500"
+              className="font-medium text-odc-600 hover:text-odc-500"
             >
               {isLogin ? 'Register here' : 'Sign in'}
             </button>
@@ -182,7 +182,7 @@ function CustomerLogin() {
                     required={!isLogin}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-odc-500 focus:border-odc-500 sm:text-sm"
                     placeholder="John Smith"
                   />
                 </div>
@@ -196,7 +196,7 @@ function CustomerLogin() {
                     type="text"
                     value={companyName}
                     onChange={(e) => setCompanyName(e.target.value)}
-                    className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-odc-500 focus:border-odc-500 sm:text-sm"
                     placeholder="Acme Doors Inc."
                   />
                 </div>
@@ -215,7 +215,7 @@ function CustomerLogin() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-odc-500 focus:border-odc-500 sm:text-sm"
                 placeholder="you@example.com"
               />
             </div>
@@ -232,7 +232,7 @@ function CustomerLogin() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-odc-500 focus:border-odc-500 sm:text-sm"
                 placeholder="********"
               />
             </div>
@@ -243,7 +243,7 @@ function CustomerLogin() {
               <button
                 type="button"
                 onClick={() => setShowForgotPassword(true)}
-                className="text-sm font-medium text-blue-600 hover:text-blue-500"
+                className="text-sm font-medium text-odc-600 hover:text-odc-500"
               >
                 Forgot your password?
               </button>
@@ -254,7 +254,7 @@ function CustomerLogin() {
             <button
               type="submit"
               disabled={loading}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-odc-600 hover:bg-odc-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-odc-500 disabled:opacity-50"
             >
               {loading ? (
                 <span className="flex items-center">

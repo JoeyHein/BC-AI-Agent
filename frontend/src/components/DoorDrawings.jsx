@@ -133,7 +133,7 @@ function DoorDrawings({
                 onClick={() => setActiveTab(tab.id)}
                 className={`py-3 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
                   activeTab === tab.id
-                    ? 'border-indigo-500 text-indigo-600'
+                    ? 'border-odc-500 text-odc-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
@@ -157,7 +157,7 @@ function DoorDrawings({
               </select>
               <button
                 onClick={handleExport}
-                className="px-3 py-1 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                className="px-3 py-1 text-sm bg-odc-600 text-white rounded hover:bg-odc-700"
               >
                 Export
               </button>

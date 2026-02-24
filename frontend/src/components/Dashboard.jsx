@@ -173,12 +173,12 @@ function Dashboard() {
                   Ready for BC creation
                 </dd>
               </div>
-              <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-lg p-4 border border-indigo-200">
-                <dt className="text-sm font-medium text-indigo-900 mb-1">BC Quotes Created</dt>
-                <dd className="text-3xl font-bold text-indigo-700">
+              <div className="bg-gradient-to-br from-odc-50 to-odc-100 rounded-lg p-4 border border-odc-200">
+                <dt className="text-sm font-medium text-odc-900 mb-1">BC Quotes Created</dt>
+                <dd className="text-3xl font-bold text-odc-700">
                   {quoteStats.total_bc_created || 0}
                 </dd>
-                <dd className="text-xs text-indigo-600 mt-1">
+                <dd className="text-xs text-odc-600 mt-1">
                   Created in Business Central
                 </dd>
               </div>
@@ -242,7 +242,7 @@ function StatCard({ title, value, subtitle, color }) {
     blue: 'bg-blue-500',
     green: 'bg-green-500',
     purple: 'bg-purple-500',
-    indigo: 'bg-indigo-500',
+    indigo: 'bg-odc-500',
   }
 
   return (

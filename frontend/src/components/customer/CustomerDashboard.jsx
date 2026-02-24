@@ -63,7 +63,7 @@ function CustomerDashboard() {
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
         <Link
           to="saved-quotes/new"
-          className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg p-6 shadow flex items-center justify-between"
+          className="bg-odc-600 hover:bg-odc-700 text-white rounded-lg p-6 shadow flex items-center justify-between"
         >
           <div>
             <h3 className="text-lg font-semibold">Create New Quote</h3>
@@ -121,7 +121,7 @@ function CustomerDashboard() {
         <div className="bg-white shadow rounded-lg">
           <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
             <h2 className="text-lg font-medium text-gray-900">Recent Drafts</h2>
-            <Link to="saved-quotes" className="text-sm text-blue-600 hover:text-blue-500">
+            <Link to="saved-quotes" className="text-sm text-odc-600 hover:text-odc-500">
               View all
             </Link>
           </div>
@@ -131,7 +131,7 @@ function CustomerDashboard() {
             ) : draftQuotes.length === 0 ? (
               <div className="p-6 text-center text-gray-500">
                 No draft quotes yet.{' '}
-                <Link to="saved-quotes/new" className="text-blue-600 hover:text-blue-500">
+                <Link to="saved-quotes/new" className="text-odc-600 hover:text-odc-500">
                   Create one now
                 </Link>
               </div>
@@ -163,7 +163,7 @@ function CustomerDashboard() {
         <div className="bg-white shadow rounded-lg">
           <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
             <h2 className="text-lg font-medium text-gray-900">Recent Orders</h2>
-            <Link to="orders" className="text-sm text-blue-600 hover:text-blue-500">
+            <Link to="orders" className="text-sm text-odc-600 hover:text-odc-500">
               View all
             </Link>
           </div>
@@ -210,7 +210,7 @@ function StatusBadge({ status }) {
     confirmed: 'bg-blue-100 text-blue-800',
     in_production: 'bg-yellow-100 text-yellow-800',
     ready_to_ship: 'bg-purple-100 text-purple-800',
-    shipped: 'bg-indigo-100 text-indigo-800',
+    shipped: 'bg-cyan-100 text-cyan-800',
     invoiced: 'bg-green-100 text-green-800',
     completed: 'bg-green-100 text-green-800',
     cancelled: 'bg-red-100 text-red-800'

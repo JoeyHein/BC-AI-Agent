@@ -14,7 +14,7 @@ function MessageInput({ value, onChange, onSend, onKeyPress, disabled, placehold
           onKeyPress={onKeyPress}
           disabled={disabled}
           placeholder={placeholder || "Type a message..."}
-          className="flex-1 px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
+          className="flex-1 px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-odc-500 focus:border-transparent text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
         />
         <button
           onClick={onSend}
@@ -22,7 +22,7 @@ function MessageInput({ value, onChange, onSend, onKeyPress, disabled, placehold
           className={`p-2 rounded-full transition-colors ${
             disabled || !value.trim()
               ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-              : 'bg-indigo-600 text-white hover:bg-indigo-700'
+              : 'bg-odc-600 text-white hover:bg-odc-700'
           }`}
           title="Send message"
         >

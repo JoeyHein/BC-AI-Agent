@@ -250,7 +250,7 @@ function ProductionCalendar() {
             </div>
             <button
               onClick={() => setShowScheduleModal(true)}
-              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"
+              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-odc-600 hover:bg-odc-700"
             >
               <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -316,7 +316,7 @@ function ProductionCalendar() {
             {/* Calendar Days */}
             {capacityLoading ? (
               <div className="flex justify-center items-center h-64">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-odc-600"></div>
               </div>
             ) : (
               <div className="grid grid-cols-7 gap-1">
@@ -335,14 +335,14 @@ function ProductionCalendar() {
                     className={`h-24 rounded border cursor-pointer transition-all ${
                       day.isWeekend
                         ? 'bg-gray-100 border-gray-200 cursor-not-allowed'
-                        : `${getUtilizationColor(day.utilization)} border-gray-200 hover:border-indigo-400`
-                    } ${day.isToday ? 'ring-2 ring-indigo-500' : ''} ${
-                      selectedDate?.dateStr === day.dateStr ? 'ring-2 ring-indigo-600' : ''
-                    } ${draggedOrder && !day.isWeekend ? 'ring-2 ring-dashed ring-indigo-300' : ''}`}
+                        : `${getUtilizationColor(day.utilization)} border-gray-200 hover:border-odc-400`
+                    } ${day.isToday ? 'ring-2 ring-odc-500' : ''} ${
+                      selectedDate?.dateStr === day.dateStr ? 'ring-2 ring-odc-600' : ''
+                    } ${draggedOrder && !day.isWeekend ? 'ring-2 ring-dashed ring-odc-300' : ''}`}
                   >
                     <div className="p-2 h-full flex flex-col pointer-events-none">
                       <div className={`text-sm font-medium ${
-                        day.isToday ? 'text-indigo-600' : day.isWeekend ? 'text-gray-400' : 'text-gray-900'
+                        day.isToday ? 'text-odc-600' : day.isWeekend ? 'text-gray-400' : 'text-gray-900'
                       }`}>
                         {format(day.date, 'd')}
                       </div>
@@ -421,7 +421,7 @@ function ProductionCalendar() {
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
               {leadTimes.leadTimes?.map(lt => (
                 <div key={lt.itemPrefix} className="bg-gray-50 rounded-lg p-4 text-center">
-                  <div className="text-2xl font-bold text-indigo-600">{lt.leadTimeDays}</div>
+                  <div className="text-2xl font-bold text-odc-600">{lt.leadTimeDays}</div>
                   <div className="text-xs text-gray-500 mt-1">days</div>
                   <div className="text-sm font-medium text-gray-700 mt-2">{lt.description}</div>
                   <div className="text-xs text-gray-400">{lt.itemPrefix}*</div>
@@ -604,7 +604,7 @@ function OpenOrdersPanel({ orders, isLoading, onDragStart, onDragEnd, showAllOrd
             </h3>
             <button
               onClick={onToggleShowAll}
-              className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+              className="text-xs text-odc-600 hover:text-odc-800 font-medium"
             >
               {showAllOrders ? 'Show Unscheduled' : 'Show All'}
             </button>
@@ -617,7 +617,7 @@ function OpenOrdersPanel({ orders, isLoading, onDragStart, onDragEnd, showAllOrd
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
           {isLoading ? (
             <div className="flex justify-center items-center py-8">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-odc-600"></div>
             </div>
           ) : orders.length > 0 ? (
             orders.map((order, idx) => {
@@ -629,7 +629,7 @@ function OpenOrdersPanel({ orders, isLoading, onDragStart, onDragEnd, showAllOrd
                   key={`order-${order.id}-${order.bcOrderNumber || idx}`}
                   className={`border rounded-lg overflow-hidden ${
                     dropTargetOrderId === order.id
-                      ? 'border-indigo-500 border-2 ring-2 ring-indigo-200'
+                      ? 'border-odc-500 border-2 ring-2 ring-odc-200'
                       : 'border-gray-200'
                   }`}
                   onDragOver={(e) => handleSalesOrderDragOver(e, order)}
@@ -640,7 +640,7 @@ function OpenOrdersPanel({ orders, isLoading, onDragStart, onDragEnd, showAllOrd
                   <div
                     className={`transition-colors ${
                       dropTargetOrderId === order.id
-                        ? 'bg-indigo-100'
+                        ? 'bg-odc-100'
                         : 'bg-gray-50 hover:bg-gray-100'
                     }`}
                   >
@@ -703,13 +703,13 @@ function OpenOrdersPanel({ orders, isLoading, onDragStart, onDragEnd, showAllOrd
                             type="date"
                             value={selectedDates[order.id] || order.scheduledDate?.split('T')[0] || ''}
                             onChange={(e) => handleDateChange(order.id, e.target.value)}
-                            className="flex-1 text-sm border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+                            className="flex-1 text-sm border border-gray-300 rounded px-2 py-1 focus:ring-1 focus:ring-odc-500 focus:border-odc-500"
                             min={format(new Date(), 'yyyy-MM-dd')}
                           />
                           <button
                             onClick={() => handleScheduleOrder(order.id)}
                             disabled={scheduleOrderMutation.isPending || !selectedDates[order.id]}
-                            className="px-3 py-1 text-sm font-medium text-white bg-indigo-600 rounded hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="px-3 py-1 text-sm font-medium text-white bg-odc-600 rounded hover:bg-odc-700 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {scheduleOrderMutation.isPending ? '...' : order.scheduledDate ? 'Update' : 'Schedule'}
                           </button>
@@ -783,7 +783,7 @@ function OpenOrdersPanel({ orders, isLoading, onDragStart, onDragEnd, showAllOrd
                               {line.linkedWorkOrders && line.linkedWorkOrders.length > 0 && (
                                 <div className="ml-5 mt-1 space-y-1">
                                   {line.linkedWorkOrders.map((wo, woIdx) => (
-                                    <div key={woIdx} className="flex items-center text-xs text-indigo-600 bg-indigo-50 px-2 py-1 rounded">
+                                    <div key={woIdx} className="flex items-center text-xs text-odc-600 bg-odc-50 px-2 py-1 rounded">
                                       <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                                       </svg>
@@ -825,7 +825,7 @@ function OpenOrdersPanel({ orders, isLoading, onDragStart, onDragEnd, showAllOrd
                                   <svg className="w-4 h-4 text-gray-300 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                                     <path d="M7 2a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 2zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 7 14zm6-8a2 2 0 1 0-.001-4.001A2 2 0 0 0 13 6zm0 2a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 8zm0 6a2 2 0 1 0 .001 4.001A2 2 0 0 0 13 14z"/>
                                   </svg>
-                                  <svg className="w-4 h-4 text-indigo-500 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <svg className="w-4 h-4 text-odc-500 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                                   </svg>
                                   <div className="min-w-0">
@@ -901,7 +901,7 @@ function OpenOrdersPanel({ orders, isLoading, onDragStart, onDragEnd, showAllOrd
               <span>{orders.filter(o => !o.isFullyScheduled).length} need scheduling</span>
             </div>
             {draggedWorkOrder && (
-              <div className="mt-2 text-xs text-indigo-600 font-medium">
+              <div className="mt-2 text-xs text-odc-600 font-medium">
                 Drop on a sales order to link
               </div>
             )}
@@ -1081,7 +1081,7 @@ function SelectedDayDetail({ day, onClose }) {
       {/* Loading state */}
       {tasksLoading && (
         <div className="flex justify-center items-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-odc-600"></div>
         </div>
       )}
 
@@ -1218,7 +1218,7 @@ function SelectedDayDetail({ day, onClose }) {
                               >
                                 <div className="flex items-center flex-1 ml-12">
                                   <ChevronIcon expanded={expandedProdOrders[`${soIdx}-${liIdx}-${poIdx}`]} />
-                                  <svg className="w-4 h-4 text-indigo-500 ml-2 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <svg className="w-4 h-4 text-odc-500 ml-2 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                                   </svg>
                                   <span className="font-medium text-gray-700">
@@ -1246,7 +1246,7 @@ function SelectedDayDetail({ day, onClose }) {
                                             checked={task.status === 'completed'}
                                             onChange={() => task.status !== 'completed' && handleTaskComplete(task.id)}
                                             disabled={task.status === 'completed' || completeTaskMutation.isPending}
-                                            className="h-5 w-5 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 disabled:opacity-50"
+                                            className="h-5 w-5 text-odc-600 rounded border-gray-300 focus:ring-odc-500 disabled:opacity-50"
                                           />
                                           <div className={task.status === 'completed' ? 'line-through text-gray-400' : ''}>
                                             <div className="font-medium text-gray-900">{task.itemNo}</div>
@@ -1390,7 +1390,7 @@ function ScheduleModal({ onClose, onSchedule, isLoading, result }) {
                   type="date"
                   value={dateRange.startDate}
                   onChange={(e) => setDateRange({ ...dateRange, startDate: e.target.value })}
-                  className="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full border-gray-300 rounded-md shadow-sm focus:ring-odc-500 focus:border-odc-500"
                 />
               </div>
               <div>
@@ -1399,7 +1399,7 @@ function ScheduleModal({ onClose, onSchedule, isLoading, result }) {
                   type="date"
                   value={dateRange.endDate}
                   onChange={(e) => setDateRange({ ...dateRange, endDate: e.target.value })}
-                  className="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full border-gray-300 rounded-md shadow-sm focus:ring-odc-500 focus:border-odc-500"
                 />
               </div>
             </div>
@@ -1412,7 +1412,7 @@ function ScheduleModal({ onClose, onSchedule, isLoading, result }) {
               <button
                 type="button"
                 onClick={addOrder}
-                className="text-sm text-indigo-600 hover:text-indigo-700"
+                className="text-sm text-odc-600 hover:text-odc-700"
               >
                 + Add Order
               </button>
@@ -1429,7 +1429,7 @@ function ScheduleModal({ onClose, onSchedule, isLoading, result }) {
                         placeholder="e.g., HK02-16080-RC"
                         value={order.itemNo}
                         onChange={(e) => updateOrder(index, 'itemNo', e.target.value)}
-                        className="w-full border-gray-300 rounded-md shadow-sm text-sm focus:ring-indigo-500 focus:border-indigo-500"
+                        className="w-full border-gray-300 rounded-md shadow-sm text-sm focus:ring-odc-500 focus:border-odc-500"
                       />
                     </div>
                     <div className="col-span-2">
@@ -1439,7 +1439,7 @@ function ScheduleModal({ onClose, onSchedule, isLoading, result }) {
                         min="1"
                         value={order.quantity}
                         onChange={(e) => updateOrder(index, 'quantity', parseInt(e.target.value) || 1)}
-                        className="w-full border-gray-300 rounded-md shadow-sm text-sm focus:ring-indigo-500 focus:border-indigo-500"
+                        className="w-full border-gray-300 rounded-md shadow-sm text-sm focus:ring-odc-500 focus:border-odc-500"
                       />
                     </div>
                     <div className="col-span-3">
@@ -1448,7 +1448,7 @@ function ScheduleModal({ onClose, onSchedule, isLoading, result }) {
                         type="date"
                         value={order.dueDate}
                         onChange={(e) => updateOrder(index, 'dueDate', e.target.value)}
-                        className="w-full border-gray-300 rounded-md shadow-sm text-sm focus:ring-indigo-500 focus:border-indigo-500"
+                        className="w-full border-gray-300 rounded-md shadow-sm text-sm focus:ring-odc-500 focus:border-odc-500"
                       />
                     </div>
                     <div className="col-span-2">
@@ -1456,7 +1456,7 @@ function ScheduleModal({ onClose, onSchedule, isLoading, result }) {
                       <select
                         value={order.priority}
                         onChange={(e) => updateOrder(index, 'priority', e.target.value)}
-                        className="w-full border-gray-300 rounded-md shadow-sm text-sm focus:ring-indigo-500 focus:border-indigo-500"
+                        className="w-full border-gray-300 rounded-md shadow-sm text-sm focus:ring-odc-500 focus:border-odc-500"
                       >
                         <option value="low">Low</option>
                         <option value="normal">Normal</option>
@@ -1515,7 +1515,7 @@ function ScheduleModal({ onClose, onSchedule, isLoading, result }) {
             <button
               type="submit"
               disabled={isLoading}
-              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
+              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-odc-600 hover:bg-odc-700 disabled:opacity-50"
             >
               {isLoading ? (
                 <>

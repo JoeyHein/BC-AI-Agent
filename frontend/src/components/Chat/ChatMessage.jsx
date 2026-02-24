@@ -38,7 +38,7 @@ function ChatMessage({ message }) {
       <div
         className={`max-w-[85%] rounded-lg px-4 py-2 ${
           isUser
-            ? 'bg-indigo-600 text-white'
+            ? 'bg-odc-600 text-white'
             : isError
             ? 'bg-red-50 text-red-700 border border-red-200'
             : 'bg-white text-gray-800 border border-gray-200 shadow-sm'
@@ -78,7 +78,7 @@ function ChatMessage({ message }) {
         {/* Timestamp */}
         <div
           className={`text-xs mt-1 ${
-            isUser ? 'text-indigo-200' : isError ? 'text-red-400' : 'text-gray-400'
+            isUser ? 'text-odc-200' : isError ? 'text-red-400' : 'text-gray-400'
           }`}
         >
           {formatTime(message.createdAt)}

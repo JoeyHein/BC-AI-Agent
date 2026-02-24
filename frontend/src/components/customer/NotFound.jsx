@@ -27,7 +27,7 @@ function NotFound() {
         <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
           <Link
             to="/"
-            className="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+            className="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-odc-600 hover:bg-odc-700"
           >
             Go to Dashboard
           </Link>

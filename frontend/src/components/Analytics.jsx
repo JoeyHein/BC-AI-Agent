@@ -11,7 +11,7 @@ const COLORS = ['#4F46E5', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'
 function LoadingSpinner() {
   return (
     <div className="flex items-center justify-center p-8">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-odc-600"></div>
     </div>
   )
 }
@@ -29,7 +29,7 @@ function StatCard({ title, value, subtitle, icon }) {
     <div className="bg-white rounded-lg shadow p-6">
       <div className="flex items-center">
         <div className="flex-shrink-0">
-          <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center text-indigo-600">
+          <div className="w-12 h-12 bg-odc-100 rounded-lg flex items-center justify-center text-odc-600">
             {icon}
           </div>
         </div>
@@ -353,7 +353,7 @@ function Analytics() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`py-4 px-1 border-b-2 font-medium text-sm ${
                   activeTab === tab.id
-                    ? 'border-indigo-500 text-indigo-600'
+                    ? 'border-odc-500 text-odc-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
@@ -431,7 +431,7 @@ function Analytics() {
               <div className="mt-4">
                 <h4 className="text-sm font-medium text-gray-700 mb-2">Select a customer for recommendations:</h4>
                 <select
-                  className="block w-full max-w-md rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                  className="block w-full max-w-md rounded-md border-gray-300 shadow-sm focus:border-odc-500 focus:ring-odc-500 sm:text-sm"
                   onChange={(e) => {
                     const cust = customerPreferences?.all_customers?.find(c => c.customer_number === e.target.value)
                     setSelectedCustomer(cust)

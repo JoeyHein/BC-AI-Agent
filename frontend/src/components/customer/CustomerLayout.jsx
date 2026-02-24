@@ -27,58 +27,52 @@ function CustomerLayout() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm">
+      {/* Header + Navigation */}
+      <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
+          <div className="flex justify-between h-14">
             <div className="flex items-center">
-              <Link to="/" className="flex items-center">
-                <span className="text-xl font-bold text-blue-600">OPENDC</span>
-                <span className="ml-2 text-sm text-gray-500">Customer Portal</span>
+              <Link to="/" className="flex-shrink-0 flex items-center">
+                <img src="/assets/opendc-logo.jpg" alt="OpenDC" className="h-8" />
+                <span className="ml-3 text-sm font-medium text-gray-400">Customer Portal</span>
               </Link>
+              <div className="flex ml-8">
+                {navItems.map((item) => (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    className={`inline-flex items-center px-3 h-14 border-b-2 text-sm font-medium transition-colors ${
+                      isActive(item.path)
+                        ? 'border-odc-600 text-odc-700'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    }`}
+                  >
+                    <item.icon className="h-4 w-4 mr-1.5" />
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
             </div>
 
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-3">
               {!isBCLinked && (
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
                   Account not linked
                 </span>
               )}
-              <div className="text-sm text-gray-700">
-                <span className="font-medium">{user?.name || user?.email}</span>
+              <span className="text-sm text-gray-500">
+                {user?.name || user?.email}
                 {user?.bc_company_name && (
-                  <span className="ml-2 text-gray-500">({user.bc_company_name})</span>
+                  <span className="ml-1 text-gray-400">({user.bc_company_name})</span>
                 )}
-              </div>
+              </span>
               <button
                 onClick={handleLogout}
-                className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded-md text-gray-600 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-odc-500"
               >
                 Logout
               </button>
             </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Navigation */}
-      <nav className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex space-x-8">
-            {navItems.map((item) => (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={`inline-flex items-center px-1 py-4 border-b-2 text-sm font-medium ${
-                  isActive(item.path)
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <item.icon className="h-5 w-5 mr-2" />
-                {item.label}
-              </Link>
-            ))}
           </div>
         </div>
       </nav>
@@ -92,7 +86,7 @@ function CustomerLayout() {
       <footer className="bg-white border-t border-gray-200 mt-auto">
         <div className="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8">
           <p className="text-center text-sm text-gray-500">
-            OPENDC Customer Portal - Need help? Contact support@opendc.com
+            OpenDC Customer Portal - Need help? Contact support@opendc.ca
           </p>
         </div>
       </footer>

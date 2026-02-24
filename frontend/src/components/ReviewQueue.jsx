@@ -74,7 +74,7 @@ function QuoteListItem({ quote }) {
         <div className="px-4 py-4 sm:px-6">
           <div className="flex items-center justify-between">
             <div className="flex-1">
-              <p className="text-sm font-medium text-indigo-600 truncate">
+              <p className="text-sm font-medium text-odc-600 truncate">
                 {quote.customer_name || 'Unknown Customer'}
               </p>
               <div className="mt-2 flex items-center text-sm text-gray-500">

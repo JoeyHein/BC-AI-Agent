@@ -93,7 +93,7 @@ function OrderManagement() {
       'Open': 'bg-blue-100 text-blue-800',
       'Released': 'bg-green-100 text-green-800',
       'Pending Approval': 'bg-orange-100 text-orange-800',
-      'Pending Prepayment': 'bg-indigo-100 text-indigo-800',
+      'Pending Prepayment': 'bg-odc-100 text-odc-800',
     }
     return statusColors[status] || 'bg-gray-100 text-gray-800'
   }
@@ -155,7 +155,7 @@ function OrderManagement() {
                 placeholder="Search by order number, customer..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-odc-500 focus:border-odc-500"
               />
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -173,7 +173,7 @@ function OrderManagement() {
                 onClick={() => setStatusFilter(status.value)}
                 className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
                   statusFilter === status.value
-                    ? 'bg-indigo-600 text-white'
+                    ? 'bg-odc-600 text-white'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
@@ -188,7 +188,7 @@ function OrderManagement() {
       <div className="bg-white shadow rounded-lg overflow-hidden">
         {isLoading ? (
           <div className="flex justify-center items-center h-64">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-odc-600"></div>
           </div>
         ) : error ? (
           <div className="p-6 text-center text-red-600">
@@ -245,7 +245,7 @@ function OrderManagement() {
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <button
                       onClick={() => setSelectedOrder(order)}
-                      className="text-indigo-600 hover:text-indigo-900"
+                      className="text-odc-600 hover:text-odc-900"
                     >
                       Manage
                     </button>
@@ -392,7 +392,7 @@ function OrderDetailModal({ order, onClose, onUpdateStatus, onShip, onInvoice, i
                 <button
                   onClick={() => onUpdateStatus('ready_to_ship', 'Production complete')}
                   disabled={isUpdating}
-                  className="px-3 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700 disabled:opacity-50"
+                  className="px-3 py-2 bg-odc-600 text-white rounded-md text-sm hover:bg-odc-700 disabled:opacity-50"
                 >
                   Mark Ready to Ship
                 </button>
@@ -425,7 +425,7 @@ function OrderDetailModal({ order, onClose, onUpdateStatus, onShip, onInvoice, i
               <select
                 value={newStatus}
                 onChange={(e) => setNewStatus(e.target.value)}
-                className="flex-1 border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+                className="flex-1 border-gray-300 rounded-md shadow-sm focus:ring-odc-500 focus:border-odc-500"
               >
                 {ORDER_STATUSES.filter(s => s.value !== 'all').map(status => (
                   <option key={status.value} value={status.value}>{status.label}</option>
@@ -434,7 +434,7 @@ function OrderDetailModal({ order, onClose, onUpdateStatus, onShip, onInvoice, i
               <button
                 onClick={() => onUpdateStatus(newStatus, notes)}
                 disabled={isUpdating || newStatus === order.status}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700 disabled:opacity-50"
+                className="px-4 py-2 bg-odc-600 text-white rounded-md text-sm hover:bg-odc-700 disabled:opacity-50"
               >
                 {isUpdating ? 'Updating...' : 'Update'}
               </button>
@@ -443,7 +443,7 @@ function OrderDetailModal({ order, onClose, onUpdateStatus, onShip, onInvoice, i
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Add notes (optional)"
-              className="mt-2 w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+              className="mt-2 w-full border-gray-300 rounded-md shadow-sm focus:ring-odc-500 focus:border-odc-500"
               rows={2}
             />
           </div>
@@ -495,7 +495,7 @@ function ShipOrderModal({ order, onClose, onShip, isLoading }) {
             <select
               value={shipmentData.carrier}
               onChange={(e) => setShipmentData({ ...shipmentData, carrier: e.target.value })}
-              className="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+              className="w-full border-gray-300 rounded-md shadow-sm focus:ring-odc-500 focus:border-odc-500"
             >
               <option value="FedEx">FedEx</option>
               <option value="UPS">UPS</option>
@@ -514,7 +514,7 @@ function ShipOrderModal({ order, onClose, onShip, isLoading }) {
               value={shipmentData.tracking_number}
               onChange={(e) => setShipmentData({ ...shipmentData, tracking_number: e.target.value })}
               placeholder="Enter tracking number"
-              className="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+              className="w-full border-gray-300 rounded-md shadow-sm focus:ring-odc-500 focus:border-odc-500"
             />
           </div>
 
@@ -524,7 +524,7 @@ function ShipOrderModal({ order, onClose, onShip, isLoading }) {
               type="date"
               value={shipmentData.ship_date}
               onChange={(e) => setShipmentData({ ...shipmentData, ship_date: e.target.value })}
-              className="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+              className="w-full border-gray-300 rounded-md shadow-sm focus:ring-odc-500 focus:border-odc-500"
             />
           </div>
 
@@ -535,7 +535,7 @@ function ShipOrderModal({ order, onClose, onShip, isLoading }) {
               onChange={(e) => setShipmentData({ ...shipmentData, notes: e.target.value })}
               placeholder="Optional shipping notes"
               rows={2}
-              className="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+              className="w-full border-gray-300 rounded-md shadow-sm focus:ring-odc-500 focus:border-odc-500"
             />
           </div>
 
@@ -550,7 +550,7 @@ function ShipOrderModal({ order, onClose, onShip, isLoading }) {
             <button
               type="submit"
               disabled={isLoading}
-              className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+              className="flex-1 px-4 py-2 bg-odc-600 text-white rounded-md text-sm font-medium hover:bg-odc-700 disabled:opacity-50"
             >
               {isLoading ? 'Shipping...' : 'Ship Order'}
             </button>

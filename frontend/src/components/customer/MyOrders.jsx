@@ -38,7 +38,7 @@ function MyOrders() {
   if (isLoading) {
     return (
       <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-odc-600"></div>
       </div>
     )
   }
@@ -74,13 +74,13 @@ function MyOrders() {
               onClick={() => setFilter(tab.key)}
               className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${
                 filter === tab.key
-                  ? 'border-blue-500 text-blue-600'
+                  ? 'border-odc-500 text-odc-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
               {tab.label}
               <span className={`ml-2 py-0.5 px-2.5 rounded-full text-xs ${
-                filter === tab.key ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-900'
+                filter === tab.key ? 'bg-blue-100 text-odc-600' : 'bg-gray-100 text-gray-900'
               }`}>
                 {tab.count}
               </span>
@@ -156,13 +156,13 @@ function MyOrders() {
                 <div className="mt-6 flex items-center space-x-4">
                   <Link
                     to={`${order.id}`}
-                    className="text-sm font-medium text-blue-600 hover:text-blue-500"
+                    className="text-sm font-medium text-odc-600 hover:text-odc-500"
                   >
                     View Details
                   </Link>
                   <Link
                     to={`${order.id}/tracking`}
-                    className="text-sm font-medium text-blue-600 hover:text-blue-500"
+                    className="text-sm font-medium text-odc-600 hover:text-odc-500"
                   >
                     Track Order
                   </Link>
@@ -182,7 +182,7 @@ function StatusBadge({ status }) {
     confirmed: 'bg-blue-100 text-blue-800',
     in_production: 'bg-yellow-100 text-yellow-800',
     ready_to_ship: 'bg-purple-100 text-purple-800',
-    shipped: 'bg-indigo-100 text-indigo-800',
+    shipped: 'bg-cyan-100 text-cyan-800',
     invoiced: 'bg-green-100 text-green-800',
     completed: 'bg-green-100 text-green-800',
     cancelled: 'bg-red-100 text-red-800'

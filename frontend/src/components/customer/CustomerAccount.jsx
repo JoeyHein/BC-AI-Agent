@@ -115,11 +115,11 @@ function CustomerAccount() {
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-odc-500 focus:ring-odc-500 sm:text-sm"
                   />
                   <button
                     onClick={handleUpdateName}
-                    className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                    className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-odc-600 hover:bg-odc-700"
                   >
                     Save
                   </button>
@@ -140,7 +140,7 @@ function CustomerAccount() {
             {!editingName && (
               <button
                 onClick={() => setEditingName(true)}
-                className="text-sm text-blue-600 hover:text-blue-500"
+                className="text-sm text-odc-600 hover:text-odc-500"
               >
                 Edit
               </button>
@@ -176,7 +176,7 @@ function CustomerAccount() {
               </p>
               <a
                 href="mailto:support@opendc.com?subject=Link%20My%20Account"
-                className="mt-4 inline-flex items-center px-4 py-2 border border-blue-600 text-sm font-medium rounded-md text-blue-600 hover:bg-blue-50"
+                className="mt-4 inline-flex items-center px-4 py-2 border border-odc-600 text-sm font-medium rounded-md text-odc-600 hover:bg-blue-50"
               >
                 Contact Support
               </a>
@@ -202,7 +202,7 @@ function CustomerAccount() {
                   value={oldPassword}
                   onChange={(e) => setOldPassword(e.target.value)}
                   required
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-odc-500 focus:ring-odc-500 sm:text-sm"
                 />
               </div>
               <div>
@@ -215,7 +215,7 @@ function CustomerAccount() {
                   onChange={(e) => setNewPassword(e.target.value)}
                   required
                   minLength={8}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-odc-500 focus:ring-odc-500 sm:text-sm"
                 />
               </div>
               <div>
@@ -227,14 +227,14 @@ function CustomerAccount() {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-odc-500 focus:ring-odc-500 sm:text-sm"
                 />
               </div>
               <div className="flex items-center space-x-3">
                 <button
                   type="submit"
                   disabled={passwordMutation.isLoading}
-                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-odc-600 hover:bg-odc-700 disabled:opacity-50"
                 >
                   {passwordMutation.isLoading ? 'Changing...' : 'Change Password'}
                 </button>
@@ -260,7 +260,7 @@ function CustomerAccount() {
               </div>
               <button
                 onClick={() => setShowPasswordForm(true)}
-                className="text-sm text-blue-600 hover:text-blue-500"
+                className="text-sm text-odc-600 hover:text-odc-500"
               >
                 Change Password
               </button>
