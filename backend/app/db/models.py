@@ -491,6 +491,7 @@ class BCCustomer(Base):
 
     # Pricing and classification
     pricing_tier = Column(String(50))  # 'standard', 'preferred', 'wholesale', 'contractor'
+    price_multiplier = Column(Float, nullable=True)  # BC price multiplier % (e.g. +10 = 10% markup, -5 = 5% discount)
     customer_metadata = Column(JSON)  # Additional BC customer data
 
     # Sync tracking

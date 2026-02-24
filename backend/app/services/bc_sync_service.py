@@ -18,7 +18,7 @@ from app.integrations.bc.client import bc_client
 from app.config import settings
 from app.db.models import (
     SalesOrder, SalesOrderLineItem, ProductionOrder,
-    OrderStatus, ProductionStatus
+    OrderStatus, ProductionStatus, BCCustomer
 )
 
 logger = logging.getLogger(__name__)
@@ -468,6 +468,129 @@ class BCSyncService:
 
         return scored_lines[0][1] if scored_lines else None
 
+    # ==================== Customer Sync ====================
+
+    async def sync_customers(
+        self,
+        db: Session
+    ) -> Dict[str, Any]:
+        """
+        Sync all BC customers to local cache, including price_multiplier.
+        """
+        results = {
+            "customers_synced": 0,
+            "customers_updated": 0,
+            "errors": []
+        }
+
+        try:
+            bc_customers = self.client.get_customers_with_multiplier()
+
+            for bc_cust in bc_customers:
+                try:
+                    self._upsert_customer(db, bc_cust, results)
+                except Exception as e:
+                    results["errors"].append(f"Error syncing customer {bc_cust.get('displayName', '?')}: {e}")
+
+            db.commit()
+            logger.info(
+                f"Customer sync complete: {results['customers_synced']} new, "
+                f"{results['customers_updated']} updated"
+            )
+
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Customer sync error: {e}")
+            results["errors"].append(str(e))
+
+        return results
+
+    async def sync_single_customer(
+        self,
+        db: Session,
+        bc_customer_id: str
+    ) -> Dict[str, Any]:
+        """
+        Sync a single BC customer by ID for on-demand refresh.
+        """
+        results = {
+            "customers_synced": 0,
+            "customers_updated": 0,
+            "errors": []
+        }
+
+        try:
+            bc_cust = self.client.get_customer_with_multiplier(bc_customer_id)
+            self._upsert_customer(db, bc_cust, results)
+            db.commit()
+            logger.info(f"Single customer sync complete: {bc_cust.get('displayName', bc_customer_id)}")
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Single customer sync error: {e}")
+            results["errors"].append(str(e))
+
+        return results
+
+    def _upsert_customer(
+        self,
+        db: Session,
+        bc_cust: Dict[str, Any],
+        results: Dict[str, Any]
+    ):
+        """Insert or update a single BCCustomer record from BC API data."""
+        bc_id = bc_cust.get("id")
+        if not bc_id:
+            return
+
+        # BC may expose the multiplier as priceMultiplierPercent or similar
+        # Try common field names; the exact name depends on BC customization
+        multiplier = (
+            bc_cust.get("priceMultiplierPercent")
+            or bc_cust.get("priceMultiplier")
+            or bc_cust.get("price_multiplier_percent")
+        )
+
+        # Build address from BC fields
+        address = None
+        addr_parts = []
+        for field in ["addressLine1", "addressLine2", "city", "state", "postalCode", "country"]:
+            val = bc_cust.get(field)
+            if val:
+                addr_parts.append(val)
+        if addr_parts:
+            address = {"street": bc_cust.get("addressLine1", ""),
+                        "city": bc_cust.get("city", ""),
+                        "province": bc_cust.get("state", ""),
+                        "postal": bc_cust.get("postalCode", "")}
+
+        existing = db.query(BCCustomer).filter(
+            BCCustomer.bc_customer_id == bc_id
+        ).first()
+
+        if existing:
+            existing.company_name = bc_cust.get("displayName")
+            existing.contact_name = bc_cust.get("contactName") or bc_cust.get("displayName")
+            existing.email = bc_cust.get("email")
+            existing.phone = bc_cust.get("phoneNumber")
+            existing.price_multiplier = float(multiplier) if multiplier is not None else None
+            if address:
+                existing.address = address
+            existing.last_synced = datetime.utcnow()
+            results["customers_updated"] += 1
+        else:
+            new_customer = BCCustomer(
+                bc_customer_id=bc_id,
+                company_name=bc_cust.get("displayName"),
+                contact_name=bc_cust.get("contactName") or bc_cust.get("displayName"),
+                email=bc_cust.get("email"),
+                phone=bc_cust.get("phoneNumber"),
+                price_multiplier=float(multiplier) if multiplier is not None else None,
+                address=address,
+                last_synced=datetime.utcnow()
+            )
+            db.add(new_customer)
+            results["customers_synced"] += 1
+
     # ==================== Full Sync ====================
 
     async def full_sync(
@@ -482,6 +605,7 @@ class BCSyncService:
         3. Auto-link production orders to sales lines
         """
         results = {
+            "customers": {},
             "sales_orders": {},
             "production_orders": {},
             "auto_link": {},
@@ -493,7 +617,11 @@ class BCSyncService:
 
         logger.info("Starting full BC sync...")
 
-        # 1. Sync sales orders
+        # 1. Sync customers
+        logger.info("Syncing customers...")
+        results["customers"] = await self.sync_customers(db=db)
+
+        # 2. Sync sales orders
         logger.info("Syncing sales orders...")
         results["sales_orders"] = await self.sync_sales_orders_with_lines(
             db=db,
@@ -501,14 +629,14 @@ class BCSyncService:
             limit=order_limit
         )
 
-        # 2. Sync production orders
+        # 3. Sync production orders
         logger.info("Syncing production orders...")
         results["production_orders"] = await self.sync_production_orders(
             db=db,
             limit=order_limit
         )
 
-        # 3. Auto-link
+        # 4. Auto-link
         logger.info("Auto-linking production orders...")
         results["auto_link"] = await self.auto_link_production_orders(db=db)
 

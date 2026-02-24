@@ -170,11 +170,19 @@ class BCQuoteService:
     ):
         """Cache BC customer data for faster lookups"""
         try:
+            # Extract price multiplier if present
+            multiplier = (
+                bc_customer_data.get("priceMultiplierPercent")
+                or bc_customer_data.get("priceMultiplier")
+                or bc_customer_data.get("price_multiplier_percent")
+            )
+
             cached = BCCustomer(
                 bc_customer_id=bc_customer_data.get("id"),
                 company_name=bc_customer_data.get("displayName"),
                 email=email,
                 phone=bc_customer_data.get("phoneNumber"),
+                price_multiplier=float(multiplier) if multiplier is not None else None,
                 last_synced=datetime.utcnow()
             )
             db.add(cached)
