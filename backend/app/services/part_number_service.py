@@ -50,6 +50,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from app.services.spring_calculator_service import spring_calculator
+from app.services.door_calculator_service import SECTION_HEIGHT_TABLE
 from app.services.bc_part_number_mapper import (
     BCPartNumberMapper,
     get_bc_mapper,
@@ -493,9 +494,50 @@ class PartNumberService:
             return f"{feet:02d}6"
         return f"{feet:02d}{inches:02d}"
 
+    def _get_section_breakdown(self, door_height: int) -> Dict[str, int]:
+        """Get the 21"/24" section breakdown for a given door height.
+
+        Uses SECTION_HEIGHT_TABLE from door_calculator_service. Falls back to
+        an algorithm if the height isn't in the table: start with all 24" panels,
+        swap to 21" as needed (diff = panel_count * 24 - door_height, n21 = diff // 3).
+
+        Returns: {"21": count, "24": count, "total": count}
+        """
+        if door_height in SECTION_HEIGHT_TABLE:
+            entry = SECTION_HEIGHT_TABLE[door_height]
+            return {"21": entry["21"], "24": entry["24"], "total": entry["total"]}
+
+        # Fallback algorithm for heights not in the table
+        if door_height <= 72:
+            panel_count = 3
+        elif door_height <= 96:
+            panel_count = 4
+        elif door_height <= 120:
+            panel_count = 5
+        elif door_height <= 144:
+            panel_count = 6
+        elif door_height <= 168:
+            panel_count = 7
+        elif door_height <= 192:
+            panel_count = 8
+        elif door_height <= 216:
+            panel_count = 9
+        else:
+            panel_count = 10
+
+        diff = panel_count * 24 - door_height
+        n21 = diff // 3
+        n24 = panel_count - n21
+        return {"21": n21, "24": n24, "total": panel_count}
+
     def _get_panel_parts(self, config: DoorConfiguration) -> List[PartSelection]:
-        """Get panel part numbers using actual BC parts"""
+        """Get panel part numbers using actual BC parts.
+
+        Uses mixed 21"/24" panel heights from SECTION_HEIGHT_TABLE to fill
+        the exact door height (e.g. 9' = 1x24" + 4x21").
+        """
         mapper = get_bc_mapper()
+        parts = []
 
         # Map series string to DoorModel enum
         model_map = {
@@ -510,49 +552,49 @@ class PartNumberService:
         door_width_feet = config.door_width / 12
         end_cap_type = EndCapType.DOUBLE if door_width_feet > 16 else EndCapType.SINGLE
 
-        # Derive panel height from door height / panel count, snap to nearest standard
-        panel_count = self._calculate_panel_count(config.door_height)
-        section_height = config.door_height / panel_count
-        standard_heights = [18, 21, 24]
-        panel_height = min(standard_heights, key=lambda h: abs(h - section_height))
+        # Get mixed-height breakdown
+        breakdown = self._get_section_breakdown(config.door_height)
 
-        # Get panel part number
-        panel = mapper.get_panel_part_number(
-            model=door_model,
-            width_feet=door_width_feet,
-            height_inches=panel_height,
-            color=config.panel_color.replace("_", " "),
-            end_cap_type=end_cap_type,
-            stamp="UDC" if config.door_type == "commercial" else "STD"
-        )
-
-        # V130G replaces insulated sections — reduce panel count
+        # V130G replaces insulated sections — subtract from 24" first, then 21"
+        v130g_reduction = 0
         if config.window_insert == "V130G" and config.window_qty > 0:
-            panel_count = max(1, panel_count - config.window_qty)
+            v130g_reduction = config.window_qty
 
-        return [PartSelection(
-            part_number=panel.part_number,
-            description=panel.description,
-            quantity=panel_count,
-            category="panel"
-        )]
+        # Build part selections for each height (24" first since they're top sections)
+        for h in [24, 21]:
+            count = breakdown[str(h)]
+            if count <= 0:
+                continue
+
+            # Apply V130G reduction (24" panels first)
+            if v130g_reduction > 0:
+                reduce = min(v130g_reduction, count)
+                count -= reduce
+                v130g_reduction -= reduce
+                if count <= 0:
+                    continue
+
+            panel = mapper.get_panel_part_number(
+                model=door_model,
+                width_feet=door_width_feet,
+                height_inches=h,
+                color=config.panel_color.replace("_", " "),
+                end_cap_type=end_cap_type,
+                stamp="UDC" if config.door_type == "commercial" else "STD"
+            )
+
+            parts.append(PartSelection(
+                part_number=panel.part_number,
+                description=panel.description,
+                quantity=count,
+                category="panel"
+            ))
+
+        return parts
 
     def _calculate_panel_count(self, door_height: int) -> int:
         """Calculate number of panels based on door height"""
-        if door_height <= 84:  # 7' or less
-            return 4
-        elif door_height <= 96:  # 8'
-            return 4
-        elif door_height <= 108:  # 9'
-            return 5
-        elif door_height <= 120:  # 10'
-            return 5
-        elif door_height <= 144:  # 12'
-            return 6
-        elif door_height <= 168:  # 14'
-            return 7
-        else:
-            return 8
+        return self._get_section_breakdown(door_height)["total"]
 
     def _calculate_door_weight(self, config: DoorConfiguration) -> float:
         """
@@ -585,18 +627,18 @@ class PartNumberService:
 
         door_width_ft = config.door_width / 12
         door_height_in = config.door_height
-        num_sections = self._calculate_panel_count(door_height_in)
 
-        # Derive section height from door height / panel count, snap to nearest standard
-        calc_height = door_height_in / num_sections
-        standard_heights = [18, 21, 24]
-        section_height = str(min(standard_heights, key=lambda h: abs(h - calc_height)))
+        # Use mixed-height breakdown for accurate per-section weight
+        breakdown = self._get_section_breakdown(door_height_in)
+        num_sections = breakdown["total"]
 
-        # Get weight per linear foot for this section height
-        weight_per_ft = model_weights.get(section_height, model_weights.get("21", 4.0))
-
-        # Calculate panel weight
-        panel_weight = weight_per_ft * door_width_ft * num_sections
+        # Calculate panel weight using correct weight for each section height
+        panel_weight = 0.0
+        for h in ["21", "24"]:
+            count = breakdown[h]
+            if count > 0:
+                weight_per_ft = model_weights.get(h, model_weights.get("21", 4.0))
+                panel_weight += weight_per_ft * door_width_ft * count
 
         # Add hardware weight - different for residential vs commercial
         # Residential (2" hinges, lighter brackets): ~15-18 lbs
@@ -613,9 +655,12 @@ class PartNumberService:
         total_weight = panel_weight + hardware_weight
 
         hw_type = "residential 2\"" if is_residential else "commercial 3\""
+        breakdown_str = " + ".join(
+            f"{breakdown[h]}x{h}\"" for h in ["24", "21"] if breakdown[h] > 0
+        )
         logger.info(
             f"Door weight calculation: {config.door_series} {door_width_ft}'x{door_height_in}\" "
-            f"= {weight_per_ft} lbs/ft × {door_width_ft}' × {num_sections} sections + {hardware_weight} lbs ({hw_type} hw) "
+            f"= [{breakdown_str}] sections × {door_width_ft}' + {hardware_weight} lbs ({hw_type} hw) "
             f"= {total_weight:.1f} lbs"
         )
 
