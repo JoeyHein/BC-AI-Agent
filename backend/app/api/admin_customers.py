@@ -110,6 +110,7 @@ class CustomerListResponse(BaseModel):
     bc_customer_id: Optional[str]
     bc_company_name: Optional[str]
     bc_price_multiplier: Optional[float]
+    pricing_tier: Optional[str]
     created_at: datetime
     last_login_at: Optional[datetime]
     saved_quotes_count: int
@@ -127,6 +128,7 @@ class CustomerDetailResponse(BaseModel):
     bc_customer_id: Optional[str]
     bc_company_name: Optional[str]
     bc_price_multiplier: Optional[float]
+    pricing_tier: Optional[str]
     bc_contact_name: Optional[str]
     bc_email: Optional[str]
     bc_phone: Optional[str]
@@ -137,6 +139,10 @@ class CustomerDetailResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class UpdatePricingTierRequest(BaseModel):
+    pricing_tier: Optional[str]  # gold, silver, bronze, retail, or null to clear
 
 
 class LinkCustomerRequest(BaseModel):
@@ -179,9 +185,10 @@ def list_customers(
 
     result = []
     for customer in customers:
-        # Get BC company name and multiplier if linked
+        # Get BC company name, multiplier, and pricing tier if linked
         bc_company_name = None
         bc_price_multiplier = None
+        pricing_tier = None
         if customer.bc_customer_id:
             bc_customer = db.query(BCCustomer).filter(
                 BCCustomer.bc_customer_id == customer.bc_customer_id
@@ -189,6 +196,7 @@ def list_customers(
             if bc_customer:
                 bc_company_name = bc_customer.company_name
                 bc_price_multiplier = bc_customer.price_multiplier
+                pricing_tier = bc_customer.pricing_tier
 
         # Count saved quotes
         saved_quotes_count = db.query(SavedQuoteConfig).filter(
@@ -204,6 +212,7 @@ def list_customers(
             bc_customer_id=customer.bc_customer_id,
             bc_company_name=bc_company_name,
             bc_price_multiplier=bc_price_multiplier,
+            pricing_tier=pricing_tier,
             created_at=customer.created_at,
             last_login_at=customer.last_login_at,
             saved_quotes_count=saved_quotes_count
@@ -399,6 +408,7 @@ def get_customer(
     # Get BC customer info if linked
     bc_company_name = None
     bc_price_multiplier = None
+    pricing_tier = None
     bc_contact_name = None
     bc_email = None
     bc_phone = None
@@ -410,6 +420,7 @@ def get_customer(
         if bc_customer:
             bc_company_name = bc_customer.company_name
             bc_price_multiplier = bc_customer.price_multiplier
+            pricing_tier = bc_customer.pricing_tier
             bc_contact_name = bc_customer.contact_name
             bc_email = bc_customer.email
             bc_phone = bc_customer.phone
@@ -433,6 +444,7 @@ def get_customer(
         bc_customer_id=customer.bc_customer_id,
         bc_company_name=bc_company_name,
         bc_price_multiplier=bc_price_multiplier,
+        pricing_tier=pricing_tier,
         bc_contact_name=bc_contact_name,
         bc_email=bc_email,
         bc_phone=bc_phone,
@@ -606,6 +618,63 @@ def create_customer(
     logger.info(f"Admin {current_admin.email} created customer account {customer.email}")
 
     return get_customer(customer.id, current_admin, db)
+
+
+@router.patch("/{customer_id}/pricing-tier")
+def update_customer_pricing_tier(
+    customer_id: int,
+    update_data: UpdatePricingTierRequest,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Set the pricing tier for a customer's linked BC account"""
+    customer = db.query(User).filter(
+        User.id == customer_id,
+        User.user_type == 'CUSTOMER'
+    ).first()
+
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+
+    if not customer.bc_customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Customer is not linked to a BC account"
+        )
+
+    bc_customer = db.query(BCCustomer).filter(
+        BCCustomer.bc_customer_id == customer.bc_customer_id
+    ).first()
+
+    if not bc_customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="BC customer record not found"
+        )
+
+    # Validate tier value
+    valid_tiers = {"gold", "silver", "bronze", "retail"}
+    tier = update_data.pricing_tier
+    if tier is not None:
+        tier = tier.lower().strip()
+        if tier not in valid_tiers:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid pricing tier: {tier}. Must be one of: {', '.join(sorted(valid_tiers))}"
+            )
+
+    bc_customer.pricing_tier = tier
+    db.commit()
+
+    logger.info(
+        f"Admin {current_admin.email} set pricing tier for "
+        f"{bc_customer.company_name} ({bc_customer.bc_customer_id}) to '{tier}'"
+    )
+
+    return get_customer(customer_id, current_admin, db)
 
 
 @router.delete("/{customer_id}")

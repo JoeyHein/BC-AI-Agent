@@ -13,6 +13,14 @@ import logging
 from app.db.database import get_db
 from app.db.models import AppSettings
 from app.services.spring_data_service import get_spring_data_service
+from app.services.pricing_service import (
+    get_default_tier_margins,
+    get_default_cost_adjustments,
+    TIER_MARGINS_KEY,
+    COST_ADJUSTMENTS_KEY,
+    POSTING_GROUP_LABELS,
+)
+from app.services.bc_part_number_mapper import get_bc_mapper
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +48,16 @@ class SettingResponse(BaseModel):
     setting_value: Any
     description: Optional[str]
     updated_at: Optional[datetime]
+
+
+class TierMarginsUpdate(BaseModel):
+    """Request model for updating tier margins"""
+    margins: Dict[str, Dict[str, float]]  # { "residential": { "gold": 30, ... }, "commercial": { ... } }
+
+
+class CostAdjustmentsUpdate(BaseModel):
+    """Request model for updating cost adjustments"""
+    adjustments: Dict[str, Any]  # { "RESI": { "adjustment": 5, "note": "..." }, ... }
 
 
 # ============================================================================
@@ -232,6 +250,176 @@ async def get_spring_inventory_summary(db: Session = Depends(get_db)):
             "totalSelected": sum(len(inventory.get(c["id"], [])) for c in coils),
             "totalAvailable": sum(len(spring_service.get_wire_sizes_for_coil(c["id"])) for c in coils)
         }
+    }
+
+
+# ============================================================================
+# Pricing Tier & Cost Adjustment Endpoints
+# ============================================================================
+
+@router.get("/pricing-tiers/current")
+async def get_pricing_tiers(db: Session = Depends(get_db)):
+    """Get current pricing tier margins (or defaults if not yet saved)"""
+    setting = db.query(AppSettings).filter(
+        AppSettings.setting_key == TIER_MARGINS_KEY
+    ).first()
+
+    if not setting:
+        return {
+            "success": True,
+            "data": {
+                "margins": get_default_tier_margins(),
+                "isDefault": True,
+            }
+        }
+
+    return {
+        "success": True,
+        "data": {
+            "margins": setting.setting_value,
+            "isDefault": False,
+            "updatedAt": setting.updated_at.isoformat() if setting.updated_at else None,
+        }
+    }
+
+
+@router.put("/pricing-tiers")
+async def update_pricing_tiers(
+    update: TierMarginsUpdate,
+    db: Session = Depends(get_db),
+):
+    """Validate and save tier margin percentages"""
+    # Validate all margins are 0-99%
+    for door_type, tiers in update.margins.items():
+        if door_type not in ("residential", "commercial"):
+            raise HTTPException(status_code=400, detail=f"Invalid door type: {door_type}")
+        for tier_name, margin in tiers.items():
+            if not (0 <= margin <= 99):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Margin for {door_type}/{tier_name} must be between 0% and 99% (got {margin}%)"
+                )
+
+    setting = db.query(AppSettings).filter(
+        AppSettings.setting_key == TIER_MARGINS_KEY
+    ).first()
+
+    if setting:
+        setting.setting_value = update.margins
+        setting.updated_at = datetime.utcnow()
+    else:
+        setting = AppSettings(
+            setting_key=TIER_MARGINS_KEY,
+            setting_value=update.margins,
+            description="Pricing tier margin percentages by door type",
+            updated_at=datetime.utcnow(),
+        )
+        db.add(setting)
+
+    db.commit()
+    db.refresh(setting)
+    logger.info("Pricing tier margins updated")
+
+    return {
+        "success": True,
+        "message": "Pricing tier margins updated successfully",
+        "data": {
+            "margins": setting.setting_value,
+            "updatedAt": setting.updated_at.isoformat() if setting.updated_at else None,
+        }
+    }
+
+
+@router.get("/pricing-cost-adjustments/current")
+async def get_pricing_cost_adjustments(db: Session = Depends(get_db)):
+    """Get current cost adjustments per category (or defaults if not yet saved)"""
+    setting = db.query(AppSettings).filter(
+        AppSettings.setting_key == COST_ADJUSTMENTS_KEY
+    ).first()
+
+    if not setting:
+        return {
+            "success": True,
+            "data": {
+                "adjustments": get_default_cost_adjustments(),
+                "isDefault": True,
+            }
+        }
+
+    return {
+        "success": True,
+        "data": {
+            "adjustments": setting.setting_value,
+            "isDefault": False,
+            "updatedAt": setting.updated_at.isoformat() if setting.updated_at else None,
+        }
+    }
+
+
+@router.put("/pricing-cost-adjustments")
+async def update_pricing_cost_adjustments(
+    update: CostAdjustmentsUpdate,
+    db: Session = Depends(get_db),
+):
+    """Validate and save cost adjustment percentages per category"""
+    for code, entry in update.adjustments.items():
+        adj = entry.get("adjustment", 0) if isinstance(entry, dict) else 0
+        if not (-50 <= adj <= 100):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cost adjustment for {code} must be between -50% and +100% (got {adj}%)"
+            )
+
+    setting = db.query(AppSettings).filter(
+        AppSettings.setting_key == COST_ADJUSTMENTS_KEY
+    ).first()
+
+    if setting:
+        setting.setting_value = update.adjustments
+        setting.updated_at = datetime.utcnow()
+    else:
+        setting = AppSettings(
+            setting_key=COST_ADJUSTMENTS_KEY,
+            setting_value=update.adjustments,
+            description="Cost adjustment percentages by BC posting group code",
+            updated_at=datetime.utcnow(),
+        )
+        db.add(setting)
+
+    db.commit()
+    db.refresh(setting)
+    logger.info("Pricing cost adjustments updated")
+
+    return {
+        "success": True,
+        "message": "Cost adjustments updated successfully",
+        "data": {
+            "adjustments": setting.setting_value,
+            "updatedAt": setting.updated_at.isoformat() if setting.updated_at else None,
+        }
+    }
+
+
+@router.get("/pricing-categories")
+async def get_pricing_categories():
+    """Get distinct generalProductPostingGroupCode values from bc_items cache with labels"""
+    mapper = get_bc_mapper()
+    groups = set()
+    for item in mapper.bc_items.values():
+        code = item.get("generalProductPostingGroupCode", "")
+        if code:
+            groups.add(code)
+
+    categories = []
+    for code in sorted(groups):
+        categories.append({
+            "code": code,
+            "label": POSTING_GROUP_LABELS.get(code, code),
+        })
+
+    return {
+        "success": True,
+        "data": categories,
     }
 
 

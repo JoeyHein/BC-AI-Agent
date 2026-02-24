@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import apiClient from '../api/client'
+import apiClient, { customersApi } from '../api/client'
 
 // API functions
 const fetchCustomers = async () => {
@@ -60,6 +60,25 @@ const resetCustomerPassword = async (id) => {
   return response.data
 }
 
+// Pricing Tier Badge
+const TIER_STYLES = {
+  gold: 'bg-amber-100 text-amber-800',
+  silver: 'bg-gray-200 text-gray-700',
+  bronze: 'bg-orange-100 text-orange-800',
+  retail: 'bg-blue-100 text-blue-800',
+}
+
+function PricingTierBadge({ tier }) {
+  if (!tier || !TIER_STYLES[tier]) {
+    return <span className="text-sm text-gray-400">Not set</span>
+  }
+  return (
+    <span className={`inline-flex px-2 text-xs leading-5 font-semibold rounded-full capitalize ${TIER_STYLES[tier]}`}>
+      {tier}
+    </span>
+  )
+}
+
 // Customer List Component
 function CustomerList({ customers, onSelect, selectedId }) {
   return (
@@ -74,7 +93,7 @@ function CustomerList({ customers, onSelect, selectedId }) {
               BC Account
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Price Multiplier
+              Pricing Tier
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
               Status
@@ -124,21 +143,7 @@ function CustomerList({ customers, onSelect, selectedId }) {
                 )}
               </td>
               <td className="px-6 py-4 whitespace-nowrap">
-                {customer.bc_price_multiplier != null ? (
-                  <span
-                    className={`inline-flex px-2 text-xs leading-5 font-semibold rounded-full ${
-                      customer.bc_price_multiplier > 0
-                        ? 'bg-green-100 text-green-800'
-                        : customer.bc_price_multiplier < 0
-                        ? 'bg-red-100 text-red-800'
-                        : 'bg-gray-100 text-gray-600'
-                    }`}
-                  >
-                    {customer.bc_price_multiplier > 0 ? '+' : ''}{customer.bc_price_multiplier}%
-                  </span>
-                ) : (
-                  <span className="text-sm text-gray-400">-</span>
-                )}
+                <PricingTierBadge tier={customer.pricing_tier} />
               </td>
               <td className="px-6 py-4 whitespace-nowrap">
                 <div className="flex flex-col gap-1">
@@ -374,22 +379,33 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
                 <div className="text-sm">
                   <p className="font-medium text-gray-900">{customer.bc_company_name}</p>
                   <p className="text-gray-500">ID: {customer.bc_customer_id}</p>
-                  {customer.bc_price_multiplier != null && (
-                    <p className="text-gray-500">
-                      Price Multiplier:{' '}
-                      <span
-                        className={`inline-flex px-2 text-xs leading-5 font-semibold rounded-full ${
-                          customer.bc_price_multiplier > 0
-                            ? 'bg-green-100 text-green-800'
-                            : customer.bc_price_multiplier < 0
-                            ? 'bg-red-100 text-red-800'
-                            : 'bg-gray-100 text-gray-600'
-                        }`}
+                  <div className="mt-2">
+                    <label className="text-xs font-medium text-gray-500">Pricing Tier</label>
+                    <div className="mt-1 flex items-center gap-2">
+                      <select
+                        value={customer.pricing_tier || ''}
+                        onChange={async (e) => {
+                          const newTier = e.target.value || null
+                          try {
+                            await customersApi.updatePricingTier(customer.id, newTier)
+                            onRefresh()
+                          } catch (err) {
+                            console.error('Failed to update pricing tier:', err)
+                            alert(err.response?.data?.detail || 'Failed to update pricing tier')
+                          }
+                        }}
+                        disabled={!customer.bc_customer_id}
+                        className="border border-gray-300 rounded-md shadow-sm py-1 px-2 text-sm focus:outline-none focus:ring-odc-500 focus:border-odc-500 disabled:opacity-50"
                       >
-                        {customer.bc_price_multiplier > 0 ? '+' : ''}{customer.bc_price_multiplier}%
-                      </span>
-                    </p>
-                  )}
+                        <option value="">Not set</option>
+                        <option value="gold">Gold</option>
+                        <option value="silver">Silver</option>
+                        <option value="bronze">Bronze</option>
+                        <option value="retail">Retail</option>
+                      </select>
+                      <PricingTierBadge tier={customer.pricing_tier} />
+                    </div>
+                  </div>
                   {customer.bc_contact_name && (
                     <p className="text-gray-500">Contact: {customer.bc_contact_name}</p>
                   )}

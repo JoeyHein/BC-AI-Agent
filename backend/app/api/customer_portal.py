@@ -16,6 +16,7 @@ from app.db.models import User, SavedQuoteConfig, SalesOrder, OrderStatus, Shipm
 from app.api.customer_auth import get_current_customer
 from app.integrations.bc.client import bc_client
 from app.services.part_number_service import get_parts_for_door_config
+from app.services.pricing_service import calculate_selling_price
 
 router = APIRouter(prefix="/api/customer/portal", tags=["customer-portal"])
 logger = logging.getLogger(__name__)
@@ -369,6 +370,8 @@ def _generate_bc_quote_with_items(
     doors: List[dict],
     bc_customer_id: str,
     config_id: int,
+    pricing_tier: Optional[str] = None,
+    db: Optional[Session] = None,
 ) -> Dict[str, Any]:
     """
     Create a BC sales quote with real item lines for all doors.
@@ -424,9 +427,11 @@ def _generate_bc_quote_with_items(
             door_parts = get_parts_for_door_config(config_dict)
             parts_list = door_parts.get("parts_list", [])
             sorted_parts = _sort_parts_by_category(parts_list)
+            part_door_type = config_dict.get("doorType", "residential")
 
             for part in sorted_parts:
                 part["door_index"] = door_index
+                part["door_type"] = part_door_type
                 all_lines.append(part)
 
             door_results.append({
@@ -478,6 +483,17 @@ def _generate_bc_quote_with_items(
                     "description": line.get("description", ""),
                     "quantity": line["quantity"],
                 }
+
+                # Apply margin-based pricing if tier is set and DB session available
+                if pricing_tier and db:
+                    selling_price = calculate_selling_price(
+                        part_number=line["part_number"],
+                        door_type=line.get("door_type", "residential"),
+                        tier=pricing_tier,
+                        db=db,
+                    )
+                    if selling_price is not None:
+                        line_data["unitPrice"] = selling_price
 
             bc_client.add_quote_line(bc_quote_id, line_data)
             lines_added += 1
@@ -557,6 +573,16 @@ def _generate_bc_quote_with_items(
     }
 
 
+def _get_customer_pricing_tier(bc_customer_id: str, db: Session) -> Optional[str]:
+    """Look up the pricing tier for a BC customer. Returns None if not set."""
+    bc_customer = db.query(BCCustomer).filter(
+        BCCustomer.bc_customer_id == bc_customer_id
+    ).first()
+    if bc_customer and bc_customer.pricing_tier:
+        return bc_customer.pricing_tier
+    return None
+
+
 # ============================================================================
 # PRICING ENDPOINTS
 # ============================================================================
@@ -606,11 +632,14 @@ def get_pricing_for_saved_quote(
 
     try:
         doors = _validate_doors_config(config.config_data or {})
+        pricing_tier = _get_customer_pricing_tier(current_user.bc_customer_id, db)
 
         result = _generate_bc_quote_with_items(
             doors=doors,
             bc_customer_id=current_user.bc_customer_id,
             config_id=config.id,
+            pricing_tier=pricing_tier,
+            db=db,
         )
 
         # Store BC quote reference (but NOT submitted)
@@ -623,7 +652,7 @@ def get_pricing_for_saved_quote(
         logger.info(
             f"Pricing generated for config {config_id}: "
             f"BC Quote {result['bc_quote_number']}, "
-            f"{result['lines_added']} lines"
+            f"{result['lines_added']} lines, tier={pricing_tier}"
         )
 
         return {
@@ -736,11 +765,14 @@ def refresh_pricing_for_saved_quote(
 
     try:
         doors = _validate_doors_config(config.config_data or {})
+        pricing_tier = _get_customer_pricing_tier(current_user.bc_customer_id, db)
 
         result = _generate_bc_quote_with_items(
             doors=doors,
             bc_customer_id=current_user.bc_customer_id,
             config_id=config.id,
+            pricing_tier=pricing_tier,
+            db=db,
         )
 
         config.bc_quote_id = result["bc_quote_id"]
@@ -749,7 +781,7 @@ def refresh_pricing_for_saved_quote(
         db.commit()
         db.refresh(config)
 
-        logger.info(f"Pricing refreshed for config {config_id}: BC Quote {result['bc_quote_number']}")
+        logger.info(f"Pricing refreshed for config {config_id}: BC Quote {result['bc_quote_number']}, tier={pricing_tier}")
 
         return {
             "success": True,
@@ -812,11 +844,14 @@ def submit_saved_quote(
         # If no BC quote yet, generate one with real item lines
         if not config.bc_quote_id:
             doors = _validate_doors_config(config.config_data or {})
+            pricing_tier = _get_customer_pricing_tier(current_user.bc_customer_id, db)
 
             result = _generate_bc_quote_with_items(
                 doors=doors,
                 bc_customer_id=current_user.bc_customer_id,
                 config_id=config.id,
+                pricing_tier=pricing_tier,
+                db=db,
             )
 
             config.bc_quote_id = result["bc_quote_id"]

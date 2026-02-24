@@ -490,6 +490,30 @@ export const settingsApi = {
 
   getSpringInventorySummary: () =>
     apiClient.get('/api/settings/spring-inventory/summary'),
+
+  // Pricing Tier endpoints
+  getPricingTiers: () =>
+    apiClient.get('/api/settings/pricing-tiers/current'),
+
+  updatePricingTiers: (margins) =>
+    apiClient.put('/api/settings/pricing-tiers', { margins }),
+
+  getPricingCostAdjustments: () =>
+    apiClient.get('/api/settings/pricing-cost-adjustments/current'),
+
+  updatePricingCostAdjustments: (adjustments) =>
+    apiClient.put('/api/settings/pricing-cost-adjustments', { adjustments }),
+
+  getPricingCategories: () =>
+    apiClient.get('/api/settings/pricing-categories'),
+};
+
+// Customers API (admin)
+export const customersApi = {
+  updatePricingTier: (customerId, pricingTier) =>
+    apiClient.patch(`/api/admin/customers/${customerId}/pricing-tier`, {
+      pricing_tier: pricingTier,
+    }),
 };
 
 export default apiClient;
