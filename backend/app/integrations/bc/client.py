@@ -91,18 +91,15 @@ class BusinessCentralClient:
 
         return response.json() if response.content else {}
 
-    def _make_raw_request(self, method: str, endpoint: str, **kwargs) -> bytes:
-        """Make authenticated request and return raw bytes (for binary content like PDFs)"""
+    def _fetch_raw_url(self, url: str) -> bytes:
+        """Fetch raw bytes from a full URL (e.g. mediaReadLink). Used for PDF content streams."""
         token = self._get_access_token()
 
-        headers = kwargs.pop("headers", {})
-        headers["Authorization"] = f"Bearer {token}"
+        headers = {"Authorization": f"Bearer {token}"}
 
-        url = f"{self.base_url}/{endpoint}"
+        logger.debug(f"GET {url} (raw)")
 
-        logger.debug(f"{method.upper()} {url} (raw)")
-
-        response = requests.request(method, url, headers=headers, **kwargs)
+        response = requests.get(url, headers=headers)
 
         if response.status_code >= 400:
             logger.error(f"BC API error {response.status_code}: {response.text}")
@@ -276,9 +273,9 @@ class BusinessCentralClient:
         """
         Download the PDF for a sales quote using BC's built-in PDF generation.
 
-        BC v2.0 API: pdfDocumentContent is a stream, so we need two requests:
-        1. GET .../pdfDocument to get the pdfDocument ID
-        2. GET .../pdfDocument({id})/content to fetch the binary PDF
+        BC v2.0 API two-step flow:
+        1. GET .../pdfDocument → metadata with content@odata.mediaReadLink
+        2. GET that mediaReadLink URL → binary PDF bytes
 
         Args:
             quote_id: The BC sales quote ID (GUID)
@@ -288,22 +285,23 @@ class BusinessCentralClient:
             PDF file content as bytes
         """
         cid = company_id or self.company_id
-        base = f"companies({cid})/salesQuotes({quote_id})/pdfDocument"
+        endpoint = f"companies({cid})/salesQuotes({quote_id})/pdfDocument"
 
-        # Step 1: get pdfDocument metadata to find the document ID
-        result = self._make_request("GET", base)
+        # Step 1: get pdfDocument metadata (contains the mediaReadLink)
+        result = self._make_request("GET", endpoint)
 
-        values = result.get("value", [])
-        if values:
-            pdf_doc_id = values[0].get("id")
-        else:
-            pdf_doc_id = result.get("id")
+        doc = result.get("value", [result])[0] if result.get("value") else result
+        content_url = (
+            doc.get("content@odata.mediaReadLink")
+            or doc.get("pdfDocumentContent@odata.mediaReadLink")
+        )
 
-        if not pdf_doc_id:
-            raise ValueError(f"No pdfDocument returned for quote {quote_id}")
+        if not content_url:
+            raise ValueError(f"No PDF mediaReadLink returned for quote {quote_id}")
 
-        # Step 2: fetch the binary PDF content stream
-        pdf_bytes = self._make_raw_request("GET", f"{base}({pdf_doc_id})/content")
+        # Step 2: fetch binary PDF from the mediaReadLink
+        logger.info(f"Fetching quote PDF from: {content_url}")
+        pdf_bytes = self._fetch_raw_url(content_url)
 
         if not pdf_bytes:
             raise ValueError(f"Empty PDF content for quote {quote_id}")
@@ -346,22 +344,23 @@ class BusinessCentralClient:
             PDF file content as bytes
         """
         cid = company_id or self.company_id
-        base = f"companies({cid})/salesOrders({order_id})/pdfDocument"
+        endpoint = f"companies({cid})/salesOrders({order_id})/pdfDocument"
 
-        # Step 1: get pdfDocument metadata to find the document ID
-        result = self._make_request("GET", base)
+        # Step 1: get pdfDocument metadata (contains the mediaReadLink)
+        result = self._make_request("GET", endpoint)
 
-        values = result.get("value", [])
-        if values:
-            pdf_doc_id = values[0].get("id")
-        else:
-            pdf_doc_id = result.get("id")
+        doc = result.get("value", [result])[0] if result.get("value") else result
+        content_url = (
+            doc.get("content@odata.mediaReadLink")
+            or doc.get("pdfDocumentContent@odata.mediaReadLink")
+        )
 
-        if not pdf_doc_id:
-            raise ValueError(f"No pdfDocument returned for order {order_id}")
+        if not content_url:
+            raise ValueError(f"No PDF mediaReadLink returned for order {order_id}")
 
-        # Step 2: fetch the binary PDF content stream
-        pdf_bytes = self._make_raw_request("GET", f"{base}({pdf_doc_id})/content")
+        # Step 2: fetch binary PDF from the mediaReadLink
+        logger.info(f"Fetching order PDF from: {content_url}")
+        pdf_bytes = self._fetch_raw_url(content_url)
 
         if not pdf_bytes:
             raise ValueError(f"Empty PDF content for order {order_id}")
