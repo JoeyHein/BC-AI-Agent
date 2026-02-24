@@ -91,6 +91,25 @@ class BusinessCentralClient:
 
         return response.json() if response.content else {}
 
+    def _make_raw_request(self, method: str, endpoint: str, **kwargs) -> bytes:
+        """Make authenticated request and return raw bytes (for binary content like PDFs)"""
+        token = self._get_access_token()
+
+        headers = kwargs.pop("headers", {})
+        headers["Authorization"] = f"Bearer {token}"
+
+        url = f"{self.base_url}/{endpoint}"
+
+        logger.debug(f"{method.upper()} {url} (raw)")
+
+        response = requests.request(method, url, headers=headers, **kwargs)
+
+        if response.status_code >= 400:
+            logger.error(f"BC API error {response.status_code}: {response.text}")
+            response.raise_for_status()
+
+        return response.content
+
     # ==================== Companies ====================
 
     def get_companies(self) -> List[Dict[str, Any]]:
@@ -257,8 +276,9 @@ class BusinessCentralClient:
         """
         Download the PDF for a sales quote using BC's built-in PDF generation.
 
-        BC generates the PDF from the report layout configured for Sales Quotes.
-        The pdfDocument endpoint returns base64-encoded content.
+        BC v2.0 API: pdfDocumentContent is a stream, so we need two requests:
+        1. GET .../pdfDocument to get the pdfDocument ID
+        2. GET .../pdfDocument({id})/content to fetch the binary PDF
 
         Args:
             quote_id: The BC sales quote ID (GUID)
@@ -267,27 +287,29 @@ class BusinessCentralClient:
         Returns:
             PDF file content as bytes
         """
-        import base64
-
         cid = company_id or self.company_id
-        result = self._make_request(
-            "GET",
-            f"companies({cid})/salesQuotes({quote_id})/pdfDocument"
-        )
+        base = f"companies({cid})/salesQuotes({quote_id})/pdfDocument"
 
-        # BC returns pdfDocumentContent as base64
-        pdf_content = result.get("pdfDocumentContent")
-        if not pdf_content:
-            # Some BC versions return it in a value array
-            values = result.get("value", [])
-            if values:
-                pdf_content = values[0].get("pdfDocumentContent")
+        # Step 1: get pdfDocument metadata to find the document ID
+        result = self._make_request("GET", base)
 
-        if not pdf_content:
-            raise ValueError(f"No PDF content returned for quote {quote_id}")
+        values = result.get("value", [])
+        if values:
+            pdf_doc_id = values[0].get("id")
+        else:
+            pdf_doc_id = result.get("id")
 
-        logger.info(f"Downloaded PDF for quote {quote_id}")
-        return base64.b64decode(pdf_content)
+        if not pdf_doc_id:
+            raise ValueError(f"No pdfDocument returned for quote {quote_id}")
+
+        # Step 2: fetch the binary PDF content stream
+        pdf_bytes = self._make_raw_request("GET", f"{base}({pdf_doc_id})/content")
+
+        if not pdf_bytes:
+            raise ValueError(f"Empty PDF content for quote {quote_id}")
+
+        logger.info(f"Downloaded PDF for quote {quote_id} ({len(pdf_bytes)} bytes)")
+        return pdf_bytes
 
     def download_quote_pdf_to_file(self, quote_id: str, output_path: str,
                                     company_id: Optional[str] = None) -> str:
@@ -323,25 +345,29 @@ class BusinessCentralClient:
         Returns:
             PDF file content as bytes
         """
-        import base64
-
         cid = company_id or self.company_id
-        result = self._make_request(
-            "GET",
-            f"companies({cid})/salesOrders({order_id})/pdfDocument"
-        )
+        base = f"companies({cid})/salesOrders({order_id})/pdfDocument"
 
-        pdf_content = result.get("pdfDocumentContent")
-        if not pdf_content:
-            values = result.get("value", [])
-            if values:
-                pdf_content = values[0].get("pdfDocumentContent")
+        # Step 1: get pdfDocument metadata to find the document ID
+        result = self._make_request("GET", base)
 
-        if not pdf_content:
-            raise ValueError(f"No PDF content returned for order {order_id}")
+        values = result.get("value", [])
+        if values:
+            pdf_doc_id = values[0].get("id")
+        else:
+            pdf_doc_id = result.get("id")
 
-        logger.info(f"Downloaded PDF for order {order_id}")
-        return base64.b64decode(pdf_content)
+        if not pdf_doc_id:
+            raise ValueError(f"No pdfDocument returned for order {order_id}")
+
+        # Step 2: fetch the binary PDF content stream
+        pdf_bytes = self._make_raw_request("GET", f"{base}({pdf_doc_id})/content")
+
+        if not pdf_bytes:
+            raise ValueError(f"Empty PDF content for order {order_id}")
+
+        logger.info(f"Downloaded PDF for order {order_id} ({len(pdf_bytes)} bytes)")
+        return pdf_bytes
 
     # ==================== Vendors ====================
 
