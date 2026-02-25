@@ -19,6 +19,8 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
     return null
   }
 
+  const isEstimate = pricing.is_estimate === true
+
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-CA', {
       style: 'currency',
@@ -63,24 +65,24 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
   // Compact view - just totals
   if (compact && !expanded) {
     return (
-      <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+      <div className={`border rounded-lg p-3 ${isEstimate ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <DollarIcon className="h-5 w-5 text-green-600" />
+            <DollarIcon className={`h-5 w-5 ${isEstimate ? 'text-amber-600' : 'text-green-600'}`} />
             <div>
-              <span className="text-sm font-medium text-green-800">
+              <span className={`text-sm font-medium ${isEstimate ? 'text-amber-800' : 'text-green-800'}`}>
                 {formatCurrency(pricing.total)}
               </span>
-              {bcQuoteNumber && (
-                <span className="ml-2 text-xs text-green-600">
-                  Quote #{bcQuoteNumber}
-                </span>
-              )}
+              {isEstimate ? (
+                <span className="ml-2 text-xs text-amber-600">Estimate — retail rates, excl. tax</span>
+              ) : bcQuoteNumber ? (
+                <span className="ml-2 text-xs text-green-600">Quote #{bcQuoteNumber}</span>
+              ) : null}
             </div>
           </div>
           <button
             onClick={() => setExpanded(true)}
-            className="text-xs text-green-700 hover:text-green-900 underline"
+            className={`text-xs underline ${isEstimate ? 'text-amber-700 hover:text-amber-900' : 'text-green-700 hover:text-green-900'}`}
           >
             View details
           </button>
@@ -97,11 +99,13 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
           <div className="flex items-center space-x-2">
             <DollarIcon className="h-5 w-5 text-gray-600" />
             <h3 className="text-sm font-medium text-gray-900">Quote Pricing</h3>
-            {bcQuoteNumber && (
-              <span className="text-xs text-gray-500">
-                BC Quote #{bcQuoteNumber}
+            {isEstimate ? (
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">
+                Estimate — retail rates, excl. tax
               </span>
-            )}
+            ) : bcQuoteNumber ? (
+              <span className="text-xs text-gray-500">BC Quote #{bcQuoteNumber}</span>
+            ) : null}
           </div>
           {compact && (
             <button
@@ -112,6 +116,11 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
             </button>
           )}
         </div>
+        {isEstimate && (
+          <p className="mt-1 text-xs text-amber-700">
+            Your account is not yet linked to a Business Central record. Pricing shown is an estimate at standard retail rates and excludes tax. Contact us to complete your account setup.
+          </p>
+        )}
       </div>
 
       {/* Door Sections - subtotaled pricing with expandable line items */}

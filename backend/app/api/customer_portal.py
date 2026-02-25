@@ -573,14 +573,152 @@ def _generate_bc_quote_with_items(
     }
 
 
-def _get_customer_pricing_tier(bc_customer_id: str, db: Session) -> Optional[str]:
-    """Look up the pricing tier for a BC customer. Returns None if not set."""
+def _get_customer_pricing_tier(bc_customer_id: str, db: Session) -> str:
+    """Look up the pricing tier for a BC customer. Returns 'retail' if not set."""
     bc_customer = db.query(BCCustomer).filter(
         BCCustomer.bc_customer_id == bc_customer_id
     ).first()
     if bc_customer and bc_customer.pricing_tier:
-        return bc_customer.pricing_tier
-    return None
+        tier = bc_customer.pricing_tier.lower().strip()
+        if tier in {"gold", "silver", "bronze", "retail"}:
+            return tier
+    return "retail"
+
+
+def _estimate_pricing_locally(
+    doors: List[dict],
+    pricing_tier: str,
+    config_id: int,
+    db: Session,
+) -> Dict[str, Any]:
+    """
+    Calculate pricing locally without creating a BC quote.
+    Used for customers who have no BC account link.
+    Returns the same shape as _generate_bc_quote_with_items but with
+    bc_quote_id=None and is_estimate=True in the pricing dict.
+    """
+    all_lines = []
+    door_results = []
+
+    for i, door in enumerate(doors):
+        door_index = i + 1
+        door_desc = _format_door_description(door)
+
+        all_lines.append({
+            "lineType": "Comment",
+            "description": door_desc,
+            "door_index": door_index,
+        })
+
+        config_dict = {
+            "doorType": door.get("doorType", "residential"),
+            "doorSeries": door.get("doorSeries"),
+            "doorWidth": door.get("doorWidth"),
+            "doorHeight": door.get("doorHeight"),
+            "doorCount": door.get("doorCount", 1),
+            "panelColor": door.get("panelColor", "WHITE"),
+            "panelDesign": door.get("panelDesign", "SHXL"),
+            "windowInsert": door.get("windowInsert"),
+            "windowPositions": door.get("windowPositions", []),
+            "windowCount": door.get("windowCount") or (
+                len(door.get("windowPositions", [])) if door.get("windowPositions")
+                else (door.get("windowQty", 0) if door.get("windowQty")
+                      else (1 if door.get("windowSection") else 0))
+            ),
+            "windowSection": door.get("windowSection"),
+            "windowQty": door.get("windowQty", 0),
+            "windowFrameColor": door.get("windowFrameColor", "BLACK"),
+            "glazingType": door.get("glazingType"),
+            "glassPaneType": door.get("glassPaneType"),
+            "glassColor": door.get("glassColor"),
+            "trackRadius": door.get("trackRadius", "15"),
+            "trackThickness": door.get("trackThickness", "2"),
+            "hardware": door.get("hardware", {}),
+            "operator": door.get("operator"),
+        }
+
+        try:
+            door_parts = get_parts_for_door_config(config_dict)
+            parts_list = door_parts.get("parts_list", [])
+            sorted_parts = _sort_parts_by_category(parts_list)
+            part_door_type = config_dict.get("doorType", "residential")
+
+            for part in sorted_parts:
+                part["door_index"] = door_index
+                part["door_type"] = part_door_type
+                all_lines.append(part)
+
+            door_results.append({
+                "door_index": door_index,
+                "door_description": door_desc,
+                "parts_count": len(parts_list),
+                "success": True,
+            })
+        except Exception as e:
+            logger.warning(f"Failed to get parts for door {door_index}: {e}")
+            door_results.append({
+                "door_index": door_index,
+                "door_description": door_desc,
+                "parts_count": 0,
+                "success": False,
+                "error": str(e),
+            })
+
+    # Build line pricing locally using calculate_selling_price
+    line_pricing = []
+    subtotal = 0.0
+
+    for line in all_lines:
+        if line.get("lineType") == "Comment":
+            line_pricing.append({
+                "line_type": "Comment",
+                "part_number": "",
+                "description": line["description"],
+                "quantity": 0,
+                "unit_price": 0,
+                "line_total": 0,
+            })
+        else:
+            part_number = line.get("part_number", "")
+            quantity = line.get("quantity", 1)
+            door_type = line.get("door_type", "residential")
+
+            unit_price = calculate_selling_price(
+                part_number=part_number,
+                door_type=door_type,
+                tier=pricing_tier,
+                db=db,
+            ) or 0.0
+
+            line_total = round(unit_price * quantity, 2)
+            subtotal += line_total
+
+            line_pricing.append({
+                "line_type": "Item",
+                "part_number": part_number,
+                "description": line.get("description", ""),
+                "quantity": quantity,
+                "unit_price": unit_price,
+                "line_total": line_total,
+            })
+
+    subtotal = round(subtotal, 2)
+
+    return {
+        "bc_quote_id": None,
+        "bc_quote_number": None,
+        "lines_added": len([l for l in all_lines if l.get("lineType") != "Comment"]),
+        "lines_failed": None,
+        "pricing": {
+            "subtotal": subtotal,
+            "tax": 0,
+            "total": subtotal,
+            "currency": "CAD",
+            "is_estimate": True,
+        },
+        "line_pricing": line_pricing if line_pricing else None,
+        "door_results": door_results,
+    }
 
 
 # ============================================================================
@@ -616,35 +754,42 @@ def get_pricing_for_saved_quote(
             detail="Configuration has already been submitted"
         )
 
-    if not current_user.bc_customer_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Your account is not linked to a Business Central customer. Please contact support."
-        )
-
-    # If there's already a BC quote from a previous pricing request, delete it first
-    if config.bc_quote_id:
-        try:
-            bc_client.delete_sales_quote(config.bc_quote_id)
-            logger.info(f"Deleted previous BC quote {config.bc_quote_number} for config {config_id}")
-        except Exception as e:
-            logger.warning(f"Could not delete previous BC quote {config.bc_quote_id}: {e}")
-
     try:
         doors = _validate_doors_config(config.config_data or {})
-        pricing_tier = _get_customer_pricing_tier(current_user.bc_customer_id, db)
 
-        result = _generate_bc_quote_with_items(
-            doors=doors,
-            bc_customer_id=current_user.bc_customer_id,
-            config_id=config.id,
-            pricing_tier=pricing_tier,
-            db=db,
-        )
+        if current_user.bc_customer_id:
+            # Linked customer: create a real BC quote for accurate pricing (incl. tax)
+            pricing_tier = _get_customer_pricing_tier(current_user.bc_customer_id, db)
 
-        # Store BC quote reference (but NOT submitted)
-        config.bc_quote_id = result["bc_quote_id"]
-        config.bc_quote_number = result["bc_quote_number"]
+            # Delete old BC quote if one exists
+            if config.bc_quote_id:
+                try:
+                    bc_client.delete_sales_quote(config.bc_quote_id)
+                    logger.info(f"Deleted previous BC quote {config.bc_quote_number} for config {config_id}")
+                except Exception as e:
+                    logger.warning(f"Could not delete previous BC quote {config.bc_quote_id}: {e}")
+
+            result = _generate_bc_quote_with_items(
+                doors=doors,
+                bc_customer_id=current_user.bc_customer_id,
+                config_id=config.id,
+                pricing_tier=pricing_tier,
+                db=db,
+            )
+
+            # Store BC quote reference (but NOT submitted)
+            config.bc_quote_id = result["bc_quote_id"]
+            config.bc_quote_number = result["bc_quote_number"]
+        else:
+            # Unlinked customer: estimate locally at retail, no BC quote created
+            pricing_tier = "retail"
+            result = _estimate_pricing_locally(
+                doors=doors,
+                pricing_tier=pricing_tier,
+                config_id=config.id,
+                db=db,
+            )
+
         config.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(config)
@@ -749,34 +894,40 @@ def refresh_pricing_for_saved_quote(
             detail="Cannot refresh pricing on a submitted configuration"
         )
 
-    if not current_user.bc_customer_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Your account is not linked to a Business Central customer. Please contact support."
-        )
-
-    # Delete old BC quote if one exists
-    if config.bc_quote_id:
-        try:
-            bc_client.delete_sales_quote(config.bc_quote_id)
-            logger.info(f"Deleted old BC quote {config.bc_quote_number} for refresh")
-        except Exception as e:
-            logger.warning(f"Could not delete old BC quote {config.bc_quote_id}: {e}")
-
     try:
         doors = _validate_doors_config(config.config_data or {})
-        pricing_tier = _get_customer_pricing_tier(current_user.bc_customer_id, db)
 
-        result = _generate_bc_quote_with_items(
-            doors=doors,
-            bc_customer_id=current_user.bc_customer_id,
-            config_id=config.id,
-            pricing_tier=pricing_tier,
-            db=db,
-        )
+        if current_user.bc_customer_id:
+            # Linked customer: delete old quote and regenerate
+            pricing_tier = _get_customer_pricing_tier(current_user.bc_customer_id, db)
 
-        config.bc_quote_id = result["bc_quote_id"]
-        config.bc_quote_number = result["bc_quote_number"]
+            if config.bc_quote_id:
+                try:
+                    bc_client.delete_sales_quote(config.bc_quote_id)
+                    logger.info(f"Deleted old BC quote {config.bc_quote_number} for refresh")
+                except Exception as e:
+                    logger.warning(f"Could not delete old BC quote {config.bc_quote_id}: {e}")
+
+            result = _generate_bc_quote_with_items(
+                doors=doors,
+                bc_customer_id=current_user.bc_customer_id,
+                config_id=config.id,
+                pricing_tier=pricing_tier,
+                db=db,
+            )
+
+            config.bc_quote_id = result["bc_quote_id"]
+            config.bc_quote_number = result["bc_quote_number"]
+        else:
+            # Unlinked customer: recalculate local estimate at retail
+            pricing_tier = "retail"
+            result = _estimate_pricing_locally(
+                doors=doors,
+                pricing_tier=pricing_tier,
+                config_id=config.id,
+                db=db,
+            )
+
         config.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(config)
@@ -837,7 +988,10 @@ def submit_saved_quote(
     if not current_user.bc_customer_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Your account is not linked to a Business Central customer. Please contact support."
+            detail=(
+                "Your account is not yet linked to a Business Central customer account. "
+                "Please contact us to complete your account setup before submitting a quote."
+            )
         )
 
     try:

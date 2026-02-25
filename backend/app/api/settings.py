@@ -18,6 +18,8 @@ from app.services.pricing_service import (
     get_default_cost_adjustments,
     TIER_MARGINS_KEY,
     COST_ADJUSTMENTS_KEY,
+    BC_GROUP_MAPPING_KEY,
+    VALID_TIERS,
     POSTING_GROUP_LABELS,
 )
 from app.services.bc_part_number_mapper import get_bc_mapper
@@ -58,6 +60,11 @@ class TierMarginsUpdate(BaseModel):
 class CostAdjustmentsUpdate(BaseModel):
     """Request model for updating cost adjustments"""
     adjustments: Dict[str, Any]  # { "RESI": { "adjustment": 5, "note": "..." }, ... }
+
+
+class BCGroupMappingUpdate(BaseModel):
+    """Request model for updating BC price group → portal tier mapping"""
+    mapping: Dict[str, str]  # { "RETAIL": "retail", "CONTRACTOR": "gold", ... }
 
 
 # ============================================================================
@@ -421,6 +428,89 @@ async def get_pricing_categories():
         "success": True,
         "data": categories,
     }
+
+
+# ============================================================================
+# BC Price Group → Tier Mapping Endpoints
+# ============================================================================
+
+@router.get("/bc-group-mapping/current")
+async def get_bc_group_mapping(db: Session = Depends(get_db)):
+    """Get current BC price group → portal tier mapping (or empty if none saved)."""
+    setting = db.query(AppSettings).filter(
+        AppSettings.setting_key == BC_GROUP_MAPPING_KEY
+    ).first()
+
+    mapping = setting.setting_value if setting else {}
+
+    return {
+        "success": True,
+        "data": {
+            "mapping": mapping,
+            "isDefault": not bool(setting),
+            "updatedAt": setting.updated_at.isoformat() if setting and setting.updated_at else None,
+        }
+    }
+
+
+@router.put("/bc-group-mapping")
+async def update_bc_group_mapping(
+    update: BCGroupMappingUpdate,
+    db: Session = Depends(get_db),
+):
+    """Save BC price group → portal tier mapping. Tier values must be gold/silver/bronze/retail."""
+    for group_code, tier in update.mapping.items():
+        if not group_code.strip():
+            raise HTTPException(status_code=400, detail="Group code cannot be empty")
+        if tier not in VALID_TIERS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid tier '{tier}' for group '{group_code}'. Must be one of: {', '.join(sorted(VALID_TIERS))}"
+            )
+
+    # Normalize keys to uppercase
+    normalized = {k.upper().strip(): v for k, v in update.mapping.items() if k.strip()}
+
+    setting = db.query(AppSettings).filter(
+        AppSettings.setting_key == BC_GROUP_MAPPING_KEY
+    ).first()
+
+    if setting:
+        setting.setting_value = normalized
+        setting.updated_at = datetime.utcnow()
+    else:
+        setting = AppSettings(
+            setting_key=BC_GROUP_MAPPING_KEY,
+            setting_value=normalized,
+            description="BC customer price group code → portal pricing tier mapping",
+            updated_at=datetime.utcnow(),
+        )
+        db.add(setting)
+
+    db.commit()
+    db.refresh(setting)
+    logger.info(f"BC group tier mapping updated: {normalized}")
+
+    return {
+        "success": True,
+        "message": "BC group tier mapping updated successfully",
+        "data": {
+            "mapping": setting.setting_value,
+            "updatedAt": setting.updated_at.isoformat() if setting.updated_at else None,
+        }
+    }
+
+
+@router.get("/bc-group-mapping/bc-groups")
+async def get_bc_price_groups(db: Session = Depends(get_db)):
+    """Return distinct BC price group codes seen across synced customers."""
+    from app.db.models import BCCustomer
+    rows = db.query(BCCustomer.bc_price_group).filter(
+        BCCustomer.bc_price_group.isnot(None),
+        BCCustomer.bc_price_group != "",
+    ).distinct().all()
+    groups = sorted({r[0] for r in rows})
+    return {"success": True, "data": groups}
 
 
 # ============================================================================

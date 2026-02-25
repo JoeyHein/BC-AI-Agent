@@ -490,8 +490,9 @@ class BCCustomer(Base):
     address = Column(JSON)  # { "street": "...", "city": "...", "province": "...", "postal": "..." }
 
     # Pricing and classification
-    pricing_tier = Column(String(50))  # 'standard', 'preferred', 'wholesale', 'contractor'
+    pricing_tier = Column(String(50))  # portal tier: gold, silver, bronze, retail
     price_multiplier = Column(Float, nullable=True)  # BC price multiplier % (e.g. +10 = 10% markup, -5 = 5% discount)
+    bc_price_group = Column(String(100), nullable=True)  # BC customerPriceGroup code (e.g. RETAIL, CONTRACTOR)
     customer_metadata = Column(JSON)  # Additional BC customer data
 
     # Sync tracking

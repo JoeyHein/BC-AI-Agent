@@ -5,7 +5,7 @@ Margin-based pricing tier system for door quotes.
 Formula: selling_price = (unitCost * (1 + cost_adjustment%/100)) / (1 - margin%/100)
 
 Tiers (Residential): Gold 30%, Silver 35%, Bronze 40%, Retail 50%
-Tiers (Commercial):  Gold 30%, Silver 33%, Bronze 36%
+Tiers (Commercial):  Gold 30%, Silver 33%, Bronze 36%, Retail 42%
 """
 
 import logging
@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 TIER_MARGINS_KEY = "pricing_tier_margins"
 COST_ADJUSTMENTS_KEY = "pricing_cost_adjustments"
+BC_GROUP_MAPPING_KEY = "bc_group_tier_mapping"
+
+VALID_TIERS = {"gold", "silver", "bronze", "retail"}
 
 # ============================================================================
 # Hardcoded defaults (used when no AppSettings saved yet)
@@ -41,6 +44,7 @@ def get_default_tier_margins() -> dict:
             "gold": 30,
             "silver": 33,
             "bronze": 36,
+            "retail": 42,
         },
     }
 
@@ -108,6 +112,28 @@ def _load_cost_adjustments(db: Session) -> dict:
     return get_default_cost_adjustments()
 
 
+def _load_bc_group_mapping(db: Session) -> dict:
+    """Load BC price group → portal tier mapping from AppSettings."""
+    setting = db.query(AppSettings).filter(
+        AppSettings.setting_key == BC_GROUP_MAPPING_KEY
+    ).first()
+    if setting and setting.setting_value:
+        return setting.setting_value
+    return {}
+
+
+def resolve_tier_from_bc_group(bc_price_group: Optional[str], db: Session) -> Optional[str]:
+    """
+    Look up which portal tier a BC price group maps to.
+    Returns the tier string (e.g. 'gold') or None if no mapping exists.
+    """
+    if not bc_price_group:
+        return None
+    mapping = _load_bc_group_mapping(db)
+    tier = mapping.get(bc_price_group.upper().strip())
+    return tier if tier in VALID_TIERS else None
+
+
 # ============================================================================
 # Core pricing functions
 # ============================================================================
@@ -128,15 +154,10 @@ def resolve_tier(customer_tier: Optional[str], door_type: str, db: Session) -> T
     type_margins = margins.get(door_type_lower, {})
     tier = (customer_tier or "").lower().strip()
 
-    # Handle legacy/unknown tier values
+    # Handle missing/unknown/legacy tier values — always fall back to retail
     valid_tiers = set(type_margins.keys())
     if tier not in valid_tiers:
-        # Default: retail for residential, bronze for commercial
-        tier = "retail" if door_type_lower == "residential" else "bronze"
-
-    # "retail" tier on commercial → fall back to bronze
-    if tier == "retail" and door_type_lower == "commercial":
-        tier = "bronze"
+        tier = "retail"
 
     margin_pct = type_margins.get(tier, 40)  # safe fallback
     return tier, margin_pct

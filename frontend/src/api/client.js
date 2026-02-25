@@ -506,6 +506,16 @@ export const settingsApi = {
 
   getPricingCategories: () =>
     apiClient.get('/api/settings/pricing-categories'),
+
+  // BC Group → Tier mapping
+  getBCGroupMapping: () =>
+    apiClient.get('/api/settings/bc-group-mapping/current'),
+
+  updateBCGroupMapping: (mapping) =>
+    apiClient.put('/api/settings/bc-group-mapping', { mapping }),
+
+  getBCPriceGroups: () =>
+    apiClient.get('/api/settings/bc-group-mapping/bc-groups'),
 };
 
 // Customers API (admin)

@@ -18,8 +18,9 @@ from app.integrations.bc.client import bc_client
 from app.config import settings
 from app.db.models import (
     SalesOrder, SalesOrderLineItem, ProductionOrder,
-    OrderStatus, ProductionStatus, BCCustomer
+    OrderStatus, ProductionStatus, BCCustomer, AppSettings
 )
+from app.services.pricing_service import BC_GROUP_MAPPING_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -486,9 +487,12 @@ class BCSyncService:
         try:
             bc_customers = self.client.get_customers_with_multiplier()
 
+            # Load group mapping once for the whole batch
+            group_mapping = self._load_group_mapping(db)
+
             for bc_cust in bc_customers:
                 try:
-                    self._upsert_customer(db, bc_cust, results)
+                    self._upsert_customer(db, bc_cust, results, group_mapping)
                 except Exception as e:
                     results["errors"].append(f"Error syncing customer {bc_cust.get('displayName', '?')}: {e}")
 
@@ -521,7 +525,8 @@ class BCSyncService:
 
         try:
             bc_cust = self.client.get_customer_with_multiplier(bc_customer_id)
-            self._upsert_customer(db, bc_cust, results)
+            group_mapping = self._load_group_mapping(db)
+            self._upsert_customer(db, bc_cust, results, group_mapping)
             db.commit()
             logger.info(f"Single customer sync complete: {bc_cust.get('displayName', bc_customer_id)}")
         except Exception as e:
@@ -531,11 +536,21 @@ class BCSyncService:
 
         return results
 
+    def _load_group_mapping(self, db: Session) -> Dict[str, str]:
+        """Load BC price group → portal tier mapping from AppSettings."""
+        setting = db.query(AppSettings).filter(
+            AppSettings.setting_key == BC_GROUP_MAPPING_KEY
+        ).first()
+        if setting and setting.setting_value:
+            return setting.setting_value
+        return {}
+
     def _upsert_customer(
         self,
         db: Session,
         bc_cust: Dict[str, Any],
-        results: Dict[str, Any]
+        results: Dict[str, Any],
+        group_mapping: Optional[Dict[str, str]] = None,
     ):
         """Insert or update a single BCCustomer record from BC API data."""
         bc_id = bc_cust.get("id")
@@ -543,12 +558,22 @@ class BCSyncService:
             return
 
         # BC may expose the multiplier as priceMultiplierPercent or similar
-        # Try common field names; the exact name depends on BC customization
         multiplier = (
             bc_cust.get("priceMultiplierPercent")
             or bc_cust.get("priceMultiplier")
             or bc_cust.get("price_multiplier_percent")
         )
+
+        # Capture BC customer price group.
+        # The standard BC API v2.0 does not expose customerPriceGroup directly,
+        # so we fall back to salespersonCode as the grouping mechanism.
+        bc_price_group = (
+            bc_cust.get("customerPriceGroup")
+            or bc_cust.get("priceGroup")
+            or bc_cust.get("customer_price_group")
+            or bc_cust.get("salespersonCode")   # fallback: use salesperson as grouping
+            or ""
+        ).strip().upper() or None
 
         # Build address from BC fields
         address = None
@@ -558,10 +583,18 @@ class BCSyncService:
             if val:
                 addr_parts.append(val)
         if addr_parts:
-            address = {"street": bc_cust.get("addressLine1", ""),
-                        "city": bc_cust.get("city", ""),
-                        "province": bc_cust.get("state", ""),
-                        "postal": bc_cust.get("postalCode", "")}
+            address = {
+                "street": bc_cust.get("addressLine1", ""),
+                "city": bc_cust.get("city", ""),
+                "province": bc_cust.get("state", ""),
+                "postal": bc_cust.get("postalCode", ""),
+            }
+
+        # Resolve portal pricing tier from BC price group mapping
+        # Only auto-set if there's a mapping for this group; never clear a manually-set tier
+        mapped_tier = None
+        if bc_price_group and group_mapping:
+            mapped_tier = group_mapping.get(bc_price_group)
 
         existing = db.query(BCCustomer).filter(
             BCCustomer.bc_customer_id == bc_id
@@ -573,6 +606,10 @@ class BCSyncService:
             existing.email = bc_cust.get("email")
             existing.phone = bc_cust.get("phoneNumber")
             existing.price_multiplier = float(multiplier) if multiplier is not None else None
+            existing.bc_price_group = bc_price_group
+            # Apply mapped tier only if there is one; preserve existing manual tier otherwise
+            if mapped_tier:
+                existing.pricing_tier = mapped_tier
             if address:
                 existing.address = address
             existing.last_synced = datetime.utcnow()
@@ -585,6 +622,8 @@ class BCSyncService:
                 email=bc_cust.get("email"),
                 phone=bc_cust.get("phoneNumber"),
                 price_multiplier=float(multiplier) if multiplier is not None else None,
+                bc_price_group=bc_price_group,
+                pricing_tier=mapped_tier,
                 address=address,
                 last_synced=datetime.utcnow()
             )

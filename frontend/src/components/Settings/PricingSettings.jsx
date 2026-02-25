@@ -11,10 +11,21 @@ const TIER_COLORS = {
   retail: 'bg-blue-100 text-blue-800',
 }
 
+const TIER_OPTIONS = [
+  { value: '', label: '— Unmapped —' },
+  { value: 'gold', label: 'Gold' },
+  { value: 'silver', label: 'Silver' },
+  { value: 'bronze', label: 'Bronze' },
+  { value: 'retail', label: 'Retail' },
+]
+
 function PricingSettings() {
   const [margins, setMargins] = useState({})
   const [adjustments, setAdjustments] = useState({})
   const [categories, setCategories] = useState([])
+  const [groupMapping, setGroupMapping] = useState({})   // { "CONTRACTOR": "gold", ... }
+  const [bcGroups, setBcGroups] = useState([])           // groups seen in synced customers
+  const [newGroupCode, setNewGroupCode] = useState('')   // manual entry for unknown groups
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -30,15 +41,19 @@ function PricingSettings() {
       setLoading(true)
       setError(null)
 
-      const [tiersRes, adjRes, catRes] = await Promise.all([
+      const [tiersRes, adjRes, catRes, mappingRes, groupsRes] = await Promise.all([
         settingsApi.getPricingTiers(),
         settingsApi.getPricingCostAdjustments(),
         settingsApi.getPricingCategories(),
+        settingsApi.getBCGroupMapping(),
+        settingsApi.getBCPriceGroups(),
       ])
 
       if (tiersRes.data.success) setMargins(tiersRes.data.data.margins)
       if (adjRes.data.success) setAdjustments(adjRes.data.data.adjustments)
       if (catRes.data.success) setCategories(catRes.data.data)
+      if (mappingRes.data.success) setGroupMapping(mappingRes.data.data.mapping || {})
+      if (groupsRes.data.success) setBcGroups(groupsRes.data.data || [])
     } catch (err) {
       console.error('Error loading pricing data:', err)
       setError('Failed to load pricing settings.')
@@ -51,10 +66,7 @@ function PricingSettings() {
     const num = value === '' ? '' : parseFloat(value)
     setMargins(prev => ({
       ...prev,
-      [doorType]: {
-        ...prev[doorType],
-        [tier]: num,
-      }
+      [doorType]: { ...prev[doorType], [tier]: num }
     }))
     setHasChanges(true)
     setSuccessMessage(null)
@@ -68,6 +80,40 @@ function PricingSettings() {
         [field]: field === 'adjustment' ? (value === '' ? '' : parseFloat(value)) : value,
       }
     }))
+    setHasChanges(true)
+    setSuccessMessage(null)
+  }
+
+  const handleGroupMappingChange = (groupCode, tier) => {
+    setGroupMapping(prev => {
+      const next = { ...prev }
+      if (!tier) {
+        delete next[groupCode]
+      } else {
+        next[groupCode] = tier
+      }
+      return next
+    })
+    setHasChanges(true)
+    setSuccessMessage(null)
+  }
+
+  const addGroupCode = () => {
+    const code = newGroupCode.trim().toUpperCase()
+    if (!code) return
+    if (!bcGroups.includes(code)) {
+      setBcGroups(prev => [...prev, code].sort())
+    }
+    setNewGroupCode('')
+  }
+
+  const removeGroupCode = (code) => {
+    setBcGroups(prev => prev.filter(g => g !== code))
+    setGroupMapping(prev => {
+      const next = { ...prev }
+      delete next[code]
+      return next
+    })
     setHasChanges(true)
     setSuccessMessage(null)
   }
@@ -100,6 +146,7 @@ function PricingSettings() {
       await Promise.all([
         settingsApi.updatePricingTiers(margins),
         settingsApi.updatePricingCostAdjustments(adjustments),
+        settingsApi.updateBCGroupMapping(groupMapping),
       ])
 
       setSuccessMessage('Pricing settings saved successfully')
@@ -122,6 +169,9 @@ function PricingSettings() {
     )
   }
 
+  // All BC group codes to show: union of synced groups + any in the current mapping
+  const allGroups = [...new Set([...bcGroups, ...Object.keys(groupMapping)])].sort()
+
   return (
     <div className="space-y-8">
       {/* Header with Save Button */}
@@ -129,7 +179,7 @@ function PricingSettings() {
         <div>
           <h2 className="text-lg font-medium text-gray-900">Pricing & Margins</h2>
           <p className="mt-1 text-sm text-gray-500">
-            Configure margin tiers and cost adjustments for door quote pricing.
+            Configure margin tiers, cost adjustments, and BC price group mappings.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -164,6 +214,114 @@ function PricingSettings() {
         </div>
       )}
 
+      {/* BC Price Group → Tier Mapping */}
+      <div>
+        <h3 className="text-base font-medium text-gray-900 mb-1">BC Price Group → Portal Tier</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Map each Business Central customer price group code to a portal pricing tier.
+          When customers sync from BC, their tier is automatically set based on this mapping.
+          Manually-set tiers are preserved when no mapping exists for a group.
+        </p>
+
+        <div className="overflow-hidden border border-gray-200 rounded-lg">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/3">
+                  BC Price Group Code
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/3">
+                  Portal Tier
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">
+                  Preview
+                </th>
+                <th className="px-4 py-3 w-12" />
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {allGroups.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-4 py-6 text-center text-sm text-gray-400">
+                    No BC price groups found. Sync customers from BC or add groups manually below.
+                  </td>
+                </tr>
+              ) : (
+                allGroups.map(code => {
+                  const currentTier = groupMapping[code] || ''
+                  const fromSync = bcGroups.includes(code)
+                  return (
+                    <tr key={code}>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-sm text-gray-900">{code}</span>
+                          {fromSync && (
+                            <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">from BC</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <select
+                          value={currentTier}
+                          onChange={e => handleGroupMappingChange(code, e.target.value)}
+                          className="block w-full border border-gray-300 rounded-md shadow-sm py-1.5 px-3 text-sm focus:outline-none focus:ring-odc-500 focus:border-odc-500"
+                        >
+                          {TIER_OPTIONS.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-4 py-3">
+                        {currentTier ? (
+                          <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold capitalize ${TIER_COLORS[currentTier]}`}>
+                            {currentTier}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400 italic">Unmapped</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {!fromSync && (
+                          <button
+                            onClick={() => removeGroupCode(code)}
+                            className="text-red-400 hover:text-red-600 text-xs"
+                            title="Remove"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Manual group code entry */}
+        <div className="mt-3 flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="Add BC group code (e.g. CONTRACTOR)"
+            value={newGroupCode}
+            onChange={e => setNewGroupCode(e.target.value.toUpperCase())}
+            onKeyDown={e => e.key === 'Enter' && addGroupCode()}
+            className="block w-56 border border-gray-300 rounded-md shadow-sm py-1.5 px-3 text-sm font-mono focus:outline-none focus:ring-odc-500 focus:border-odc-500"
+          />
+          <button
+            onClick={addGroupCode}
+            disabled={!newGroupCode.trim()}
+            className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-40"
+          >
+            + Add
+          </button>
+          <span className="text-xs text-gray-400">
+            Add a group code that isn't yet seen in synced customers.
+          </span>
+        </div>
+      </div>
+
       {/* Tier Margins Table */}
       <div>
         <h3 className="text-base font-medium text-gray-900 mb-1">Tier Margins</h3>
@@ -186,7 +344,6 @@ function PricingSettings() {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {TIER_ORDER.map(tier => {
-                // Retail only shows for residential
                 const showCommercial = tier !== 'retail'
                 return (
                   <tr key={tier}>
@@ -275,10 +432,10 @@ function PricingSettings() {
       <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-600">
         <strong>Pricing Formula:</strong>{' '}
         <code className="bg-white px-1.5 py-0.5 rounded border text-xs font-mono">
-          selling_price = (unitCost x (1 + adjustment%/100)) / (1 - margin%/100)
+          selling_price = (unitCost × (1 + adjustment%/100)) / (1 - margin%/100)
         </code>
         <p className="mt-2 text-xs text-gray-500">
-          Example: unitCost $100, +5% cost adjustment, 30% margin = $100 x 1.05 / 0.70 = $150.00
+          Example: unitCost $100, +5% cost adjustment, 30% margin = $100 × 1.05 / 0.70 = $150.00
         </p>
       </div>
     </div>

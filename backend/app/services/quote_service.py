@@ -194,7 +194,7 @@ class QuoteGenerationService:
                     "quantity": quantity,
                     "width_ft": width_ft,
                     "height_ft": height_ft,
-                    "customer_tier": customer.pricing_tier if customer else "standard"
+                    "customer_tier": (customer.pricing_tier or "retail") if customer else "retail"
                 }
 
                 # Get unit price (use part price if available, otherwise calculate)
@@ -677,7 +677,7 @@ class QuoteGenerationService:
             contact_name=customer_data.get("contact_name"),
             email=email,
             phone=customer_data.get("phone"),
-            pricing_tier="standard",  # Default tier
+            pricing_tier="retail",  # Default tier for new customers
             last_synced=None  # Not synced yet
         )
 
