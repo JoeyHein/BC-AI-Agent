@@ -974,10 +974,14 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
   }
   const stampColumns = getStampColumns(door.doorWidth, door.panelDesign)
 
+  // Long windows on SH/BC span 2 stamp columns each — grid shows half as many cells
+  const isLongOnStandard = (door.windowSize || 'long') === 'long' && ['SH', 'BC'].includes(door.panelDesign)
+  const gridColumns = isLongOnStandard ? Math.floor(stampColumns / 2) : stampColumns
+
   // Get window positions, defaulting to empty array
   const windowPositions = door.windowPositions || []
 
-  // Check if a position has a window
+  // Check if a position has a window (positions stored as even col indices in long mode)
   const hasWindowAt = (section, col) => {
     return windowPositions.some(pos => pos.section === section && pos.col === col)
   }
@@ -987,12 +991,15 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
     // Craft series: windows only in top panel (section 1)
     if (door.doorSeries === 'CRAFT' && section !== 1) return
 
-    const existing = windowPositions.find(pos => pos.section === section && pos.col === col)
+    // Long windows on SH/BC: normalize to even column (anchor of the 2-stamp pair)
+    const normalizedCol = isLongOnStandard ? Math.floor(col / 2) * 2 : col
+
+    const existing = windowPositions.find(pos => pos.section === section && pos.col === normalizedCol)
     let newPositions
     if (existing) {
-      newPositions = windowPositions.filter(pos => !(pos.section === section && pos.col === col))
+      newPositions = windowPositions.filter(pos => !(pos.section === section && pos.col === normalizedCol))
     } else {
-      newPositions = [...windowPositions, { section, col }]
+      newPositions = [...windowPositions, { section, col: normalizedCol }]
     }
     onChange({ windowPositions: newPositions })
   }
@@ -1000,7 +1007,8 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
   // Quick actions for common patterns
   const setTopRowWindows = () => {
     const positions = []
-    for (let col = 0; col < stampColumns; col++) {
+    const step = isLongOnStandard ? 2 : 1
+    for (let col = 0; col < stampColumns; col += step) {
       positions.push({ section: 1, col })
     }
     onChange({ windowPositions: positions })
@@ -1016,8 +1024,9 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
 
   const setRightColumnWindows = () => {
     const positions = []
+    const lastCol = isLongOnStandard ? stampColumns - 2 : stampColumns - 1
     for (let section = 1; section <= panelCount; section++) {
-      positions.push({ section, col: stampColumns - 1 })
+      positions.push({ section, col: lastCol })
     }
     onChange({ windowPositions: positions })
   }
@@ -1170,6 +1179,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                   panelDesign={door.panelDesign || 'SHXL'}
                   windowInsert={door.windowInsert}
                   windowPositions={windowPositions}
+                  windowSize={door.windowSize || 'long'}
                   hasInserts={door.hasInserts || false}
                   glassColor={door.glassColor || 'CLEAR'}
                   windowFrameColor={door.windowFrameColor || 'MATCH'}
@@ -1225,7 +1235,8 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                 {/* Grid Info */}
                 <div className="p-3 bg-gray-50 rounded-md">
                   <p className="text-sm text-gray-600">
-                    <strong>Door Grid:</strong> {panelCount} sections x {stampColumns} stamps
+                    <strong>Door Grid:</strong> {panelCount} sections × {gridColumns} window positions
+                    {isLongOnStandard && <span className="text-xs text-gray-500 ml-1">(each spans 2 stamps)</span>}
                   </p>
                   <p className="text-sm text-gray-600 mt-1">
                     <strong>Windows Selected:</strong> {windowPositions.length}
@@ -1261,24 +1272,31 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                   <div className="inline-block border border-gray-300 rounded-lg p-2 bg-white">
                     {[...Array(panelCount)].map((_, section) => (
                       <div key={section} className="flex gap-1 mb-1 last:mb-0">
-                        {[...Array(stampColumns)].map((_, col) => (
-                          <button
-                            key={col}
-                            onClick={() => toggleWindow(section + 1, col)}
-                            onMouseEnter={() => setHoveredStamp({ section: section + 1, col })}
-                            onMouseLeave={() => setHoveredStamp(null)}
-                            className={`w-8 h-8 rounded text-xs font-medium transition-all ${
-                              hasWindowAt(section + 1, col)
-                                ? 'bg-sky-400 text-white border-2 border-sky-500'
-                                : hoveredStamp?.section === section + 1 && hoveredStamp?.col === col
-                                  ? 'bg-blue-100 border-2 border-blue-300'
-                                  : 'bg-gray-100 border border-gray-300 hover:bg-gray-200'
-                            }`}
-                            title={`Section ${section + 1}, Column ${col + 1}`}
-                          >
-                            {hasWindowAt(section + 1, col) ? '\u2610' : ''}
-                          </button>
-                        ))}
+                        {[...Array(gridColumns)].map((_, gridCol) => {
+                          const actualCol = isLongOnStandard ? gridCol * 2 : gridCol
+                          const isActive = hasWindowAt(section + 1, actualCol)
+                          const isHover = hoveredStamp?.section === section + 1 && hoveredStamp?.col === actualCol
+                          return (
+                            <button
+                              key={gridCol}
+                              onClick={() => toggleWindow(section + 1, actualCol)}
+                              onMouseEnter={() => setHoveredStamp({ section: section + 1, col: actualCol })}
+                              onMouseLeave={() => setHoveredStamp(null)}
+                              className={`${isLongOnStandard ? 'w-14' : 'w-8'} h-8 rounded text-xs font-medium transition-all ${
+                                isActive
+                                  ? 'bg-sky-400 text-white border-2 border-sky-500'
+                                  : isHover
+                                    ? 'bg-blue-100 border-2 border-blue-300'
+                                    : 'bg-gray-100 border border-gray-300 hover:bg-gray-200'
+                              }`}
+                              title={isLongOnStandard
+                                ? `Section ${section + 1}, Stamps ${actualCol + 1}–${actualCol + 2}`
+                                : `Section ${section + 1}, Column ${actualCol + 1}`}
+                            >
+                              {isActive ? '☐' : ''}
+                            </button>
+                          )
+                        })}
                         <span className="text-xs text-gray-400 ml-1 self-center">S{section + 1}</span>
                       </div>
                     ))}
@@ -1292,7 +1310,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
           {(() => {
             const isLongOnlyDesign = ['SHXL', 'BCXL'].includes(door.panelDesign)
             if (isLongOnlyDesign) {
-              if (door.windowSize === 'short') onChange({ windowSize: 'long', hasInserts: false })
+              if (door.windowSize === 'short') onChange({ windowSize: 'long', hasInserts: false, windowPositions: [] })
               return null
             }
             return (
@@ -1302,7 +1320,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   <button
-                    onClick={() => onChange({ windowSize: 'long', hasInserts: false, windowInsert: 'NONE' })}
+                    onClick={() => onChange({ windowSize: 'long', hasInserts: false, windowInsert: 'NONE', windowPositions: [] })}
                     className={`p-3 rounded-lg border-2 text-left transition-all ${
                       (door.windowSize || 'long') === 'long'
                         ? 'border-odc-500 bg-odc-50'
@@ -1313,7 +1331,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                     <span className="block text-xs text-gray-500 mt-1">Full stamp width — optional decorative inserts available</span>
                   </button>
                   <button
-                    onClick={() => onChange({ windowSize: 'short', hasInserts: false, windowInsert: 'NONE' })}
+                    onClick={() => onChange({ windowSize: 'short', hasInserts: false, windowInsert: 'NONE', windowPositions: [] })}
                     className={`p-3 rounded-lg border-2 text-left transition-all ${
                       door.windowSize === 'short'
                         ? 'border-odc-500 bg-odc-50'

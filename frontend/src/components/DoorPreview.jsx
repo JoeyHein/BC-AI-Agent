@@ -202,6 +202,7 @@ function DoorPreview({
   windowInsert = null,
   windowPositions = [],  // Array of {section, col} for multi-stamp windows
   windowSection = 1,  // Legacy: single section (used if windowPositions empty)
+  windowSize = 'long',  // 'short' or 'long' — long spans 2 standard stamps
   hasInserts = false,  // Whether decorative inserts are added
   glassColor = 'CLEAR',  // Glass color: CLEAR, ETCHED, SUPER_GREY
   windowQty = 0,  // For commercial doors
@@ -692,6 +693,9 @@ function DoorPreview({
     const cellW = (w - gapX * (cols + 1)) / cols
     const cellH = (h - gapY * (rows + 1)) / rows
 
+    // Long window on SH/BC (standard stamp): each window spans 2 adjacent stamp columns
+    const isLongOnStandard = windowSize === 'long' && pattern.stampType === 'standard'
+
     const panels = []
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
@@ -699,14 +703,19 @@ function DoorPreview({
         const cellY = y + gapY + row * (cellH + gapY)
         const stampKey = `stamp-${sectionIndex}-${row}-${col}`
 
-        // Check if this stamp has a window
-        // Map stamp row within section to absolute section number
         const absoluteSection = sectionIndex + 1  // 1-based section
+
+        // In long mode, odd cols consumed by the even col's spanning window — skip them
+        if (isLongOnStandard && col % 2 === 1 && hasWindowAtPosition(absoluteSection, col - 1)) {
+          continue
+        }
+
         if (hasWindowAtPosition(absoluteSection, col)) {
-          // Render window instead of panel
+          // Long mode: window spans this cell + the next (2 stamps wide)
+          const windowW = isLongOnStandard ? cellW * 2 + gapX : cellW
           panels.push(
             <g key={stampKey}>
-              {renderStampWindow(x, cellY, cellW, cellH, col)}
+              {renderStampWindow(x, cellY, windowW, cellH, col)}
             </g>
           )
           continue
@@ -717,24 +726,30 @@ function DoorPreview({
         // Inner raised panel inset from outer border
         const innerInset = Math.min(cellW, cellH) * 0.12
 
-        // Check if this stamp is being hovered (for interactive mode)
+        // For long mode: normalize click col to the even anchor of this pair
+        const clickCol = isLongOnStandard ? Math.floor(col / 2) * 2 : col
+        // For long mode: highlight entire pair when either stamp in the pair is hovered
+        const pairStart = isLongOnStandard ? Math.floor(col / 2) * 2 : col
         const isHovered = interactive && highlightStamp &&
-          highlightStamp.section === absoluteSection && highlightStamp.col === col
+          highlightStamp.section === absoluteSection &&
+          (isLongOnStandard
+            ? Math.floor(highlightStamp.col / 2) * 2 === pairStart
+            : highlightStamp.col === col)
 
         panels.push(
           <g
             key={stampKey}
             style={interactive ? { cursor: 'pointer' } : {}}
-            onClick={interactive && onStampClick ? () => onStampClick(absoluteSection, col) : undefined}
+            onClick={interactive && onStampClick ? () => onStampClick(absoluteSection, clickCol) : undefined}
             onMouseEnter={interactive && onStampHover ? () => onStampHover(absoluteSection, col) : undefined}
             onMouseLeave={interactive && onStampHover ? () => onStampHover(null) : undefined}
           >
-            {/* Highlight overlay for interactive mode */}
-            {isHovered && (
+            {/* Highlight overlay for interactive mode — spans 2 cells in long mode */}
+            {isHovered && col % 2 === pairStart % 2 && (
               <rect
                 x={x}
                 y={cellY}
-                width={cellW}
+                width={isLongOnStandard ? cellW * 2 + gapX : cellW}
                 height={cellH}
                 fill="rgba(59, 130, 246, 0.2)"
                 stroke="rgba(59, 130, 246, 0.8)"
@@ -814,6 +829,9 @@ function DoorPreview({
     const cellW = (w - gapX * (cols + 1)) / cols
     const cellH = (h - gapY * (rows + 1)) / rows
 
+    // Long window on BC (standard stamp): each window spans 2 adjacent stamp columns
+    const isLongOnStandard = windowSize === 'long' && pattern.stampType === 'standard'
+
     const panels = []
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
@@ -821,13 +839,19 @@ function DoorPreview({
         const cellY = y + gapY + row * (cellH + gapY)
         const stampKey = `carriage-${sectionIndex}-${row}-${col}`
 
-        // Check if this stamp has a window
         const absoluteSection = sectionIndex + 1  // 1-based section
+
+        // In long mode, odd cols consumed by the even col's spanning window — skip them
+        if (isLongOnStandard && col % 2 === 1 && hasWindowAtPosition(absoluteSection, col - 1)) {
+          continue
+        }
+
         if (hasWindowAtPosition(absoluteSection, col)) {
-          // Render window instead of panel
+          // Long mode: window spans this cell + the next (2 stamps wide)
+          const windowW = isLongOnStandard ? cellW * 2 + gapX : cellW
           panels.push(
             <g key={stampKey}>
-              {renderStampWindow(x, cellY, cellW, cellH, col)}
+              {renderStampWindow(x, cellY, windowW, cellH, col)}
             </g>
           )
           continue
@@ -839,24 +863,30 @@ function DoorPreview({
         const innerInset = Math.min(cellW, cellH) * 0.12
         const cornerRadius = Math.min(cellW, cellH) * 0.03
 
-        // Check if this stamp is being hovered (for interactive mode)
+        // For long mode: normalize click col to the even anchor of this pair
+        const clickCol = isLongOnStandard ? Math.floor(col / 2) * 2 : col
+        // For long mode: highlight entire pair when either stamp in the pair is hovered
+        const pairStart = isLongOnStandard ? Math.floor(col / 2) * 2 : col
         const isHovered = interactive && highlightStamp &&
-          highlightStamp.section === absoluteSection && highlightStamp.col === col
+          highlightStamp.section === absoluteSection &&
+          (isLongOnStandard
+            ? Math.floor(highlightStamp.col / 2) * 2 === pairStart
+            : highlightStamp.col === col)
 
         panels.push(
           <g
             key={stampKey}
             style={interactive ? { cursor: 'pointer' } : {}}
-            onClick={interactive && onStampClick ? () => onStampClick(absoluteSection, col) : undefined}
+            onClick={interactive && onStampClick ? () => onStampClick(absoluteSection, clickCol) : undefined}
             onMouseEnter={interactive && onStampHover ? () => onStampHover(absoluteSection, col) : undefined}
             onMouseLeave={interactive && onStampHover ? () => onStampHover(null) : undefined}
           >
-            {/* Highlight overlay for interactive mode */}
-            {isHovered && (
+            {/* Highlight overlay for interactive mode — spans 2 cells in long mode */}
+            {isHovered && col % 2 === pairStart % 2 && (
               <rect
                 x={x}
                 y={cellY}
-                width={cellW}
+                width={isLongOnStandard ? cellW * 2 + gapX : cellW}
                 height={cellH}
                 fill="rgba(59, 130, 246, 0.2)"
                 stroke="rgba(59, 130, 246, 0.8)"
