@@ -366,22 +366,36 @@ class BCPartNumberMapper:
         )
 
     def _get_closest_wire_code(self, wire_size: float) -> str:
-        """Find the closest BC wire size code for a given wire diameter"""
+        """Find the next-size-up BC wire size code for a given wire diameter.
+        Returns the smallest available wire size >= wire_size for a stronger spring spec.
+        """
         if wire_size in self.WIRE_SIZE_CODES:
             return self.WIRE_SIZE_CODES[wire_size]
 
-        # Find closest match
-        closest = min(self.WIRE_SIZE_CODES.keys(), key=lambda x: abs(x - wire_size))
-        return self.WIRE_SIZE_CODES[closest]
+        # Find next size up (smallest available >= requested)
+        sizes_above = [s for s in self.WIRE_SIZE_CODES.keys() if s >= wire_size]
+        if sizes_above:
+            next_size = min(sizes_above)
+        else:
+            # Requested is larger than all available — use largest
+            next_size = max(self.WIRE_SIZE_CODES.keys())
+        return self.WIRE_SIZE_CODES[next_size]
 
     def _get_closest_coil_code(self, coil_id: float) -> str:
-        """Find the closest BC coil size code for a given coil diameter"""
+        """Find the next-size-up BC coil size code for a given coil diameter.
+        Returns the smallest available coil size >= coil_id.
+        """
         if coil_id in self.COIL_SIZE_CODES:
             return self.COIL_SIZE_CODES[coil_id]
 
-        # Find closest match
-        closest = min(self.COIL_SIZE_CODES.keys(), key=lambda x: abs(x - coil_id))
-        return self.COIL_SIZE_CODES[closest]
+        # Find next size up (smallest available >= requested)
+        sizes_above = [s for s in self.COIL_SIZE_CODES.keys() if s >= coil_id]
+        if sizes_above:
+            next_size = min(sizes_above)
+        else:
+            # Requested is larger than all available — use largest
+            next_size = max(self.COIL_SIZE_CODES.keys())
+        return self.COIL_SIZE_CODES[next_size]
 
     def _get_spring_description(
         self,
@@ -474,9 +488,14 @@ class BCPartNumberMapper:
         Returns:
             BCPartNumber for weather stripping
         """
-        # Round height to available size
+        # Round up to the next available strip length (smallest available >= requested)
         available_heights = self.WEATHER_STRIP_LENGTHS
-        height = min(available_heights, key=lambda x: abs(x - door_height_feet))
+        heights_at_or_above = [h for h in available_heights if h >= door_height_feet]
+        if heights_at_or_above:
+            height = min(heights_at_or_above)
+        else:
+            # Door is taller than all available strips — use the largest
+            height = max(available_heights)
 
         # Get color code
         color_code = self.COLOR_CODES.get(color.upper(), "00")

@@ -45,6 +45,7 @@ HARDWARE (HK):
 """
 
 import logging
+import math
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
@@ -548,9 +549,23 @@ class PartNumberService:
         }
         door_model = model_map.get(config.door_series, DoorModel.TX450)
 
-        # Determine end cap type based on door width (>16' typically uses DEC)
-        door_width_feet = config.door_width / 12
-        end_cap_type = EndCapType.DOUBLE if door_width_feet > 16 else EndCapType.SINGLE
+        # Actual door width — keep precise value for description
+        actual_width_in = config.door_width          # e.g., 150 for 12'6"
+        actual_width_feet = actual_width_in / 12     # e.g., 12.5
+
+        # Round UP to next whole foot for BC part number (no panel exists for fractional widths)
+        panel_width_feet = math.ceil(actual_width_feet)   # e.g., 13
+
+        # Determine end cap type based on rounded panel width
+        end_cap_type = EndCapType.DOUBLE if panel_width_feet > 16 else EndCapType.SINGLE
+
+        # Build display string showing the customer's actual requested width
+        actual_ft = actual_width_in // 12
+        actual_in_rem = actual_width_in % 12
+        width_display = f"{actual_ft:02d}' {actual_in_rem:02d}\""   # e.g., "12' 06\""
+        cap_name = "DEC" if end_cap_type == EndCapType.DOUBLE else "SEC"
+        color_str = config.panel_color.replace("_", " ").upper()
+        stamp_str = "UDC" if config.door_type == "commercial" else "STD"
 
         # Get mixed-height breakdown
         breakdown = self._get_section_breakdown(config.door_height)
@@ -574,18 +589,25 @@ class PartNumberService:
                 if count <= 0:
                     continue
 
+            # Use rounded-up width for part number; actual width in description
             panel = mapper.get_panel_part_number(
                 model=door_model,
-                width_feet=door_width_feet,
+                width_feet=panel_width_feet,
                 height_inches=h,
                 color=config.panel_color.replace("_", " "),
                 end_cap_type=end_cap_type,
-                stamp="UDC" if config.door_type == "commercial" else "STD"
+                stamp=stamp_str
+            )
+
+            # Description shows the customer's actual requested dimensions
+            actual_desc = (
+                f"SECTION, {door_model.value}, [{width_display}] X {h}\","
+                f" {stamp_str}, {color_str}, {cap_name}"
             )
 
             parts.append(PartSelection(
                 part_number=panel.part_number,
-                description=panel.description,
+                description=actual_desc,
                 quantity=count,
                 category="panel"
             ))
@@ -670,14 +692,15 @@ class PartNumberService:
         """Get track part numbers using actual BC parts"""
         mapper = get_bc_mapper()
 
-        door_height_feet = config.door_height // 12
+        # Round UP to next whole foot for BC part number (track must cover full door height)
+        door_height_feet = math.ceil(config.door_height / 12)
         track_size = int(config.track_thickness) if config.track_thickness else 2
         radius_inches = int(config.track_radius) if config.track_radius else 12
 
         # Determine lift type
         lift_type = LiftType.STANDARD  # Default to standard lift
 
-        # Get track assembly
+        # Get track assembly part number using the rounded-up height
         track = mapper.get_track_assembly(
             door_height_feet=door_height_feet,
             track_size=track_size,
@@ -686,9 +709,21 @@ class PartNumberService:
             radius_inches=radius_inches
         )
 
+        # Build description showing the customer's actual requested door height
+        actual_ft = config.door_height // 12
+        actual_in = config.door_height % 12
+        if actual_in > 0:
+            height_display = f"{actual_ft}'{actual_in}\""
+        else:
+            height_display = f"{actual_ft}'"
+        track_desc = (
+            f"{track_size}\" STANDARD LIFT BRACKET MOUNT; {height_display} High,"
+            f"{radius_inches}\"Radius"
+        )
+
         return [PartSelection(
             part_number=track.part_number,
-            description=track.description,
+            description=track_desc,
             quantity=1,  # Track assembly is sold as a kit (pair)
             category="track"
         )]
@@ -789,18 +824,27 @@ class PartNumberService:
         """Get shaft part numbers using actual BC parts"""
         mapper = get_bc_mapper()
 
-        door_width_feet = config.door_width // 12
+        # Round UP to next whole foot for BC part number
+        door_width_feet = math.ceil(config.door_width / 12)
 
-        # Get shaft part number
+        # Get shaft part number using rounded-up width
         shaft = mapper.get_shaft(
             door_width_feet=door_width_feet,
             shaft_type="tube",  # Default to tube shaft for residential
             bore_size=1.0
         )
 
+        # Build description showing the customer's actual requested door width
+        actual_ft = config.door_width // 12
+        actual_in = config.door_width % 12
+        if actual_in > 0:
+            shaft_desc = f"1\" Tube Shaft {actual_ft}'{actual_in}\" door width"
+        else:
+            shaft_desc = f"1\" Tube Shaft {actual_ft}' door width"
+
         return [PartSelection(
             part_number=shaft.part_number,
-            description=shaft.description,
+            description=shaft_desc,
             quantity=1,
             category="shaft"
         )]
@@ -873,10 +917,21 @@ class PartNumberService:
         parts = []
         mapper = get_bc_mapper()
 
-        door_height_feet = config.door_height // 12
-        door_width_feet = config.door_width // 12
+        # Round UP to next available strip length (strips must cover the full dimension)
+        door_height_feet = math.ceil(config.door_height / 12)
+        door_width_feet = math.ceil(config.door_width / 12)
         color = config.panel_color.replace("_", " ")
         is_commercial = config.door_type == "commercial"
+
+        # Helper to format actual dimension display string (e.g. 90" → "7'6\"")
+        def _dim_display(total_inches: int) -> str:
+            ft = total_inches // 12
+            inches = total_inches % 12
+            return f"{ft}'{inches}\"" if inches else f"{ft}'"
+
+        actual_h_display = _dim_display(config.door_height)
+        actual_w_display = _dim_display(config.door_width)
+        color_upper = color.upper()
 
         # Get weather strip for HEIGHT (sides) - quantity 2
         height_strip = mapper.get_weather_stripping(
@@ -886,7 +941,10 @@ class PartNumberService:
         )
         parts.append(PartSelection(
             part_number=height_strip.part_number,
-            description=f"{height_strip.description} (SIDES)",
+            description=(
+                f"PLASTICS, WEATHER STRIP, GALVANIZED STEEL/FLEXIBLE VINYL,"
+                f" {color_upper}, {actual_h_display} (SIDES)"
+            ),
             quantity=2,  # Always 2 for left and right jambs
             category="weather_stripping"
         ))
@@ -899,7 +957,10 @@ class PartNumberService:
         )
         parts.append(PartSelection(
             part_number=width_strip.part_number,
-            description=f"{width_strip.description} (HEADER)",
+            description=(
+                f"PLASTICS, WEATHER STRIP, GALVANIZED STEEL/FLEXIBLE VINYL,"
+                f" {color_upper}, {actual_w_display} (HEADER)"
+            ),
             quantity=1,  # Always 1 for header
             category="weather_stripping"
         ))
@@ -962,7 +1023,8 @@ class PartNumberService:
             return []
 
         mapper = get_bc_mapper()
-        door_width_feet = config.door_width // 12
+        # Round UP to next available strip length
+        door_width_feet = math.ceil(config.door_width / 12)
 
         # Top seal uses same weather stripping as header
         # but categorized separately for ordering
@@ -975,9 +1037,18 @@ class PartNumberService:
             commercial=is_commercial
         )
 
+        # Description shows the customer's actual requested door width
+        actual_ft = config.door_width // 12
+        actual_in = config.door_width % 12
+        w_display = f"{actual_ft}'{actual_in}\"" if actual_in else f"{actual_ft}'"
+        color_upper = color.upper()
+
         return [PartSelection(
             part_number=top_seal.part_number,
-            description=f"{top_seal.description} (TOP SEAL)",
+            description=(
+                f"PLASTICS, WEATHER STRIP, GALVANIZED STEEL/FLEXIBLE VINYL,"
+                f" {color_upper}, {w_display} (TOP SEAL)"
+            ),
             quantity=1,
             category="top_seal"
         )]
