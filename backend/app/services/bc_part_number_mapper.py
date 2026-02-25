@@ -678,6 +678,27 @@ class BCPartNumberMapper:
             category="SHAFT"
         )
 
+    def get_shaft_coupler(self, bore_size: float = 1.0) -> BCPartNumber:
+        """
+        Get shaft coupler for split-shaft configuration.
+
+        Args:
+            bore_size: 1.0 → SP12-00160-00 (1\" bore), 1.25 → SP12-00161-00 (1-1/4\" bore)
+        """
+        if bore_size > 1.0:
+            part_number = "SP12-00161-00"
+        else:
+            part_number = "SP12-00160-00"
+
+        item = self.bc_items.get(part_number, {})
+        desc = item.get("displayName", "SPRING ASSY CAST IRON COUPLER BLACK CANIMEX, 1\" BORE")
+
+        return BCPartNumber(
+            part_number=part_number,
+            description=desc,
+            category="SHAFT"
+        )
+
     def get_panel_part_number(
         self,
         model: DoorModel,

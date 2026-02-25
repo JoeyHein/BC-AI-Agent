@@ -116,6 +116,7 @@ class DoorConfiguration:
     door_weight: Optional[float] = None  # lbs - if not provided, will estimate
     target_cycles: int = 10000  # cycle life rating (10000, 15000, 25000, 50000, 100000)
     spring_quantity: int = 2  # number of springs (1 or 2)
+    shaft_preference: str = 'auto'  # 'auto', 'single', or 'split'
 
 
 # ============================================================================
@@ -829,10 +830,17 @@ class PartNumberService:
         - Commercial (any weight <= 2000)   → 1\" solid keyed shaft (SH11)
         - Any door   + weight >  2000 lbs  → 1-1/4\" keyed shaft (SH10-00002-00)
 
-        Solid shaft sizing:
+        Solid shaft sizing (single):
           Physical length of SH11-1FF06 = FF*12 + 6 inches.
-          Must cover door_width + 18". Rearranging: FF >= (door_width + 12) / 12.
-          required_ff = ceil((door_width_in + 12) / 12)
+          Must cover door_width + 16". Rearranging: FF >= (door_width + 10) / 12.
+          required_ff = ceil((door_width_in + 10) / 12)
+          Max SH11 = 15'-6" (186"). Single shaft works for doors up to 170" (14'2").
+
+        Split shaft sizing (2× SH11 + coupler):
+          Each half covers (door_width + 16) / 2.
+          FF*12+6 >= (door_width+16)/2 → FF >= (door_width + 4) / 24.
+          required_ff_each = ceil((door_width_in + 4) / 24)
+          Triggered automatically when door_width > 170" or when shaft_preference == 'split'.
         """
         mapper = get_bc_mapper()
 
@@ -851,39 +859,89 @@ class PartNumberService:
         if door_weight > 2000:
             # Very heavy door — 1-1/4" keyed shaft regardless of type
             shaft = mapper.get_shaft(door_width_feet=0, shaft_type="1-1/4")
-            shaft_desc = shaft.description
+            return [PartSelection(
+                part_number=shaft.part_number,
+                description=shaft.description,
+                quantity=1,
+                category="shaft"
+            )]
 
-        elif is_residential and door_weight <= 750:
-            # Light residential — 1" tube shaft
+        if is_residential and door_weight <= 750:
+            # Light residential — 1" tube shaft (no split needed, max SH12 is 18'-10")
             door_width_feet = math.ceil(config.door_width / 12)
             shaft = mapper.get_shaft(door_width_feet=door_width_feet, shaft_type="tube")
-            shaft_desc = f"1\" Tube Shaft {width_display} door width"
+            return [PartSelection(
+                part_number=shaft.part_number,
+                description=f"1\" Tube Shaft {width_display} door width",
+                quantity=1,
+                category="shaft"
+            )]
+
+        # Heavy residential OR any commercial — 1" solid keyed shaft (SH11)
+        # Determine whether to use split shaft:
+        #   - auto: split when door_width > 170" (max single SH11 covers 170" door)
+        #   - split: always split
+        #   - single: always single (warn if too wide)
+        use_split = (
+            config.shaft_preference == 'split' or
+            (config.shaft_preference == 'auto' and config.door_width > 170)
+        )
+
+        if use_split:
+            # Two SH11 shafts + one coupler
+            # Each half: FF*12+6 >= (door_width+16)/2 → FF >= (door_width+4)/24
+            required_ff_each = math.ceil((config.door_width + 4) / 24)
+            shaft_half = mapper.get_shaft(door_width_feet=required_ff_each, shaft_type="solid")
+            coupler = mapper.get_shaft_coupler(bore_size=1.0)
+
+            selected_ff = int(shaft_half.part_number[6:8])
+            half_length = selected_ff * 12 + 6
+            total_length = half_length * 2
+            needed = config.door_width + 16
+            if total_length < needed:
+                logger.warning(
+                    f"Split shaft total {total_length}\" still short for {width_display} door "
+                    f"(need {needed}\"): using {shaft_half.part_number} ×2"
+                )
+
+            shaft_desc = f"1\" Solid Shaft Keyed {width_display} door width (split)"
+            return [
+                PartSelection(
+                    part_number=shaft_half.part_number,
+                    description=shaft_desc,
+                    quantity=2,
+                    category="shaft"
+                ),
+                PartSelection(
+                    part_number=coupler.part_number,
+                    description=coupler.description,
+                    quantity=1,
+                    category="shaft"
+                ),
+            ]
 
         else:
-            # Heavy residential OR any commercial — 1" solid keyed shaft
-            # Physical shaft must be >= door_width + 18"
-            # SH11-1FF06 length = FF*12+6; need FF*12+6 >= door_width+18 → FF >= (door_width+12)/12
-            required_ff = math.ceil((config.door_width + 12) / 12)
+            # Single solid shaft
+            # FF*12+6 >= door_width+16 → FF >= (door_width+10)/12
+            required_ff = math.ceil((config.door_width + 10) / 12)
             shaft = mapper.get_shaft(door_width_feet=required_ff, shaft_type="solid")
 
-            # Warn if the selected shaft doesn't fully meet the 18" requirement
             selected_ff = int(shaft.part_number[6:8])
             physical_length = selected_ff * 12 + 6
-            needed = config.door_width + 18
+            needed = config.door_width + 16
             if physical_length < needed:
                 logger.warning(
                     f"No solid shaft long enough for {width_display} door "
                     f"(need {needed}\", max available {physical_length}\"): "
                     f"using {shaft.part_number}"
                 )
-            shaft_desc = f"1\" Solid Shaft Keyed {width_display} door width"
 
-        return [PartSelection(
-            part_number=shaft.part_number,
-            description=shaft_desc,
-            quantity=1,
-            category="shaft"
-        )]
+            return [PartSelection(
+                part_number=shaft.part_number,
+                description=f"1\" Solid Shaft Keyed {width_display} door width",
+                quantity=1,
+                category="shaft"
+            )]
 
     def _get_strut_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get strut part numbers using actual BC parts"""
@@ -1431,6 +1489,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         hardware=config_dict.get("hardware", {}),
         operator=config_dict.get("operator"),
         target_cycles=config_dict.get("targetCycles", config_dict.get("target_cycles", 10000)),
+        shaft_preference=config_dict.get("shaftType", "auto"),
     )
 
     parts = part_number_service.get_parts_for_configuration(config)

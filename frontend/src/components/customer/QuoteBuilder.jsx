@@ -1850,37 +1850,35 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         </div>
       )}
 
-      {/* Shaft Type - commercial only */}
-      {door.doorType === 'commercial' && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Shaft Configuration
-          </label>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {shaftTypeOptions.map((option) => (
-              <button
-                key={option.id}
-                onClick={() => onChange({ shaftType: option.id })}
-                className={`p-3 rounded-lg border-2 text-left transition-all ${
-                  door.shaftType === option.id
-                    ? 'border-odc-500 bg-blue-50'
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                <span className="block text-sm font-medium text-gray-900">{option.name}</span>
-                <span className="block text-xs text-gray-500">{option.description}</span>
-              </button>
-            ))}
-          </div>
-          {shaftWarning && (
-            <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
-              <p className="text-xs text-yellow-700">
-                Warning: Single shaft is only recommended for doors up to 14'2" wide. Your door is {Math.floor(door.doorWidth / 12)}'{door.doorWidth % 12}".
-              </p>
-            </div>
-          )}
+      {/* Shaft Type - all door types */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Shaft Configuration
+        </label>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {shaftTypeOptions.map((option) => (
+            <button
+              key={option.id}
+              onClick={() => onChange({ shaftType: option.id })}
+              className={`p-3 rounded-lg border-2 text-left transition-all ${
+                door.shaftType === option.id
+                  ? 'border-odc-500 bg-odc-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <span className="block text-sm font-medium text-gray-900">{option.name}</span>
+              <span className="block text-xs text-gray-500">{option.description}</span>
+            </button>
+          ))}
         </div>
-      )}
+        {shaftWarning && (
+          <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
+            <p className="text-xs text-yellow-700">
+              Warning: Single shaft is only recommended for doors up to 14'2" wide. Your door is {Math.floor(door.doorWidth / 12)}'{door.doorWidth % 12}".
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* Hardware Options */}
       <div>
