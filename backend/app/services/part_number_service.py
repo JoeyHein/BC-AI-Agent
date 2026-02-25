@@ -824,35 +824,59 @@ class PartNumberService:
         """Get shaft part numbers using actual BC parts.
 
         Shaft type selection:
-        - Door weight <= 2000 lbs → 1\" tube shaft (SH12), sized to next available length
-        - Door weight >  2000 lbs → 1-1/4\" keyed shaft (SH10-00002-00)
+        - Residential + weight <= 750 lbs  → 1\" tube shaft (SH12)
+        - Residential + weight >  750 lbs  → 1\" solid keyed shaft (SH11)
+        - Commercial (any weight <= 2000)   → 1\" solid keyed shaft (SH11)
+        - Any door   + weight >  2000 lbs  → 1-1/4\" keyed shaft (SH10-00002-00)
+
+        Solid shaft sizing:
+          Physical length of SH11-1FF06 = FF*12 + 6 inches.
+          Must cover door_width + 18". Rearranging: FF >= (door_width + 12) / 12.
+          required_ff = ceil((door_width_in + 12) / 12)
         """
         mapper = get_bc_mapper()
-
-        # Round UP to next whole foot; mapper then picks next available catalog length
-        door_width_feet = math.ceil(config.door_width / 12)
 
         # Calculate door weight to determine shaft type
         door_weight = config.door_weight
         if door_weight is None:
             door_weight = self._calculate_door_weight(config)
 
-        if door_weight > 2000:
-            # Heavy door — use 1-1/4" keyed shaft
-            shaft = mapper.get_shaft(door_width_feet=door_width_feet, shaft_type="1-1/4")
-            shaft_desc = shaft.description  # Use BC description for the fixed heavy-shaft part
-        else:
-            # Standard door — use 1" tube shaft, next available catalog size
-            shaft = mapper.get_shaft(door_width_feet=door_width_feet, shaft_type="tube")
+        is_residential = config.door_type == "residential"
 
-            # Description shows the customer's actual requested door width
-            actual_ft = config.door_width // 12
-            actual_in = config.door_width % 12
-            shaft_desc = (
-                f"1\" Tube Shaft {actual_ft}'{actual_in}\" door width"
-                if actual_in else
-                f"1\" Tube Shaft {actual_ft}' door width"
-            )
+        # Convenience helpers for the description
+        actual_ft = config.door_width // 12
+        actual_in = config.door_width % 12
+        width_display = f"{actual_ft}'{actual_in}\"" if actual_in else f"{actual_ft}'"
+
+        if door_weight > 2000:
+            # Very heavy door — 1-1/4" keyed shaft regardless of type
+            shaft = mapper.get_shaft(door_width_feet=0, shaft_type="1-1/4")
+            shaft_desc = shaft.description
+
+        elif is_residential and door_weight <= 750:
+            # Light residential — 1" tube shaft
+            door_width_feet = math.ceil(config.door_width / 12)
+            shaft = mapper.get_shaft(door_width_feet=door_width_feet, shaft_type="tube")
+            shaft_desc = f"1\" Tube Shaft {width_display} door width"
+
+        else:
+            # Heavy residential OR any commercial — 1" solid keyed shaft
+            # Physical shaft must be >= door_width + 18"
+            # SH11-1FF06 length = FF*12+6; need FF*12+6 >= door_width+18 → FF >= (door_width+12)/12
+            required_ff = math.ceil((config.door_width + 12) / 12)
+            shaft = mapper.get_shaft(door_width_feet=required_ff, shaft_type="solid")
+
+            # Warn if the selected shaft doesn't fully meet the 18" requirement
+            selected_ff = int(shaft.part_number[6:8])
+            physical_length = selected_ff * 12 + 6
+            needed = config.door_width + 18
+            if physical_length < needed:
+                logger.warning(
+                    f"No solid shaft long enough for {width_display} door "
+                    f"(need {needed}\", max available {physical_length}\"): "
+                    f"using {shaft.part_number}"
+                )
+            shaft_desc = f"1\" Solid Shaft Keyed {width_display} door width"
 
         return [PartSelection(
             part_number=shaft.part_number,
