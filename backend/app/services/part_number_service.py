@@ -821,26 +821,38 @@ class PartNumberService:
         return parts
 
     def _get_shaft_parts(self, config: DoorConfiguration) -> List[PartSelection]:
-        """Get shaft part numbers using actual BC parts"""
+        """Get shaft part numbers using actual BC parts.
+
+        Shaft type selection:
+        - Door weight <= 2000 lbs → 1\" tube shaft (SH12), sized to next available length
+        - Door weight >  2000 lbs → 1-1/4\" keyed shaft (SH10-00002-00)
+        """
         mapper = get_bc_mapper()
 
-        # Round UP to next whole foot for BC part number
+        # Round UP to next whole foot; mapper then picks next available catalog length
         door_width_feet = math.ceil(config.door_width / 12)
 
-        # Get shaft part number using rounded-up width
-        shaft = mapper.get_shaft(
-            door_width_feet=door_width_feet,
-            shaft_type="tube",  # Default to tube shaft for residential
-            bore_size=1.0
-        )
+        # Calculate door weight to determine shaft type
+        door_weight = config.door_weight
+        if door_weight is None:
+            door_weight = self._calculate_door_weight(config)
 
-        # Build description showing the customer's actual requested door width
-        actual_ft = config.door_width // 12
-        actual_in = config.door_width % 12
-        if actual_in > 0:
-            shaft_desc = f"1\" Tube Shaft {actual_ft}'{actual_in}\" door width"
+        if door_weight > 2000:
+            # Heavy door — use 1-1/4" keyed shaft
+            shaft = mapper.get_shaft(door_width_feet=door_width_feet, shaft_type="1-1/4")
+            shaft_desc = shaft.description  # Use BC description for the fixed heavy-shaft part
         else:
-            shaft_desc = f"1\" Tube Shaft {actual_ft}' door width"
+            # Standard door — use 1" tube shaft, next available catalog size
+            shaft = mapper.get_shaft(door_width_feet=door_width_feet, shaft_type="tube")
+
+            # Description shows the customer's actual requested door width
+            actual_ft = config.door_width // 12
+            actual_in = config.door_width % 12
+            shaft_desc = (
+                f"1\" Tube Shaft {actual_ft}'{actual_in}\" door width"
+                if actual_in else
+                f"1\" Tube Shaft {actual_ft}' door width"
+            )
 
         return [PartSelection(
             part_number=shaft.part_number,

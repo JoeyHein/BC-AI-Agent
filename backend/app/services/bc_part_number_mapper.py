@@ -616,27 +616,61 @@ class BCPartNumberMapper:
         Get shaft part number.
 
         Args:
-            door_width_feet: Door width in feet (shaft is typically width - 10")
-            shaft_type: "tube" or "solid"
+            door_width_feet: Door width in feet
+            shaft_type: "tube" (SH12, 1" tube), "solid" (SH11, 1" solid keyed),
+                        or "1-1/4" (SH10, 1-1/4" keyed — for heavy doors >2000 lbs)
             bore_size: Bore size in inches
 
         Returns:
-            BCPartNumber for shaft
+            BCPartNumber for shaft, selecting next-size-up from BC catalog
         """
-        # Shaft length is typically door width + some extra for drums
-        # Standard residential: width + 10" for tube shaft
-        shaft_feet = door_width_feet
+        # Heavy doors (>2000 lbs) use the single 1-1/4" keyed shaft part
+        if shaft_type == "1-1/4":
+            part_number = "SH10-00002-00"
+            item = self.bc_items.get(part_number, {})
+            desc = item.get("displayName", "SOLID 1-1/4\" KEYED SHAFT")
+            return BCPartNumber(
+                part_number=part_number,
+                description=desc,
+                category="SHAFT"
+            )
 
-        if shaft_type == "tube":
-            # SH12-1{height}10-00 format
-            height_code = f"{shaft_feet:02d}"
-            part_number = f"SH12-1{height_code}10-00"
-            desc = f"1\" Tube Shaft {shaft_feet}'-10\""
+        # 1" tube (SH12) or solid keyed (SH11)
+        if shaft_type == "solid":
+            prefix = "SH11"
+            ext_code = "06"
+            shaft_name = "1\" Solid Shaft Keyed"
+            ext_desc = "6\""
+        else:  # tube (default)
+            prefix = "SH12"
+            ext_code = "10"
+            shaft_name = "1\" Tube Shaft"
+            ext_desc = "10\""
+
+        # Find available lengths from the BC catalog (part format: PREFIX-1FF{ext}-00)
+        # e.g. SH12-10710-00 → 7' tube shaft, SH12-11210-00 → 12' tube shaft
+        available_lengths = []
+        for pn, item in self.bc_items.items():
+            if (pn.startswith(f"{prefix}-1") and
+                    len(pn) == 13 and
+                    pn[8:10] == ext_code and
+                    pn.endswith("-00")):
+                try:
+                    available_lengths.append(int(pn[6:8]))
+                except ValueError:
+                    pass
+
+        if available_lengths:
+            # Pick smallest available length >= requested (next size up)
+            sizes_above = [l for l in available_lengths if l >= door_width_feet]
+            shaft_feet = min(sizes_above) if sizes_above else max(available_lengths)
         else:
-            # SH11 for solid shaft
-            height_code = f"{shaft_feet:02d}"
-            part_number = f"SH11-1{height_code}06-00"
-            desc = f"1\" Solid Shaft Keyed {shaft_feet}'-6\""
+            # BC data not loaded — use requested value directly
+            shaft_feet = door_width_feet
+
+        height_code = f"{shaft_feet:02d}"
+        part_number = f"{prefix}-1{height_code}{ext_code}-00"
+        desc = f"{shaft_name} {shaft_feet}'-{ext_desc}"
 
         return BCPartNumber(
             part_number=part_number,
