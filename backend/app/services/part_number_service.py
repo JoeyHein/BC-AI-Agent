@@ -117,6 +117,7 @@ class DoorConfiguration:
     target_cycles: int = 10000  # cycle life rating (10000, 15000, 25000, 50000, 100000)
     spring_quantity: int = 2  # number of springs (1 or 2)
     shaft_preference: str = 'auto'  # 'auto', 'single', or 'split'
+    window_size: str = 'long'  # 'short' (GK15-10xxx) or 'long' (GK15-11xxx)
 
 
 # ============================================================================
@@ -463,7 +464,8 @@ class PartNumberService:
             parts.extend(seal_parts)
 
         # 12. EXTRAS (windows, operator)
-        if config.window_insert and config.window_insert != "NONE":
+        has_windows = (config.window_count > 0) or (config.window_insert and config.window_insert not in (None, "NONE"))
+        if has_windows:
             window_parts = self._get_window_parts(config)
             parts.extend(window_parts)
 
@@ -1168,10 +1170,14 @@ class PartNumberService:
         return []
 
     def _get_window_parts(self, config: DoorConfiguration) -> List[PartSelection]:
-        """Get window/glass kit part numbers using GK15 (residential) or GK16 (commercial)"""
-        if not config.window_insert:
-            return []
+        """Get window/glass kit part numbers using GK15 (residential) or GK16 (commercial).
 
+        For residential KANATA doors:
+          SHORT windows (GK15-10xxx): fit one short stamp on SH/BC designs.
+            No decorative frame inserts available (BC catalog has none for short).
+          LONG windows (GK15-11xxx): fit one long stamp on SHXL/BCXL, or span 2
+            short stamps on SH/BC.  Decorative GL18 frame inserts are available.
+        """
         # V130G: full-view aluminum section + glass (separate line items)
         if config.window_insert == "V130G":
             return self._get_v130g_parts(config)
@@ -1183,13 +1189,16 @@ class PartNumberService:
         # Residential window glass kits — build GK15 part number
         mapper = get_bc_mapper()
 
-        # Determine section height: door_height / panel_count
-        panel_count = self._calculate_panel_count(config.door_height)
-        section_height = config.door_height / panel_count  # inches per section
+        # SS: determined by window_size field ('short' → GK15-10xxx, 'long' → GK15-11xxx)
+        # PLAIN_SHORT / PLAIN_LONG are sentinels sent when no decorative insert is selected.
+        effective_size = config.window_size or 'long'
+        if config.window_insert == 'PLAIN_SHORT':
+            effective_size = 'short'
+        elif config.window_insert == 'PLAIN_LONG':
+            effective_size = 'long'
 
-        # SS: Series+Size code
-        # SHORT (≤18") vs LONG (>18")
-        is_short = section_height <= 18
+        is_short = effective_size == 'short'
+
         series_upper = config.door_series.upper()
         if series_upper in ("KANATA", "KANATA_EXECUTIVE"):
             ss = "10" if is_short else "11"  # KANATA SHORT / KANATA LONG
@@ -1218,7 +1227,7 @@ class PartNumberService:
         # Build GK15 part number
         gk15_pn = f"GK15-{ss}{g}{cc}-00"
 
-        # Validate against BC items; fall back to description search if needed
+        # Validate against BC items
         validated = mapper.get_glass_kit(gk15_pn, "residential")
         if validated:
             part_number = validated.part_number
@@ -1226,18 +1235,37 @@ class PartNumberService:
         else:
             part_number = gk15_pn
             glass_label = {"1": "SINGLE", "2": "THERM-CLEAR", "4": "THERM-ETCHED", "9": "SUPER GREY"}.get(g, "THERM-CLEAR")
-            description = f"GLASS KIT, RESIDENTIAL, {glass_label}, {panel_color_normalized}"
+            size_label = "SHORT" if is_short else "LONG"
+            description = f"GLASS KIT, 1-3/4\" KANATA, {size_label}, {glass_label}, {panel_color_normalized}"
 
-        # Window quantity based on positions
+        # Window quantity: use actual window count from positions, or estimate from door width
         window_qty = config.window_count or max(1, config.door_width // 24)
 
-        return [PartSelection(
+        parts = [PartSelection(
             part_number=part_number,
             description=description,
             quantity=window_qty,
-            category="window",
-            notes=f"GK15 glass kit for section {config.window_section or 1}"
+            category="window"
         )]
+
+        # Add GL18 frame insert for decorative LONG windows (no inserts for SHORT)
+        decorative_inserts = {
+            "STOCKTON_STANDARD", "STOCKTON_EIGHT_SQUARE", "STOCKTON_TEN_SQUARE_XL",
+            "STOCKTON_ARCHED", "STOCKTON_ARCHED_XL",
+            "STOCKBRIDGE_STRAIGHT", "STOCKBRIDGE_STRAIGHT_XL",
+            "STOCKBRIDGE_ARCHED", "STOCKBRIDGE_ARCHED_XL",
+        }
+        if not is_short and config.window_insert in decorative_inserts:
+            frame_insert = mapper.get_frame_insert(config.window_insert, config.panel_color)
+            if frame_insert:
+                parts.append(PartSelection(
+                    part_number=frame_insert.part_number,
+                    description=frame_insert.description,
+                    quantity=window_qty,
+                    category="window"
+                ))
+
+        return parts
 
     def _get_v130g_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """
@@ -1478,7 +1506,6 @@ def get_parts_for_door_config(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         panel_design=config_dict.get("panelDesign", "SHXL"),
         window_insert=config_dict.get("windowInsert"),
         window_section=config_dict.get("windowSection"),
-        window_count=config_dict.get("windowCount", 0),
         window_qty=config_dict.get("windowQty", 0),
         window_frame_color=config_dict.get("windowFrameColor", "BLACK"),
         glazing_type=config_dict.get("glazingType"),
@@ -1490,6 +1517,8 @@ def get_parts_for_door_config(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         operator=config_dict.get("operator"),
         target_cycles=config_dict.get("targetCycles", config_dict.get("target_cycles", 10000)),
         shaft_preference=config_dict.get("shaftType", "auto"),
+        window_size=config_dict.get("windowSize", "long"),
+        window_count=len(config_dict.get("windowPositions", [])) or config_dict.get("windowCount", 0),
     )
 
     parts = part_number_service.get_parts_for_configuration(config)

@@ -57,9 +57,10 @@ function DoorConfigurator() {
       // Window configuration
       hasWindows: false,
       windowPositions: [],  // Array of {section, col} for multi-stamp windows
+      windowSize: 'long',   // 'short' (GK15-10xxx) or 'long' (GK15-11xxx)
       glassPaneType: null,  // 'INSULATED' or 'SINGLE'
       glassColor: null,  // 'CLEAR', 'ETCHED', 'SUPER_GREY'
-      hasInserts: false,  // Whether decorative inserts are added
+      hasInserts: false,  // Whether decorative inserts are added (LONG windows only)
       windowInsert: 'NONE',  // Insert style if hasInserts is true
       windowFrameColor: 'MATCH',  // 'MATCH' = match door color, or a color ID
       windowSection: 1,  // Legacy fallback
@@ -157,12 +158,18 @@ function DoorConfigurator() {
         // Window configuration
         hasWindows: door.hasWindows || false,
         windowPositions: door.windowPositions || [],
+        windowSize: door.windowSize || 'long',
+        windowCount: (door.windowPositions || []).length,
         glassPaneType: door.glassPaneType,
         glassColor: door.glassColor,
         hasInserts: door.hasInserts || false,
         windowInsert: door.doorType === 'commercial'
           ? (door.windowInsert || null)
-          : (door.hasInserts && door.windowInsert !== 'NONE' ? door.windowInsert : null),
+          : (() => {
+              if (!door.hasWindows || !(door.windowPositions || []).length) return null
+              if (door.hasInserts && door.windowInsert !== 'NONE') return door.windowInsert
+              return (door.windowSize || 'long') === 'short' ? 'PLAIN_SHORT' : 'PLAIN_LONG'
+            })(),
         windowSection: door.windowSection,
         windowQty: door.windowQty || 0,
         windowFrameColor: door.windowFrameColor || (door.doorType === 'commercial' ? 'BLACK' : 'MATCH'),
@@ -1088,10 +1095,52 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
             </div>
           </div>
 
-          {/* Step 2: Glass Pane Type */}
+          {/* Step 2: Window Size (SHORT vs LONG) */}
+          {(() => {
+            // SHXL/BCXL use long stamps — only LONG glass kits fit; short windows don't work
+            const isLongOnlyDesign = ['SHXL', 'BCXL'].includes(door.panelDesign)
+            if (isLongOnlyDesign) {
+              // Auto-correct if somehow set to short
+              if (door.windowSize === 'short') onChange({ windowSize: 'long', hasInserts: false })
+              return null // No choice to show — LONG is the only option
+            }
+            return (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  2. Window Size
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => onChange({ windowSize: 'long', hasInserts: false, windowInsert: 'NONE' })}
+                    className={`p-3 rounded-lg border-2 text-left transition-all ${
+                      (door.windowSize || 'long') === 'long'
+                        ? 'border-odc-500 bg-odc-50'
+                        : 'border-gray-200 hover:border-gray-400'
+                    }`}
+                  >
+                    <span className="block font-medium text-gray-900 text-sm">Long Window</span>
+                    <span className="block text-xs text-gray-500 mt-1">Full stamp width — optional decorative inserts available</span>
+                  </button>
+                  <button
+                    onClick={() => onChange({ windowSize: 'short', hasInserts: false, windowInsert: 'NONE' })}
+                    className={`p-3 rounded-lg border-2 text-left transition-all ${
+                      door.windowSize === 'short'
+                        ? 'border-odc-500 bg-odc-50'
+                        : 'border-gray-200 hover:border-gray-400'
+                    }`}
+                  >
+                    <span className="block font-medium text-gray-900 text-sm">Short Window</span>
+                    <span className="block text-xs text-gray-500 mt-1">Half stamp width — fits {door.panelDesign === 'TRAFALGAR' ? 'single column' : 'one short stamp'}</span>
+                  </button>
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* Step 3: Glass Pane Type */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              2. Glass Pane Type
+              3. Glass Pane Type
             </label>
             <div className="grid grid-cols-2 gap-3">
               {glassPaneOptions.map((option) => (
@@ -1111,10 +1160,10 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
             </div>
           </div>
 
-          {/* Step 3: Glass Color */}
+          {/* Step 4: Glass Color */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              3. Glass Color
+              4. Glass Color
             </label>
             <div className="grid grid-cols-3 gap-3">
               {glassColorOptions.map((option) => (
@@ -1139,10 +1188,10 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
             </div>
           </div>
 
-          {/* Step 4: Window Frame Color */}
+          {/* Step 5: Window Frame Color */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              4. Window Frame Color
+              5. Window Frame Color
             </label>
             <select
               value={door.windowFrameColor || 'MATCH'}
@@ -1160,7 +1209,8 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
             </select>
           </div>
 
-          {/* Step 5: Optional Window Inserts */}
+          {/* Step 6: Optional Window Inserts — LONG windows only (no inserts for short glass kits) */}
+          {door.windowSize !== 'short' && (
           <div className="border-t pt-6">
             <div className="flex items-center space-x-3 mb-4">
               <input
@@ -1211,6 +1261,7 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
               </div>
             )}
           </div>
+          )}
         </>
       )}
 

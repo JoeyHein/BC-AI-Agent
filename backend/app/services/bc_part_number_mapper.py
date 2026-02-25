@@ -1112,6 +1112,76 @@ class BCPartNumberMapper:
         logger.debug(f"Glass kit {constructed_pn} not found in BC items, using constructed PN")
         return None
 
+    def get_frame_insert(self, insert_style: str, panel_color: str) -> Optional["BCPartNumber"]:
+        """
+        Look up a GL18 decorative frame insert for LONG residential windows.
+
+        Searches bc_items for GL18 parts matching insert style + panel color.
+        Falls back to any matching style if no color match found.
+
+        Args:
+            insert_style: Frontend insert ID (e.g. STOCKTON_STANDARD, STOCKBRIDGE_ARCHED)
+            panel_color:  Panel color name (e.g. WHITE, BLACK, IRON_ORE)
+
+        Returns:
+            BCPartNumber for GL18 frame insert, or None if not found
+        """
+        # Map frontend insert ID to the BC displayName phrase
+        style_phrases = {
+            "STOCKTON_STANDARD":       "STOCKTON (1PC)",
+            "STOCKTON_EIGHT_SQUARE":   "STOCKTON (1PC)",
+            "STOCKTON_TEN_SQUARE_XL":  "STOCKTON (1PC)",
+            "STOCKTON_ARCHED":         "ARCHED STOCKTON",
+            "STOCKTON_ARCHED_XL":      "ARCHED STOCKTON",
+            "STOCKBRIDGE_STRAIGHT":    "STRAIGHT STOCKBRIDGE",
+            "STOCKBRIDGE_STRAIGHT_XL": "STRAIGHT STOCKBRIDGE",
+            "STOCKBRIDGE_ARCHED":      "ARCHED STOCKBRIDGE",
+            "STOCKBRIDGE_ARCHED_XL":   "ARCHED STOCKBRIDGE",
+        }
+        style_phrase = style_phrases.get(insert_style)
+        if not style_phrase:
+            return None
+
+        # Map panel color to BC color keyword
+        color_normalized = panel_color.replace("_", " ").upper()
+        color_aliases = {
+            "NEW BROWN": "NEW BROWN",
+            "BROWN": "WALNUT",
+            "SANDTONE": "SANDTONE",
+            "WHITE": "WHITE",
+            "BLACK": "BLACK",
+            "STEEL GREY": "STEEL GREY",
+            "NEW ALMOND": "NEW ALMOND",
+            "IRON ORE": "IRON ORE",
+            "HAZELWOOD": "HAZELWOOD",
+            "WALNUT": "WALNUT",
+            "ENGLISH CHESTNUT": "ENGLISH CHESTNUT",
+        }
+        color_kw = color_aliases.get(color_normalized, color_normalized)
+
+        # Two-pass: prefer exact color match, then fall back to any match
+        best_match = None
+        for pn, item in self.bc_items.items():
+            if not pn.startswith("GL18-"):
+                continue
+            display = item.get("displayName", "").upper()
+            if style_phrase.upper() not in display:
+                continue
+            if color_kw and color_kw.upper() in display:
+                return BCPartNumber(
+                    part_number=pn,
+                    description=item["displayName"],
+                    category="WINDOW_INSERT"
+                )
+            if best_match is None:
+                best_match = BCPartNumber(
+                    part_number=pn,
+                    description=item["displayName"],
+                    category="WINDOW_INSERT"
+                )
+
+        return best_match
+
     def generate_door_parts(
         self,
         door_width_feet: float,
