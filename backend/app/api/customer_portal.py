@@ -405,6 +405,7 @@ def _generate_bc_quote_with_items(
             "panelColor": door.get("panelColor", "WHITE"),
             "panelDesign": door.get("panelDesign", "SHXL"),
             "windowInsert": door.get("windowInsert"),
+            "windowSize": door.get("windowSize", "long"),
             "windowPositions": door.get("windowPositions", []),
             "windowCount": door.get("windowCount") or (
                 len(door.get("windowPositions", [])) if door.get("windowPositions")
@@ -548,16 +549,40 @@ def _generate_bc_quote_with_items(
             "currency": "CAD",
         }
 
+        # Build a price lookup from BC's returned lines keyed by part number.
+        # BC may not return Comment-type lines in salesQuoteLines, so we rebuild
+        # line_pricing from all_lines (which preserves Comment delimiters) and
+        # enrich Item lines with the actual BC prices.
+        bc_price_lookup = {}
         for ql in quote_lines:
-            line_pricing.append({
-                "line_type": ql.get("lineType", ""),
-                "part_number": ql.get("lineObjectNumber", ""),
-                "description": ql.get("description", ""),
-                "quantity": ql.get("quantity", 0),
-                "unit_price": ql.get("unitPrice", 0),
-                "line_total": ql.get("netAmount", 0),
-                "door_index": None,  # BC doesn't track this, but comments delimit doors
-            })
+            obj_num = ql.get("lineObjectNumber", "")
+            if obj_num and obj_num not in bc_price_lookup:
+                bc_price_lookup[obj_num] = {
+                    "unit_price": ql.get("unitPrice", 0),
+                }
+
+        for line in all_lines:
+            if line.get("lineType") == "Comment":
+                line_pricing.append({
+                    "line_type": "Comment",
+                    "part_number": "",
+                    "description": line["description"],
+                    "quantity": 0,
+                    "unit_price": 0,
+                    "line_total": 0,
+                })
+            else:
+                part_num = line.get("part_number", "")
+                qty = line.get("quantity", 1)
+                unit_price = bc_price_lookup.get(part_num, {}).get("unit_price", 0)
+                line_pricing.append({
+                    "line_type": "Item",
+                    "part_number": part_num,
+                    "description": line.get("description", ""),
+                    "quantity": qty,
+                    "unit_price": unit_price,
+                    "line_total": round(unit_price * qty, 2),
+                })
 
     except Exception as pricing_error:
         logger.warning(f"Could not fetch pricing for quote {bc_quote_number}: {pricing_error}")
@@ -619,6 +644,7 @@ def _estimate_pricing_locally(
             "panelColor": door.get("panelColor", "WHITE"),
             "panelDesign": door.get("panelDesign", "SHXL"),
             "windowInsert": door.get("windowInsert"),
+            "windowSize": door.get("windowSize", "long"),
             "windowPositions": door.get("windowPositions", []),
             "windowCount": door.get("windowCount") or (
                 len(door.get("windowPositions", [])) if door.get("windowPositions")
