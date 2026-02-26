@@ -267,6 +267,17 @@ class BusinessCentralClient:
         )
         return result
 
+    def update_quote_line(self, quote_id: str, line_id: str, etag: str, update_data: Dict[str, Any], company_id: Optional[str] = None) -> Dict[str, Any]:
+        """Update a sales quote line (PATCH). Uses If-Match to satisfy BC's optimistic concurrency."""
+        cid = company_id or self.company_id
+        result = self._make_request(
+            "PATCH",
+            f"companies({cid})/salesQuotes({quote_id})/salesQuoteLines({line_id})",
+            json=update_data,
+            headers={"If-Match": etag},
+        )
+        return result
+
     # ==================== Quote PDF (BC built-in) ====================
 
     def get_quote_pdf(self, quote_id: str, company_id: Optional[str] = None) -> bytes:

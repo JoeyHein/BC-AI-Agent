@@ -804,19 +804,27 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                         "description": line.get("description", ""),
                         "quantity": line["quantity"],
                     }
-                    # Apply customer-tier pricing when a customer is selected
-                    if request.customerId:
-                        selling_price = calculate_selling_price(
-                            part_number=line["part_number"],
-                            door_type=line.get("door_type", "residential"),
-                            tier=pricing_tier,
-                            db=db,
-                        )
-                        if selling_price is not None:
-                            line_data["unitPrice"] = selling_price
 
-                bc_client.add_quote_line(bc_quote_id, line_data)
+                added_line = bc_client.add_quote_line(bc_quote_id, line_data)
                 lines_added += 1
+
+                # BC's item price list overrides unitPrice on POST.
+                # PATCH the line afterward to lock in the customer-tier price.
+                if request.customerId and line.get("lineType") != "Comment":
+                    selling_price = calculate_selling_price(
+                        part_number=line["part_number"],
+                        door_type=line.get("door_type", "residential"),
+                        tier=pricing_tier,
+                        db=db,
+                    )
+                    if selling_price is not None:
+                        etag = added_line.get("@odata.etag", "*")
+                        bc_client.update_quote_line(
+                            bc_quote_id,
+                            added_line["id"],
+                            etag,
+                            {"unitPrice": selling_price},
+                        )
                 logger.debug(f"Added line: {line.get('part_number', line.get('description', ''))[:30]}")
 
             except Exception as line_error:
