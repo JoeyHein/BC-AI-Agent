@@ -12,8 +12,10 @@ import logging
 from app.services.part_number_service import get_parts_for_door_config, part_number_service, DoorConfiguration
 from app.services.door_calculator_service import door_calculator, calculate_door_from_config
 from app.services.spring_data_service import get_spring_inventory_settings
+from app.services.pricing_service import calculate_selling_price
 from app.integrations.bc.client import bc_client
 from app.db.database import get_db
+from app.db.models import BCCustomer
 
 logger = logging.getLogger(__name__)
 
@@ -663,7 +665,7 @@ def _sort_parts_by_category(parts: List[dict]) -> List[dict]:
 
 
 @router.post("/generate-quote")
-async def generate_door_quote(request: QuoteGenerationRequest):
+async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Depends(get_db)):
     """
     Generate a quote directly in Business Central.
 
@@ -718,6 +720,7 @@ async def generate_door_quote(request: QuoteGenerationRequest):
                 "panelColor": door.panelColor,
                 "panelDesign": door.panelDesign,
                 "windowInsert": door.windowInsert,
+                "windowSize": getattr(door, 'windowSize', 'long') or 'long',
                 "windowPositions": [{"section": p.section, "col": p.col} for p in door.windowPositions] if door.windowPositions else [],
                 "windowCount": window_count,
                 "windowSection": door.windowSection,
@@ -738,9 +741,10 @@ async def generate_door_quote(request: QuoteGenerationRequest):
             # Sort parts by standard line ordering
             sorted_parts = _sort_parts_by_category(parts_list)
 
-            # Add door index to each part for tracking
+            # Add door index and type to each part for tracking/pricing
             for part in sorted_parts:
                 part["door_index"] = door_index
+                part["door_type"] = door.doorType
                 all_lines.append(part)
 
             parts_by_door.append({
@@ -753,8 +757,18 @@ async def generate_door_quote(request: QuoteGenerationRequest):
         quote_data = {}
 
         # Set customer - use customerId if provided, otherwise use default
+        pricing_tier = "retail"
         if request.customerId:
             quote_data["customerId"] = request.customerId
+            # Look up pricing tier for this customer
+            bc_customer = db.query(BCCustomer).filter(
+                BCCustomer.bc_customer_id == request.customerId
+            ).first()
+            if bc_customer and bc_customer.pricing_tier:
+                tier = bc_customer.pricing_tier.lower().strip()
+                if tier in {"gold", "silver", "bronze", "retail"}:
+                    pricing_tier = tier
+            logger.info(f"Using pricing tier '{pricing_tier}' for customer {request.customerId}")
         else:
             # Default to standard customer number
             quote_data["customerNumber"] = "CASH"
@@ -790,6 +804,16 @@ async def generate_door_quote(request: QuoteGenerationRequest):
                         "description": line.get("description", ""),
                         "quantity": line["quantity"],
                     }
+                    # Apply customer-tier pricing when a customer is selected
+                    if request.customerId:
+                        selling_price = calculate_selling_price(
+                            part_number=line["part_number"],
+                            door_type=line.get("door_type", "residential"),
+                            tier=pricing_tier,
+                            db=db,
+                        )
+                        if selling_price is not None:
+                            line_data["unitPrice"] = selling_price
 
                 bc_client.add_quote_line(bc_quote_id, line_data)
                 lines_added += 1
