@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { doorConfigApi } from '../api/client'
+import apiClient from '../api/client'
 import DoorDrawings from './DoorDrawings'
 import DoorPreview from './DoorPreview'
 
@@ -20,6 +21,7 @@ function DoorConfigurator() {
   const [doors, setDoors] = useState([createEmptyDoor()])
   const [currentDoorIndex, setCurrentDoorIndex] = useState(0)
   const [quoteResult, setQuoteResult] = useState(null)
+  const [selectedCustomer, setSelectedCustomer] = useState(null) // { bc_customer_id, company_name }
 
   // Fetch full configuration on mount
   const { data: config, isLoading: configLoading } = useQuery({
@@ -184,6 +186,7 @@ function DoorConfigurator() {
         shaftType: door.shaftType || 'auto',
       })),
       tagName: `Configurator Quote - ${doors.length} door(s)`,
+      customerId: selectedCustomer?.bc_customer_id || null,
     }
     generateQuoteMutation.mutate(request)
   }
@@ -411,6 +414,8 @@ function DoorConfigurator() {
             onGenerateQuote={handleGenerateQuote}
             isGenerating={generateQuoteMutation.isPending}
             quoteResult={quoteResult}
+            selectedCustomer={selectedCustomer}
+            onCustomerChange={setSelectedCustomer}
           />
         )}
       </div>
@@ -1803,13 +1808,40 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
   )
 }
 
-function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult }) {
+function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult, selectedCustomer, onCustomerChange }) {
   const [partsData, setPartsData] = useState(null)
   const [loadingParts, setLoadingParts] = useState(false)
   const [showParts, setShowParts] = useState(false)
   const [calculations, setCalculations] = useState([])
   const [loadingCalcs, setLoadingCalcs] = useState(false)
   const [showCalcs, setShowCalcs] = useState(true)
+  const [customerSearch, setCustomerSearch] = useState('')
+  const [customerResults, setCustomerResults] = useState([])
+  const [customerLoading, setCustomerLoading] = useState(false)
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false)
+  const customerSearchRef = useRef(null)
+
+  // Debounced BC customer search
+  useEffect(() => {
+    if (!customerSearch.trim()) {
+      setCustomerResults([])
+      return
+    }
+    const timer = setTimeout(async () => {
+      setCustomerLoading(true)
+      try {
+        const res = await apiClient.get('/api/admin/customers/bc-customers', {
+          params: { q: customerSearch }
+        })
+        setCustomerResults(res.data || [])
+      } catch {
+        setCustomerResults([])
+      } finally {
+        setCustomerLoading(false)
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [customerSearch])
 
   // Fetch part numbers and calculations when component mounts or doors change
   useEffect(() => {
@@ -2375,6 +2407,75 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult 
                 Complete the configuration to see part numbers
               </div>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* Customer Selector */}
+      <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <h4 className="text-sm font-medium text-gray-900 mb-3">Bill to Customer</h4>
+        {selectedCustomer ? (
+          <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-md px-3 py-2">
+            <div>
+              <p className="text-sm font-medium text-gray-900">{selectedCustomer.company_name}</p>
+              <p className="text-xs text-gray-500">{selectedCustomer.bc_customer_id}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onCustomerChange(null)}
+              className="text-xs text-red-600 hover:text-red-800 ml-4"
+            >
+              Change
+            </button>
+          </div>
+        ) : (
+          <div className="relative" ref={customerSearchRef}>
+            <input
+              type="text"
+              placeholder="Search by company name..."
+              value={customerSearch}
+              onChange={(e) => {
+                setCustomerSearch(e.target.value)
+                setShowCustomerDropdown(true)
+              }}
+              onFocus={() => setShowCustomerDropdown(true)}
+              className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-none focus:ring-odc-500 focus:border-odc-500"
+            />
+            {customerSearch && (
+              <button
+                type="button"
+                onClick={() => { setCustomerSearch(''); setCustomerResults([]); setShowCustomerDropdown(false) }}
+                className="absolute right-2 top-2 text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            )}
+            {showCustomerDropdown && customerSearch && (
+              <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                {customerLoading ? (
+                  <div className="px-3 py-2 text-sm text-gray-500">Searching...</div>
+                ) : customerResults.length > 0 ? (
+                  customerResults.map((bc) => (
+                    <button
+                      key={bc.bc_customer_id}
+                      type="button"
+                      onClick={() => {
+                        onCustomerChange({ bc_customer_id: bc.bc_customer_id, company_name: bc.company_name })
+                        setCustomerSearch('')
+                        setShowCustomerDropdown(false)
+                      }}
+                      className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
+                    >
+                      <p className="text-sm font-medium text-gray-900">{bc.company_name}</p>
+                      <p className="text-xs text-gray-500">{bc.bc_customer_id}</p>
+                    </button>
+                  ))
+                ) : (
+                  <div className="px-3 py-2 text-sm text-gray-500">No customers found</div>
+                )}
+              </div>
+            )}
+            <p className="mt-1 text-xs text-gray-400">Leave blank to use Cash Sale</p>
           </div>
         )}
       </div>
