@@ -203,10 +203,18 @@ function DoorConfigurator() {
     <div className="space-y-6">
       {/* Header */}
       <div className="bg-white shadow rounded-lg p-6">
-        <h1 className="text-2xl font-bold text-gray-900">Door Configurator</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Build your custom door configuration step by step
-        </p>
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Door Configurator</h1>
+            <p className="mt-1 text-sm text-gray-500">
+              Build your custom door configuration step by step
+            </p>
+          </div>
+          <CustomerSelector
+            selectedCustomer={selectedCustomer}
+            onCustomerChange={setSelectedCustomer}
+          />
+        </div>
       </div>
 
       {/* Door Tabs */}
@@ -415,7 +423,6 @@ function DoorConfigurator() {
             isGenerating={generateQuoteMutation.isPending}
             quoteResult={quoteResult}
             selectedCustomer={selectedCustomer}
-            onCustomerChange={setSelectedCustomer}
           />
         )}
       </div>
@@ -1808,40 +1815,13 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
   )
 }
 
-function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult, selectedCustomer, onCustomerChange }) {
+function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult, selectedCustomer }) {
   const [partsData, setPartsData] = useState(null)
   const [loadingParts, setLoadingParts] = useState(false)
   const [showParts, setShowParts] = useState(false)
   const [calculations, setCalculations] = useState([])
   const [loadingCalcs, setLoadingCalcs] = useState(false)
   const [showCalcs, setShowCalcs] = useState(true)
-  const [customerSearch, setCustomerSearch] = useState('')
-  const [customerResults, setCustomerResults] = useState([])
-  const [customerLoading, setCustomerLoading] = useState(false)
-  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false)
-  const customerSearchRef = useRef(null)
-
-  // Debounced BC customer search
-  useEffect(() => {
-    if (!customerSearch.trim()) {
-      setCustomerResults([])
-      return
-    }
-    const timer = setTimeout(async () => {
-      setCustomerLoading(true)
-      try {
-        const res = await apiClient.get('/api/admin/customers/bc-customers', {
-          params: { q: customerSearch }
-        })
-        setCustomerResults(res.data || [])
-      } catch {
-        setCustomerResults([])
-      } finally {
-        setCustomerLoading(false)
-      }
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [customerSearch])
 
   // Fetch part numbers and calculations when component mounts or doors change
   useEffect(() => {
@@ -2411,75 +2391,6 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
         )}
       </div>
 
-      {/* Customer Selector */}
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-gray-900 mb-3">Bill to Customer</h4>
-        {selectedCustomer ? (
-          <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-md px-3 py-2">
-            <div>
-              <p className="text-sm font-medium text-gray-900">{selectedCustomer.company_name}</p>
-              <p className="text-xs text-gray-500">{selectedCustomer.bc_customer_id}</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => onCustomerChange(null)}
-              className="text-xs text-red-600 hover:text-red-800 ml-4"
-            >
-              Change
-            </button>
-          </div>
-        ) : (
-          <div className="relative" ref={customerSearchRef}>
-            <input
-              type="text"
-              placeholder="Search by company name..."
-              value={customerSearch}
-              onChange={(e) => {
-                setCustomerSearch(e.target.value)
-                setShowCustomerDropdown(true)
-              }}
-              onFocus={() => setShowCustomerDropdown(true)}
-              className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 text-sm focus:outline-none focus:ring-odc-500 focus:border-odc-500"
-            />
-            {customerSearch && (
-              <button
-                type="button"
-                onClick={() => { setCustomerSearch(''); setCustomerResults([]); setShowCustomerDropdown(false) }}
-                className="absolute right-2 top-2 text-gray-400 hover:text-gray-600"
-              >
-                ✕
-              </button>
-            )}
-            {showCustomerDropdown && customerSearch && (
-              <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
-                {customerLoading ? (
-                  <div className="px-3 py-2 text-sm text-gray-500">Searching...</div>
-                ) : customerResults.length > 0 ? (
-                  customerResults.map((bc) => (
-                    <button
-                      key={bc.bc_customer_id}
-                      type="button"
-                      onClick={() => {
-                        onCustomerChange({ bc_customer_id: bc.bc_customer_id, company_name: bc.company_name })
-                        setCustomerSearch('')
-                        setShowCustomerDropdown(false)
-                      }}
-                      className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
-                    >
-                      <p className="text-sm font-medium text-gray-900">{bc.company_name}</p>
-                      <p className="text-xs text-gray-500">{bc.bc_customer_id}</p>
-                    </button>
-                  ))
-                ) : (
-                  <div className="px-3 py-2 text-sm text-gray-500">No customers found</div>
-                )}
-              </div>
-            )}
-            <p className="mt-1 text-xs text-gray-400">Leave blank to use Cash Sale</p>
-          </div>
-        )}
-      </div>
-
       {/* Generate Quote Button */}
       <button
         onClick={onGenerateQuote}
@@ -2494,8 +2405,10 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
             </svg>
             Generating Quote...
           </>
+        ) : selectedCustomer ? (
+          `Generate Quote for ${selectedCustomer.company_name}`
         ) : (
-          'Generate Quote'
+          'Generate Quote (Cash Sale)'
         )}
       </button>
 
@@ -2534,6 +2447,112 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
                 </div>
               )}
             </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Customer Selector ──────────────────────────────────────────────────────
+
+function CustomerSelector({ selectedCustomer, onCustomerChange }) {
+  const [search, setSearch] = useState('')
+  const [results, setResults] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef(null)
+
+  // Debounced search
+  useEffect(() => {
+    if (!search.trim()) { setResults([]); return }
+    const t = setTimeout(async () => {
+      setLoading(true)
+      try {
+        const res = await apiClient.get('/api/admin/customers/bc-customers', { params: { q: search } })
+        setResults(res.data || [])
+      } catch { setResults([]) }
+      finally { setLoading(false) }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [search])
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClick(e) {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  if (selectedCustomer) {
+    return (
+      <div className="flex items-center gap-3 bg-odc-50 border border-odc-200 rounded-lg px-4 py-2 min-w-[260px]">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium text-odc-600 uppercase tracking-wide">Quoting for</p>
+          <p className="text-sm font-semibold text-gray-900 truncate">{selectedCustomer.company_name}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onCustomerChange(null)}
+          className="flex-shrink-0 text-xs text-odc-600 hover:text-odc-800 border border-odc-300 rounded px-2 py-0.5"
+        >
+          Change
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative min-w-[260px]" ref={containerRef}>
+      <div className="flex items-center gap-2 border border-gray-300 rounded-lg px-3 py-2 bg-white shadow-sm focus-within:ring-2 focus-within:ring-odc-500 focus-within:border-odc-500">
+        <svg className="h-4 w-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+        </svg>
+        <input
+          type="text"
+          placeholder="Select customer..."
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setOpen(true) }}
+          onFocus={() => setOpen(true)}
+          className="flex-1 text-sm outline-none bg-transparent placeholder-gray-400"
+        />
+        {search && (
+          <button type="button" onClick={() => { setSearch(''); setResults([]) }} className="text-gray-400 hover:text-gray-600">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
+      </div>
+      <p className="mt-1 text-xs text-gray-400">No customer selected — will use Cash Sale</p>
+
+      {open && search && (
+        <div className="absolute right-0 z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+          {loading ? (
+            <div className="px-4 py-3 text-sm text-gray-500">Searching...</div>
+          ) : results.length > 0 ? (
+            results.map((bc) => (
+              <button
+                key={bc.bc_customer_id}
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  onCustomerChange({ bc_customer_id: bc.bc_customer_id, company_name: bc.company_name })
+                  setSearch('')
+                  setOpen(false)
+                }}
+                className="w-full text-left px-4 py-2.5 hover:bg-odc-50 border-b border-gray-100 last:border-b-0"
+              >
+                <p className="text-sm font-medium text-gray-900">{bc.company_name}</p>
+                <p className="text-xs text-gray-500">{bc.bc_customer_id}</p>
+              </button>
+            ))
+          ) : (
+            <div className="px-4 py-3 text-sm text-gray-500">No customers found</div>
           )}
         </div>
       )}
