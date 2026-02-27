@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     # OpenPhone (Phase 1+)
     OPENPHONE_API_KEY: Optional[str] = None
 
+    # CORS — comma-separated list of allowed origins
+    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:5173"
+
     # Customer Portal Notifications
     NOTIFICATION_SENDER_EMAIL: str = "noreply@opendc.ca"
     ADMIN_NOTIFICATION_EMAILS: str = "joey@opendc.ca"  # Comma-separated list

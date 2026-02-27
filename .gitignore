@@ -65,9 +65,10 @@ yarn-error.log*
 .pnp/
 .pnp.js
 
-# Production
+# Production build output
 /build
 /dist
+frontend/dist/
 
 # Misc
 .env.backup
