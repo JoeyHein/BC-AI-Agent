@@ -79,7 +79,7 @@ def upgrade() -> None:
         sa.Column('email_subject', sa.Text(), nullable=True),
         sa.Column('email_body', sa.Text(), nullable=True),
         sa.Column('parsed_result', sa.JSON(), nullable=False),
-        sa.Column('is_verified', sa.Boolean(), nullable=True, server_default='0'),
+        sa.Column('is_verified', sa.Boolean(), nullable=True, server_default='false'),
         sa.Column('quality_score', sa.Float(), nullable=True, server_default='0.5'),
         sa.Column('completeness_score', sa.Float(), nullable=True),
         sa.Column('tags', sa.JSON(), nullable=True),  # ARRAY for PostgreSQL, JSON for SQLite

@@ -25,7 +25,7 @@ def upgrade() -> None:
     # user_type will be 'INTERNAL' or 'CUSTOMER'
     op.add_column('users', sa.Column('user_type', sa.String(length=20), nullable=True, server_default='INTERNAL'))
     op.add_column('users', sa.Column('bc_customer_id', sa.String(length=100), nullable=True))
-    op.add_column('users', sa.Column('email_verified', sa.Boolean(), nullable=True, server_default='0'))
+    op.add_column('users', sa.Column('email_verified', sa.Boolean(), nullable=True, server_default='false'))
     op.add_column('users', sa.Column('email_verification_token', sa.String(length=255), nullable=True))
     op.add_column('users', sa.Column('email_verification_expires', sa.DateTime(), nullable=True))
     op.add_column('users', sa.Column('password_reset_token', sa.String(length=255), nullable=True))
@@ -33,7 +33,7 @@ def upgrade() -> None:
 
     # Set default value for existing users
     op.execute("UPDATE users SET user_type = 'INTERNAL' WHERE user_type IS NULL")
-    op.execute("UPDATE users SET email_verified = 0 WHERE email_verified IS NULL")
+    op.execute("UPDATE users SET email_verified = false WHERE email_verified IS NULL")
 
     # Create saved_quote_configs table
     op.create_table(
@@ -43,7 +43,7 @@ def upgrade() -> None:
         sa.Column('name', sa.String(length=255), nullable=True),
         sa.Column('description', sa.Text(), nullable=True),
         sa.Column('config_data', sa.JSON(), nullable=False),
-        sa.Column('is_submitted', sa.Boolean(), nullable=False, server_default='0'),
+        sa.Column('is_submitted', sa.Boolean(), nullable=False, server_default='false'),
         sa.Column('bc_quote_number', sa.String(length=50), nullable=True),
         sa.Column('bc_quote_id', sa.String(length=100), nullable=True),
         sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.text('CURRENT_TIMESTAMP')),

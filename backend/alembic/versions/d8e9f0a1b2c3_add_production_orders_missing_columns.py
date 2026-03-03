@@ -28,7 +28,7 @@ def upgrade() -> None:
     op.add_column('production_orders', sa.Column('specifications', sa.JSON(), nullable=True))
 
     # Add inventory allocation columns
-    op.add_column('production_orders', sa.Column('inventory_allocated', sa.Boolean(), nullable=True, server_default='0'))
+    op.add_column('production_orders', sa.Column('inventory_allocated', sa.Boolean(), nullable=True, server_default='false'))
     op.add_column('production_orders', sa.Column('inventory_allocation_id', sa.String(100), nullable=True))
     op.add_column('production_orders', sa.Column('stock_available', sa.Integer(), nullable=True))
     op.add_column('production_orders', sa.Column('stock_reserved', sa.Integer(), nullable=True, server_default='0'))
