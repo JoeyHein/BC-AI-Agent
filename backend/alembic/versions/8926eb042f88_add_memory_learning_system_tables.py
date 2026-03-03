@@ -26,9 +26,9 @@ def upgrade() -> None:
     op.execute("DO $$ BEGIN CREATE TYPE feedbacktype AS ENUM ('APPROVE', 'CORRECT', 'REJECT'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
     op.execute("DO $$ BEGIN CREATE TYPE knowledgetype AS ENUM ('DOOR_MODEL', 'CUSTOMER_PREFERENCE', 'COMMON_PATTERN', 'SPECIFICATION'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
 
-    # References used in create_table — create_type=False prevents any further creation attempt
-    feedback_type_enum = sa.Enum('APPROVE', 'CORRECT', 'REJECT', name='feedbacktype', create_type=False)
-    knowledge_type_enum = sa.Enum('DOOR_MODEL', 'CUSTOMER_PREFERENCE', 'COMMON_PATTERN', 'SPECIFICATION', name='knowledgetype', create_type=False)
+    # Use postgresql.ENUM with create_type=False — sa.Enum ignores this flag in some SA versions
+    feedback_type_enum = ENUM('APPROVE', 'CORRECT', 'REJECT', name='feedbacktype', create_type=False)
+    knowledge_type_enum = ENUM('DOOR_MODEL', 'CUSTOMER_PREFERENCE', 'COMMON_PATTERN', 'SPECIFICATION', name='knowledgetype', create_type=False)
 
     # Create parse_feedback table
     op.create_table(
