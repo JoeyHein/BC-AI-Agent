@@ -17,9 +17,13 @@ depends_on = None
 
 
 def upgrade():
-    # Add scheduled_date column to sales_orders
-    op.add_column('sales_orders', sa.Column('scheduled_date', sa.DateTime(), nullable=True))
-    op.create_index(op.f('ix_sales_orders_scheduled_date'), 'sales_orders', ['scheduled_date'], unique=False)
+    # Add scheduled_date column to sales_orders (idempotent)
+    existing = {row[0] for row in op.get_bind().execute(sa.text(
+        "SELECT column_name FROM information_schema.columns WHERE table_name='sales_orders'"
+    ))}
+    if 'scheduled_date' not in existing:
+        op.add_column('sales_orders', sa.Column('scheduled_date', sa.DateTime(), nullable=True))
+    op.execute("CREATE INDEX IF NOT EXISTS ix_sales_orders_scheduled_date ON sales_orders (scheduled_date)")
 
 
 def downgrade():

@@ -19,19 +19,29 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Add new fields to sales_orders for BC sync."""
-    # Add new columns to sales_orders
-    op.add_column('sales_orders', sa.Column('bc_id', sa.String(100), nullable=True))
-    op.add_column('sales_orders', sa.Column('bc_customer_id', sa.String(100), nullable=True))
-    op.add_column('sales_orders', sa.Column('customer_number', sa.String(50), nullable=True))
-    op.add_column('sales_orders', sa.Column('order_date', sa.DateTime(), nullable=True))
-    op.add_column('sales_orders', sa.Column('requested_delivery_date', sa.DateTime(), nullable=True))
-    op.add_column('sales_orders', sa.Column('shipping_address', sa.Text(), nullable=True))
-    op.add_column('sales_orders', sa.Column('billing_address', sa.Text(), nullable=True))
+    """Add new fields to sales_orders for BC sync (idempotent)."""
+    existing = {row[0] for row in op.get_bind().execute(sa.text(
+        "SELECT column_name FROM information_schema.columns WHERE table_name='sales_orders'"
+    ))}
 
-    # Add indexes
-    op.create_index('ix_sales_orders_bc_id', 'sales_orders', ['bc_id'])
-    op.create_index('ix_sales_orders_bc_customer_id', 'sales_orders', ['bc_customer_id'])
+    if 'bc_id' not in existing:
+        op.add_column('sales_orders', sa.Column('bc_id', sa.String(100), nullable=True))
+    if 'bc_customer_id' not in existing:
+        op.add_column('sales_orders', sa.Column('bc_customer_id', sa.String(100), nullable=True))
+    if 'customer_number' not in existing:
+        op.add_column('sales_orders', sa.Column('customer_number', sa.String(50), nullable=True))
+    if 'order_date' not in existing:
+        op.add_column('sales_orders', sa.Column('order_date', sa.DateTime(), nullable=True))
+    if 'requested_delivery_date' not in existing:
+        op.add_column('sales_orders', sa.Column('requested_delivery_date', sa.DateTime(), nullable=True))
+    if 'shipping_address' not in existing:
+        op.add_column('sales_orders', sa.Column('shipping_address', sa.Text(), nullable=True))
+    if 'billing_address' not in existing:
+        op.add_column('sales_orders', sa.Column('billing_address', sa.Text(), nullable=True))
+
+    # Indexes (IF NOT EXISTS is safe)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_sales_orders_bc_id ON sales_orders (bc_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_sales_orders_bc_customer_id ON sales_orders (bc_customer_id)")
 
 
 def downgrade() -> None:

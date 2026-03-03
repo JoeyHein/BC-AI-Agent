@@ -44,11 +44,13 @@ def upgrade() -> None:
     op.create_index('ix_sales_order_line_items_bc_document_no', 'sales_order_line_items', ['bc_document_no'])
     op.create_index('ix_sales_order_line_items_item_no', 'sales_order_line_items', ['item_no'])
 
-    # Add line_item_id to production_orders
-    op.add_column('production_orders', sa.Column('line_item_id', sa.Integer(), nullable=True))
-    op.create_index('ix_production_orders_line_item_id', 'production_orders', ['line_item_id'])
-    # Note: SQLite doesn't support adding foreign key constraints after table creation
-    # The constraint is enforced at the application level
+    # Add line_item_id to production_orders (idempotent)
+    existing = {row[0] for row in op.get_bind().execute(sa.text(
+        "SELECT column_name FROM information_schema.columns WHERE table_name='production_orders'"
+    ))}
+    if 'line_item_id' not in existing:
+        op.add_column('production_orders', sa.Column('line_item_id', sa.Integer(), nullable=True))
+    op.execute("CREATE INDEX IF NOT EXISTS ix_production_orders_line_item_id ON production_orders (line_item_id)")
 
 
 def downgrade() -> None:
