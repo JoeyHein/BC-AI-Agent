@@ -22,12 +22,13 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     """Upgrade schema - Add memory and learning system tables."""
 
-    # Create ENUM types
-    feedback_type_enum = sa.Enum('APPROVE', 'CORRECT', 'REJECT', name='feedbacktype')
-    knowledge_type_enum = sa.Enum('DOOR_MODEL', 'CUSTOMER_PREFERENCE', 'COMMON_PATTERN', 'SPECIFICATION', name='knowledgetype')
+    # Create ENUM types explicitly (checkfirst=True is safe for re-runs)
+    sa.Enum('APPROVE', 'CORRECT', 'REJECT', name='feedbacktype').create(op.get_bind(), checkfirst=True)
+    sa.Enum('DOOR_MODEL', 'CUSTOMER_PREFERENCE', 'COMMON_PATTERN', 'SPECIFICATION', name='knowledgetype').create(op.get_bind(), checkfirst=True)
 
-    feedback_type_enum.create(op.get_bind(), checkfirst=True)
-    knowledge_type_enum.create(op.get_bind(), checkfirst=True)
+    # References used in create_table — create_type=False prevents double-creation
+    feedback_type_enum = sa.Enum('APPROVE', 'CORRECT', 'REJECT', name='feedbacktype', create_type=False)
+    knowledge_type_enum = sa.Enum('DOOR_MODEL', 'CUSTOMER_PREFERENCE', 'COMMON_PATTERN', 'SPECIFICATION', name='knowledgetype', create_type=False)
 
     # Create parse_feedback table
     op.create_table(
