@@ -22,11 +22,11 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     """Upgrade schema - Add memory and learning system tables."""
 
-    # Create ENUM types explicitly (checkfirst=True is safe for re-runs)
-    sa.Enum('APPROVE', 'CORRECT', 'REJECT', name='feedbacktype').create(op.get_bind(), checkfirst=True)
-    sa.Enum('DOOR_MODEL', 'CUSTOMER_PREFERENCE', 'COMMON_PATTERN', 'SPECIFICATION', name='knowledgetype').create(op.get_bind(), checkfirst=True)
+    # Create ENUM types using raw SQL with exception handling (idempotent)
+    op.execute("DO $$ BEGIN CREATE TYPE feedbacktype AS ENUM ('APPROVE', 'CORRECT', 'REJECT'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
+    op.execute("DO $$ BEGIN CREATE TYPE knowledgetype AS ENUM ('DOOR_MODEL', 'CUSTOMER_PREFERENCE', 'COMMON_PATTERN', 'SPECIFICATION'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
 
-    # References used in create_table — create_type=False prevents double-creation
+    # References used in create_table — create_type=False prevents any further creation attempt
     feedback_type_enum = sa.Enum('APPROVE', 'CORRECT', 'REJECT', name='feedbacktype', create_type=False)
     knowledge_type_enum = sa.Enum('DOOR_MODEL', 'CUSTOMER_PREFERENCE', 'COMMON_PATTERN', 'SPECIFICATION', name='knowledgetype', create_type=False)
 
