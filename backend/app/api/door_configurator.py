@@ -284,8 +284,8 @@ GLAZING_OPTIONS = {
 
 TRACK_OPTIONS = {
     "radius": [
-        {"id": "12", "name": "12\" Radius", "minClearance": 12, "note": "2\" track only", "allowedThickness": ["2"]},
-        {"id": "15", "name": "15\" Radius (Standard)", "minClearance": 15, "allowedThickness": ["2", "3"]},
+        {"id": "12", "name": "12\" Radius (Standard Residential)", "minClearance": 12, "note": "2\" track only", "allowedThickness": ["2"]},
+        {"id": "15", "name": "15\" Radius (Standard Commercial)", "minClearance": 15, "allowedThickness": ["2", "3"]},
         {"id": "20", "name": "20\" Radius (Craft Series)", "minClearance": 20, "allowedThickness": ["2", "3"]},
     ],
     "liftType": [

@@ -427,7 +427,15 @@ function QuoteBuilder() {
           <DoorTypeStep
             doorTypes={config.doorTypes}
             selected={currentDoor.doorType}
-            onSelect={(type) => updateCurrentDoor({ doorType: type, doorSeries: '', panelColor: '', panelDesign: '' })}
+            onSelect={(type) => updateCurrentDoor({
+              doorType: type,
+              doorSeries: '',
+              panelColor: '',
+              panelDesign: '',
+              // Set track defaults based on door type
+              trackRadius: type === 'commercial' ? '15' : '12',
+              trackThickness: type === 'commercial' ? '3' : '2',
+            })}
           />
         )}
 
