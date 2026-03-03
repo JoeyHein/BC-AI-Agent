@@ -7,6 +7,7 @@ Create Date: 2026-01-30 08:00:00.000000
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import ENUM as PgENUM
 
 
 # revision identifiers, used by Alembic.
@@ -17,9 +18,9 @@ depends_on = None
 
 
 def upgrade():
-    # Create task completion status enum
-    task_status_enum = sa.Enum('pending', 'in_progress', 'completed', 'blocked', name='taskcompletionstatus')
-    task_status_enum.create(op.get_bind(), checkfirst=True)
+    # Create task completion status enum (idempotent raw SQL)
+    op.execute("DO $$ BEGIN CREATE TYPE taskcompletionstatus AS ENUM ('pending', 'in_progress', 'completed', 'blocked'); EXCEPTION WHEN duplicate_object THEN null; END $$;")
+    task_status_enum = PgENUM('pending', 'in_progress', 'completed', 'blocked', name='taskcompletionstatus', create_type=False)
 
     # Create production_tasks table
     op.create_table(
