@@ -373,6 +373,74 @@ Sample requests, color chart requests, and general inquiries are NOT quote reque
             }
 
 
+    def find_closest_bc_item(
+        self,
+        part_number: str,
+        description: str,
+        available_items: List[Dict]
+    ) -> Optional[Dict]:
+        """
+        Use Claude to find the closest matching BC inventory item for a part
+        that was not found in Business Central.
+
+        Args:
+            part_number: The generated part number that doesn't exist in BC
+            description: Human-readable description of the part
+            available_items: List of BC items (each with 'number', 'displayName')
+
+        Returns:
+            The best-matching item dict, or None if no reasonable match found
+        """
+        if not self.client or not available_items:
+            return None
+
+        items_text = "\n".join(
+            f"- {item.get('number', '')}: {item.get('displayName', '')}"
+            for item in available_items[:60]
+        )
+
+        prompt = f"""You are helping match a garage door component to the closest available inventory item in Business Central.
+
+Part not found:
+- Part Number: {part_number}
+- Description: {description}
+
+Available inventory items in the same category:
+{items_text}
+
+Find the single best matching item based on similar specs (dimensions, function, type).
+For springs: match wire size, coil size, and wind direction as closely as possible.
+For panels: match height, color, and width as closely as possible.
+For tracks: match track size (2" vs 3") and lift type.
+
+Respond with ONLY valid JSON — no explanation, no markdown:
+{{"number": "ITEM-NUMBER", "displayName": "Item Name"}}
+
+If no item is a reasonable match:
+{{"number": null}}"""
+
+        try:
+            response = self.client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=100,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            result = json.loads(response.content[0].text.strip())
+
+            if result.get("number"):
+                # Return the full item details if available
+                for item in available_items:
+                    if item.get("number") == result["number"]:
+                        return item
+                return {"number": result["number"], "displayName": result.get("displayName", "")}
+
+            return None
+
+        except Exception as e:
+            logger.error(f"AI item matching failed: {e}")
+            return None
+
+
 # Global AI client instance
 ai_client = ClaudeAIClient()
 

@@ -15,8 +15,21 @@ from app.db.database import SessionLocal
 from app.db.models import User, SavedQuoteConfig, SalesOrder, OrderStatus, Shipment, Invoice, BCCustomer
 from app.api.customer_auth import get_current_customer
 from app.integrations.bc.client import bc_client
+from app.integrations.ai.client import ai_client
 from app.services.part_number_service import get_parts_for_door_config
 from app.services.pricing_service import calculate_selling_price
+
+# Part number prefix → BC search keyword for AI substitute lookup
+_CATEGORY_SEARCH_TERMS = {
+    "SP": "spring",
+    "PN": "panel",
+    "TR": "track",
+    "SH": "shaft",
+    "HK": "hardware kit",
+    "FH": "hardware",
+    "PL": "weather",
+    "AL": "aluminum",
+}
 
 router = APIRouter(prefix="/api/customer/portal", tags=["customer-portal"])
 logger = logging.getLogger(__name__)
@@ -366,6 +379,45 @@ def _validate_doors_config(config_data: dict) -> List[dict]:
     return doors
 
 
+def _find_ai_substitute(
+    part_number: str,
+    description: str,
+    bc_items_cache: dict,
+) -> Optional[dict]:
+    """
+    Search BC for items similar to the missing part and use Claude to pick the
+    closest match.  Uses an in-memory cache (bc_items_cache) so each category
+    is only fetched once per quote generation call.
+    """
+    if not part_number or not ai_client.client:
+        return None
+
+    category = part_number[:2].upper() if len(part_number) >= 2 else ""
+
+    if category not in bc_items_cache:
+        search_term = _CATEGORY_SEARCH_TERMS.get(category, part_number[:4])
+        try:
+            items = bc_client.search_items_by_name(search_term)
+            bc_items_cache[category] = items[:60]
+            logger.info(f"Fetched {len(bc_items_cache[category])} BC items for category '{category}' (search: '{search_term}')")
+        except Exception as e:
+            logger.warning(f"BC item search failed for '{search_term}': {e}")
+            bc_items_cache[category] = []
+
+    available = bc_items_cache.get(category, [])
+    if not available:
+        return None
+
+    match = ai_client.find_closest_bc_item(
+        part_number=part_number,
+        description=description,
+        available_items=available,
+    )
+    if match:
+        logger.info(f"AI substitute: {part_number} → {match.get('number')} ({match.get('displayName')})")
+    return match
+
+
 def _generate_bc_quote_with_items(
     doors: List[dict],
     bc_customer_id: str,
@@ -469,6 +521,7 @@ def _generate_bc_quote_with_items(
     # Step 3: Add line items
     lines_added = 0
     lines_failed = []
+    bc_items_cache: dict = {}  # category prefix → list of BC items (populated lazily)
 
     for line in all_lines:
         try:
@@ -510,8 +563,59 @@ def _generate_bc_quote_with_items(
             part_id = line.get("part_number", line.get("description", "unknown"))
             logger.warning(f"Failed to add line {part_id}: {line_error}")
 
-            # Fall back to comment line for failed items
+            # ── AI substitute lookup ────────────────────────────────────────
+            # Before falling back to a comment, ask Claude to find the closest
+            # matching BC item so the quote has real billable lines.
+            ai_used = False
             if line.get("lineType") != "Comment" and line.get("part_number"):
+                substitute = _find_ai_substitute(
+                    part_number=line["part_number"],
+                    description=line.get("description", ""),
+                    bc_items_cache=bc_items_cache,
+                )
+                if substitute and substitute.get("number"):
+                    try:
+                        sub_line_data = {
+                            "lineType": "Item",
+                            "lineObjectNumber": substitute["number"],
+                            "description": (
+                                f"{substitute.get('displayName', substitute['number'])} "
+                                f"(sub for {line['part_number']})"
+                            ),
+                            "quantity": line["quantity"],
+                        }
+                        added_sub = bc_client.add_quote_line(bc_quote_id, sub_line_data)
+                        lines_added += 1
+                        ai_used = True
+
+                        # Apply tier pricing to the substitute
+                        if pricing_tier and db:
+                            selling_price = calculate_selling_price(
+                                part_number=substitute["number"],
+                                door_type=line.get("door_type", "residential"),
+                                tier=pricing_tier,
+                                db=db,
+                            )
+                            if selling_price is not None:
+                                etag = added_sub.get("@odata.etag", "*")
+                                bc_client.update_quote_line(
+                                    bc_quote_id,
+                                    added_sub["id"],
+                                    etag,
+                                    {"unitPrice": selling_price},
+                                )
+
+                        logger.info(
+                            f"AI substitute added: {line['part_number']} → "
+                            f"{substitute['number']} ({substitute.get('displayName')})"
+                        )
+                    except Exception as sub_err:
+                        logger.warning(
+                            f"AI substitute {substitute['number']} also failed: {sub_err}"
+                        )
+
+            # ── Comment fallback (only if AI matching didn't succeed) ────────
+            if not ai_used and line.get("lineType") != "Comment" and line.get("part_number"):
                 try:
                     comment_line = {
                         "lineType": "Comment",
@@ -532,7 +636,7 @@ def _generate_bc_quote_with_items(
                         "error": str(line_error),
                         "fallback": "failed",
                     })
-            else:
+            elif not ai_used:
                 lines_failed.append({
                     "part_number": part_id,
                     "error": str(line_error),
@@ -1161,12 +1265,29 @@ def place_order_from_quote(
         error_msg = str(e)
         logger.error(f"Error placing order from quote config {config_id}: {error_msg}", exc_info=True)
 
-        # Handle common BC errors
+        # Quote not found — likely generated against a different BC environment
+        # (e.g., sandbox). Clear the stale quote ID so the customer can re-price.
+        if "404" in error_msg or "Not Found" in error_msg or "not found" in error_msg.lower():
+            config.bc_quote_id = None
+            config.bc_quote_number = None
+            config.bc_quote_data = None
+            config.is_submitted = False
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Quote not found in Business Central — it may have been generated "
+                    "against a different environment. Please click 'Get Pricing' to "
+                    "generate a fresh quote, then place the order again."
+                )
+            )
+
         if "DialogException" in error_msg:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Business Central error: {error_msg}"
             )
+
         if "50005" in error_msg:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
