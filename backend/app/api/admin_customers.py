@@ -677,6 +677,46 @@ def update_customer_pricing_tier(
     return get_customer(customer_id, current_admin, db)
 
 
+class SetPasswordRequest(BaseModel):
+    new_password: str
+
+
+@router.post("/{customer_id}/set-password")
+def set_customer_password(
+    customer_id: int,
+    request: SetPasswordRequest,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Directly set a customer's password (admin use only)"""
+    customer = db.query(User).filter(
+        User.id == customer_id,
+        User.user_type == 'CUSTOMER'
+    ).first()
+
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+
+    if len(request.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 8 characters"
+        )
+
+    customer.password_hash = auth_service.get_password_hash(request.new_password)
+    # Clear any pending reset token
+    customer.password_reset_token = None
+    customer.password_reset_expires = None
+    db.commit()
+
+    logger.info(f"Admin {current_admin.email} set password for customer {customer.email}")
+
+    return {"message": "Password updated successfully"}
+
+
 @router.delete("/{customer_id}")
 def delete_customer(
     customer_id: int,

@@ -60,6 +60,13 @@ const resetCustomerPassword = async (id) => {
   return response.data
 }
 
+const setCustomerPassword = async ({ id, newPassword }) => {
+  const response = await apiClient.post(`/api/admin/customers/${id}/set-password`, {
+    new_password: newPassword
+  })
+  return response.data
+}
+
 // Pricing Tier Badge
 const TIER_STYLES = {
   gold: 'bg-amber-100 text-amber-800',
@@ -192,6 +199,8 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
   const [showLinkModal, setShowLinkModal] = useState(false)
   const [editing, setEditing] = useState(false)
   const [resetLink, setResetLink] = useState(null)
+  const [showSetPassword, setShowSetPassword] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
   const [editForm, setEditForm] = useState({
     name: customer?.name || '',
     is_active: customer?.is_active ?? true,
@@ -237,6 +246,15 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
     mutationFn: () => resetCustomerPassword(customer.id),
     onSuccess: (data) => {
       setResetLink(data.reset_link)
+    }
+  })
+
+  const setPasswordMutation = useMutation({
+    mutationFn: () => setCustomerPassword({ id: customer.id, newPassword }),
+    onSuccess: () => {
+      alert('Password updated successfully')
+      setShowSetPassword(false)
+      setNewPassword('')
     }
   })
 
@@ -490,7 +508,7 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
             </div>
           )}
 
-          <div className="flex gap-2 pt-4 border-t border-gray-200">
+          <div className="flex flex-wrap gap-2 pt-4 border-t border-gray-200">
             <button
               onClick={() => setEditing(true)}
               className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
@@ -498,11 +516,17 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
               Edit
             </button>
             <button
-              onClick={() => resetPasswordMutation.mutate()}
+              onClick={() => { setShowSetPassword(!showSetPassword); setResetLink(null) }}
+              className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+            >
+              Set Password
+            </button>
+            <button
+              onClick={() => { resetPasswordMutation.mutate(); setShowSetPassword(false) }}
               disabled={resetPasswordMutation.isPending}
               className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
             >
-              {resetPasswordMutation.isPending ? 'Generating...' : 'Reset Password'}
+              {resetPasswordMutation.isPending ? 'Generating...' : 'Reset Link'}
             </button>
             <button
               onClick={handleDelete}
@@ -512,6 +536,41 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
               {deleteMutation.isLoading ? 'Deleting...' : 'Delete Account'}
             </button>
           </div>
+
+          {/* Set Password Form */}
+          {showSetPassword && (
+            <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+              <p className="text-sm font-medium text-yellow-900 mb-2">Set New Password</p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="password"
+                  placeholder="New password (min 8 chars)"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="flex-1 text-sm bg-white border border-yellow-300 rounded px-2 py-1"
+                  minLength={8}
+                />
+                <button
+                  onClick={() => setPasswordMutation.mutate()}
+                  disabled={setPasswordMutation.isPending || newPassword.length < 8}
+                  className="inline-flex items-center px-3 py-1 border border-yellow-400 text-sm font-medium rounded-md text-yellow-800 bg-white hover:bg-yellow-50 disabled:opacity-50"
+                >
+                  {setPasswordMutation.isPending ? 'Saving...' : 'Save'}
+                </button>
+                <button
+                  onClick={() => { setShowSetPassword(false); setNewPassword('') }}
+                  className="text-xs text-yellow-700 hover:text-yellow-900"
+                >
+                  Cancel
+                </button>
+              </div>
+              {setPasswordMutation.isError && (
+                <p className="mt-1 text-xs text-red-600">
+                  {setPasswordMutation.error?.response?.data?.detail || 'Failed to set password'}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Reset Password Link Dialog */}
           {resetLink && (
