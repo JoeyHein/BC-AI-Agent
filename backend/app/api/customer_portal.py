@@ -347,7 +347,15 @@ def _format_door_description(door: dict) -> str:
     width_ft = door.get("doorWidth", 0) // 12
     height_ft = door.get("doorHeight", 0) // 12
     track_display = f"{door.get('trackThickness', '2')}\" HW"
-    lift_type = "LHR" if door.get("trackRadius") == "12" else "STD LIFT"
+    lift_type_raw = door.get("liftType", "standard")
+    if lift_type_raw == "low_headroom":
+        lift_type = "LHR"
+    elif lift_type_raw == "high_lift":
+        lift_type = "HIGH LIFT"
+    elif lift_type_raw == "vertical":
+        lift_type = "VERTICAL"
+    else:
+        lift_type = "STD LIFT"
     return (
         f"({door.get('doorCount', 1)}) {width_ft}x{height_ft} "
         f"{door.get('doorSeries', '')}, {door.get('panelColor', '')}, "
