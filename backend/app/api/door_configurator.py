@@ -389,6 +389,7 @@ class DoorCalculationRequest(BaseModel):
     heavyDutyHinges: bool = False
     targetCycles: int = 10000  # 10000, 15000, 25000, 50000, 100000
     highLiftInches: Optional[int] = None  # extra inches above door for high_lift
+    doorType: str = "commercial"  # 'residential' or 'commercial'
 
 
 # ============================================================================
@@ -1149,6 +1150,7 @@ async def calculate_door_specifications(request: DoorCalculationRequest, db: Ses
             target_cycles=request.targetCycles,
             spring_inventory=spring_inventory,
             high_lift_inches=request.highLiftInches,
+            door_type=request.doorType,
         )
 
         # Get summary

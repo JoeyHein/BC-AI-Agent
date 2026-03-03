@@ -51,7 +51,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from app.services.spring_calculator_service import spring_calculator
-from app.services.door_calculator_service import SECTION_HEIGHT_TABLE
+from app.services.door_calculator_service import SECTION_HEIGHT_TABLE, door_calculator
 from app.services.bc_part_number_mapper import (
     BCPartNumberMapper,
     get_bc_mapper,
@@ -733,13 +733,11 @@ class PartNumberService:
 
     def _get_spring_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """
-        Get spring part numbers using Canimex spring calculator + BC part number mapper.
+        Get spring part numbers using door_calculator for spring selection + BC part number mapper.
 
-        Uses exact Canimex methodology:
-        - IPPT = Multiplier × Door Weight
-        - MIP per spring = (IPPT × Turns) / Spring Quantity
-        - Active Coils = (Spring Quantity × Divider) / IPPT
-        - Total Spring Length = Active Coils + Dead Coil Factor
+        Uses door_calculator._calculate_springs() as the single source of truth —
+        same progressive qty scaling (2→4→6→8), duplex support, and Canimex methodology
+        used by the Door Specifications tab.
 
         Then maps to actual BC part numbers:
         - SP11-{wire}{coil}-{wind} for oil tempered springs
@@ -755,69 +753,117 @@ class PartNumberService:
         # Parse track radius (handle string format)
         track_radius = int(config.track_radius) if config.track_radius else 15
 
-        # Calculate spring using Canimex methodology
-        result = spring_calculator.calculate_spring(
+        # Use door_calculator._calculate_springs() — same engine as specs tab
+        spring_result = door_calculator._calculate_springs(
             door_weight=door_weight,
-            door_height=config.door_height,
+            height_inches=config.door_height,
+            width_inches=config.door_width,
+            drums=None,  # Let calculator auto-select drum for torque calculation
+            target_cycles=config.target_cycles,
             track_radius=track_radius,
-            spring_qty=config.spring_quantity,
-            target_cycles=config.target_cycles
         )
 
-        if result is None:
+        if spring_result is None:
             # Fallback to simplified rules if calculator fails
             logger.warning(
                 f"Spring calculator returned no result for {door_weight:.0f} lbs, "
                 f"{config.door_height}\" height - falling back to simplified rules"
             )
-            # Use default spring specs
             wire_size = 0.234
             coil_id = 2.0
             spring_length = 29
+            spring_qty = 2
+            is_duplex = False
         else:
-            wire_size = result.wire_diameter
-            coil_id = result.coil_diameter
-            spring_length = int(result.length)
+            wire_size = spring_result.wire_diameter
+            coil_id = spring_result.coil_diameter
+            spring_length = int(spring_result.length)
+            spring_qty = spring_result.quantity
+            is_duplex = spring_result.is_duplex
 
         # Get BC Part Number Mapper
         mapper = get_bc_mapper()
 
-        # Get actual BC spring part numbers (LH and RH)
+        # How many LH/RH pairs (each pair = 1 LH + 1 RH)
+        pairs = spring_qty // 2
+
+        # Outer springs (LH and RH)
         spring_lh = mapper.get_spring_part_number(wire_size, coil_id, "LH")
         spring_rh = mapper.get_spring_part_number(wire_size, coil_id, "RH")
 
-        # Springs are quoted by length (inches of spring)
+        # Springs are quoted by length (inches of spring) × number of that wind
         parts.append(PartSelection(
             part_number=spring_lh.part_number,
             description=spring_lh.description,
-            quantity=spring_length,  # Spring length in inches
+            quantity=spring_length * pairs,
             category="spring",
-            notes=f"Spring: {wire_size}\" x {coil_id}\" x {spring_length}\" LH"
+            notes=f"Spring: {wire_size}\" x {coil_id}\" x {spring_length}\" LH × {pairs}"
         ))
 
         parts.append(PartSelection(
             part_number=spring_rh.part_number,
             description=spring_rh.description,
-            quantity=spring_length,  # Spring length in inches
+            quantity=spring_length * pairs,
             category="spring",
-            notes=f"Spring: {wire_size}\" x {coil_id}\" x {spring_length}\" RH"
+            notes=f"Spring: {wire_size}\" x {coil_id}\" x {spring_length}\" RH × {pairs}"
         ))
 
-        # Add winder/stationary sets
+        # If duplex, also add inner springs
+        if is_duplex and spring_result:
+            inner_wire = spring_result.inner_wire_diameter
+            inner_coil = spring_result.inner_coil_diameter
+            inner_length = int(spring_result.inner_length)
+            duplex_pairs = spring_result.duplex_pairs
+
+            inner_lh = mapper.get_spring_part_number(inner_wire, inner_coil, "LH")
+            inner_rh = mapper.get_spring_part_number(inner_wire, inner_coil, "RH")
+
+            parts.append(PartSelection(
+                part_number=inner_lh.part_number,
+                description=inner_lh.description,
+                quantity=inner_length * duplex_pairs,
+                category="spring",
+                notes=f"Inner spring: {inner_wire}\" x {inner_coil}\" x {inner_length}\" LH × {duplex_pairs}"
+            ))
+            parts.append(PartSelection(
+                part_number=inner_rh.part_number,
+                description=inner_rh.description,
+                quantity=inner_length * duplex_pairs,
+                category="spring",
+                notes=f"Inner spring: {inner_wire}\" x {inner_coil}\" x {inner_length}\" RH × {duplex_pairs}"
+            ))
+
+            # Winder/stationary sets for inner coil size
+            inner_winder_lh = mapper.get_winder_stationary_set(inner_coil, 1.0, "LH")
+            inner_winder_rh = mapper.get_winder_stationary_set(inner_coil, 1.0, "RH")
+            parts.append(PartSelection(
+                part_number=inner_winder_lh.part_number,
+                description=inner_winder_lh.description,
+                quantity=1,
+                category="spring_accessory"
+            ))
+            parts.append(PartSelection(
+                part_number=inner_winder_rh.part_number,
+                description=inner_winder_rh.description,
+                quantity=1,
+                category="spring_accessory"
+            ))
+
+        # Add winder/stationary sets for outer coil
         winder_lh = mapper.get_winder_stationary_set(coil_id, 1.0, "LH")
         winder_rh = mapper.get_winder_stationary_set(coil_id, 1.0, "RH")
 
         parts.append(PartSelection(
             part_number=winder_lh.part_number,
             description=winder_lh.description,
-            quantity=1,  # One LH set per door (contains cones for all LH springs)
+            quantity=1,
             category="spring_accessory"
         ))
 
         parts.append(PartSelection(
             part_number=winder_rh.part_number,
             description=winder_rh.description,
-            quantity=1,  # One RH set per door (contains cones for all RH springs)
+            quantity=1,
             category="spring_accessory"
         ))
 

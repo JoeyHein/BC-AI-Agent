@@ -442,6 +442,7 @@ class ShaftConfiguration:
     length: float
     pieces: int = 2
     coupler_qty: int = 1
+    shaft_type: str = "solid"  # "tube", "solid", or "1-1/4"
 
 
 @dataclass
@@ -510,6 +511,7 @@ class DoorCalculatorService:
         shaft_type: str = "auto",  # 'auto', 'single', 'split'
         spring_inventory: Optional[Dict[str, List[str]]] = None,  # stocked coil/wire combos
         high_lift_inches: Optional[int] = None,  # extra inches above door for high_lift
+        door_type: str = "commercial",  # 'residential' or 'commercial'
     ) -> DoorCalculation:
         """
         Calculate complete door configuration.
@@ -610,7 +612,8 @@ class DoorCalculatorService:
         )
 
         # 7. Calculate shaft
-        shaft = self._calculate_shaft(width_inches, weight.total_weight, shaft_type)
+        is_residential = door_type == "residential"
+        shaft = self._calculate_shaft(width_inches, weight.total_weight, shaft_type, is_residential=is_residential)
 
         # 8. Calculate hardware list
         hardware = self._calculate_hardware(
@@ -1192,7 +1195,8 @@ class DoorCalculatorService:
         self,
         width_inches: int,
         door_weight: float,
-        shaft_type: str = "auto"
+        shaft_type: str = "auto",
+        is_residential: bool = False,
     ) -> ShaftConfiguration:
         """Calculate shaft configuration
 
@@ -1203,13 +1207,23 @@ class DoorCalculatorService:
                 - auto: Single shaft up to 14'2" (170"), split after
                 - single: Force single shaft (no coupler)
                 - split: Force split shaft (two pieces with coupler)
+            is_residential: Whether the door is residential (affects shaft type selection)
         """
 
-        # Shaft diameter based on width and weight
-        if width_inches <= 144 and door_weight < 600:  # Up to 12' and light
-            diameter = "1"
-        else:
+        # Shaft diameter and type based on weight and door type
+        # Matches part_number_service._get_shaft_parts() logic:
+        #   weight > 2000          → 1-1/4" keyed shaft
+        #   residential ≤ 750 lbs  → 1" tube shaft
+        #   else                   → 1" solid keyed shaft
+        if door_weight > 2000:
             diameter = "1-1/4"
+            shaft_material = "1-1/4"
+        elif is_residential and door_weight <= 750:
+            diameter = "1"
+            shaft_material = "tube"
+        else:
+            diameter = "1"
+            shaft_material = "solid"
 
         # Determine if single or split shaft based on shaft_type and width
         # 14'2" = 170 inches is the cutoff for single shaft
@@ -1227,7 +1241,8 @@ class DoorCalculatorService:
                 diameter=diameter,
                 length=round(shaft_length, 1),
                 pieces=1,
-                coupler_qty=0
+                coupler_qty=0,
+                shaft_type=shaft_material,
             )
         else:
             # Split shaft - two pieces with coupler
@@ -1236,7 +1251,8 @@ class DoorCalculatorService:
                 diameter=diameter,
                 length=round(shaft_length_each, 1),
                 pieces=2,
-                coupler_qty=1
+                coupler_qty=1,
+                shaft_type=shaft_material,
             )
 
     def _calculate_struts(
@@ -1424,6 +1440,7 @@ class DoorCalculatorService:
                 "length_each": calc.shaft.length if calc.shaft else None,
                 "pieces": calc.shaft.pieces if calc.shaft else None,
                 "couplers": calc.shaft.coupler_qty if calc.shaft else None,
+                "shaft_type": calc.shaft.shaft_type if calc.shaft else None,
             } if calc.shaft else None,
             "track": {
                 "size_inches": calc.track.size if calc.track else None,
@@ -1496,6 +1513,7 @@ def calculate_door_from_config(config: Dict[str, Any]) -> Dict[str, Any]:
         target_cycles=config.get("target_cycles", config.get("targetCycles", 10000)),
         shaft_type=config.get("shaft_type", config.get("shaftType", "auto")),
         high_lift_inches=config.get("high_lift_inches", config.get("highLiftInches")),
+        door_type=config.get("door_type", config.get("doorType", "commercial")),
     )
 
     return door_calculator.get_calculation_summary(calc)
