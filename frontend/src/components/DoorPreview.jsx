@@ -128,8 +128,10 @@ const COLOR_MAP = {
   WALNUT: '#4A3728',
   ENGLISH_CHESTNUT: '#6B4423',
   FRENCH_OAK: '#C2B078',          // RAL 1001 Beige (light base)
-  // Aluminum
+  // Aluminum finishes
   CLEAR_ANODIZED: '#C0C0C0',
+  BLACK_ANODIZED: '#1a1a1a',
+  MILL: '#D3D3D3',
 }
 
 // Woodgrain patterns - colors for grain effect
@@ -304,11 +306,18 @@ function DoorPreview({
     return windows
   }
 
+  const isAluminium = doorType === 'aluminium'
+
   const renderPanelDesign = (sectionIndex, sectionY, sectionHeight) => {
     const pattern = PANEL_PATTERNS[panelDesign] || PANEL_PATTERNS.FLUSH
     const padding = displayWidth * 0.02
     const panelWidth = displayWidth - padding * 2
     const panelHeight = sectionHeight - padding * 2
+
+    // Aluminum doors: ALL sections are full-view glass
+    if (isAluminium) {
+      return renderAluminumSection(sectionY, sectionHeight, padding, panelWidth, sectionIndex)
+    }
 
     // V130G full-view section: renders entire section as aluminum/glass
     if (isCommercial && windowInsert === 'V130G' && windowQty > 0) {
@@ -436,6 +445,101 @@ function DoorPreview({
     }
 
     return <g key="v130g-section">{elements}</g>
+  }
+
+  // Render aluminum door section (AL976, Panorama, Solalite) — full-view glass panel
+  const renderAluminumSection = (sectionY, sectionHeight, padding, panelWidth, sectionIndex) => {
+    const elements = []
+
+    // Frame color based on aluminum finish
+    const aluminumFrames = {
+      CLEAR_ANODIZED: { fill: '#B8B8B8', stroke: '#909090', highlight: '#D0D0D0' },
+      BLACK_ANODIZED: { fill: '#2A2A2A', stroke: '#111111', highlight: '#444444' },
+      WHITE:          { fill: '#E8E8E8', stroke: '#C0C0C0', highlight: '#FFFFFF' },
+      BRIGHT_WHITE:   { fill: '#E8E8E8', stroke: '#C0C0C0', highlight: '#FFFFFF' },
+      MILL:           { fill: '#CCCCCC', stroke: '#A0A0A0', highlight: '#DDDDDD' },
+    }
+    const frame = aluminumFrames[color] || aluminumFrames.CLEAR_ANODIZED
+
+    // Glass color
+    const glassColors = {
+      'CLEAR':      { fill: '#A8D8EA', reflection: 'rgba(255,255,255,0.35)' },
+      'ETCHED':     { fill: '#D3D3D3', reflection: 'rgba(255,255,255,0.2)' },
+      'SUPER_GREY': { fill: '#4A4A4A', reflection: 'rgba(255,255,255,0.15)' },
+    }
+    const glass = glassColors[glassColor] || glassColors['CLEAR']
+
+    const x = padding
+    const y = sectionY
+    const w = panelWidth
+    const h = sectionHeight
+    const frameW = 4          // aluminum frame width
+    const mullionW = 3        // vertical mullion
+    const railH = 2           // horizontal rail between sections
+
+    // Number of glass panes across the width
+    const widthFeet = width / 12
+    let paneCount
+    if (widthFeet <= 10) paneCount = 3
+    else if (widthFeet <= 14) paneCount = 4
+    else if (widthFeet <= 18) paneCount = 5
+    else if (widthFeet <= 22) paneCount = 6
+    else paneCount = 7
+
+    // Outer aluminum frame
+    elements.push(
+      <rect key={`al-frame-${sectionIndex}`}
+        x={x} y={y} width={w} height={h}
+        fill={frame.fill} stroke={frame.stroke} strokeWidth="1" rx="0.5" />
+    )
+
+    // Frame highlight (top edge for 3D effect)
+    elements.push(
+      <line key={`al-highlight-${sectionIndex}`}
+        x1={x + 1} y1={y + 1} x2={x + w - 1} y2={y + 1}
+        stroke={frame.highlight} strokeWidth="0.5" opacity="0.6" />
+    )
+
+    // Glass panes
+    const innerX = x + frameW
+    const innerY = y + railH
+    const innerW = w - frameW * 2
+    const innerH = h - railH * 2
+    const totalMullionW = mullionW * (paneCount - 1)
+    const paneW = (innerW - totalMullionW) / paneCount
+
+    for (let i = 0; i < paneCount; i++) {
+      const paneX = innerX + i * (paneW + mullionW)
+
+      // Glass pane
+      elements.push(
+        <rect key={`al-glass-${sectionIndex}-${i}`}
+          x={paneX} y={innerY} width={paneW} height={innerH}
+          fill={glass.fill} stroke={frame.stroke} strokeWidth="0.3" />
+      )
+
+      // Reflection highlight (diagonal)
+      elements.push(
+        <rect key={`al-reflect-${sectionIndex}-${i}`}
+          x={paneX + paneW * 0.06} y={innerY + innerH * 0.06}
+          width={paneW * 0.2} height={innerH * 0.35}
+          fill={glass.reflection} rx="0.5"
+          transform={`skewX(-3)`} />
+      )
+    }
+
+    // Center stile accent (slightly thicker middle mullion if even pane count)
+    if (paneCount % 2 === 0) {
+      const centerIdx = paneCount / 2 - 1
+      const centerX = innerX + centerIdx * (paneW + mullionW) + paneW
+      elements.push(
+        <rect key={`al-stile-${sectionIndex}`}
+          x={centerX - 0.5} y={innerY} width={mullionW + 1} height={innerH}
+          fill={frame.fill} stroke="none" />
+      )
+    }
+
+    return <g key={`al-section-${sectionIndex}`}>{elements}</g>
   }
 
   // Render commercial windows (multiple windows across top section)
