@@ -31,7 +31,7 @@ DOOR_TYPES = [
     {"id": "residential", "name": "Residential", "description": "Standard residential garage doors"},
     {"id": "commercial", "name": "Commercial", "description": "Heavy-duty commercial doors"},
     {"id": "aluminium", "name": "Aluminium", "description": "Full-view aluminum and glass doors"},
-    {"id": "executive", "name": "Executive", "description": "Premium wood overlay doors"},
+    # {"id": "executive", "name": "Executive", "description": "Premium wood overlay doors"},  # TODO: re-enable when built out
 ]
 
 DOOR_SERIES = {
