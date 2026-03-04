@@ -446,9 +446,19 @@ function QuoteBuilder() {
             selected={currentDoor.doorSeries}
             onSelect={(series) => {
               const isCommercialSeries = ['TX450', 'TX500', 'TX450-20', 'TX500-20'].includes(series)
+              const isAluminumSeries = ['AL976', 'PANORAMA', 'SOLALITE'].includes(series)
               updateCurrentDoor({
-                doorSeries: series, panelColor: '', panelDesign: isCommercialSeries ? 'UDC' : '',
+                doorSeries: series,
+                panelColor: isAluminumSeries ? 'CLEAR_ANODIZED' : '',
+                panelDesign: isCommercialSeries ? 'UDC' : isAluminumSeries ? 'FLUSH' : '',
                 ...(isCommercialSeries ? { trackThickness: '3' } : {}),
+                ...(isAluminumSeries ? {
+                  glassPaneType: series === 'AL976' ? 'INSULATED' : null,
+                  glassColor: 'CLEAR',
+                  hasWindows: false,
+                  windowInsert: null,
+                  windowPositions: [],
+                } : {}),
                 // Craft series includes windows as standard
                 ...(series === 'CRAFT' ? { hasWindows: true, windowInsert: '34X16_THERMOPANE', windowPositions: [] } : {})
               })
@@ -471,6 +481,7 @@ function QuoteBuilder() {
             door={currentDoor}
             colors={config.colors}
             panelDesigns={config.panelDesigns}
+            config={config}
             onChange={(updates) => {
               // Craft series: auto-fill windows in top panel when design is selected
               if (currentDoor.doorSeries === 'CRAFT' && updates.panelDesign && updates.panelDesign !== 'FLUSH') {
@@ -502,16 +513,26 @@ function QuoteBuilder() {
           />
         )}
 
-        {/* Step 5: Windows */}
+        {/* Step 5: Windows (skip for aluminum — all panels are full-view) */}
         {STEPS[currentStep].id === 'windows' && config && (
-          <WindowsStep
-            door={currentDoor}
-            windowInserts={config.windowInserts}
-            commercialWindowTypes={config.commercialWindowTypes}
-            glazingOptions={config.glazingOptions}
-            config={config}
-            onChange={updateCurrentDoor}
-          />
+          currentDoor.doorType === 'aluminium' ? (
+            <div className="p-4 bg-odc-50 rounded-md">
+              <p className="text-sm text-odc-700">
+                All panels on this aluminum door are full-view {
+                  ['PANORAMA', 'SOLALITE'].includes(currentDoor.doorSeries) ? 'polycarbonate' : 'glass'
+                } sections. Window options were configured in the Design step.
+              </p>
+            </div>
+          ) : (
+            <WindowsStep
+              door={currentDoor}
+              windowInserts={config.windowInserts}
+              commercialWindowTypes={config.commercialWindowTypes}
+              glazingOptions={config.glazingOptions}
+              config={config}
+              onChange={updateCurrentDoor}
+            />
+          )
         )}
 
         {/* Step 6: Hardware */}
@@ -749,7 +770,10 @@ function DimensionsStep({ door, onChange, series }) {
   )
 }
 
-function DesignStep({ door, colors, panelDesigns, onChange }) {
+function DesignStep({ door, colors, panelDesigns, config, onChange }) {
+  const isAluminium = door.doorType === 'aluminium'
+  const seriesData = config?.doorSeries?.aluminium?.find(s => s.id === door.doorSeries)
+
   // Get colors for current series
   const colorMap = {
     'KANATA': 'KANATA',
@@ -765,7 +789,6 @@ function DesignStep({ door, colors, panelDesigns, onChange }) {
   const availableColors = colors?.[colorKey] || colors?.['KANATA'] || []
 
   // Get panel designs for current series
-  // Commercial doors: TX450/TX500 = UDC only, TX450-20/TX500-20 = Flush + UDC
   const designMap = {
     'KANATA': 'KANATA',
     'CRAFT': 'CRAFT',
@@ -780,11 +803,102 @@ function DesignStep({ door, colors, panelDesigns, onChange }) {
 
   // Auto-select panel design if there's only one option and none selected
   useEffect(() => {
-    if (availableDesigns.length === 1 && !door.panelDesign) {
+    if (!isAluminium && availableDesigns.length === 1 && !door.panelDesign) {
       const design = availableDesigns[0]
       onChange({ panelDesign: design.code || design.id })
     }
-  }, [availableDesigns, door.panelDesign, onChange])
+  }, [availableDesigns, door.panelDesign, onChange, isAluminium])
+
+  // Aluminum doors: show finishes + glazing options instead of colors/designs
+  if (isAluminium) {
+    const finishes = seriesData?.finishes || [{ id: 'CLEAR_ANODIZED', name: 'Clear Anodized' }]
+    const customFinishNote = seriesData?.customFinishNote
+    const glazingType = seriesData?.glazingType || 'glass'
+    const isGlass = glazingType === 'glass'
+    const glazingOptions = seriesData?.glazingOptions || (isGlass
+      ? [{ id: 'CLEAR', name: 'Clear' }, { id: 'ETCHED', name: 'Etched' }, { id: 'SUPER_GREY', name: 'Super Grey' }]
+      : [{ id: 'CLEAR', name: 'Clear' }, { id: 'LIGHT_BRONZE', name: 'Light Bronze' }]
+    )
+    const paneTypes = seriesData?.paneTypes || []
+    const seriesName = seriesData?.name || door.doorSeries
+
+    return (
+      <div className="space-y-6">
+        <div className="p-3 bg-odc-50 rounded-md">
+          <p className="text-sm text-odc-700">
+            <strong>{seriesName} Full View Door</strong> — all panels are full aluminum/{isGlass ? 'glass' : 'polycarbonate'} sections.
+          </p>
+        </div>
+
+        {/* Finish */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Finish</label>
+          <div className="flex flex-wrap gap-3">
+            {finishes.map(f => (
+              <button
+                key={f.id}
+                onClick={() => onChange({ panelColor: f.id })}
+                className={`px-4 py-2 text-sm rounded-md border ${
+                  (door.panelColor || finishes[0]?.id) === f.id
+                    ? 'border-odc-500 bg-odc-100 text-odc-700'
+                    : 'border-gray-300 hover:border-gray-400'
+                }`}
+              >
+                {f.name}
+              </button>
+            ))}
+          </div>
+          {customFinishNote && (
+            <p className="mt-1 text-xs text-gray-500 italic">{customFinishNote}</p>
+          )}
+        </div>
+
+        {/* Glass Type — only for glass series (AL976) */}
+        {isGlass && paneTypes.length > 0 && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Glass Type</label>
+            <div className="flex space-x-3">
+              {paneTypes.map(pt => (
+                <button
+                  key={pt.id}
+                  onClick={() => onChange({ glassPaneType: pt.id })}
+                  className={`px-4 py-2 text-sm rounded-md border ${
+                    (door.glassPaneType || 'INSULATED') === pt.id
+                      ? 'border-odc-500 bg-odc-100 text-odc-700'
+                      : 'border-gray-300 hover:border-gray-400'
+                  }`}
+                >
+                  {pt.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Glazing Color */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            {isGlass ? 'Glass Color' : 'Polycarbonate Color'}
+          </label>
+          <div className="flex space-x-3">
+            {glazingOptions.map(gc => (
+              <button
+                key={gc.id}
+                onClick={() => onChange({ glassColor: gc.id })}
+                className={`px-4 py-2 text-sm rounded-md border ${
+                  (door.glassColor || 'CLEAR') === gc.id
+                    ? 'border-odc-500 bg-odc-100 text-odc-700'
+                    : 'border-gray-300 hover:border-gray-400'
+                }`}
+              >
+                {gc.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
