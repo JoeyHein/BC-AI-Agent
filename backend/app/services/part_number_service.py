@@ -792,6 +792,39 @@ class PartNumberService:
             spring_qty = spring_result.quantity
             is_duplex = spring_result.is_duplex
 
+        # Residential doors: if wire < .218 with 2+ springs, retry with 1 spring
+        # BC minimum wire is .218 — anything smaller has no BC part number
+        if wire_size < 0.218 and config.door_type == "residential" and spring_qty >= 2:
+            # Parse track radius (handle string format)
+            retry_track_radius = int(config.track_radius) if config.track_radius else 15
+            single_result = door_calculator._calculate_springs(
+                door_weight=door_weight,
+                height_inches=config.door_height,
+                width_inches=config.door_width,
+                drums=None,
+                target_cycles=config.target_cycles,
+                track_radius=retry_track_radius,
+                spring_qty=1,
+                spring_inventory=config.spring_inventory,
+            )
+            if single_result and single_result.wire_diameter >= 0.218:
+                wire_size = single_result.wire_diameter
+                coil_id = single_result.coil_diameter
+                spring_length = int(single_result.length)
+                spring_qty = single_result.quantity
+                is_duplex = single_result.is_duplex
+                logger.info(
+                    f"Residential door: reduced to 1 spring with {wire_size}\" wire "
+                    f"(original had <.218\" wire with {spring_result.quantity} springs)"
+                )
+            else:
+                # Force minimum .218 wire — mapper's next-size-up handles rounding
+                wire_size = 0.218
+                logger.warning(
+                    f"Residential door: forced wire to .218 minimum "
+                    f"(1-spring retry still gave <.218\" wire)"
+                )
+
         # Get BC Part Number Mapper
         mapper = get_bc_mapper()
 
@@ -801,6 +834,21 @@ class PartNumberService:
         # Outer springs (LH and RH)
         spring_lh = mapper.get_spring_part_number(wire_size, coil_id, "LH")
         spring_rh = mapper.get_spring_part_number(wire_size, coil_id, "RH")
+
+        # Validate spring exists in BC — if not, step up wire until we find one
+        if spring_lh.part_number not in mapper.spring_items:
+            for bc_wire in sorted(mapper.WIRE_SIZE_CODES.keys()):
+                if bc_wire >= wire_size:
+                    test_lh = mapper.get_spring_part_number(bc_wire, coil_id, "LH")
+                    if test_lh.part_number in mapper.spring_items:
+                        logger.info(
+                            f"Spring {spring_lh.part_number} not in BC — "
+                            f"stepped up wire from {wire_size}\" to {bc_wire}\""
+                        )
+                        wire_size = bc_wire
+                        spring_lh = test_lh
+                        spring_rh = mapper.get_spring_part_number(bc_wire, coil_id, "RH")
+                        break
 
         # Springs are quoted by length (inches of spring) × number of that wind
         parts.append(PartSelection(
@@ -1900,6 +1948,17 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
     Returns:
         Dictionary with parts summary
     """
+    # Filter spring inventory to only include wire sizes that exist as BC part numbers
+    # BC minimum spring wire is .218 — exclude .192, .207, etc. that Canimex tables list
+    # but BC doesn't stock as actual items
+    if spring_inventory:
+        filtered = {}
+        for coil_str, wire_list in spring_inventory.items():
+            valid_wires = [w for w in wire_list if float(w) >= 0.218]
+            if valid_wires:
+                filtered[coil_str] = valid_wires
+        spring_inventory = filtered if filtered else None
+
     config = DoorConfiguration(
         door_type=config_dict.get("doorType", "residential"),
         door_series=config_dict.get("doorSeries", "KANATA"),
