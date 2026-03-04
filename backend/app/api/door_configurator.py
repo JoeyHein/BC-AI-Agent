@@ -148,9 +148,8 @@ DOOR_SERIES = {
             ],
             "finishes": [
                 {"id": "CLEAR_ANODIZED", "name": "Clear Anodized", "code": "00"},
-                {"id": "WHITE", "name": "White", "code": "10"},
-                {"id": "BLACK_ANODIZED", "name": "Black Anodized", "code": "30"},
             ],
+            "customFinishNote": "Custom colors available — contact us directly for a quote.",
             "specs": {
                 "thickness": "1 3/4\" (44.5mm)",
                 "material": "Extruded Aluminum",
@@ -173,6 +172,7 @@ DOOR_SERIES = {
             "finishes": [
                 {"id": "CLEAR_ANODIZED", "name": "Clear Anodized", "code": "0"},
             ],
+            "customFinishNote": "Custom colors available — contact us directly for a quote.",
             "specs": {
                 "thickness": "1 3/4\" (44.5mm)",
                 "material": "Extruded Aluminum with Thermal Break",

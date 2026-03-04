@@ -1049,6 +1049,7 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
           { id: 'BLACK_ANODIZED', name: 'Black Anodized' },
         ]
         const seriesName = seriesData?.name || door.doorSeries
+        const customFinishNote = seriesData?.customFinishNote
         const glazingType = seriesData?.glazingType || 'glass'
         const isGlass = glazingType === 'glass'
         const glazingOptions = seriesData?.glazingOptions || (isGlass
@@ -1124,6 +1125,9 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
                   </button>
                 ))}
               </div>
+              {customFinishNote && (
+                <p className="mt-1 text-xs text-gray-500 italic">{customFinishNote}</p>
+              )}
             </div>
           </div>
         )

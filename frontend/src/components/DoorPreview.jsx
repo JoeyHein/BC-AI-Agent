@@ -481,15 +481,6 @@ function DoorPreview({
     const mullionW = 3        // vertical mullion
     const railH = 2           // horizontal rail between sections
 
-    // Number of glass panes across the width
-    const widthFeet = width / 12
-    let paneCount
-    if (widthFeet <= 10) paneCount = 3
-    else if (widthFeet <= 14) paneCount = 4
-    else if (widthFeet <= 18) paneCount = 5
-    else if (widthFeet <= 22) paneCount = 6
-    else paneCount = 7
-
     // Outer aluminum frame
     elements.push(
       <rect key={`al-frame-${sectionIndex}`}
@@ -504,38 +495,54 @@ function DoorPreview({
         stroke={frame.highlight} strokeWidth="0.5" opacity="0.6" />
     )
 
-    // Glass panes
     const innerX = x + frameW
     const innerY = y + railH
     const innerW = w - frameW * 2
     const innerH = h - railH * 2
-    const totalMullionW = mullionW * (paneCount - 1)
-    const paneW = (innerW - totalMullionW) / paneCount
 
-    for (let i = 0; i < paneCount; i++) {
-      const paneX = innerX + i * (paneW + mullionW)
-
-      // Glazing pane
+    if (isPolycarbonate) {
+      // Panorama/Solalite: single full-width polycarbonate panel per section (no vertical stiles)
       elements.push(
-        <rect key={`al-glass-${sectionIndex}-${i}`}
-          x={paneX} y={innerY} width={paneW} height={innerH}
+        <rect key={`al-poly-${sectionIndex}`}
+          x={innerX} y={innerY} width={innerW} height={innerH}
           fill={glass.fill} stroke={frame.stroke} strokeWidth="0.3" />
       )
 
-      if (isPolycarbonate) {
-        // Multiwall polycarbonate texture — horizontal ribs
-        const ribCount = Math.max(3, Math.round(innerH / 4))
-        const ribSpacing = innerH / (ribCount + 1)
-        for (let r = 1; r <= ribCount; r++) {
-          elements.push(
-            <line key={`al-rib-${sectionIndex}-${i}-${r}`}
-              x1={paneX + 0.5} y1={innerY + r * ribSpacing}
-              x2={paneX + paneW - 0.5} y2={innerY + r * ribSpacing}
-              stroke="rgba(255,255,255,0.2)" strokeWidth="0.3" />
-          )
-        }
-      } else {
-        // Glass reflection highlight (diagonal)
+      // Multiwall polycarbonate texture — fine horizontal ribs across full width
+      const ribCount = Math.max(4, Math.round(innerH / 3))
+      const ribSpacing = innerH / (ribCount + 1)
+      for (let r = 1; r <= ribCount; r++) {
+        elements.push(
+          <line key={`al-rib-${sectionIndex}-${r}`}
+            x1={innerX + 0.5} y1={innerY + r * ribSpacing}
+            x2={innerX + innerW - 0.5} y2={innerY + r * ribSpacing}
+            stroke="rgba(255,255,255,0.18)" strokeWidth="0.3" />
+        )
+      }
+    } else {
+      // AL976: glass panes with vertical stiles (grid pattern)
+      const widthFeet = width / 12
+      let paneCount
+      if (widthFeet <= 10) paneCount = 3
+      else if (widthFeet <= 14) paneCount = 4
+      else if (widthFeet <= 18) paneCount = 5
+      else if (widthFeet <= 22) paneCount = 6
+      else paneCount = 7
+
+      const totalMullionW = mullionW * (paneCount - 1)
+      const paneW = (innerW - totalMullionW) / paneCount
+
+      for (let i = 0; i < paneCount; i++) {
+        const paneX = innerX + i * (paneW + mullionW)
+
+        // Glass pane
+        elements.push(
+          <rect key={`al-glass-${sectionIndex}-${i}`}
+            x={paneX} y={innerY} width={paneW} height={innerH}
+            fill={glass.fill} stroke={frame.stroke} strokeWidth="0.3" />
+        )
+
+        // Reflection highlight (diagonal)
         elements.push(
           <rect key={`al-reflect-${sectionIndex}-${i}`}
             x={paneX + paneW * 0.06} y={innerY + innerH * 0.06}
@@ -544,17 +551,17 @@ function DoorPreview({
             transform={`skewX(-3)`} />
         )
       }
-    }
 
-    // Center stile accent (slightly thicker middle mullion if even pane count)
-    if (paneCount % 2 === 0) {
-      const centerIdx = paneCount / 2 - 1
-      const centerX = innerX + centerIdx * (paneW + mullionW) + paneW
-      elements.push(
-        <rect key={`al-stile-${sectionIndex}`}
-          x={centerX - 0.5} y={innerY} width={mullionW + 1} height={innerH}
-          fill={frame.fill} stroke="none" />
-      )
+      // Center stile accent (slightly thicker middle mullion if even pane count)
+      if (paneCount % 2 === 0) {
+        const centerIdx = paneCount / 2 - 1
+        const centerX = innerX + centerIdx * (paneW + mullionW) + paneW
+        elements.push(
+          <rect key={`al-stile-${sectionIndex}`}
+            x={centerX - 0.5} y={innerY} width={mullionW + 1} height={innerH}
+            fill={frame.fill} stroke="none" />
+        )
+      }
     }
 
     return <g key={`al-section-${sectionIndex}`}>{elements}</g>
