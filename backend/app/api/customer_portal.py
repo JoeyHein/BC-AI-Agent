@@ -1226,6 +1226,19 @@ def place_order_from_quote(
         )
 
     try:
+        # Ensure delivery date is set before makeOrder (BC requires it)
+        bc_quote = bc_client.get_sales_quote(config.bc_quote_id)
+        raw_delivery = bc_quote.get("requestedDeliveryDate", "")
+        if not raw_delivery or raw_delivery.startswith("0001"):
+            default_delivery = (datetime.utcnow() + timedelta(weeks=6)).strftime("%Y-%m-%d")
+            etag = bc_quote.get("@odata.etag", "*")
+            bc_client.update_sales_quote(
+                config.bc_quote_id,
+                {"requestedDeliveryDate": default_delivery},
+                etag=etag,
+            )
+            logger.info(f"Set delivery date {default_delivery} on quote {config.bc_quote_number}")
+
         # Convert quote to order in BC
         bc_order = bc_client.convert_quote_to_order(config.bc_quote_id)
 

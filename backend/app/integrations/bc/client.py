@@ -242,13 +242,14 @@ class BusinessCentralClient:
         logger.info(f"Created sales quote: {result.get('number', 'N/A')}")
         return result
 
-    def update_sales_quote(self, quote_id: str, quote_data: Dict[str, Any], company_id: Optional[str] = None) -> Dict[str, Any]:
-        """Update existing sales quote"""
+    def update_sales_quote(self, quote_id: str, quote_data: Dict[str, Any], etag: str = "*", company_id: Optional[str] = None) -> Dict[str, Any]:
+        """Update existing sales quote. Pass etag from GET response for optimistic concurrency."""
         cid = company_id or self.company_id
         result = self._make_request(
             "PATCH",
             f"companies({cid})/salesQuotes({quote_id})",
-            json=quote_data
+            json=quote_data,
+            headers={"If-Match": etag},
         )
         return result
 
