@@ -1302,6 +1302,14 @@ def place_order_from_quote(
                 detail="This quote cannot be converted to an order. It may have already been converted or archived."
             )
 
+        # Surface BC error detail if present (after "| BC:" marker)
+        if "| BC:" in error_msg:
+            bc_detail = error_msg.split("| BC:", 1)[1].strip()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Business Central error: {bc_detail}"
+            )
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to place order: {error_msg}"

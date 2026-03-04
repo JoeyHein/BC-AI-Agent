@@ -87,7 +87,17 @@ class BusinessCentralClient:
 
         if response.status_code >= 400:
             logger.error(f"BC API error {response.status_code}: {response.text}")
-            response.raise_for_status()
+            # Extract BC error message from response body so callers see the real reason
+            bc_message = ""
+            try:
+                error_body = response.json()
+                bc_message = error_body.get("error", {}).get("message", "")
+            except Exception:
+                bc_message = response.text[:500] if response.text else ""
+            raise requests.HTTPError(
+                f"{response.status_code} {response.reason} for url: {url} | BC: {bc_message}",
+                response=response,
+            )
 
         return response.json() if response.content else {}
 
