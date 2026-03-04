@@ -513,13 +513,11 @@ def _generate_bc_quote_with_items(
             })
 
     # Step 2: Create BC Quote
-    # Default requested delivery date = 6 weeks from today
-    default_delivery = (datetime.utcnow() + timedelta(weeks=6)).strftime("%Y-%m-%d")
-
+    # Note: requestedDeliveryDate is not available on the v2.0 salesQuotes entity.
+    # It gets set during order creation in convert_quote_to_order (6 weeks out).
     quote_data = {
         "customerId": bc_customer_id,
         "externalDocumentNumber": f"PORTAL-{config_id}",
-        "requestedDeliveryDate": default_delivery,
     }
     bc_quote = bc_client.create_sales_quote(quote_data)
     if not bc_quote:
@@ -1226,20 +1224,9 @@ def place_order_from_quote(
         )
 
     try:
-        # Ensure delivery date is set before makeOrder (BC requires it)
-        bc_quote = bc_client.get_sales_quote(config.bc_quote_id)
-        raw_delivery = bc_quote.get("requestedDeliveryDate", "")
-        if not raw_delivery or raw_delivery.startswith("0001"):
-            default_delivery = (datetime.utcnow() + timedelta(weeks=6)).strftime("%Y-%m-%d")
-            etag = bc_quote.get("@odata.etag", "*")
-            bc_client.update_sales_quote(
-                config.bc_quote_id,
-                {"requestedDeliveryDate": default_delivery},
-                etag=etag,
-            )
-            logger.info(f"Set delivery date {default_delivery} on quote {config.bc_quote_number}")
-
         # Convert quote to order in BC
+        # If makeOrder fails (delivery date not settable on v2.0 quotes entity),
+        # the client falls back to manual order creation with 6-week delivery date.
         bc_order = bc_client.convert_quote_to_order(config.bc_quote_id)
 
         bc_order_id = bc_order.get("id")

@@ -484,10 +484,11 @@ class BusinessCentralClient:
 
     def convert_quote_to_order(self, quote_id: str, company_id: Optional[str] = None) -> Dict[str, Any]:
         """
-        Convert a sales quote to a sales order using the makeOrder bound action.
+        Convert a sales quote to a sales order.
 
-        This is a BC bound action that creates a new Sales Order from the Quote.
-        The quote will be archived after conversion.
+        Tries makeOrder first. If BC rejects it (e.g. requestedDeliveryDate
+        not on the v2.0 salesQuotes entity), falls back to manually creating
+        a sales order and copying all quote lines.
 
         Args:
             quote_id: The BC sales quote ID (GUID)
@@ -498,13 +499,79 @@ class BusinessCentralClient:
         """
         cid = company_id or self.company_id
 
-        # BC bound action: POST salesQuotes({id})/Microsoft.NAV.makeOrder
-        result = self._make_request(
-            "POST",
-            f"companies({cid})/salesQuotes({quote_id})/Microsoft.NAV.makeOrder"
-        )
-        logger.info(f"Converted quote {quote_id} to order: {result.get('number', 'N/A')}")
-        return result
+        try:
+            result = self._make_request(
+                "POST",
+                f"companies({cid})/salesQuotes({quote_id})/Microsoft.NAV.makeOrder"
+            )
+            logger.info(f"Converted quote {quote_id} to order via makeOrder: {result.get('number', 'N/A')}")
+            return result
+        except Exception as e:
+            error_msg = str(e)
+            if "delivery" not in error_msg.lower() and "Requested" not in error_msg:
+                raise  # Not the delivery date issue, re-raise
+
+        # Fallback: create order manually with delivery date set
+        logger.info(f"makeOrder failed (delivery date), creating order manually from quote {quote_id}")
+        return self._manual_quote_to_order(quote_id, cid)
+
+    def _manual_quote_to_order(self, quote_id: str, company_id: str) -> Dict[str, Any]:
+        """
+        Manually convert a quote to an order by creating a new sales order,
+        copying all quote lines, then deleting the quote.
+
+        This bypasses makeOrder's limitation where requestedDeliveryDate
+        cannot be set on the salesQuotes v2.0 entity.
+        """
+        from datetime import datetime, timedelta
+
+        # 1. Get the quote header
+        quote = self.get_sales_quote(quote_id, company_id)
+
+        # 2. Create order with delivery date (6 weeks out)
+        delivery_date = (datetime.utcnow() + timedelta(weeks=6)).strftime("%Y-%m-%d")
+        order_data = {
+            "customerId": quote.get("customerId"),
+            "externalDocumentNumber": quote.get("externalDocumentNumber", ""),
+            "requestedDeliveryDate": delivery_date,
+        }
+        order = self.create_sales_order(order_data, company_id)
+        order_id = order["id"]
+        logger.info(f"Created sales order {order.get('number')} with delivery date {delivery_date}")
+
+        # 3. Copy quote lines to order
+        quote_lines = self.get_quote_lines(quote_id, company_id)
+        for ql in quote_lines:
+            line_data = {}
+            if ql.get("lineType") == "Comment":
+                line_data = {
+                    "lineType": "Comment",
+                    "description": ql.get("description", ""),
+                }
+            else:
+                line_data = {
+                    "lineType": ql.get("lineType", "Item"),
+                    "lineObjectNumber": ql.get("lineObjectNumber", ""),
+                    "description": ql.get("description", ""),
+                    "quantity": ql.get("quantity", 0),
+                }
+                if ql.get("unitPrice"):
+                    line_data["unitPrice"] = ql["unitPrice"]
+
+            try:
+                self.add_order_line(order_id, line_data, company_id)
+            except Exception as line_err:
+                logger.warning(f"Failed to copy quote line to order: {line_err}")
+
+        # 4. Delete the original quote (it's been converted)
+        try:
+            self.delete_sales_quote(quote_id, company_id)
+            logger.info(f"Deleted original quote {quote_id} after manual conversion")
+        except Exception as del_err:
+            logger.warning(f"Could not delete quote {quote_id} after conversion: {del_err}")
+
+        # 5. Return the order (re-fetch to get totals)
+        return self.get_sales_order(order_id, company_id)
 
     # ==================== Shipments ====================
 
