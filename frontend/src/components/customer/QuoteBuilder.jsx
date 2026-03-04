@@ -444,11 +444,14 @@ function QuoteBuilder() {
           <DoorSeriesStep
             series={config.doorSeries[currentDoor.doorType] || []}
             selected={currentDoor.doorSeries}
-            onSelect={(series) => updateCurrentDoor({
-              doorSeries: series, panelColor: '', panelDesign: '',
-              // Craft series includes windows as standard
-              ...(series === 'CRAFT' ? { hasWindows: true, windowInsert: '34X16_THERMOPANE', windowPositions: [] } : {})
-            })}
+            onSelect={(series) => {
+              const isCommercialSeries = ['TX450', 'TX500', 'TX450-20', 'TX500-20'].includes(series)
+              updateCurrentDoor({
+                doorSeries: series, panelColor: '', panelDesign: isCommercialSeries ? 'UDC' : '',
+                // Craft series includes windows as standard
+                ...(series === 'CRAFT' ? { hasWindows: true, windowInsert: '34X16_THERMOPANE', windowPositions: [] } : {})
+              })
+            }}
           />
         )}
 
