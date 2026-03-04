@@ -489,6 +489,7 @@ def _generate_bc_quote_with_items(
             "trackThickness": door.get("trackThickness", "2"),
             "hardware": door.get("hardware", {}),
             "operator": door.get("operator"),
+            "targetCycles": door.get("targetCycles", 10000),
         }
 
         try:
@@ -789,6 +790,7 @@ def _estimate_pricing_locally(
             "trackThickness": door.get("trackThickness", "2"),
             "hardware": door.get("hardware", {}),
             "operator": door.get("operator"),
+            "targetCycles": door.get("targetCycles", 10000),
         }
 
         try:

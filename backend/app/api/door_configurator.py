@@ -365,6 +365,7 @@ class DoorConfigRequest(BaseModel):
     hardware: Dict[str, bool] = {}
     operator: Optional[str] = None
     notes: Optional[str] = None
+    targetCycles: int = 10000
 
 
 class QuoteGenerationRequest(BaseModel):
@@ -737,6 +738,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "trackThickness": door.trackThickness,
                 "hardware": door.hardware,
                 "operator": door.operator,
+                "targetCycles": door.targetCycles,
             }
 
             door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inventory)
@@ -1017,6 +1019,7 @@ async def get_part_numbers(config: DoorConfigRequest, db: Session = Depends(get_
             "trackThickness": config.trackThickness,
             "hardware": config.hardware,
             "operator": config.operator,
+            "targetCycles": config.targetCycles,
         }
 
         # Get parts from service (with spring inventory for consistency with specs tab)
@@ -1070,6 +1073,7 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "trackThickness": door.trackThickness,
                 "hardware": door.hardware,
                 "operator": door.operator,
+                "targetCycles": door.targetCycles,
             }
 
             spring_inv = get_spring_inventory_settings(db)
