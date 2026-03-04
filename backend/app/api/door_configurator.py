@@ -145,6 +145,8 @@ DOOR_SERIES = {
             "glazingOptions": [
                 {"id": "CLEAR", "name": "Clear"},
                 {"id": "LIGHT_BRONZE", "name": "Light Bronze"},
+                {"id": "DARK_BRONZE", "name": "Dark Bronze"},
+                {"id": "WHITE_OPAL", "name": "White Opal"},
             ],
             "finishes": [
                 {"id": "CLEAR_ANODIZED", "name": "Clear Anodized", "code": "00"},
@@ -168,6 +170,8 @@ DOOR_SERIES = {
             "glazingOptions": [
                 {"id": "CLEAR", "name": "Clear"},
                 {"id": "LIGHT_BRONZE", "name": "Light Bronze"},
+                {"id": "DARK_BRONZE", "name": "Dark Bronze"},
+                {"id": "WHITE_OPAL", "name": "White Opal"},
             ],
             "finishes": [
                 {"id": "CLEAR_ANODIZED", "name": "Clear Anodized", "code": "0"},

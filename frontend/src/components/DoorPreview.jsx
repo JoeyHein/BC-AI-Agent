@@ -464,8 +464,10 @@ function DoorPreview({
 
     // Glazing color — glass for AL976, polycarbonate for Panorama/Solalite
     const glassLookup = isPolycarbonate ? {
-      'CLEAR':        { fill: '#E0EEF0', reflection: 'rgba(255,255,255,0.25)' },
-      'LIGHT_BRONZE': { fill: '#C8A882', reflection: 'rgba(255,255,255,0.15)' },
+      'CLEAR':        { fill: '#D8E8EC', ribStroke: 'rgba(180,200,210,0.5)', ribHighlight: 'rgba(255,255,255,0.3)' },
+      'LIGHT_BRONZE': { fill: '#C8A882', ribStroke: 'rgba(160,120,80,0.4)', ribHighlight: 'rgba(255,255,255,0.2)' },
+      'DARK_BRONZE':  { fill: '#7A5C3A', ribStroke: 'rgba(90,60,30,0.5)', ribHighlight: 'rgba(255,255,255,0.12)' },
+      'WHITE_OPAL':   { fill: '#F0EDE8', ribStroke: 'rgba(200,195,188,0.45)', ribHighlight: 'rgba(255,255,255,0.35)' },
     } : {
       'CLEAR':      { fill: '#A8D8EA', reflection: 'rgba(255,255,255,0.35)' },
       'ETCHED':     { fill: '#D3D3D3', reflection: 'rgba(255,255,255,0.2)' },
@@ -508,17 +510,34 @@ function DoorPreview({
           fill={glass.fill} stroke={frame.stroke} strokeWidth="0.3" />
       )
 
-      // Multiwall polycarbonate texture — fine horizontal ribs across full width
-      const ribCount = Math.max(4, Math.round(innerH / 3))
-      const ribSpacing = innerH / (ribCount + 1)
+      // Multiwall polycarbonate texture — visible horizontal channel ribs
+      const ribSpacing = 1.8  // consistent spacing between ribs
+      const ribCount = Math.max(3, Math.floor(innerH / ribSpacing) - 1)
+      const actualSpacing = innerH / (ribCount + 1)
       for (let r = 1; r <= ribCount; r++) {
+        const ry = innerY + r * actualSpacing
+        // Dark rib line (channel wall shadow)
         elements.push(
           <line key={`al-rib-${sectionIndex}-${r}`}
-            x1={innerX + 0.5} y1={innerY + r * ribSpacing}
-            x2={innerX + innerW - 0.5} y2={innerY + r * ribSpacing}
-            stroke="rgba(255,255,255,0.18)" strokeWidth="0.3" />
+            x1={innerX + 0.3} y1={ry}
+            x2={innerX + innerW - 0.3} y2={ry}
+            stroke={glass.ribStroke} strokeWidth="0.5" />
+        )
+        // Light highlight just below (top of next channel catches light)
+        elements.push(
+          <line key={`al-ribhl-${sectionIndex}-${r}`}
+            x1={innerX + 0.3} y1={ry + 0.5}
+            x2={innerX + innerW - 0.3} y2={ry + 0.5}
+            stroke={glass.ribHighlight} strokeWidth="0.3" />
         )
       }
+
+      // Subtle overall sheen at top of panel
+      elements.push(
+        <rect key={`al-sheen-${sectionIndex}`}
+          x={innerX} y={innerY} width={innerW} height={innerH * 0.15}
+          fill="rgba(255,255,255,0.08)" />
+      )
     } else {
       // AL976: glass panes with vertical stiles (grid pattern)
       const widthFeet = width / 12

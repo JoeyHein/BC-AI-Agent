@@ -1390,6 +1390,8 @@ class PartNumberService:
             gk17_map = {
                 "CLEAR":        ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"),
                 "LIGHT_BRONZE": ("GK17-12600-00", "GLAZING KIT, ALUM, POLYCARBONATE, LIGHT BRONZE"),
+                "DARK_BRONZE":  ("GK17-12700-00", "GLAZING KIT, ALUM, POLYCARBONATE, DARK BRONZE"),
+                "WHITE_OPAL":   ("GK17-12800-00", "GLAZING KIT, ALUM, POLYCARBONATE, WHITE OPAL"),
             }
             poly_pn, poly_desc = gk17_map.get(glass_color, ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"))
 
