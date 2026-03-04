@@ -330,7 +330,7 @@ LINE_ORDER = [
     "comment", "panel", "v130g_section", "v130g_glass", "commercial_window",
     "retainer", "astragal", "strut", "window",
     "track", "highlift_track", "hardware", "spring", "spring_accessory",
-    "shaft", "weather_stripping", "accessory", "operator",
+    "shaft", "weather_stripping", "top_seal", "accessory", "operator",
 ]
 
 
@@ -435,6 +435,7 @@ def _generate_bc_quote_with_items(
     config_id: int,
     pricing_tier: Optional[str] = None,
     db: Optional[Session] = None,
+    po_number: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Create a BC sales quote with real item lines for all doors.
@@ -489,9 +490,11 @@ def _generate_bc_quote_with_items(
             "glassColor": door.get("glassColor"),
             "trackRadius": door.get("trackRadius", "15"),
             "trackThickness": door.get("trackThickness", "2"),
+            "trackMount": door.get("trackMount", "bracket"),
             "hardware": door.get("hardware", {}),
             "operator": door.get("operator"),
             "targetCycles": door.get("targetCycles", 10000),
+            "shaftType": door.get("shaftType", "auto"),
         }
 
         try:
@@ -500,10 +503,23 @@ def _generate_bc_quote_with_items(
             sorted_parts = _sort_parts_by_category(parts_list)
             part_door_type = config_dict.get("doorType", "residential")
 
+            # Track whether we've emitted window placement comment
+            window_note_emitted = False
+
             for part in sorted_parts:
                 part["door_index"] = door_index
                 part["door_type"] = part_door_type
                 all_lines.append(part)
+
+                # After window parts, emit a placement comment if notes exist
+                if not window_note_emitted and part.get("notes") and part.get("category") in ("window", "commercial_window"):
+                    window_note_emitted = True
+                    all_lines.append({
+                        "lineType": "Comment",
+                        "description": part["notes"],
+                        "category": "COMMENT",
+                        "door_index": door_index,
+                    })
 
             door_results.append({
                 "door_index": door_index,
@@ -526,7 +542,7 @@ def _generate_bc_quote_with_items(
     # It gets set during order creation in convert_quote_to_order (6 weeks out).
     quote_data = {
         "customerId": bc_customer_id,
-        "externalDocumentNumber": f"PORTAL-{config_id}",
+        "externalDocumentNumber": po_number or f"PORTAL-{config_id}",
     }
     bc_quote = bc_client.create_sales_quote(quote_data)
     if not bc_quote:
@@ -817,9 +833,11 @@ def _estimate_pricing_locally(
             "glassColor": door.get("glassColor"),
             "trackRadius": door.get("trackRadius", "15"),
             "trackThickness": door.get("trackThickness", "2"),
+            "trackMount": door.get("trackMount", "bracket"),
             "hardware": door.get("hardware", {}),
             "operator": door.get("operator"),
             "targetCycles": door.get("targetCycles", 10000),
+            "shaftType": door.get("shaftType", "auto"),
         }
 
         try:
@@ -828,10 +846,23 @@ def _estimate_pricing_locally(
             sorted_parts = _sort_parts_by_category(parts_list)
             part_door_type = config_dict.get("doorType", "residential")
 
+            # Track whether we've emitted window placement comment
+            window_note_emitted = False
+
             for part in sorted_parts:
                 part["door_index"] = door_index
                 part["door_type"] = part_door_type
                 all_lines.append(part)
+
+                # After window parts, emit a placement comment if notes exist
+                if not window_note_emitted and part.get("notes") and part.get("category") in ("window", "commercial_window"):
+                    window_note_emitted = True
+                    all_lines.append({
+                        "lineType": "Comment",
+                        "description": part["notes"],
+                        "category": "COMMENT",
+                        "door_index": door_index,
+                    })
 
             door_results.append({
                 "door_index": door_index,
@@ -960,6 +991,7 @@ def get_pricing_for_saved_quote(
                 config_id=config.id,
                 pricing_tier=pricing_tier,
                 db=db,
+                po_number=(config.config_data or {}).get("poNumber"),
             )
 
             # Store BC quote reference (but NOT submitted)
@@ -1099,6 +1131,7 @@ def refresh_pricing_for_saved_quote(
                 config_id=config.id,
                 pricing_tier=pricing_tier,
                 db=db,
+                po_number=(config.config_data or {}).get("poNumber"),
             )
 
             config.bc_quote_id = result["bc_quote_id"]
@@ -1191,6 +1224,7 @@ def submit_saved_quote(
                 config_id=config.id,
                 pricing_tier=pricing_tier,
                 db=db,
+                po_number=(config.config_data or {}).get("poNumber"),
             )
 
             config.bc_quote_id = result["bc_quote_id"]

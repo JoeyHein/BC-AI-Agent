@@ -118,6 +118,7 @@ class DoorConfiguration:
     target_cycles: int = 10000  # cycle life rating (10000, 15000, 25000, 50000, 100000)
     spring_quantity: int = 2  # number of springs (1 or 2)
     shaft_preference: str = 'auto'  # 'auto', 'single', or 'split'
+    track_mount: str = 'bracket'  # 'bracket' or 'angle'
     window_size: str = 'long'  # 'short' (GK15-10xxx) or 'long' (GK15-11xxx)
     spring_inventory: Optional[Dict[str, list]] = None  # stocked coil/wire combos from settings
 
@@ -707,15 +708,17 @@ class PartNumberService:
         track_size = int(config.track_thickness) if config.track_thickness else 2
         radius_inches = int(config.track_radius) if config.track_radius else 12
 
-        # Determine lift type
+        # Determine lift type and mount type
         lift_type = LiftType.STANDARD  # Default to standard lift
+        mount_type = TrackMount.ANGLE if config.track_mount == 'angle' else TrackMount.BRACKET
+        mount_label = "ANGLE MOUNT" if config.track_mount == 'angle' else "BRACKET MOUNT"
 
         # Get track assembly part number using the rounded-up height
         track = mapper.get_track_assembly(
             door_height_feet=door_height_feet,
             track_size=track_size,
             lift_type=lift_type,
-            mount_type=TrackMount.BRACKET,
+            mount_type=mount_type,
             radius_inches=radius_inches
         )
 
@@ -727,7 +730,7 @@ class PartNumberService:
         else:
             height_display = f"{actual_ft}'"
         track_desc = (
-            f"{track_size}\" STANDARD LIFT BRACKET MOUNT; {height_display} High,"
+            f"{track_size}\" STANDARD LIFT {mount_label}; {height_display} High,"
             f"{radius_inches}\"Radius"
         )
 
@@ -944,37 +947,88 @@ class PartNumberService:
         )
 
         if use_split:
-            # Two SH11 shafts + one coupler
-            # Each half: FF*12+6 >= (door_width+16)/2 → FF >= (door_width+4)/24
-            required_ff_each = math.ceil((config.door_width + 4) / 24)
-            shaft_half = mapper.get_shaft(door_width_feet=required_ff_each, shaft_type="solid")
+            # Two SH11 shafts (offset sizes) + one coupler
+            # Total combined length must be >= door_width + 16"
+            # Use offset pair (one shorter, one longer) to minimize total overhang
+            needed = config.door_width + 16
             coupler = mapper.get_shaft_coupler(bore_size=1.0)
 
-            selected_ff = int(shaft_half.part_number[6:8])
-            half_length = selected_ff * 12 + 6
-            total_length = half_length * 2
-            needed = config.door_width + 16
+            # Get all available SH11 sizes from the mapper
+            available_sh11 = []
+            for pn, item in mapper.bc_items.items():
+                if (pn.startswith("SH11-1") and len(pn) == 13 and
+                        pn[8:10] == "06" and pn.endswith("-00")):
+                    try:
+                        ff = int(pn[6:8])
+                        available_sh11.append(ff)
+                    except ValueError:
+                        pass
+            available_sh11.sort()
+
+            if not available_sh11:
+                # Fallback: typical SH11 sizes (7'6" through 15'6")
+                available_sh11 = [7, 8, 9, 10, 11, 12, 13, 14, 15]
+
+            # Find best offset pair: two different sizes whose combined length >= needed
+            # minimizing total overhang
+            best_pair = None
+            best_overhang = float('inf')
+            for i, ff_a in enumerate(available_sh11):
+                len_a = ff_a * 12 + 6
+                for ff_b in available_sh11[i:]:
+                    len_b = ff_b * 12 + 6
+                    total = len_a + len_b
+                    if total >= needed:
+                        overhang = total - needed
+                        if overhang < best_overhang:
+                            best_overhang = overhang
+                            best_pair = (ff_a, ff_b)
+
+            if best_pair is None:
+                # Use two of the largest available
+                best_pair = (available_sh11[-1], available_sh11[-1])
+
+            ff_a, ff_b = best_pair
+            shaft_a = mapper.get_shaft(door_width_feet=ff_a, shaft_type="solid")
+            shaft_b = mapper.get_shaft(door_width_feet=ff_b, shaft_type="solid")
+
+            total_length = (ff_a * 12 + 6) + (ff_b * 12 + 6)
             if total_length < needed:
                 logger.warning(
                     f"Split shaft total {total_length}\" still short for {width_display} door "
-                    f"(need {needed}\"): using {shaft_half.part_number} ×2"
+                    f"(need {needed}\"): using {shaft_a.part_number} + {shaft_b.part_number}"
                 )
 
-            shaft_desc = f"1\" Solid Shaft Keyed {width_display} door width (split)"
-            return [
-                PartSelection(
-                    part_number=shaft_half.part_number,
-                    description=shaft_desc,
+            parts = []
+            if ff_a == ff_b:
+                # Same size — qty 2
+                parts.append(PartSelection(
+                    part_number=shaft_a.part_number,
+                    description=f"1\" Solid Shaft Keyed {width_display} door width (split)",
                     quantity=2,
                     category="shaft"
-                ),
-                PartSelection(
-                    part_number=coupler.part_number,
-                    description=coupler.description,
+                ))
+            else:
+                # Offset pair — qty 1 each
+                parts.append(PartSelection(
+                    part_number=shaft_a.part_number,
+                    description=f"1\" Solid Shaft Keyed {width_display} door width (split - short side)",
                     quantity=1,
                     category="shaft"
-                ),
-            ]
+                ))
+                parts.append(PartSelection(
+                    part_number=shaft_b.part_number,
+                    description=f"1\" Solid Shaft Keyed {width_display} door width (split - long side)",
+                    quantity=1,
+                    category="shaft"
+                ))
+            parts.append(PartSelection(
+                part_number=coupler.part_number,
+                description=coupler.description,
+                quantity=1,
+                category="shaft"
+            ))
+            return parts
 
         else:
             # Single solid shaft
@@ -1004,7 +1058,11 @@ class PartNumberService:
         mapper = get_bc_mapper()
 
         door_width_feet = config.door_width // 12
-        gauge = 16 if config.door_type == "commercial" else 20
+        # Commercial doors >16' wide get 16ga struts; all others get 20ga
+        if config.door_type == "commercial" and config.door_width > 192:
+            gauge = 16
+        else:
+            gauge = 20
 
         # Get strut part number
         strut = mapper.get_strut(door_width_feet, gauge)
@@ -1035,7 +1093,9 @@ class PartNumberService:
 
         door_width_feet = int(config.door_width / 12)
         door_height_feet = int(config.door_height / 12)
-        is_commercial = config.door_type == "commercial"
+        # Hardware box type follows track thickness, not door type
+        # 3" track → commercial HW box (HK03/HW), 2" track → residential HW box (HK02/HK10)
+        is_commercial = config.track_thickness == '3'
 
         # Calculate number of sections based on door height
         num_sections = self._calculate_panel_count(config.door_height)
@@ -1099,21 +1159,39 @@ class PartNumberService:
             category="weather_stripping"
         ))
 
-        # Get weather strip for WIDTH (header) - quantity 1
-        width_strip = mapper.get_weather_stripping(
-            door_height_feet=door_width_feet,  # Using width here
-            color=color,
-            commercial=is_commercial
-        )
-        parts.append(PartSelection(
-            part_number=width_strip.part_number,
-            description=(
-                f"PLASTICS, WEATHER STRIP, GALVANIZED STEEL/FLEXIBLE VINYL,"
-                f" {color_upper}, {actual_w_display} (HEADER)"
-            ),
-            quantity=1,  # Always 1 for header
-            category="weather_stripping"
-        ))
+        # Get weather strip for WIDTH (header)
+        # Max available strip length is 18'. For wider doors, split into 2 pieces.
+        if door_width_feet > 18:
+            half_feet = math.ceil(door_width_feet / 2)
+            width_strip = mapper.get_weather_stripping(
+                door_height_feet=half_feet,
+                color=color,
+                commercial=is_commercial
+            )
+            parts.append(PartSelection(
+                part_number=width_strip.part_number,
+                description=(
+                    f"PLASTICS, WEATHER STRIP, GALVANIZED STEEL/FLEXIBLE VINYL,"
+                    f" {color_upper}, {actual_w_display} (HEADER - SPLIT 2PCS)"
+                ),
+                quantity=2,
+                category="weather_stripping"
+            ))
+        else:
+            width_strip = mapper.get_weather_stripping(
+                door_height_feet=door_width_feet,
+                color=color,
+                commercial=is_commercial
+            )
+            parts.append(PartSelection(
+                part_number=width_strip.part_number,
+                description=(
+                    f"PLASTICS, WEATHER STRIP, GALVANIZED STEEL/FLEXIBLE VINYL,"
+                    f" {color_upper}, {actual_w_display} (HEADER)"
+                ),
+                quantity=1,
+                category="weather_stripping"
+            ))
 
         return parts
 
@@ -1167,9 +1245,8 @@ class PartNumberService:
         - Insulated doors (TX450-20, TX500-20)
         - Doors with weather seal requirements
         """
-        # Check if this door type requires top seal
-        insulated_series = ["TX450-20", "TX500-20", "KANATA_EXECUTIVE"]
-        if config.door_series not in insulated_series:
+        # Top seal on all commercial and aluminium doors
+        if config.door_type not in ("commercial", "aluminium"):
             return []
 
         mapper = get_bc_mapper()
@@ -1430,6 +1507,20 @@ class PartNumberService:
 
         return parts
 
+    def _build_window_placement_note(self, config: DoorConfiguration) -> Optional[str]:
+        """Build a human-readable note describing where windows should be placed."""
+        if config.window_panels:
+            # Per-panel config: e.g. {1: {"qty": 3}, 3: {"qty": 2}}
+            panel_descs = []
+            for panel_num in sorted(config.window_panels.keys()):
+                qty = config.window_panels[panel_num].get("qty", 1)
+                panel_descs.append(f"Panel {panel_num}: {qty} window{'s' if qty > 1 else ''}")
+            return "WINDOWS: " + ", ".join(panel_descs)
+        elif config.window_count > 0:
+            section = config.window_section or 1
+            return f"WINDOWS: Section {section}, {config.window_count} per panel"
+        return None
+
     def _get_window_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get window/glass kit part numbers using GK15 (residential) or GK16 (commercial).
 
@@ -1502,11 +1593,15 @@ class PartNumberService:
         # Window quantity: use actual window count from positions, or estimate from door width
         window_qty = config.window_count or max(1, config.door_width // 24)
 
+        # Build window placement note
+        window_note = self._build_window_placement_note(config)
+
         parts = [PartSelection(
             part_number=part_number,
             description=description,
             quantity=window_qty,
-            category="window"
+            category="window",
+            notes=window_note,
         )]
 
         # Add GL18 frame insert for decorative LONG windows (no inserts for SHORT)
@@ -1823,6 +1918,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         glass_color=config_dict.get("glassColor"),
         track_radius=config_dict.get("trackRadius", "15"),
         track_thickness=config_dict.get("trackThickness", "2"),
+        track_mount=config_dict.get("trackMount", "bracket"),
         hardware=config_dict.get("hardware", {}),
         operator=config_dict.get("operator"),
         target_cycles=config_dict.get("targetCycles", config_dict.get("target_cycles", 10000)),

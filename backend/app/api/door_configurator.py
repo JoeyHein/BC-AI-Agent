@@ -430,10 +430,12 @@ class DoorConfigRequest(BaseModel):
     glassColor: Optional[str] = None     # 'CLEAR', 'ETCHED', 'SUPER_GREY'
     trackRadius: str = "15"
     trackThickness: str = "2"
+    trackMount: str = "bracket"  # 'bracket' or 'angle'
     hardware: Dict[str, bool] = {}
     operator: Optional[str] = None
     notes: Optional[str] = None
     targetCycles: int = 10000
+    shaftType: str = "auto"  # 'auto', 'single', 'split'
 
 
 class QuoteGenerationRequest(BaseModel):
@@ -717,6 +719,7 @@ LINE_ORDER = [
     "spring_accessory",  # 9b. Winders, plugs
     "shaft",             # 9c. Shaft
     "weather_stripping", # 10. Weather seal
+    "top_seal",          # 10b. Top seal (commercial/aluminium)
     "accessory",         # 11. Accessories
     "operator",          # 12. Operator (if applicable)
 ]
@@ -805,9 +808,11 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "glassColor": door.glassColor,
                 "trackRadius": door.trackRadius,
                 "trackThickness": door.trackThickness,
+                "trackMount": door.trackMount,
                 "hardware": door.hardware,
                 "operator": door.operator,
                 "targetCycles": door.targetCycles,
+                "shaftType": door.shaftType,
             }
 
             door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inventory)
@@ -817,10 +822,20 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
             sorted_parts = _sort_parts_by_category(parts_list)
 
             # Add door index and type to each part for tracking/pricing
+            window_note_emitted = False
             for part in sorted_parts:
                 part["door_index"] = door_index
                 part["door_type"] = door.doorType
                 all_lines.append(part)
+
+                # After window parts, emit a placement comment if notes exist
+                if not window_note_emitted and part.get("notes") and part.get("category") in ("window", "commercial_window"):
+                    window_note_emitted = True
+                    all_lines.append({
+                        "lineType": "Comment",
+                        "description": part["notes"],
+                        "door_index": door_index,
+                    })
 
             parts_by_door.append({
                 "door_index": door_index,
@@ -1167,9 +1182,11 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "glassColor": door.glassColor,
                 "trackRadius": door.trackRadius,
                 "trackThickness": door.trackThickness,
+                "trackMount": door.trackMount,
                 "hardware": door.hardware,
                 "operator": door.operator,
                 "targetCycles": door.targetCycles,
+                "shaftType": door.shaftType,
             }
 
             spring_inv = get_spring_inventory_settings(db)
