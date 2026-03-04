@@ -19,6 +19,7 @@ from app.integrations.ai.client import ai_client
 from app.services.part_number_service import get_parts_for_door_config
 from app.services.pricing_service import calculate_selling_price
 from app.services.spring_data_service import get_spring_inventory_settings
+from app.services.quote_review_service import save_quote_snapshot
 
 # Part number prefix → BC search keyword for AI substitute lookup
 _CATEGORY_SEARCH_TERMS = {
@@ -715,6 +716,32 @@ def _generate_bc_quote_with_items(
 
     except Exception as pricing_error:
         logger.warning(f"Could not fetch pricing for quote {bc_quote_number}: {pricing_error}")
+
+    # Save snapshot for quote review system
+    try:
+        door_configs_summary = [
+            {
+                "series": d.get("doorSeries"), "type": d.get("doorType"),
+                "width": d.get("doorWidth"), "height": d.get("doorHeight"),
+                "count": d.get("doorCount", 1), "color": d.get("panelColor"),
+            }
+            for d in doors
+        ]
+        save_quote_snapshot(
+            db=db,
+            bc_quote_id=bc_quote_id,
+            bc_quote_number=bc_quote_number,
+            source="customer",
+            all_lines=all_lines,
+            line_pricing=line_pricing if line_pricing else None,
+            pricing_totals=pricing,
+            door_configs=door_configs_summary,
+            bc_customer_id=bc_customer_id,
+            pricing_tier=pricing_tier,
+            saved_config_id=config_id,
+        )
+    except Exception as snap_err:
+        logger.warning(f"Could not save quote snapshot: {snap_err}")
 
     return {
         "bc_quote_id": bc_quote_id,

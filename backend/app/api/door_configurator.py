@@ -13,6 +13,7 @@ from app.services.part_number_service import get_parts_for_door_config, part_num
 from app.services.door_calculator_service import door_calculator, calculate_door_from_config
 from app.services.spring_data_service import get_spring_inventory_settings
 from app.services.pricing_service import calculate_selling_price
+from app.services.quote_review_service import save_quote_snapshot
 from app.integrations.bc.client import bc_client
 from app.db.database import get_db
 from app.db.models import BCCustomer
@@ -906,6 +907,31 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
 
         except Exception as pricing_error:
             logger.warning(f"Could not fetch pricing for quote {bc_quote_number}: {pricing_error}")
+
+        # Save snapshot for quote review system
+        try:
+            door_configs_summary = [
+                {
+                    "series": d.doorSeries, "type": d.doorType,
+                    "width": d.doorWidth, "height": d.doorHeight,
+                    "count": d.doorCount, "color": d.panelColor,
+                }
+                for d in request.doors
+            ]
+            save_quote_snapshot(
+                db=db,
+                bc_quote_id=bc_quote_id,
+                bc_quote_number=bc_quote_number,
+                source="admin",
+                all_lines=all_lines,
+                line_pricing=line_pricing if line_pricing else None,
+                pricing_totals=pricing,
+                door_configs=door_configs_summary,
+                bc_customer_id=request.customerId,
+                pricing_tier=pricing_tier,
+            )
+        except Exception as snap_err:
+            logger.warning(f"Could not save quote snapshot: {snap_err}")
 
         return {
             "success": True,

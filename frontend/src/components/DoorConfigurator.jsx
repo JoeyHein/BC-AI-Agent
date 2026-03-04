@@ -4,6 +4,7 @@ import { doorConfigApi } from '../api/client'
 import apiClient from '../api/client'
 import DoorDrawings from './DoorDrawings'
 import DoorPreview from './DoorPreview'
+import QuoteReviewPanel from './QuoteReviewPanel'
 
 const STEPS = [
   { id: 'type', title: 'Door Type', description: 'Select door category' },
@@ -1819,6 +1820,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
   const [calculations, setCalculations] = useState([])
   const [loadingCalcs, setLoadingCalcs] = useState(false)
   const [showCalcs, setShowCalcs] = useState(true)
+  const [showReviewPanel, setShowReviewPanel] = useState(false)
 
   // Fetch part numbers and calculations when component mounts or doors change
   useEffect(() => {
@@ -2444,9 +2446,27 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
                   <span className="font-medium">Note:</span> {quoteResult.data.lines_failed.length} items could not be added (not in BC inventory)
                 </div>
               )}
+              {/* Review Changes button */}
+              {quoteResult.data.bc_quote_id && (
+                <div className="mt-3 pt-3 border-t border-green-200">
+                  <button
+                    onClick={() => setShowReviewPanel(!showReviewPanel)}
+                    className="px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md"
+                  >
+                    {showReviewPanel ? 'Hide Review' : 'Review Changes'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
+      )}
+      {showReviewPanel && quoteResult?.data?.bc_quote_id && (
+        <QuoteReviewPanel
+          bcQuoteId={quoteResult.data.bc_quote_id}
+          bcQuoteNumber={quoteResult.data.bc_quote_number}
+          onClose={() => setShowReviewPanel(false)}
+        />
       )}
     </div>
   )

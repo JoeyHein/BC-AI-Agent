@@ -989,6 +989,68 @@ class ChatMessage(Base):
 # APPLICATION SETTINGS MODELS
 # ============================================================================
 
+class QuoteSnapshot(Base):
+    """Stores the original configurator output when a BC quote is created"""
+    __tablename__ = "quote_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    bc_quote_id = Column(String(100), unique=True, nullable=False, index=True)
+    bc_quote_number = Column(String(50), index=True)
+    source = Column(String(20), nullable=False)  # "admin" or "customer"
+
+    # Original configurator output
+    original_lines = Column(JSON)  # The all_lines list at generation time
+    original_line_pricing = Column(JSON)  # The line_pricing with prices from BC
+    original_pricing_totals = Column(JSON)  # {subtotal, tax, total}
+    door_configs = Column(JSON)  # Simplified door configs for AI context
+
+    # Context
+    bc_customer_id = Column(String(100), nullable=True)
+    pricing_tier = Column(String(50), nullable=True)
+    saved_config_id = Column(Integer, ForeignKey("saved_quote_configs.id"), nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+
+    # Relationships
+    reviews = relationship("QuoteReview", back_populates="snapshot", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<QuoteSnapshot(id={self.id}, bc_quote={self.bc_quote_number}, source={self.source})>"
+
+
+class QuoteReview(Base):
+    """Stores each comparison result between original snapshot and current BC quote"""
+    __tablename__ = "quote_reviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    snapshot_id = Column(Integer, ForeignKey("quote_snapshots.id"), nullable=False, index=True)
+
+    # Current BC state at review time
+    bc_lines_at_review = Column(JSON)  # BC quote lines fetched at review time
+
+    # Diff result
+    diff_result = Column(JSON)  # {added, removed, modified, unchanged_count, summary}
+
+    # AI analysis
+    ai_analysis = Column(JSON, nullable=True)  # patterns, code suggestions, confidence
+
+    # Review metadata
+    reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    review_notes = Column(Text, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relationships
+    snapshot = relationship("QuoteSnapshot", back_populates="reviews")
+    reviewer = relationship("User", foreign_keys=[reviewed_by])
+
+    def __repr__(self):
+        return f"<QuoteReview(id={self.id}, snapshot={self.snapshot_id})>"
+
+
 class AppSettings(Base):
     """Application-wide settings storage"""
     __tablename__ = "app_settings"

@@ -518,6 +518,24 @@ export const settingsApi = {
     apiClient.get('/api/settings/bc-group-mapping/bc-groups'),
 };
 
+// Quote Review API (admin)
+export const quoteReviewApi = {
+  getSnapshots: (params = {}) =>
+    apiClient.get('/api/admin/quote-review/snapshots', { params }),
+
+  reviewQuote: (bcQuoteId, data = {}) =>
+    apiClient.post(`/api/admin/quote-review/${bcQuoteId}/review`, data),
+
+  analyzePatterns: (limit = 20) =>
+    apiClient.post('/api/admin/quote-review/analyze-patterns', { limit }),
+
+  getReviews: (params = {}) =>
+    apiClient.get('/api/admin/quote-review/reviews', { params }),
+
+  getReview: (reviewId) =>
+    apiClient.get(`/api/admin/quote-review/reviews/${reviewId}`),
+};
+
 // Customers API (admin)
 export const customersApi = {
   updatePricingTier: (customerId, pricingTier) =>
