@@ -112,6 +112,16 @@ DOOR_SERIES = {
             "description": "Full-view aluminum door with glass panels",
             "categoryValue": "67f7c1c39cf0ed4a3b00baea",
             "partPrefix": "PN97",
+            "glazingType": "glass",
+            "glazingOptions": [
+                {"id": "CLEAR", "name": "Clear"},
+                {"id": "ETCHED", "name": "Etched"},
+                {"id": "SUPER_GREY", "name": "Super Grey"},
+            ],
+            "paneTypes": [
+                {"id": "INSULATED", "name": "Insulated (Thermal)"},
+                {"id": "SINGLE", "name": "Single Pane"},
+            ],
             "finishes": [
                 {"id": "CLEAR_ANODIZED", "name": "Clear Anodized", "code": "0"},
                 {"id": "WHITE", "name": "White", "code": "3"},
@@ -128,9 +138,14 @@ DOOR_SERIES = {
         {
             "id": "PANORAMA",
             "name": "Panorama",
-            "description": "Full-view aluminum door — clean sightlines",
+            "description": "Full-view aluminum door — polycarbonate panels",
             "categoryValue": "67f7c1c39cf0ed4a3b00baea",
             "partPrefix": "PN80",
+            "glazingType": "polycarbonate",
+            "glazingOptions": [
+                {"id": "CLEAR", "name": "Clear"},
+                {"id": "LIGHT_BRONZE", "name": "Light Bronze"},
+            ],
             "finishes": [
                 {"id": "CLEAR_ANODIZED", "name": "Clear Anodized", "code": "00"},
                 {"id": "WHITE", "name": "White", "code": "10"},
@@ -147,9 +162,14 @@ DOOR_SERIES = {
         {
             "id": "SOLALITE",
             "name": "Solalite",
-            "description": "Thermal-break full-view aluminum door",
+            "description": "Thermal-break aluminum door — polycarbonate panels",
             "categoryValue": "67f7c1c39cf0ed4a3b00baea",
             "partPrefix": "PN20",
+            "glazingType": "polycarbonate",
+            "glazingOptions": [
+                {"id": "CLEAR", "name": "Clear"},
+                {"id": "LIGHT_BRONZE", "name": "Light Bronze"},
+            ],
             "finishes": [
                 {"id": "CLEAR_ANODIZED", "name": "Clear Anodized", "code": "0"},
             ],

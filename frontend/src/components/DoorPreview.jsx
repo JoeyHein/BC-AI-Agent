@@ -450,6 +450,7 @@ function DoorPreview({
   // Render aluminum door section (AL976, Panorama, Solalite) — full-view glass panel
   const renderAluminumSection = (sectionY, sectionHeight, padding, panelWidth, sectionIndex) => {
     const elements = []
+    const isPolycarbonate = ['PANORAMA', 'SOLALITE'].includes(doorSeries)
 
     // Frame color based on aluminum finish
     const aluminumFrames = {
@@ -461,13 +462,16 @@ function DoorPreview({
     }
     const frame = aluminumFrames[color] || aluminumFrames.CLEAR_ANODIZED
 
-    // Glass color
-    const glassColors = {
+    // Glazing color — glass for AL976, polycarbonate for Panorama/Solalite
+    const glassLookup = isPolycarbonate ? {
+      'CLEAR':        { fill: '#E0EEF0', reflection: 'rgba(255,255,255,0.25)' },
+      'LIGHT_BRONZE': { fill: '#C8A882', reflection: 'rgba(255,255,255,0.15)' },
+    } : {
       'CLEAR':      { fill: '#A8D8EA', reflection: 'rgba(255,255,255,0.35)' },
       'ETCHED':     { fill: '#D3D3D3', reflection: 'rgba(255,255,255,0.2)' },
       'SUPER_GREY': { fill: '#4A4A4A', reflection: 'rgba(255,255,255,0.15)' },
     }
-    const glass = glassColors[glassColor] || glassColors['CLEAR']
+    const glass = glassLookup[glassColor] || glassLookup['CLEAR']
 
     const x = padding
     const y = sectionY
@@ -511,21 +515,35 @@ function DoorPreview({
     for (let i = 0; i < paneCount; i++) {
       const paneX = innerX + i * (paneW + mullionW)
 
-      // Glass pane
+      // Glazing pane
       elements.push(
         <rect key={`al-glass-${sectionIndex}-${i}`}
           x={paneX} y={innerY} width={paneW} height={innerH}
           fill={glass.fill} stroke={frame.stroke} strokeWidth="0.3" />
       )
 
-      // Reflection highlight (diagonal)
-      elements.push(
-        <rect key={`al-reflect-${sectionIndex}-${i}`}
-          x={paneX + paneW * 0.06} y={innerY + innerH * 0.06}
-          width={paneW * 0.2} height={innerH * 0.35}
-          fill={glass.reflection} rx="0.5"
-          transform={`skewX(-3)`} />
-      )
+      if (isPolycarbonate) {
+        // Multiwall polycarbonate texture — horizontal ribs
+        const ribCount = Math.max(3, Math.round(innerH / 4))
+        const ribSpacing = innerH / (ribCount + 1)
+        for (let r = 1; r <= ribCount; r++) {
+          elements.push(
+            <line key={`al-rib-${sectionIndex}-${i}-${r}`}
+              x1={paneX + 0.5} y1={innerY + r * ribSpacing}
+              x2={paneX + paneW - 0.5} y2={innerY + r * ribSpacing}
+              stroke="rgba(255,255,255,0.2)" strokeWidth="0.3" />
+          )
+        }
+      } else {
+        // Glass reflection highlight (diagonal)
+        elements.push(
+          <rect key={`al-reflect-${sectionIndex}-${i}`}
+            x={paneX + paneW * 0.06} y={innerY + innerH * 0.06}
+            width={paneW * 0.2} height={innerH * 0.35}
+            fill={glass.reflection} rx="0.5"
+            transform={`skewX(-3)`} />
+        )
+      }
     }
 
     // Center stile accent (slightly thicker middle mullion if even pane count)

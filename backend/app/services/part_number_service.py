@@ -1380,33 +1380,51 @@ class PartNumberService:
                     notes=f"Solalite section {section_num} of {panel_count}"
                 ))
 
-        # Glass — same GL20 logic as V130G for all aluminum doors
-        glass_color = (config.glass_color or "CLEAR").upper()
-        pane_type = (config.glass_pane_type or "INSULATED").upper()
+        # Glazing — GL20 glass for AL976, GK17 polycarbonate for Panorama/Solalite
+        glazing_sqft_per_section = (config.door_width * section_height) / 144
+        total_glazing_sqft = round(glazing_sqft_per_section * panel_count, 2)
 
-        gl20_map = {
-            ("CLEAR", "INSULATED"):      ("GL20-00300-01", "GLASS, 3MM THERMO CLEAR/CLEAR"),
-            ("CLEAR", "SINGLE"):         ("GL20-00100-01", "GLASS, 3MM SINGLE CLEAR"),
-            ("ETCHED", "INSULATED"):     ("GL20-00300-02", "GLASS, 3MM THERMO CLEAR/ETCHED"),
-            ("ETCHED", "SINGLE"):        ("GL20-00100-02", "GLASS, 3MM SINGLE ETCHED"),
-            ("SUPER_GREY", "INSULATED"): ("GL20-00300-03", "GLASS, 3MM THERMO SUPER GREY"),
-            ("SUPER_GREY", "SINGLE"):    ("GL20-00100-03", "GLASS, 3MM SINGLE SUPER GREY"),
-        }
-        glass_pn, glass_desc = gl20_map.get(
-            (glass_color, pane_type),
-            ("GL20-00300-01", "GLASS, 3MM THERMO CLEAR/CLEAR")
-        )
+        if series in ("PANORAMA", "SOLALITE"):
+            # Polycarbonate glazing kits
+            glass_color = (config.glass_color or "CLEAR").upper()
+            gk17_map = {
+                "CLEAR":        ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"),
+                "LIGHT_BRONZE": ("GK17-12600-00", "GLAZING KIT, ALUM, POLYCARBONATE, LIGHT BRONZE"),
+            }
+            poly_pn, poly_desc = gk17_map.get(glass_color, ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"))
 
-        glass_sqft_per_section = (config.door_width * section_height) / 144
-        total_glass_sqft = round(glass_sqft_per_section * panel_count, 2)
+            parts.append(PartSelection(
+                part_number=poly_pn,
+                description=poly_desc,
+                quantity=total_glazing_sqft,
+                category="aluminum_glazing",
+                notes=f"Polycarbonate for {panel_count} sections ({glazing_sqft_per_section:.2f} sqft each)"
+            ))
+        else:
+            # AL976 — GL20 glass
+            glass_color = (config.glass_color or "CLEAR").upper()
+            pane_type = (config.glass_pane_type or "INSULATED").upper()
 
-        parts.append(PartSelection(
-            part_number=glass_pn,
-            description=glass_desc,
-            quantity=total_glass_sqft,
-            category="aluminum_glass",
-            notes=f"Glass for {panel_count} sections ({glass_sqft_per_section:.2f} sqft each)"
-        ))
+            gl20_map = {
+                ("CLEAR", "INSULATED"):      ("GL20-00300-01", "GLASS, 3MM THERMO CLEAR/CLEAR"),
+                ("CLEAR", "SINGLE"):         ("GL20-00100-01", "GLASS, 3MM SINGLE CLEAR"),
+                ("ETCHED", "INSULATED"):     ("GL20-00300-02", "GLASS, 3MM THERMO CLEAR/ETCHED"),
+                ("ETCHED", "SINGLE"):        ("GL20-00100-02", "GLASS, 3MM SINGLE ETCHED"),
+                ("SUPER_GREY", "INSULATED"): ("GL20-00300-03", "GLASS, 3MM THERMO SUPER GREY"),
+                ("SUPER_GREY", "SINGLE"):    ("GL20-00100-03", "GLASS, 3MM SINGLE SUPER GREY"),
+            }
+            glass_pn, glass_desc = gl20_map.get(
+                (glass_color, pane_type),
+                ("GL20-00300-01", "GLASS, 3MM THERMO CLEAR/CLEAR")
+            )
+
+            parts.append(PartSelection(
+                part_number=glass_pn,
+                description=glass_desc,
+                quantity=total_glazing_sqft,
+                category="aluminum_glass",
+                notes=f"Glass for {panel_count} sections ({glazing_sqft_per_section:.2f} sqft each)"
+            ))
 
         return parts
 

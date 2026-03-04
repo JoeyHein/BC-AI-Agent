@@ -332,7 +332,10 @@ function DoorConfigurator() {
                 panelColor: isAluminumSeries ? 'CLEAR_ANODIZED' : '',
                 panelDesign: isCommercialSeries ? 'UDC' : isAluminumSeries ? 'FLUSH' : '',
                 ...(isCommercialSeries ? { trackThickness: '3' } : {}),
-                ...(isAluminumSeries ? { glassPaneType: 'INSULATED', glassColor: 'CLEAR' } : {}),
+                ...(isAluminumSeries ? {
+                  glassPaneType: series === 'AL976' ? 'INSULATED' : null,
+                  glassColor: 'CLEAR',
+                } : {}),
                 // Craft series includes windows as standard
                 ...(series === 'CRAFT' ? { hasWindows: true, windowInsert: '34X16_THERMOPANE', windowPositions: [] } : {})
               })
@@ -1037,7 +1040,7 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
         </>
       )}
 
-      {/* Aluminum door: all panels are full-view glass sections */}
+      {/* Aluminum door: all panels are full-view sections */}
       {isAluminium && (() => {
         const seriesData = config?.doorSeries?.aluminium?.find(s => s.id === door.doorSeries)
         const finishes = seriesData?.finishes || [
@@ -1046,41 +1049,49 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
           { id: 'BLACK_ANODIZED', name: 'Black Anodized' },
         ]
         const seriesName = seriesData?.name || door.doorSeries
+        const glazingType = seriesData?.glazingType || 'glass'
+        const isGlass = glazingType === 'glass'
+        const glazingOptions = seriesData?.glazingOptions || (isGlass
+          ? [{ id: 'CLEAR', name: 'Clear' }, { id: 'ETCHED', name: 'Etched' }, { id: 'SUPER_GREY', name: 'Super Grey' }]
+          : [{ id: 'CLEAR', name: 'Clear' }, { id: 'LIGHT_BRONZE', name: 'Light Bronze' }]
+        )
+        const paneTypes = seriesData?.paneTypes || []
         return (
           <div className="space-y-4">
             <div className="p-3 bg-odc-50 rounded-md">
               <p className="text-sm text-odc-700">
-                <strong>{seriesName} Full View Door</strong> — all {panelCount} panels are full aluminum/glass sections.
+                <strong>{seriesName} Full View Door</strong> — all {panelCount} panels are full aluminum/{isGlass ? 'glass' : 'polycarbonate'} sections.
               </p>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Glass Type</label>
-              <div className="flex space-x-3">
-                {['thermal', 'single'].map(gt => (
-                  <button
-                    key={gt}
-                    onClick={() => onChange({ glassPaneType: gt === 'thermal' ? 'INSULATED' : 'SINGLE' })}
-                    className={`px-4 py-2 text-sm rounded-md border ${
-                      (gt === 'thermal' && (door.glassPaneType || 'INSULATED') === 'INSULATED') || (gt === 'single' && door.glassPaneType === 'SINGLE')
-                        ? 'border-odc-500 bg-odc-100 text-odc-700'
-                        : 'border-gray-300 hover:border-gray-400'
-                    }`}
-                  >
-                    {gt === 'thermal' ? 'Thermal Glass' : 'Single Glass'}
-                  </button>
-                ))}
+            {/* Glass Type — only for glass series (AL976) */}
+            {isGlass && paneTypes.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Glass Type</label>
+                <div className="flex space-x-3">
+                  {paneTypes.map(pt => (
+                    <button
+                      key={pt.id}
+                      onClick={() => onChange({ glassPaneType: pt.id })}
+                      className={`px-4 py-2 text-sm rounded-md border ${
+                        (door.glassPaneType || 'INSULATED') === pt.id
+                          ? 'border-odc-500 bg-odc-100 text-odc-700'
+                          : 'border-gray-300 hover:border-gray-400'
+                      }`}
+                    >
+                      {pt.name}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Glass Color</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {isGlass ? 'Glass Color' : 'Polycarbonate Color'}
+              </label>
               <div className="flex space-x-3">
-                {[
-                  { id: 'CLEAR', name: 'Clear' },
-                  { id: 'ETCHED', name: 'Etched' },
-                  { id: 'SUPER_GREY', name: 'Super Grey' },
-                ].map(gc => (
+                {glazingOptions.map(gc => (
                   <button
                     key={gc.id}
                     onClick={() => onChange({ glassColor: gc.id })}
