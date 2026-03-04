@@ -448,6 +448,7 @@ function QuoteBuilder() {
               const isCommercialSeries = ['TX450', 'TX500', 'TX450-20', 'TX500-20'].includes(series)
               updateCurrentDoor({
                 doorSeries: series, panelColor: '', panelDesign: isCommercialSeries ? 'UDC' : '',
+                ...(isCommercialSeries ? { trackThickness: '3' } : {}),
                 // Craft series includes windows as standard
                 ...(series === 'CRAFT' ? { hasWindows: true, windowInsert: '34X16_THERMOPANE', windowPositions: [] } : {})
               })
