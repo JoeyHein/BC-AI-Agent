@@ -121,13 +121,26 @@ function MyOrders() {
                   <StatusBadge status={order.status} />
                 </div>
 
-                {order.total_amount && (
-                  <p className="mt-4 text-sm text-gray-700">
-                    Total: <span className="font-medium">
-                      ${order.total_amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} {order.currency || 'CAD'}
-                    </span>
-                  </p>
-                )}
+                <div className="mt-4 flex items-center space-x-6">
+                  {order.total_amount && (
+                    <p className="text-sm text-gray-700">
+                      Total: <span className="font-medium">
+                        ${order.total_amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} {order.currency || 'CAD'}
+                      </span>
+                    </p>
+                  )}
+                  {order.requested_delivery_date && (
+                    <p className="text-sm text-gray-700">
+                      Est. Delivery: <span className="font-medium">
+                        {new Date(order.requested_delivery_date).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric'
+                        })}
+                      </span>
+                    </p>
+                  )}
+                </div>
 
                 {/* Status timeline preview */}
                 <div className="mt-4 flex items-center space-x-4 text-xs text-gray-500">

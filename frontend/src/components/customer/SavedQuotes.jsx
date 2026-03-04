@@ -47,7 +47,7 @@ function SavedQuotes() {
       queryClient.invalidateQueries(['savedQuotes'])
       queryClient.invalidateQueries(['orders'])
       const data = response.data
-      alert(`Order placed successfully!\n\nOrder Number: ${data.bc_order_number}${data.total_amount ? `\nTotal: $${data.total_amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} CAD` : ''}`)
+      alert(`Order placed successfully!\n\nOrder Number: ${data.bc_order_number}${data.total_amount ? `\nTotal: $${data.total_amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} CAD` : ''}${data.requested_delivery_date ? `\nEst. Delivery: ${data.requested_delivery_date}` : ''}`)
     },
     onError: (err) => {
       alert(`Failed to place order: ${err.response?.data?.detail || err.message}`)

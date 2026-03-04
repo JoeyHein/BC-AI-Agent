@@ -115,6 +115,7 @@ class OrderResponse(BaseModel):
     confirmed_at: Optional[datetime]
     shipped_at: Optional[datetime]
     invoiced_at: Optional[datetime]
+    requested_delivery_date: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -512,9 +513,13 @@ def _generate_bc_quote_with_items(
             })
 
     # Step 2: Create BC Quote
+    # Default requested delivery date = 6 weeks from today
+    default_delivery = (datetime.utcnow() + timedelta(weeks=6)).strftime("%Y-%m-%d")
+
     quote_data = {
         "customerId": bc_customer_id,
         "externalDocumentNumber": f"PORTAL-{config_id}",
+        "requestedDeliveryDate": default_delivery,
     }
     bc_quote = bc_client.create_sales_quote(quote_data)
     if not bc_quote:
@@ -1228,6 +1233,15 @@ def place_order_from_quote(
         bc_order_number = bc_order.get("number")
         total_amount = bc_order.get("totalAmountIncludingTax", 0)
 
+        # Parse delivery date from BC order response
+        bc_delivery_date = None
+        raw_delivery = bc_order.get("requestedDeliveryDate")
+        if raw_delivery and raw_delivery != "0001-01-01":
+            try:
+                bc_delivery_date = datetime.strptime(raw_delivery[:10], "%Y-%m-%d")
+            except (ValueError, TypeError):
+                pass
+
         # Create local SalesOrder record
         sales_order = SalesOrder(
             quote_request_id=None,  # Portal-originated, not from email QuoteRequest
@@ -1243,6 +1257,7 @@ def place_order_from_quote(
             currency="CAD",
             order_date=datetime.utcnow(),
             confirmed_at=datetime.utcnow(),
+            requested_delivery_date=bc_delivery_date,
         )
         db.add(sales_order)
 
@@ -1264,6 +1279,7 @@ def place_order_from_quote(
             "order_id": sales_order.id,
             "bc_order_number": bc_order_number,
             "total_amount": float(total_amount) if total_amount else None,
+            "requested_delivery_date": bc_delivery_date.strftime("%B %d, %Y") if bc_delivery_date else None,
             "message": f"Order {bc_order_number} placed successfully!"
         }
 
@@ -1502,7 +1518,8 @@ def list_orders(
             created_at=order.created_at,
             confirmed_at=order.confirmed_at,
             shipped_at=order.shipped_at,
-            invoiced_at=order.invoiced_at
+            invoiced_at=order.invoiced_at,
+            requested_delivery_date=order.requested_delivery_date,
         )
         for order in orders
     ]
