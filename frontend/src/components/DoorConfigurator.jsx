@@ -1528,13 +1528,13 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
 function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, onChange }) {
   const operators = operatorOptions[door.doorType] || operatorOptions.residential
 
-  // Spring cycle options
+  // Spring cycle options (must match MIP capacity data in spring calculator)
   const springCycleOptions = [
-    { id: 10000, name: '10,000 cycles', description: 'Standard residential' },
-    { id: 15000, name: '15,000 cycles', description: 'Extended life' },
-    { id: 25000, name: '25,000 cycles', description: 'Commercial light duty' },
-    { id: 50000, name: '50,000 cycles', description: 'Commercial standard' },
-    { id: 100000, name: '100,000 cycles', description: 'High cycle commercial' },
+    { id: 10000, name: '10,000 cycles' },
+    { id: 15000, name: '15,000 cycles' },
+    { id: 25000, name: '25,000 cycles' },
+    { id: 50000, name: '50,000 cycles' },
+    { id: 100000, name: '100,000 cycles' },
   ]
 
   // Shaft type options - auto-detect based on width (14'2" = 170")
@@ -1706,30 +1706,23 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         </div>
       )}
 
-      {/* Spring Cycles - commercial only */}
-      {door.doorType === 'commercial' && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Spring Cycle Life
-          </label>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-            {springCycleOptions.map((option) => (
-              <button
-                key={option.id}
-                onClick={() => onChange({ targetCycles: option.id })}
-                className={`p-3 rounded-lg border-2 text-center transition-all ${
-                  door.targetCycles === option.id
-                    ? 'border-odc-500 bg-odc-50'
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                <span className="block text-sm font-medium text-gray-900">{option.name}</span>
-                <span className="block text-xs text-gray-500">{option.description}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Spring Cycles */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Spring Cycle Life
+        </label>
+        <select
+          value={door.targetCycles || 10000}
+          onChange={(e) => onChange({ targetCycles: Number(e.target.value) })}
+          className="w-full md:w-64 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-odc-500 focus:border-odc-500"
+        >
+          {springCycleOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.name}
+            </option>
+          ))}
+        </select>
+      </div>
 
       {/* Shaft Type - all door types */}
       <div>
