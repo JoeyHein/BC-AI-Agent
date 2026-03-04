@@ -562,7 +562,11 @@ class SalesOrder(Base):
     customer_email = Column(String(255))
 
     # Order details
-    status = Column(SQLEnum(OrderStatus), default=OrderStatus.PENDING, index=True)
+    status = Column(
+        SQLEnum(OrderStatus, values_callable=lambda x: [e.value for e in x]),
+        default=OrderStatus.PENDING,
+        index=True,
+    )
     total_amount = Column(Numeric(12, 2))
     currency = Column(String(10), default="CAD")
 
@@ -673,7 +677,11 @@ class ProductionOrder(Base):
     bc_prod_order_number = Column(String(50), index=True)  # e.g., "PO-001234"
 
     # Production details
-    status = Column(SQLEnum(ProductionStatus), default=ProductionStatus.PLANNED, index=True)
+    status = Column(
+        SQLEnum(ProductionStatus, values_callable=lambda x: [e.value for e in x]),
+        default=ProductionStatus.PLANNED,
+        index=True,
+    )
     item_type = Column(String(50), index=True)  # 'door', 'spring', 'hardware', etc.
     item_code = Column(String(100))  # BC item/product code
     item_description = Column(Text)
@@ -764,7 +772,11 @@ class Invoice(Base):
     invoice_number = Column(String(50), index=True)  # e.g., "SI-001234"
 
     # Invoice details
-    status = Column(SQLEnum(InvoiceStatus), default=InvoiceStatus.DRAFT, index=True)
+    status = Column(
+        SQLEnum(InvoiceStatus, values_callable=lambda x: [e.value for e in x]),
+        default=InvoiceStatus.DRAFT,
+        index=True,
+    )
     total_amount = Column(Numeric(12, 2))
     tax_amount = Column(Numeric(10, 2))
     currency = Column(String(10), default="CAD")
@@ -860,7 +872,11 @@ class ProductionTask(Base):
     material_needed = Column(Float, default=0)
 
     # Status tracking
-    status = Column(SQLEnum(TaskCompletionStatus), default=TaskCompletionStatus.PENDING, index=True)
+    status = Column(
+        SQLEnum(TaskCompletionStatus, values_callable=lambda x: [e.value for e in x]),
+        default=TaskCompletionStatus.PENDING,
+        index=True,
+    )
     scheduled_date = Column(DateTime, index=True)
     completed_at = Column(DateTime)
     completed_by = Column(String(50))  # User ID who completed the task
