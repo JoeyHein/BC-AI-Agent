@@ -19,6 +19,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # Clean up partial state from any failed previous attempt
+    op.execute("DROP TABLE IF EXISTS quote_reviews")
+    op.execute("DROP TABLE IF EXISTS quote_snapshots")
+
     op.create_table(
         'quote_snapshots',
         sa.Column('id', sa.Integer(), nullable=False),
