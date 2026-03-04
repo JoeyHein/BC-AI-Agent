@@ -18,6 +18,7 @@ from app.integrations.bc.client import bc_client
 from app.integrations.ai.client import ai_client
 from app.services.part_number_service import get_parts_for_door_config
 from app.services.pricing_service import calculate_selling_price
+from app.services.spring_data_service import get_spring_inventory_settings
 
 # Part number prefix → BC search keyword for AI substitute lookup
 _CATEGORY_SEARCH_TERMS = {
@@ -440,6 +441,11 @@ def _generate_bc_quote_with_items(
     Returns dict with: bc_quote_id, bc_quote_number, lines_added, lines_failed,
     pricing, line_pricing, door_results
     """
+    # Load spring inventory so quotes use the same stocked springs as the specs tab
+    spring_inventory = None
+    if db:
+        spring_inventory = get_spring_inventory_settings(db)
+
     # Step 1: Build all ordered lines from door configs
     all_lines = []
     door_results = []
@@ -486,7 +492,7 @@ def _generate_bc_quote_with_items(
         }
 
         try:
-            door_parts = get_parts_for_door_config(config_dict)
+            door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inventory)
             parts_list = door_parts.get("parts_list", [])
             sorted_parts = _sort_parts_by_category(parts_list)
             part_door_type = config_dict.get("doorType", "residential")
@@ -786,7 +792,7 @@ def _estimate_pricing_locally(
         }
 
         try:
-            door_parts = get_parts_for_door_config(config_dict)
+            door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inventory)
             parts_list = door_parts.get("parts_list", [])
             sorted_parts = _sort_parts_by_category(parts_list)
             part_door_type = config_dict.get("doorType", "residential")

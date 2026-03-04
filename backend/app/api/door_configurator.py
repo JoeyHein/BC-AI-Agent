@@ -690,6 +690,9 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
     11. Accessories
     """
     try:
+        # Load spring inventory so quotes use stocked springs matching specs tab
+        spring_inventory = get_spring_inventory_settings(db)
+
         # Step 1: Get parts for all doors with proper ordering
         all_lines = []  # Ordered lines ready for BC
         parts_by_door = []
@@ -736,7 +739,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "operator": door.operator,
             }
 
-            door_parts = get_parts_for_door_config(config_dict)
+            door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inventory)
             parts_list = door_parts.get("parts_list", [])
 
             # Sort parts by standard line ordering
@@ -981,7 +984,7 @@ async def get_dimension_constraints(series_id: str):
 
 
 @router.post("/get-part-numbers")
-async def get_part_numbers(config: DoorConfigRequest):
+async def get_part_numbers(config: DoorConfigRequest, db: Session = Depends(get_db)):
     """
     Get BC part numbers for a door configuration.
 
@@ -1016,8 +1019,9 @@ async def get_part_numbers(config: DoorConfigRequest):
             "operator": config.operator,
         }
 
-        # Get parts from service
-        parts_summary = get_parts_for_door_config(config_dict)
+        # Get parts from service (with spring inventory for consistency with specs tab)
+        spring_inv = get_spring_inventory_settings(db)
+        parts_summary = get_parts_for_door_config(config_dict, spring_inventory=spring_inv)
 
         return {
             "success": True,
@@ -1031,7 +1035,7 @@ async def get_part_numbers(config: DoorConfigRequest):
 
 
 @router.post("/get-parts-for-quote")
-async def get_parts_for_quote(request: QuoteGenerationRequest):
+async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Depends(get_db)):
     """
     Get BC part numbers for an entire quote (multiple doors).
 
@@ -1068,7 +1072,8 @@ async def get_parts_for_quote(request: QuoteGenerationRequest):
                 "operator": door.operator,
             }
 
-            door_parts = get_parts_for_door_config(config_dict)
+            spring_inv = get_spring_inventory_settings(db)
+            door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inv)
 
             parts_by_door.append({
                 "door_index": i + 1,

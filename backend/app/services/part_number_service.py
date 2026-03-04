@@ -118,6 +118,7 @@ class DoorConfiguration:
     spring_quantity: int = 2  # number of springs (1 or 2)
     shaft_preference: str = 'auto'  # 'auto', 'single', or 'split'
     window_size: str = 'long'  # 'short' (GK15-10xxx) or 'long' (GK15-11xxx)
+    spring_inventory: Optional[Dict[str, list]] = None  # stocked coil/wire combos from settings
 
 
 # ============================================================================
@@ -761,6 +762,7 @@ class PartNumberService:
             drums=None,  # Let calculator auto-select drum for torque calculation
             target_cycles=config.target_cycles,
             track_radius=track_radius,
+            spring_inventory=config.spring_inventory,
         )
 
         if spring_result is None:
@@ -1532,12 +1534,13 @@ part_number_service = PartNumberService()
 # HELPER FUNCTIONS
 # ============================================================================
 
-def get_parts_for_door_config(config_dict: Dict[str, Any]) -> Dict[str, Any]:
+def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Optional[Dict[str, list]] = None) -> Dict[str, Any]:
     """
     Convenience function to get parts from a dictionary configuration.
 
     Args:
         config_dict: Dictionary with door configuration fields
+        spring_inventory: Optional stocked coil/wire combos from settings
 
     Returns:
         Dictionary with parts summary
@@ -1565,6 +1568,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         shaft_preference=config_dict.get("shaftType", "auto"),
         window_size=config_dict.get("windowSize", "long"),
         window_count=len(config_dict.get("windowPositions", [])) or config_dict.get("windowCount", 0),
+        spring_inventory=spring_inventory,
     )
 
     parts = part_number_service.get_parts_for_configuration(config)
