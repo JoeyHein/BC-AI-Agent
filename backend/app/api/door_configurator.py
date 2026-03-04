@@ -111,10 +111,52 @@ DOOR_SERIES = {
             "name": "AL-976",
             "description": "Full-view aluminum door with glass panels",
             "categoryValue": "67f7c1c39cf0ed4a3b00baea",
+            "partPrefix": "PN97",
+            "finishes": [
+                {"id": "CLEAR_ANODIZED", "name": "Clear Anodized", "code": "0"},
+                {"id": "WHITE", "name": "White", "code": "3"},
+                {"id": "BLACK_ANODIZED", "name": "Black Anodized", "code": "8"},
+            ],
             "specs": {
                 "thickness": "1 3/4\" (44.5mm)",
                 "material": "Extruded 6063-T6 Aluminum",
-                "maxWidth": 288,  # 24' in inches
+                "maxWidth": 240,  # 20' in inches
+                "finishWarranty": "5 Year Limited",
+                "workmanshipWarranty": "1 Year Limited"
+            }
+        },
+        {
+            "id": "PANORAMA",
+            "name": "Panorama",
+            "description": "Full-view aluminum door — clean sightlines",
+            "categoryValue": "67f7c1c39cf0ed4a3b00baea",
+            "partPrefix": "PN80",
+            "finishes": [
+                {"id": "CLEAR_ANODIZED", "name": "Clear Anodized", "code": "00"},
+                {"id": "WHITE", "name": "White", "code": "10"},
+                {"id": "BLACK_ANODIZED", "name": "Black Anodized", "code": "30"},
+            ],
+            "specs": {
+                "thickness": "1 3/4\" (44.5mm)",
+                "material": "Extruded Aluminum",
+                "maxWidth": 240,  # 20' in inches
+                "finishWarranty": "5 Year Limited",
+                "workmanshipWarranty": "1 Year Limited"
+            }
+        },
+        {
+            "id": "SOLALITE",
+            "name": "Solalite",
+            "description": "Thermal-break full-view aluminum door",
+            "categoryValue": "67f7c1c39cf0ed4a3b00baea",
+            "partPrefix": "PN20",
+            "finishes": [
+                {"id": "CLEAR_ANODIZED", "name": "Clear Anodized", "code": "0"},
+            ],
+            "specs": {
+                "thickness": "1 3/4\" (44.5mm)",
+                "material": "Extruded Aluminum with Thermal Break",
+                "maxWidth": 240,  # 20' in inches
                 "finishWarranty": "5 Year Limited",
                 "workmanshipWarranty": "1 Year Limited"
             }
@@ -245,7 +287,7 @@ COMMERCIAL_WINDOW_TYPES = {
         {"id": "18X8_THERMOPANE", "name": "18\" x 8\" Thermopane", "width": 18, "height": 8, "sectionType": "21\" or 24\" section", "glassOptions": ["thermal"]},
     ],
     "FULL VIEW": [
-        {"id": "V130G", "name": "V130G Full View Section", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glassOptions": ["single", "thermal"], "material": "AL976", "note": "Full aluminum/glass section"},
+        {"id": "V130G", "name": "V130G Full View Section", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glassOptions": ["single", "thermal"], "glassColors": ["CLEAR", "ETCHED", "SUPER_GREY"], "material": "AL976", "note": "Full aluminum/glass section"},
     ],
 }
 
@@ -357,6 +399,7 @@ class DoorConfigRequest(BaseModel):
     windowPositions: Optional[List[WindowPosition]] = []  # Multi-stamp window positions
     windowSection: Optional[int] = None  # Legacy: single section (for backward compatibility)
     windowQty: int = 0  # Commercial: V130G section count or window qty
+    windowPanels: Optional[Dict[str, dict]] = None  # Per-panel window config: {"2": {"qty": 3}, "4": {"qty": 2}}
     windowFrameColor: str = "BLACK"  # Commercial window frame color
     glazingType: Optional[str] = None
     glassPaneType: Optional[str] = None  # 'INSULATED' or 'SINGLE'
@@ -731,6 +774,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "windowCount": window_count,
                 "windowSection": door.windowSection,
                 "windowQty": door.windowQty,
+                "windowPanels": door.windowPanels,
                 "windowFrameColor": door.windowFrameColor,
                 "glazingType": door.glazingType,
                 "glassPaneType": door.glassPaneType,
@@ -1037,6 +1081,7 @@ async def get_part_numbers(config: DoorConfigRequest, db: Session = Depends(get_
             "windowCount": window_count,
             "windowSection": config.windowSection,
             "windowQty": config.windowQty,
+            "windowPanels": config.windowPanels,
             "windowFrameColor": config.windowFrameColor,
             "glazingType": config.glazingType,
             "glassPaneType": config.glassPaneType,
@@ -1091,6 +1136,7 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "windowCount": window_count,
                 "windowSection": door.windowSection,
                 "windowQty": door.windowQty,
+                "windowPanels": door.windowPanels,
                 "windowFrameColor": door.windowFrameColor,
                 "glazingType": door.glazingType,
                 "glassPaneType": door.glassPaneType,

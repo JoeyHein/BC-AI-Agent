@@ -105,6 +105,7 @@ class DoorConfiguration:
     window_section: Optional[int] = None
     window_count: int = 0  # Number of windows (calculated from windowPositions)
     window_qty: int = 0  # Commercial: number of windows per section, or V130G section count
+    window_panels: Optional[Dict[int, dict]] = None  # Per-panel window config: {2: {"qty": 3}, 4: {"qty": 2}}
     window_frame_color: str = "BLACK"  # Commercial window frame color
     glazing_type: Optional[str] = None
     glass_pane_type: Optional[str] = None  # 'INSULATED' or 'SINGLE'
@@ -465,10 +466,15 @@ class PartNumberService:
             parts.extend(seal_parts)
 
         # 12. EXTRAS (windows, operator)
-        has_windows = (config.window_count > 0) or (config.window_insert and config.window_insert not in (None, "NONE"))
-        if has_windows:
-            window_parts = self._get_window_parts(config)
-            parts.extend(window_parts)
+        # Aluminum doors: sections are the panels — generate PN97/PN80/PN20 parts + glass
+        if config.door_type == "aluminium":
+            aluminum_parts = self._get_aluminum_section_parts(config)
+            parts.extend(aluminum_parts)
+        else:
+            has_windows = (config.window_count > 0) or (config.window_insert and config.window_insert not in (None, "NONE"))
+            if has_windows:
+                window_parts = self._get_window_parts(config)
+                parts.extend(window_parts)
 
         if config.operator and config.operator != "NONE":
             operator_parts = self._get_operator_parts(config)
@@ -1217,6 +1223,193 @@ class PartNumberService:
         # Currently no highlift parts - return empty
         return []
 
+    def _get_aluminum_section_parts(self, config: DoorConfiguration) -> List[PartSelection]:
+        """Get aluminum door section parts (PN97, PN80, PN20) + glass for all panels.
+
+        AL976 (PN97): PN97-{hh}{www}{f}{p}{s}-{wwww}
+          hh  = section height (21 or 24)
+          www = width group (200=8'-9', 300=10', 400=12'-14', 500=16', 600=18'-20')
+          f   = finish (0=Clear Ano, 1=Mill, 3=White, 8=Black Ano)
+          p   = position (1=TOP SEF, 2=INT SEF, 3=BOT SEF, 4=TOP DEF, 5=INT DEF, 6=BOT DEF)
+          s   = option (0=NO OPT for SEF; DEF: TOP=5, INT=2, BOT=1)
+          wwww = door width + 2" overhang (e.g. 0802=8'2")
+
+        Panorama (PN80): PN80-{hh}{s}{ff}-{wwww}
+          hh = 21 or 24, s = 1(TOP/INT) or 2(BOT), ff = 00/10/20/30
+          wwww = door width + 2"
+
+        Solalite (PN20): PN20-{hh}00{f}{p}{s}-{wwww}
+          hh = 21 or 24, f = 0(Clear Ano) or 1(Mill)
+          p = 1-6 (same as PN97), s = 0(NO OPT), 1(DOUBLE), 3(THERM Y)
+          wwww = door width + 2"
+        """
+        parts = []
+        series = config.door_series.upper()
+        panel_count = self._calculate_panel_count(config.door_height)
+
+        # Section height: 21" for ≤7' doors, 24" for 8'+ doors
+        section_height = 21 if config.door_height <= 84 else 24
+        hh = str(section_height)
+
+        # Width code: door width + 2" overhang
+        width_ft = config.door_width // 12
+        width_extra = config.door_width % 12 + 2
+        if width_extra >= 12:
+            width_ft += 1
+            width_extra -= 12
+        wwww = f"{width_ft:02d}{width_extra:02d}"
+
+        # Finish code from panel_color
+        finish_color = (config.panel_color or "CLEAR_ANODIZED").upper().replace(" ", "_")
+
+        # Determine if door needs DEF sections (wider doors)
+        door_width_feet = config.door_width / 12
+
+        if series == "AL976":
+            # PN97 width groups
+            if door_width_feet <= 9:
+                www = "200"
+            elif door_width_feet <= 10:
+                www = "300"
+            elif door_width_feet <= 14:
+                www = "400"
+            elif door_width_feet <= 16:
+                www = "500"
+            else:
+                www = "600"
+
+            # Finish digit
+            finish_map = {"CLEAR_ANODIZED": "0", "MILL": "1", "WHITE": "3", "BLACK_ANODIZED": "8"}
+            f = finish_map.get(finish_color, "0")
+            finish_name = {"0": "CLEAR ANO", "1": "MILL", "3": "WHITE", "8": "BLACK ANODIZED"}.get(f, "CLEAR ANO")
+
+            # 600 group (18'+) only has DEF sections
+            use_def = www == "600" or door_width_feet > 16
+
+            for section_num in range(1, panel_count + 1):
+                if section_num == 1:
+                    pos_label = "TOP"
+                elif section_num == panel_count:
+                    pos_label = "BOT"
+                else:
+                    pos_label = "INT"
+
+                if use_def:
+                    p_map = {"TOP": "4", "INT": "5", "BOT": "6"}
+                    s_map = {"TOP": "5", "INT": "2", "BOT": "1"}  # TOP=DOUBLE&FR, INT=FR, BOT=DOUBLE
+                    p = p_map[pos_label]
+                    s = s_map[pos_label]
+                    end_label = "DEF"
+                    opt_map = {"5": "DOUBLE & FR", "2": "FR", "1": "DOUBLE"}
+                    opt_label = opt_map.get(s, "")
+                else:
+                    p_map = {"TOP": "1", "INT": "2", "BOT": "3"}
+                    p = p_map[pos_label]
+                    s = "0"
+                    end_label = "SEF"
+                    opt_label = "NO OPT."
+
+                pn = f"PN97-{hh}{www}{f}{p}{s}-{wwww}"
+                parts.append(PartSelection(
+                    part_number=pn,
+                    description=f"SECTION, AL976, [{width_ft:02d}' {width_extra:02d}\"] X {section_height}\", {pos_label} {end_label}, {opt_label}, {finish_name}",
+                    quantity=1,
+                    category="aluminum_section",
+                    notes=f"AL976 section {section_num} of {panel_count}"
+                ))
+
+        elif series == "PANORAMA":
+            # PN80: simpler encoding
+            finish_map = {"CLEAR_ANODIZED": "00", "WHITE": "10", "MILL": "20", "BLACK_ANODIZED": "30"}
+            ff = finish_map.get(finish_color, "00")
+            finish_name = {"00": "CLEAR ANODIZED", "10": "WHITE", "20": "MILL", "30": "BLACK ANODIZED"}.get(ff, "CLEAR ANODIZED")
+
+            for section_num in range(1, panel_count + 1):
+                if section_num == panel_count:
+                    s = "2"  # BOT SEF
+                    pos_label = "BOTTOM SEF"
+                else:
+                    s = "1"  # TOP/INT SEF
+                    pos_label = "TOP/INTERMEDIATE SEF"
+
+                pn = f"PN80-{hh}{s}{ff}-{wwww}"
+                parts.append(PartSelection(
+                    part_number=pn,
+                    description=f"SECTION, PANORAMA, [{width_ft:02d}' {width_extra:02d}\"] X {section_height}\", {pos_label}, {finish_name}",
+                    quantity=1,
+                    category="aluminum_section",
+                    notes=f"Panorama section {section_num} of {panel_count}"
+                ))
+
+        elif series == "SOLALITE":
+            # PN20: {hh}00{f}{p}{s}-{wwww}
+            finish_map = {"CLEAR_ANODIZED": "0", "MILL": "1"}
+            f = finish_map.get(finish_color, "0")
+            finish_name = "CLEAR ANO" if f == "0" else "MILL"
+
+            # Determine if DEF needed (>12' uses DEF)
+            use_def = door_width_feet > 12
+
+            for section_num in range(1, panel_count + 1):
+                if section_num == 1:
+                    pos_label = "TOP"
+                elif section_num == panel_count:
+                    pos_label = "BOT"
+                else:
+                    pos_label = "INT"
+
+                if use_def:
+                    p_map = {"TOP": "4", "INT": "5", "BOT": "6"}
+                    p = p_map[pos_label]
+                    s = "1"  # DOUBLE for DEF
+                    end_label = "DEF"
+                    opt_label = "DOUBLE"
+                else:
+                    p_map = {"TOP": "1", "INT": "2", "BOT": "3"}
+                    p = p_map[pos_label]
+                    s = "0"
+                    end_label = "SEF"
+                    opt_label = "NO OPT."
+
+                pn = f"PN20-{hh}00{f}{p}{s}-{wwww}"
+                parts.append(PartSelection(
+                    part_number=pn,
+                    description=f"SECTION, SOLALITE, [{width_ft:02d}' {width_extra:02d}\"] X {section_height}\", {pos_label} {end_label}, {opt_label}, {finish_name}",
+                    quantity=1,
+                    category="aluminum_section",
+                    notes=f"Solalite section {section_num} of {panel_count}"
+                ))
+
+        # Glass — same GL20 logic as V130G for all aluminum doors
+        glass_color = (config.glass_color or "CLEAR").upper()
+        pane_type = (config.glass_pane_type or "INSULATED").upper()
+
+        gl20_map = {
+            ("CLEAR", "INSULATED"):      ("GL20-00300-01", "GLASS, 3MM THERMO CLEAR/CLEAR"),
+            ("CLEAR", "SINGLE"):         ("GL20-00100-01", "GLASS, 3MM SINGLE CLEAR"),
+            ("ETCHED", "INSULATED"):     ("GL20-00300-02", "GLASS, 3MM THERMO CLEAR/ETCHED"),
+            ("ETCHED", "SINGLE"):        ("GL20-00100-02", "GLASS, 3MM SINGLE ETCHED"),
+            ("SUPER_GREY", "INSULATED"): ("GL20-00300-03", "GLASS, 3MM THERMO SUPER GREY"),
+            ("SUPER_GREY", "SINGLE"):    ("GL20-00100-03", "GLASS, 3MM SINGLE SUPER GREY"),
+        }
+        glass_pn, glass_desc = gl20_map.get(
+            (glass_color, pane_type),
+            ("GL20-00300-01", "GLASS, 3MM THERMO CLEAR/CLEAR")
+        )
+
+        glass_sqft_per_section = (config.door_width * section_height) / 144
+        total_glass_sqft = round(glass_sqft_per_section * panel_count, 2)
+
+        parts.append(PartSelection(
+            part_number=glass_pn,
+            description=glass_desc,
+            quantity=total_glass_sqft,
+            category="aluminum_glass",
+            notes=f"Glass for {panel_count} sections ({glass_sqft_per_section:.2f} sqft each)"
+        ))
+
+        return parts
+
     def _get_window_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get window/glass kit part numbers using GK15 (residential) or GK16 (commercial).
 
@@ -1379,11 +1572,17 @@ class PartNumberService:
             wwww = f"{width_ft:02d}{width_extra:02d}"
 
         # Determine position for each V130G section
-        section_start = config.window_section or 1
         panel_count = self._calculate_panel_count(config.door_height)
 
-        for i in range(v130g_qty):
-            section_num = section_start + i
+        # Build list of section numbers to generate
+        if config.window_panels:
+            section_numbers = sorted(config.window_panels.keys())
+            v130g_qty = len(section_numbers)
+        else:
+            section_start = config.window_section or 1
+            section_numbers = [section_start + i for i in range(v130g_qty)]
+
+        for section_num in section_numbers:
             if section_num == 1:
                 position = "TOP"
             elif section_num >= panel_count:
@@ -1403,10 +1602,22 @@ class PartNumberService:
             ))
 
         # V130G Glass (GL20 series, separate from section frame)
-        # GL20-00300-01 = 3MM THERMO CLEAR/CLEAR (standard)
-        # Quantity is in SQFT: (section_width × section_height) / 144 per section
-        glass_pn = "GL20-00300-01"
-        glass_desc = "GLASS, 3MM V130G THERMO CLEAR/CLEAR"
+        # Map glass color + pane type to GL20 part number
+        glass_color = (config.glass_color or "CLEAR").upper()
+        pane_type = (config.glass_pane_type or "INSULATED").upper()
+
+        gl20_map = {
+            ("CLEAR", "INSULATED"):    ("GL20-00300-01", "GLASS, 3MM V130G THERMO CLEAR/CLEAR"),
+            ("CLEAR", "SINGLE"):       ("GL20-00100-01", "GLASS, 3MM V130G SINGLE CLEAR"),
+            ("ETCHED", "INSULATED"):   ("GL20-00300-02", "GLASS, 3MM V130G THERMO CLEAR/ETCHED"),
+            ("ETCHED", "SINGLE"):      ("GL20-00100-02", "GLASS, 3MM V130G SINGLE ETCHED"),
+            ("SUPER_GREY", "INSULATED"): ("GL20-00300-03", "GLASS, 3MM V130G THERMO SUPER GREY"),
+            ("SUPER_GREY", "SINGLE"):  ("GL20-00100-03", "GLASS, 3MM V130G SINGLE SUPER GREY"),
+        }
+        glass_pn, glass_desc = gl20_map.get(
+            (glass_color, pane_type),
+            ("GL20-00300-01", "GLASS, 3MM V130G THERMO CLEAR/CLEAR")
+        )
 
         # Calculate glass square footage per section, then multiply by number of sections
         glass_sqft_per_section = (config.door_width * section_height) / 144
@@ -1471,6 +1682,28 @@ class PartNumberService:
             part_number = gk16_pn
             description = f"GLASS KIT, COMMERCIAL, THERM-CLEAR, {ws['desc']}, {frame_color}"
 
+        # Per-panel window generation: if windowPanels is provided, emit one GK16 line per panel
+        if config.window_panels:
+            parts = []
+            for panel_num in sorted(config.window_panels.keys()):
+                panel_info = config.window_panels[panel_num]
+                qty = panel_info.get("qty", 1)
+                if qty > 0:
+                    parts.append(PartSelection(
+                        part_number=part_number,
+                        description=description,
+                        quantity=qty,
+                        category="commercial_window",
+                        notes=f"GK16 glass kit, panel {panel_num}, {frame_color} frame"
+                    ))
+            return parts if parts else [PartSelection(
+                part_number=part_number,
+                description=description,
+                quantity=config.window_qty or 1,
+                category="commercial_window",
+                notes=f"GK16 glass kit, section {config.window_section or 1}, {frame_color} frame"
+            )]
+
         qty = config.window_qty or 1
 
         return [PartSelection(
@@ -1534,6 +1767,13 @@ part_number_service = PartNumberService()
 # HELPER FUNCTIONS
 # ============================================================================
 
+def _parse_window_panels(raw) -> Optional[Dict[int, dict]]:
+    """Convert windowPanels from JSON (string keys) to int keys."""
+    if not raw or not isinstance(raw, dict):
+        return None
+    return {int(k): v for k, v in raw.items()}
+
+
 def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Optional[Dict[str, list]] = None) -> Dict[str, Any]:
     """
     Convenience function to get parts from a dictionary configuration.
@@ -1556,6 +1796,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         window_insert=config_dict.get("windowInsert"),
         window_section=config_dict.get("windowSection"),
         window_qty=config_dict.get("windowQty", 0),
+        window_panels=_parse_window_panels(config_dict.get("windowPanels")),
         window_frame_color=config_dict.get("windowFrameColor", "BLACK"),
         glazing_type=config_dict.get("glazingType"),
         glass_pane_type=config_dict.get("glassPaneType"),
