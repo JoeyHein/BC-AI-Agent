@@ -474,13 +474,13 @@ def _generate_bc_quote_with_items(
             "doorCount": door.get("doorCount", 1),
             "panelColor": door.get("panelColor", "WHITE"),
             "panelDesign": door.get("panelDesign", "SHXL"),
-            "windowInsert": door.get("windowInsert"),
+            "windowInsert": door.get("windowInsert") if door.get("hasWindows") else None,
             "windowSize": door.get("windowSize", "long"),
             "windowPositions": door.get("windowPositions", []),
             "windowCount": door.get("windowCount") or (
                 len(door.get("windowPositions", [])) if door.get("windowPositions")
                 else (door.get("windowQty", 0) if door.get("windowQty")
-                      else (1 if door.get("windowSection") else 0))
+                      else (1 if (door.get("hasWindows") and door.get("windowSection")) else 0))
             ),
             "windowSection": door.get("windowSection"),
             "windowQty": door.get("windowQty", 0),
@@ -831,13 +831,13 @@ def _estimate_pricing_locally(
             "doorCount": door.get("doorCount", 1),
             "panelColor": door.get("panelColor", "WHITE"),
             "panelDesign": door.get("panelDesign", "SHXL"),
-            "windowInsert": door.get("windowInsert"),
+            "windowInsert": door.get("windowInsert") if door.get("hasWindows") else None,
             "windowSize": door.get("windowSize", "long"),
             "windowPositions": door.get("windowPositions", []),
             "windowCount": door.get("windowCount") or (
                 len(door.get("windowPositions", [])) if door.get("windowPositions")
                 else (door.get("windowQty", 0) if door.get("windowQty")
-                      else (1 if door.get("windowSection") else 0))
+                      else (1 if (door.get("hasWindows") and door.get("windowSection")) else 0))
             ),
             "windowSection": door.get("windowSection"),
             "windowQty": door.get("windowQty", 0),
