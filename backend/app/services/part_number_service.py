@@ -828,8 +828,8 @@ class PartNumberService:
         # Get BC Part Number Mapper
         mapper = get_bc_mapper()
 
-        # How many LH/RH pairs (each pair = 1 LH + 1 RH)
-        pairs = spring_qty // 2
+        # How many LH/RH pairs (each pair = 1 LH + 1 RH, minimum 1 pair)
+        pairs = max(1, spring_qty // 2)
 
         # Outer springs (LH and RH)
         spring_lh = mapper.get_spring_part_number(wire_size, coil_id, "LH")

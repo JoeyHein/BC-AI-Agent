@@ -897,6 +897,7 @@ class DoorCalculatorService:
                 door_weight, height_inches, target_cycles,
                 track_radius, spring_inventory, width_inches,
                 drum_model=drum_model,
+                starting_qty=spring_qty,
             )
             if result is not None:
                 return result
@@ -907,7 +908,8 @@ class DoorCalculatorService:
         # Try stocked coil sizes in order of preference, scaling up spring count
         stocked_coils = [2.0, 2.625, 3.75, 6.0]
 
-        for qty in [2, 4, 6, 8]:
+        unfiltered_progression = list(dict.fromkeys([1, spring_qty, 2, 4, 6, 8]))
+        for qty in unfiltered_progression:
             for coil_diam in stocked_coils:
                 result = spring_calculator.calculate_spring(
                     door_weight=door_weight,
@@ -944,12 +946,13 @@ class DoorCalculatorService:
         inventory: Dict[str, List[str]],
         width_inches: int = 240,
         drum_model: Optional[str] = None,
+        starting_qty: int = 2,
     ) -> Optional[SpringSelection]:
         """
         Find the best spring from stocked inventory.
 
         Progressive scaling strategy:
-        1. Try regular springs at 2, 4, 6, 8 count
+        1. Try regular springs at starting_qty, then 2, 4, 6, 8
         2. Try duplex springs at 2 pairs, 4 pairs (for narrow/tall doors)
         3. Pick the most economical option:
            - Fewest total springs
@@ -984,8 +987,9 @@ class DoorCalculatorService:
 
         all_candidates = []
 
-        # Try regular springs: 2, 4, 6, 8
-        for spring_qty in [2, 4, 6, 8]:
+        # Try regular springs: 1, 2, 4, 6, 8 (include 1-spring for lighter doors)
+        qty_progression = list(dict.fromkeys([1, starting_qty, 2, 4, 6, 8]))  # deduplicated, order preserved
+        for spring_qty in qty_progression:
             qty_candidates = []
             for coil_diam, wire_diam in stocked_pairs:
                 result = spring_calculator.calculate_spring(
@@ -1005,8 +1009,8 @@ class DoorCalculatorService:
                         qty_candidates.append(result)
 
             if qty_candidates:
-                # Pick shortest spring for this quantity
-                best = min(qty_candidates, key=lambda r: r.length)
+                # Pick best spring for this quantity: prefer smaller coil (cheaper), then shortest length
+                best = min(qty_candidates, key=lambda r: (r.coil_diameter, r.length))
                 all_candidates.append(SpringSelection(
                     quantity=best.spring_quantity,
                     coil_diameter=best.coil_diameter,
@@ -1044,8 +1048,16 @@ class DoorCalculatorService:
         # Max practical spring length is ~48" (4 feet) for handling/shipping
         MAX_PRACTICAL_LENGTH = 48.0
 
+        # Single springs over 36" are impractical — penalize in sorting
+        MAX_SINGLE_SPRING_LENGTH = 36.0
+
         def candidate_sort_key(c):
             is_reasonable = c.length <= MAX_PRACTICAL_LENGTH
+            # Single spring too long? Treat like 2-spring for sorting purposes
+            effective_qty = c.quantity
+            if c.quantity == 1 and c.length > MAX_SINGLE_SPRING_LENGTH:
+                effective_qty = 2  # Penalize long single springs
+
             # For narrow/tall doors prefer duplex; otherwise prefer regular
             duplex_pref = 0
             if is_narrow_tall:
@@ -1054,11 +1066,11 @@ class DoorCalculatorService:
                 duplex_pref = 1 if c.is_duplex else 0
 
             if is_reasonable:
-                # Reasonable length: prefer fewer springs, then shorter
-                return (0, c.quantity, duplex_pref, c.coil_diameter, c.length)
+                # Reasonable length: prefer fewer springs, then smaller coil, then shorter
+                return (0, effective_qty, duplex_pref, c.coil_diameter, c.length)
             else:
                 # Overlong: prefer shorter springs first (more practical), then fewer
-                return (1, c.length, c.quantity, duplex_pref, c.coil_diameter)
+                return (1, c.length, effective_qty, duplex_pref, c.coil_diameter)
 
         best = min(all_candidates, key=candidate_sort_key)
 
