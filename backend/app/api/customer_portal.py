@@ -106,67 +106,58 @@ class BCQuoteLineResponse(BaseModel):
 
 
 class OrderResponse(BaseModel):
-    """Order response for customer"""
-    id: int
-    bc_order_id: Optional[str]
-    bc_order_number: Optional[str]
+    """Order response for customer — sourced from BC live"""
+    id: str  # BC GUID
+    number: Optional[str] = None
     status: str
-    total_amount: Optional[float]
-    currency: Optional[str]
-    created_at: datetime
-    confirmed_at: Optional[datetime]
-    shipped_at: Optional[datetime]
-    invoiced_at: Optional[datetime]
-    requested_delivery_date: Optional[datetime] = None
+    total_amount: Optional[float] = None
+    currency: Optional[str] = None
+    order_date: Optional[str] = None
+    requested_delivery_date: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+
+class OrderLineResponse(BaseModel):
+    """Order line from BC"""
+    line_number: Optional[int] = None
+    item_number: Optional[str] = None
+    description: Optional[str] = None
+    quantity: Optional[float] = None
+    unit_price: Optional[float] = None
+    line_amount: Optional[float] = None
 
 
 class ShipmentResponse(BaseModel):
-    """Shipment response"""
-    id: int
-    shipment_number: Optional[str]
-    shipped_date: Optional[datetime]
-    tracking_number: Optional[str]
-    carrier: Optional[str]
-    ship_to_name: Optional[str]
-    delivered_at: Optional[datetime]
-
-    class Config:
-        from_attributes = True
+    """Shipment from BC"""
+    id: str
+    number: Optional[str] = None
+    shipment_date: Optional[str] = None
+    ship_to_name: Optional[str] = None
 
 
 class InvoiceResponse(BaseModel):
-    """Invoice response"""
-    id: int
-    invoice_number: Optional[str]
-    status: str
-    total_amount: Optional[float]
-    due_date: Optional[datetime]
-    amount_paid: Optional[float]
-    amount_remaining: Optional[float]
-    posted_at: Optional[datetime]
-    paid_at: Optional[datetime]
-
-    class Config:
-        from_attributes = True
+    """Invoice from BC"""
+    id: str
+    number: Optional[str] = None
+    status: Optional[str] = None
+    total_amount: Optional[float] = None
+    due_date: Optional[str] = None
+    invoice_date: Optional[str] = None
 
 
 class OrderDetailResponse(BaseModel):
-    """Full order detail with shipments and invoices"""
+    """Full order detail with lines, shipments and invoices"""
     order: OrderResponse
-    shipments: List[ShipmentResponse]
-    invoices: List[InvoiceResponse]
+    lines: List[OrderLineResponse] = []
+    shipments: List[ShipmentResponse] = []
+    invoices: List[InvoiceResponse] = []
 
 
 class TrackingEvent(BaseModel):
     """Tracking event in timeline"""
     event_type: str
     description: str
-    timestamp: Optional[datetime]
+    timestamp: Optional[str] = None
     status: str  # completed, current, pending
-    estimated_date: Optional[str] = None
 
 
 class OrderTrackingResponse(BaseModel):
@@ -174,7 +165,7 @@ class OrderTrackingResponse(BaseModel):
     order_number: Optional[str]
     current_status: str
     timeline: List[TrackingEvent]
-    shipments: List[ShipmentResponse]
+    shipments: List[ShipmentResponse] = []
 
 
 # ============================================================================
@@ -1588,35 +1579,46 @@ def download_customer_quote_pdf(
 # ORDERS ENDPOINTS
 # ============================================================================
 
+def _map_bc_order_status(bc_status: str) -> str:
+    """Map BC order status to portal status"""
+    mapping = {
+        "Draft": "draft",
+        "Open": "open",
+        "Released": "released",
+        "Pending Approval": "pending_approval",
+        "Pending Prepayment": "pending_prepayment",
+    }
+    return mapping.get(bc_status, bc_status.lower() if bc_status else "unknown")
+
+
 @router.get("/orders", response_model=List[OrderResponse])
 def list_orders(
     current_user: User = Depends(get_current_customer),
-    db: Session = Depends(get_db)
 ):
-    """List all orders for current customer"""
+    """List all orders for current customer — fetched live from BC"""
     if not current_user.bc_customer_id:
         return []
 
-    # Get orders from local DB
-    orders = db.query(SalesOrder).filter(
-        SalesOrder.customer_id == current_user.bc_customer_id
-    ).order_by(SalesOrder.created_at.desc()).all()
+    try:
+        bc_orders = bc_client.get_customer_orders(current_user.bc_customer_id)
+    except Exception as e:
+        logger.error(f"Error fetching orders from BC: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to fetch orders from Business Central"
+        )
 
     return [
         OrderResponse(
-            id=order.id,
-            bc_order_id=order.bc_order_id,
-            bc_order_number=order.bc_order_number,
-            status=order.status.value,
-            total_amount=float(order.total_amount) if order.total_amount else None,
-            currency=order.currency,
-            created_at=order.created_at,
-            confirmed_at=order.confirmed_at,
-            shipped_at=order.shipped_at,
-            invoiced_at=order.invoiced_at,
-            requested_delivery_date=order.requested_delivery_date,
+            id=o.get("id", ""),
+            number=o.get("number"),
+            status=_map_bc_order_status(o.get("status", "")),
+            total_amount=o.get("totalAmountIncludingTax"),
+            currency=o.get("currencyCode") or "CAD",
+            order_date=o.get("orderDate"),
+            requested_delivery_date=o.get("requestedDeliveryDate"),
         )
-        for order in orders
+        for o in bc_orders
     ]
 
 
@@ -1695,245 +1697,188 @@ def get_estimated_timelines(
 
 @router.get("/orders/{order_id}", response_model=OrderDetailResponse)
 def get_order_detail(
-    order_id: int,
+    order_id: str,
     current_user: User = Depends(get_current_customer),
-    db: Session = Depends(get_db)
 ):
-    """Get order detail with shipments and invoices"""
+    """Get order detail with lines, shipments and invoices — fetched live from BC"""
     if not current_user.bc_customer_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account not linked to Business Central customer"
         )
 
-    order = db.query(SalesOrder).filter(
-        SalesOrder.id == order_id,
-        SalesOrder.customer_id == current_user.bc_customer_id
-    ).first()
+    try:
+        order_data = bc_client.get_customer_order_details(order_id, current_user.bc_customer_id)
+    except Exception as e:
+        logger.error(f"Error fetching order details from BC: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to fetch order details from Business Central"
+        )
 
-    if not order:
+    if not order_data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Order not found"
         )
 
-    # Get shipments
-    shipments = db.query(Shipment).filter(
-        Shipment.sales_order_id == order.id
-    ).all()
+    # Map order lines
+    lines = [
+        OrderLineResponse(
+            line_number=ln.get("lineObjectNumber") or ln.get("sequence"),
+            item_number=ln.get("lineObjectNumber"),
+            description=ln.get("description"),
+            quantity=ln.get("quantity"),
+            unit_price=ln.get("unitPrice"),
+            line_amount=ln.get("amountIncludingTax") or ln.get("netAmount"),
+        )
+        for ln in order_data.get("lines", [])
+    ]
 
-    # Get invoices
-    invoices = db.query(Invoice).filter(
-        Invoice.sales_order_id == order.id
-    ).all()
+    # Map shipments
+    shipments = [
+        ShipmentResponse(
+            id=s.get("id", ""),
+            number=s.get("number"),
+            shipment_date=s.get("shipmentDate"),
+            ship_to_name=s.get("shipToName"),
+        )
+        for s in order_data.get("shipments", [])
+    ]
+
+    # Map invoices
+    invoices = [
+        InvoiceResponse(
+            id=inv.get("id", ""),
+            number=inv.get("number"),
+            status=inv.get("status"),
+            total_amount=inv.get("totalAmountIncludingTax"),
+            due_date=inv.get("dueDate"),
+            invoice_date=inv.get("invoiceDate"),
+        )
+        for inv in order_data.get("invoices", [])
+    ]
 
     return OrderDetailResponse(
         order=OrderResponse(
-            id=order.id,
-            bc_order_id=order.bc_order_id,
-            bc_order_number=order.bc_order_number,
-            status=order.status.value,
-            total_amount=float(order.total_amount) if order.total_amount else None,
-            currency=order.currency,
-            created_at=order.created_at,
-            confirmed_at=order.confirmed_at,
-            shipped_at=order.shipped_at,
-            invoiced_at=order.invoiced_at
+            id=order_data.get("id", ""),
+            number=order_data.get("number"),
+            status=_map_bc_order_status(order_data.get("status", "")),
+            total_amount=order_data.get("totalAmountIncludingTax"),
+            currency=order_data.get("currencyCode") or "CAD",
+            order_date=order_data.get("orderDate"),
+            requested_delivery_date=order_data.get("requestedDeliveryDate"),
         ),
-        shipments=[
-            ShipmentResponse(
-                id=s.id,
-                shipment_number=s.shipment_number,
-                shipped_date=s.shipped_date,
-                tracking_number=s.tracking_number,
-                carrier=s.carrier,
-                ship_to_name=s.ship_to_name,
-                delivered_at=s.delivered_at
-            )
-            for s in shipments
-        ],
-        invoices=[
-            InvoiceResponse(
-                id=i.id,
-                invoice_number=i.invoice_number,
-                status=i.status.value,
-                total_amount=float(i.total_amount) if i.total_amount else None,
-                due_date=i.due_date,
-                amount_paid=float(i.amount_paid) if i.amount_paid else None,
-                amount_remaining=float(i.amount_remaining) if i.amount_remaining else None,
-                posted_at=i.posted_at,
-                paid_at=i.paid_at
-            )
-            for i in invoices
-        ]
+        lines=lines,
+        shipments=shipments,
+        invoices=invoices,
     )
 
 
 @router.get("/orders/{order_id}/tracking", response_model=OrderTrackingResponse)
 def get_order_tracking(
-    order_id: int,
+    order_id: str,
     current_user: User = Depends(get_current_customer),
-    db: Session = Depends(get_db)
 ):
-    """Get order tracking timeline"""
+    """Get order tracking timeline — fetched live from BC"""
     if not current_user.bc_customer_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account not linked to Business Central customer"
         )
 
-    order = db.query(SalesOrder).filter(
-        SalesOrder.id == order_id,
-        SalesOrder.customer_id == current_user.bc_customer_id
-    ).first()
+    try:
+        order_data = bc_client.get_customer_order_details(order_id, current_user.bc_customer_id)
+    except Exception as e:
+        logger.error(f"Error fetching order tracking from BC: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to fetch order tracking from Business Central"
+        )
 
-    if not order:
+    if not order_data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Order not found"
         )
 
-    # Fetch estimated timelines for pending step estimation
-    est_data = get_estimated_timelines(current_user, db)
-    est_transitions = {t["from_step"]: t["avg_days"] for t in est_data.get("transitions", [])}
+    bc_status = order_data.get("status", "")
+    portal_status = _map_bc_order_status(bc_status)
 
-    # Build tracking timeline
+    # Build a simple timeline based on BC status
+    # BC order statuses: Draft → Open → Released
+    status_steps = [
+        ("order_placed", "Order Placed"),
+        ("open", "Open"),
+        ("released", "Released"),
+    ]
+
+    # Determine which step is current
+    status_order = {"draft": 0, "open": 1, "released": 2}
+    current_idx = status_order.get(portal_status, 0)
+
     timeline = []
+    for i, (event_type, description) in enumerate(status_steps):
+        if i < current_idx:
+            step_status = "completed"
+        elif i == current_idx:
+            step_status = "completed" if portal_status == "released" else "current"
+        else:
+            step_status = "pending"
 
-    # Order placed
+        timeline.append(TrackingEvent(
+            event_type=event_type,
+            description=description,
+            timestamp=order_data.get("orderDate") if i == 0 else None,
+            status=step_status,
+        ))
+
+    # Check for shipments
+    bc_shipments = order_data.get("shipments", [])
+    has_shipments = len(bc_shipments) > 0
+
+    # Add shipped step
     timeline.append(TrackingEvent(
-        event_type="order_placed",
-        description="Order placed",
-        timestamp=order.created_at,
-        status="completed"
+        event_type="shipped",
+        description="Shipped",
+        timestamp=bc_shipments[0].get("shipmentDate") if has_shipments else None,
+        status="completed" if has_shipments else "pending",
     ))
 
-    # Order confirmed
-    if order.confirmed_at:
-        timeline.append(TrackingEvent(
-            event_type="order_confirmed",
-            description="Order confirmed",
-            timestamp=order.confirmed_at,
-            status="completed"
-        ))
-    else:
-        timeline.append(TrackingEvent(
-            event_type="order_confirmed",
-            description="Order confirmation",
-            timestamp=None,
-            status="pending" if order.status.value == "pending" else "current"
-        ))
+    # Check for invoices
+    bc_invoices = order_data.get("invoices", [])
+    has_invoices = len(bc_invoices) > 0
 
-    # In production
-    if order.production_started_at:
-        timeline.append(TrackingEvent(
-            event_type="in_production",
-            description="In production",
-            timestamp=order.production_started_at,
-            status="completed"
-        ))
-    elif order.confirmed_at:
-        timeline.append(TrackingEvent(
-            event_type="in_production",
-            description="Production",
-            timestamp=None,
-            status="current" if order.status.value in ["confirmed", "in_production"] else "pending"
-        ))
+    # Add invoiced step
+    timeline.append(TrackingEvent(
+        event_type="invoiced",
+        description="Invoiced",
+        timestamp=bc_invoices[0].get("invoiceDate") if has_invoices else None,
+        status="completed" if has_invoices else "pending",
+    ))
 
-    # Shipped
-    if order.shipped_at:
-        timeline.append(TrackingEvent(
-            event_type="shipped",
-            description="Shipped",
-            timestamp=order.shipped_at,
-            status="completed"
-        ))
-    elif order.production_completed_at:
-        timeline.append(TrackingEvent(
-            event_type="shipped",
-            description="Shipping",
-            timestamp=None,
-            status="current" if order.status.value == "ready_to_ship" else "pending"
-        ))
-
-    # Invoiced
-    if order.invoiced_at:
-        timeline.append(TrackingEvent(
-            event_type="invoiced",
-            description="Invoiced",
-            timestamp=order.invoiced_at,
-            status="completed"
-        ))
-
-    # Completed
-    if order.completed_at:
-        timeline.append(TrackingEvent(
-            event_type="completed",
-            description="Completed",
-            timestamp=order.completed_at,
-            status="completed"
-        ))
-
-    # Calculate estimated dates for pending/current steps
-    # Find last completed step's timestamp as baseline
-    last_completed_time = None
-    last_completed_type = None
-    for step in timeline:
-        if step.status == "completed" and step.timestamp:
-            last_completed_time = step.timestamp
-            last_completed_type = step.event_type
-
-    if last_completed_time:
-        cumulative_days = 0
-        started_accumulating = False
-        for step in timeline:
-            if step.event_type == last_completed_type:
-                started_accumulating = True
-                continue
-            if started_accumulating and step.status in ("current", "pending"):
-                # Get days for the previous step's transition
-                prev_step = None
-                for i, s in enumerate(timeline):
-                    if s.event_type == step.event_type and i > 0:
-                        prev_step = timeline[i - 1].event_type
-                        break
-                if prev_step and prev_step in est_transitions:
-                    cumulative_days += est_transitions[prev_step]
-                else:
-                    cumulative_days += 2  # default fallback
-
-                est_date = last_completed_time + timedelta(days=cumulative_days)
-                step.estimated_date = est_date.strftime("%B %d")
-
-    # Get shipments
-    shipments = db.query(Shipment).filter(
-        Shipment.sales_order_id == order.id
-    ).all()
+    shipments = [
+        ShipmentResponse(
+            id=s.get("id", ""),
+            number=s.get("number"),
+            shipment_date=s.get("shipmentDate"),
+            ship_to_name=s.get("shipToName"),
+        )
+        for s in bc_shipments
+    ]
 
     return OrderTrackingResponse(
-        order_number=order.bc_order_number,
-        current_status=order.status.value,
+        order_number=order_data.get("number"),
+        current_status=portal_status,
         timeline=timeline,
-        shipments=[
-            ShipmentResponse(
-                id=s.id,
-                shipment_number=s.shipment_number,
-                shipped_date=s.shipped_date,
-                tracking_number=s.tracking_number,
-                carrier=s.carrier,
-                ship_to_name=s.ship_to_name,
-                delivered_at=s.delivered_at
-            )
-            for s in shipments
-        ]
+        shipments=shipments,
     )
 
 
 @router.get("/orders/{order_id}/acknowledgement")
 def download_order_acknowledgement(
-    order_id: int,
+    order_id: str,
     current_user: User = Depends(get_current_customer),
-    db: Session = Depends(get_db)
 ):
     """Download order acknowledgement PDF from Business Central"""
     if not current_user.bc_customer_id:
@@ -1942,27 +1887,27 @@ def download_order_acknowledgement(
             detail="Account not linked to Business Central customer"
         )
 
-    order = db.query(SalesOrder).filter(
-        SalesOrder.id == order_id,
-        SalesOrder.customer_id == current_user.bc_customer_id
-    ).first()
+    # Verify customer ownership by fetching the order from BC
+    try:
+        order_data = bc_client.get_customer_order_details(order_id, current_user.bc_customer_id)
+    except Exception as e:
+        logger.error(f"Error verifying order ownership: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to verify order in Business Central"
+        )
 
-    if not order:
+    if not order_data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Order not found"
         )
 
-    if not order.bc_order_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Order does not have a BC reference"
-        )
-
     try:
-        pdf_bytes = bc_client.get_order_confirmation_pdf(order.bc_order_id)
+        pdf_bytes = bc_client.get_order_confirmation_pdf(order_id)
 
-        filename = f"Order_Acknowledgement_{order.bc_order_number or order_id}.pdf"
+        order_number = order_data.get("number", order_id)
+        filename = f"Order_Acknowledgement_{order_number}.pdf"
 
         return Response(
             content=pdf_bytes,

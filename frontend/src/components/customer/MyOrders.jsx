@@ -108,28 +108,30 @@ function MyOrders() {
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-lg font-medium text-gray-900">
-                      {order.bc_order_number || `Order #${order.id}`}
+                      {order.number ? `Order ${order.number}` : `Order ${order.id.substring(0, 8)}...`}
                     </h3>
-                    <p className="mt-1 text-sm text-gray-500">
-                      Placed on {new Date(order.created_at).toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric'
-                      })}
-                    </p>
+                    {order.order_date && (
+                      <p className="mt-1 text-sm text-gray-500">
+                        Placed on {new Date(order.order_date).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric'
+                        })}
+                      </p>
+                    )}
                   </div>
                   <StatusBadge status={order.status} />
                 </div>
 
                 <div className="mt-4 flex items-center space-x-6">
-                  {order.total_amount && (
+                  {order.total_amount != null && (
                     <p className="text-sm text-gray-700">
                       Total: <span className="font-medium">
                         ${order.total_amount.toLocaleString('en-US', { minimumFractionDigits: 2 })} {order.currency || 'CAD'}
                       </span>
                     </p>
                   )}
-                  {order.requested_delivery_date && (
+                  {order.requested_delivery_date && order.requested_delivery_date !== '0001-01-01' && (
                     <p className="text-sm text-gray-700">
                       Est. Delivery: <span className="font-medium">
                         {new Date(order.requested_delivery_date).toLocaleDateString('en-US', {
@@ -140,30 +142,6 @@ function MyOrders() {
                       </span>
                     </p>
                   )}
-                </div>
-
-                {/* Status timeline preview */}
-                <div className="mt-4 flex items-center space-x-4 text-xs text-gray-500">
-                  <TimelineStep
-                    label="Ordered"
-                    completed={true}
-                    date={order.created_at}
-                  />
-                  <TimelineStep
-                    label="Confirmed"
-                    completed={!!order.confirmed_at}
-                    date={order.confirmed_at}
-                  />
-                  <TimelineStep
-                    label="Shipped"
-                    completed={!!order.shipped_at}
-                    date={order.shipped_at}
-                  />
-                  <TimelineStep
-                    label="Invoiced"
-                    completed={!!order.invoiced_at}
-                    date={order.invoiced_at}
-                  />
                 </div>
 
                 <div className="mt-6 flex items-center space-x-4">
@@ -191,47 +169,29 @@ function MyOrders() {
 
 function StatusBadge({ status }) {
   const colors = {
-    pending: 'bg-gray-100 text-gray-800',
-    confirmed: 'bg-blue-100 text-blue-800',
-    in_production: 'bg-yellow-100 text-yellow-800',
-    ready_to_ship: 'bg-purple-100 text-purple-800',
-    shipped: 'bg-cyan-100 text-cyan-800',
-    invoiced: 'bg-green-100 text-green-800',
+    draft: 'bg-gray-100 text-gray-800',
+    open: 'bg-blue-100 text-blue-800',
+    released: 'bg-green-100 text-green-800',
+    pending_approval: 'bg-yellow-100 text-yellow-800',
+    pending_prepayment: 'bg-yellow-100 text-yellow-800',
     completed: 'bg-green-100 text-green-800',
-    cancelled: 'bg-red-100 text-red-800'
+    cancelled: 'bg-red-100 text-red-800',
   }
 
   const labels = {
-    pending: 'Pending',
-    confirmed: 'Confirmed',
-    in_production: 'In Production',
-    ready_to_ship: 'Ready to Ship',
-    shipped: 'Shipped',
-    invoiced: 'Invoiced',
+    draft: 'Draft',
+    open: 'Open',
+    released: 'Released',
+    pending_approval: 'Pending Approval',
+    pending_prepayment: 'Pending Prepayment',
     completed: 'Completed',
-    cancelled: 'Cancelled'
+    cancelled: 'Cancelled',
   }
 
   return (
     <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
       {labels[status] || status}
     </span>
-  )
-}
-
-function TimelineStep({ label, completed, date }) {
-  return (
-    <div className="flex items-center">
-      <div className={`w-3 h-3 rounded-full ${completed ? 'bg-green-500' : 'bg-gray-300'}`} />
-      <span className={`ml-2 ${completed ? 'text-gray-900' : 'text-gray-400'}`}>
-        {label}
-        {completed && date && (
-          <span className="ml-1 text-gray-500">
-            ({new Date(date).toLocaleDateString()})
-          </span>
-        )}
-      </span>
-    </div>
   )
 }
 

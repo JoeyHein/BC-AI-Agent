@@ -52,7 +52,7 @@ function OrderDetail() {
     )
   }
 
-  const { order, shipments, invoices } = data
+  const { order, lines, shipments, invoices } = data
 
   return (
     <div className="space-y-6">
@@ -67,37 +67,35 @@ function OrderDetail() {
             Back to orders
           </button>
           <h1 className="mt-2 text-2xl font-bold text-gray-900">
-            Order {order.bc_order_number || `#${order.id}`}
+            Order {order.number || `${order.id.substring(0, 8)}...`}
           </h1>
         </div>
         <div className="flex gap-3">
-          {order?.bc_order_id && (
-            <button
-              onClick={async () => {
-                setDownloadingPdf(true)
-                try {
-                  const response = await ordersApi.getAcknowledgementPdf(id)
-                  const url = window.URL.createObjectURL(new Blob([response.data]))
-                  const link = document.createElement('a')
-                  link.href = url
-                  link.setAttribute('download', `Order_Acknowledgement_${order.bc_order_number || id}.pdf`)
-                  document.body.appendChild(link)
-                  link.click()
-                  link.remove()
-                  window.URL.revokeObjectURL(url)
-                } catch (err) {
-                  alert('Failed to download acknowledgement PDF')
-                } finally {
-                  setDownloadingPdf(false)
-                }
-              }}
-              disabled={downloadingPdf}
-              className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-            >
-              <DownloadIcon className="h-5 w-5 mr-2" />
-              {downloadingPdf ? 'Downloading...' : 'Download Acknowledgement'}
-            </button>
-          )}
+          <button
+            onClick={async () => {
+              setDownloadingPdf(true)
+              try {
+                const response = await ordersApi.getAcknowledgementPdf(id)
+                const url = window.URL.createObjectURL(new Blob([response.data]))
+                const link = document.createElement('a')
+                link.href = url
+                link.setAttribute('download', `Order_Acknowledgement_${order.number || id}.pdf`)
+                document.body.appendChild(link)
+                link.click()
+                link.remove()
+                window.URL.revokeObjectURL(url)
+              } catch (err) {
+                alert('Failed to download acknowledgement PDF')
+              } finally {
+                setDownloadingPdf(false)
+              }
+            }}
+            disabled={downloadingPdf}
+            className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+          >
+            <DownloadIcon className="h-5 w-5 mr-2" />
+            {downloadingPdf ? 'Downloading...' : 'Download Acknowledgement'}
+          </button>
           <Link
             to="tracking"
             className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-odc-600 hover:bg-odc-700"
@@ -118,17 +116,19 @@ function OrderDetail() {
               <StatusBadge status={order.status} />
             </dd>
           </div>
-          <div>
-            <dt className="text-sm text-gray-500">Order Date</dt>
-            <dd className="mt-1 text-sm font-medium text-gray-900">
-              {new Date(order.created_at).toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-              })}
-            </dd>
-          </div>
-          {order.total_amount && (
+          {order.order_date && (
+            <div>
+              <dt className="text-sm text-gray-500">Order Date</dt>
+              <dd className="mt-1 text-sm font-medium text-gray-900">
+                {new Date(order.order_date).toLocaleDateString('en-US', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
+                })}
+              </dd>
+            </div>
+          )}
+          {order.total_amount != null && (
             <div>
               <dt className="text-sm text-gray-500">Total Amount</dt>
               <dd className="mt-1 text-sm font-medium text-gray-900">
@@ -136,49 +136,75 @@ function OrderDetail() {
               </dd>
             </div>
           )}
-          {order.bc_order_id && (
+          {order.requested_delivery_date && order.requested_delivery_date !== '0001-01-01' && (
             <div>
-              <dt className="text-sm text-gray-500">BC Reference</dt>
+              <dt className="text-sm text-gray-500">Requested Delivery</dt>
               <dd className="mt-1 text-sm font-medium text-gray-900">
-                {order.bc_order_number}
+                {new Date(order.requested_delivery_date).toLocaleDateString('en-US', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
+                })}
               </dd>
             </div>
           )}
         </dl>
+      </div>
 
-        {/* Timeline */}
-        <div className="mt-6 pt-6 border-t border-gray-200">
-          <h3 className="text-sm font-medium text-gray-900 mb-4">Order Timeline</h3>
-          <div className="space-y-4">
-            <TimelineItem
-              title="Order Placed"
-              date={order.created_at}
-              completed={true}
-            />
-            <TimelineItem
-              title="Order Confirmed"
-              date={order.confirmed_at}
-              completed={!!order.confirmed_at}
-            />
-            <TimelineItem
-              title="In Production"
-              date={order.production_started_at}
-              completed={!!order.production_started_at}
-            />
-            <TimelineItem
-              title="Shipped"
-              date={order.shipped_at}
-              completed={!!order.shipped_at}
-            />
-            <TimelineItem
-              title="Invoiced"
-              date={order.invoiced_at}
-              completed={!!order.invoiced_at}
-              isLast
-            />
+      {/* Order Lines */}
+      {lines && lines.length > 0 && (
+        <div className="bg-white shadow rounded-lg p-6">
+          <h2 className="text-lg font-medium text-gray-900 mb-4">Order Lines</h2>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Item
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Description
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Qty
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Unit Price
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Amount
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {lines.map((line, idx) => (
+                  <tr key={idx}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {line.item_number || '-'}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      {line.description || '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                      {line.quantity ?? '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                      {line.unit_price != null
+                        ? `$${line.unit_price.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+                        : '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                      {line.line_amount != null
+                        ? `$${line.line_amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+                        : '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Shipments */}
       {shipments && shipments.length > 0 && (
@@ -190,34 +216,20 @@ function OrderDetail() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-medium text-gray-900">
-                      {shipment.shipment_number || `Shipment #${shipment.id}`}
+                      {shipment.number ? `Shipment ${shipment.number}` : `Shipment`}
                     </p>
-                    {shipment.shipped_date && (
+                    {shipment.shipment_date && (
                       <p className="text-sm text-gray-500">
-                        Shipped: {new Date(shipment.shipped_date).toLocaleDateString()}
+                        Shipped: {new Date(shipment.shipment_date).toLocaleDateString()}
                       </p>
                     )}
                   </div>
-                  {shipment.tracking_number && (
-                    <div className="text-right">
-                      <p className="text-sm text-gray-500">Tracking Number</p>
-                      <p className="font-medium text-odc-600">{shipment.tracking_number}</p>
-                      {shipment.carrier && (
-                        <p className="text-xs text-gray-500">{shipment.carrier}</p>
-                      )}
-                    </div>
+                  {shipment.ship_to_name && (
+                    <p className="text-sm text-gray-500">
+                      Ship to: {shipment.ship_to_name}
+                    </p>
                   )}
                 </div>
-                {shipment.ship_to_name && (
-                  <p className="mt-2 text-sm text-gray-500">
-                    Ship to: {shipment.ship_to_name}
-                  </p>
-                )}
-                {shipment.delivered_at && (
-                  <p className="mt-2 text-sm text-green-600">
-                    Delivered: {new Date(shipment.delivered_at).toLocaleDateString()}
-                  </p>
-                )}
               </div>
             ))}
           </div>
@@ -236,7 +248,7 @@ function OrderDetail() {
                     Invoice
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
+                    Date
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Amount
@@ -244,33 +256,27 @@ function OrderDetail() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Due Date
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Paid
-                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {invoices.map((invoice) => (
                   <tr key={invoice.id}>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {invoice.invoice_number || `#${invoice.id}`}
+                      {invoice.number || '-'}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <InvoiceStatusBadge status={invoice.status} />
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {invoice.invoice_date
+                        ? new Date(invoice.invoice_date).toLocaleDateString()
+                        : '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {invoice.total_amount
+                      {invoice.total_amount != null
                         ? `$${invoice.total_amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
                         : '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {invoice.due_date
                         ? new Date(invoice.due_date).toLocaleDateString()
-                        : '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {invoice.amount_paid
-                        ? `$${invoice.amount_paid.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
                         : '-'}
                     </td>
                   </tr>
@@ -286,85 +292,29 @@ function OrderDetail() {
 
 function StatusBadge({ status }) {
   const colors = {
-    pending: 'bg-gray-100 text-gray-800',
-    confirmed: 'bg-blue-100 text-blue-800',
-    in_production: 'bg-yellow-100 text-yellow-800',
-    ready_to_ship: 'bg-purple-100 text-purple-800',
-    shipped: 'bg-cyan-100 text-cyan-800',
-    invoiced: 'bg-green-100 text-green-800',
+    draft: 'bg-gray-100 text-gray-800',
+    open: 'bg-blue-100 text-blue-800',
+    released: 'bg-green-100 text-green-800',
+    pending_approval: 'bg-yellow-100 text-yellow-800',
+    pending_prepayment: 'bg-yellow-100 text-yellow-800',
     completed: 'bg-green-100 text-green-800',
-    cancelled: 'bg-red-100 text-red-800'
+    cancelled: 'bg-red-100 text-red-800',
   }
 
   const labels = {
-    pending: 'Pending',
-    confirmed: 'Confirmed',
-    in_production: 'In Production',
-    ready_to_ship: 'Ready to Ship',
-    shipped: 'Shipped',
-    invoiced: 'Invoiced',
+    draft: 'Draft',
+    open: 'Open',
+    released: 'Released',
+    pending_approval: 'Pending Approval',
+    pending_prepayment: 'Pending Prepayment',
     completed: 'Completed',
-    cancelled: 'Cancelled'
+    cancelled: 'Cancelled',
   }
 
   return (
     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
       {labels[status] || status}
     </span>
-  )
-}
-
-function InvoiceStatusBadge({ status }) {
-  const colors = {
-    draft: 'bg-gray-100 text-gray-800',
-    posted: 'bg-blue-100 text-blue-800',
-    paid: 'bg-green-100 text-green-800',
-    partially_paid: 'bg-yellow-100 text-yellow-800',
-    overdue: 'bg-red-100 text-red-800',
-    cancelled: 'bg-red-100 text-red-800'
-  }
-
-  return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${colors[status] || 'bg-gray-100 text-gray-800'}`}>
-      {status.replace('_', ' ')}
-    </span>
-  )
-}
-
-function TimelineItem({ title, date, completed, isLast }) {
-  return (
-    <div className="flex">
-      <div className="flex flex-col items-center">
-        <div className={`w-4 h-4 rounded-full flex items-center justify-center ${
-          completed ? 'bg-green-500' : 'bg-gray-300'
-        }`}>
-          {completed && (
-            <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-            </svg>
-          )}
-        </div>
-        {!isLast && (
-          <div className={`w-0.5 h-8 ${completed ? 'bg-green-500' : 'bg-gray-300'}`} />
-        )}
-      </div>
-      <div className="ml-4 -mt-1">
-        <p className={`text-sm font-medium ${completed ? 'text-gray-900' : 'text-gray-500'}`}>
-          {title}
-        </p>
-        {date && (
-          <p className="text-xs text-gray-500">
-            {new Date(date).toLocaleDateString('en-US', {
-              year: 'numeric',
-              month: 'short',
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit'
-            })}
-          </p>
-        )}
-      </div>
-    </div>
   )
 }
 

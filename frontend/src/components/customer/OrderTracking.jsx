@@ -72,7 +72,7 @@ function OrderTracking() {
             Back to order details
           </button>
           <h1 className="mt-2 text-2xl font-bold text-gray-900">
-            Track Order {order_number || `#${id}`}
+            Track Order {order_number || `${id.substring(0, 8)}...`}
           </h1>
         </div>
         <StatusBadge status={current_status} />
@@ -112,7 +112,6 @@ function OrderTracking() {
                       index + 1
                     )}
                   </div>
-                  {/* Animated ping ring on current step */}
                   {step.status === 'current' && (
                     <span className="absolute inset-0 rounded-full animate-ping bg-odc-400 opacity-30" />
                   )}
@@ -127,11 +126,6 @@ function OrderTracking() {
                 {step.timestamp && (
                   <p className="text-xs text-gray-500">
                     {new Date(step.timestamp).toLocaleDateString()}
-                  </p>
-                )}
-                {!step.timestamp && step.estimated_date && (
-                  <p className="text-xs text-odc-500 font-medium">
-                    Est. {step.estimated_date}
                   </p>
                 )}
               </div>
@@ -173,7 +167,6 @@ function OrderTracking() {
                           <div className="h-2 w-2 rounded-full bg-gray-400" />
                         )}
                       </span>
-                      {/* Ping ring on current step in timeline */}
                       {event.status === 'current' && (
                         <span className="absolute top-0 left-0 h-8 w-8 rounded-full animate-ping bg-odc-400 opacity-20" />
                       )}
@@ -188,12 +181,6 @@ function OrderTracking() {
                         {event.status === 'current' && (
                           <p className="mt-1 text-xs text-odc-600">
                             In progress...
-                            {event.estimated_date && ` (Est. ${event.estimated_date})`}
-                          </p>
-                        )}
-                        {event.status === 'pending' && event.estimated_date && (
-                          <p className="mt-1 text-xs text-gray-400">
-                            Est. {event.estimated_date}
                           </p>
                         )}
                       </div>
@@ -205,12 +192,6 @@ function OrderTracking() {
                               day: 'numeric'
                             })}
                           </time>
-                          <p className="text-xs">
-                            {new Date(event.timestamp).toLocaleTimeString('en-US', {
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </p>
                         </div>
                       )}
                     </div>
@@ -222,74 +203,30 @@ function OrderTracking() {
         </div>
       </div>
 
-      {/* Shipment tracking */}
+      {/* Shipments */}
       {shipments && shipments.length > 0 && (
         <div className="bg-white shadow rounded-lg p-6">
-          <h2 className="text-lg font-medium text-gray-900 mb-4">Shipment Tracking</h2>
+          <h2 className="text-lg font-medium text-gray-900 mb-4">Shipments</h2>
           <div className="space-y-4">
             {shipments.map((shipment) => (
               <div key={shipment.id} className="border border-gray-200 rounded-lg p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-medium text-gray-900">
-                      {shipment.shipment_number || `Shipment #${shipment.id}`}
+                      {shipment.number ? `Shipment ${shipment.number}` : 'Shipment'}
                     </p>
-                    {shipment.carrier && (
-                      <p className="text-sm text-gray-500">Via {shipment.carrier}</p>
+                    {shipment.shipment_date && (
+                      <p className="text-sm text-gray-500">
+                        Shipped: {new Date(shipment.shipment_date).toLocaleDateString()}
+                      </p>
                     )}
                   </div>
-                  {shipment.delivered_at ? (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                      Delivered
-                    </span>
-                  ) : shipment.shipped_date ? (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                      In Transit
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                      Preparing
-                    </span>
+                  {shipment.ship_to_name && (
+                    <p className="text-sm text-gray-500">
+                      Ship to: {shipment.ship_to_name}
+                    </p>
                   )}
                 </div>
-
-                {shipment.tracking_number && (
-                  <div className="mt-4 p-3 bg-gray-50 rounded-md">
-                    <p className="text-sm text-gray-500">Tracking Number</p>
-                    <p className="font-mono text-lg font-medium text-odc-600">
-                      {shipment.tracking_number}
-                    </p>
-                    {shipment.carrier && (
-                      <a
-                        href={getTrackingUrl(shipment.carrier, shipment.tracking_number)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="mt-2 inline-flex items-center text-sm text-odc-600 hover:text-odc-500"
-                      >
-                        Track on {shipment.carrier} website
-                        <ExternalLinkIcon className="ml-1 h-4 w-4" />
-                      </a>
-                    )}
-                  </div>
-                )}
-
-                {shipment.ship_to_name && (
-                  <p className="mt-3 text-sm text-gray-500">
-                    Shipping to: {shipment.ship_to_name}
-                  </p>
-                )}
-
-                {shipment.shipped_date && (
-                  <p className="mt-1 text-sm text-gray-500">
-                    Shipped: {new Date(shipment.shipped_date).toLocaleDateString()}
-                  </p>
-                )}
-
-                {shipment.delivered_at && (
-                  <p className="mt-1 text-sm text-green-600">
-                    Delivered: {new Date(shipment.delivered_at).toLocaleDateString()}
-                  </p>
-                )}
               </div>
             ))}
           </div>
@@ -299,39 +236,25 @@ function OrderTracking() {
   )
 }
 
-function getTrackingUrl(carrier, trackingNumber) {
-  const urls = {
-    'FedEx': `https://www.fedex.com/fedextrack/?trknbr=${trackingNumber}`,
-    'UPS': `https://www.ups.com/track?tracknum=${trackingNumber}`,
-    'USPS': `https://tools.usps.com/go/TrackConfirmAction?tLabels=${trackingNumber}`,
-    'DHL': `https://www.dhl.com/us-en/home/tracking.html?tracking-id=${trackingNumber}`,
-    'Purolator': `https://www.purolator.com/en/ship-track/tracking-details.page?pin=${trackingNumber}`,
-    'Canada Post': `https://www.canadapost-postescanada.ca/track-reperage/en#/search?searchFor=${trackingNumber}`
-  }
-  return urls[carrier] || '#'
-}
-
 function StatusBadge({ status }) {
   const colors = {
-    pending: 'bg-gray-100 text-gray-800',
-    confirmed: 'bg-blue-100 text-blue-800',
-    in_production: 'bg-yellow-100 text-yellow-800',
-    ready_to_ship: 'bg-purple-100 text-purple-800',
-    shipped: 'bg-cyan-100 text-cyan-800',
-    invoiced: 'bg-green-100 text-green-800',
+    draft: 'bg-gray-100 text-gray-800',
+    open: 'bg-blue-100 text-blue-800',
+    released: 'bg-green-100 text-green-800',
+    pending_approval: 'bg-yellow-100 text-yellow-800',
+    pending_prepayment: 'bg-yellow-100 text-yellow-800',
     completed: 'bg-green-100 text-green-800',
-    cancelled: 'bg-red-100 text-red-800'
+    cancelled: 'bg-red-100 text-red-800',
   }
 
   const labels = {
-    pending: 'Pending',
-    confirmed: 'Confirmed',
-    in_production: 'In Production',
-    ready_to_ship: 'Ready to Ship',
-    shipped: 'Shipped',
-    invoiced: 'Invoiced',
+    draft: 'Draft',
+    open: 'Open',
+    released: 'Released',
+    pending_approval: 'Pending Approval',
+    pending_prepayment: 'Pending Prepayment',
     completed: 'Completed',
-    cancelled: 'Cancelled'
+    cancelled: 'Cancelled',
   }
 
   return (
@@ -361,14 +284,6 @@ function ClockIcon({ className }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-    </svg>
-  )
-}
-
-function ExternalLinkIcon({ className }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
     </svg>
   )
 }
