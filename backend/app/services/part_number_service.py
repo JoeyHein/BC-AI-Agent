@@ -346,6 +346,83 @@ OPERATOR_RULES = {
 
 
 # ============================================================================
+# DOOR WEIGHT REFERENCE DATA (from Thermalex Door Weight Calculator)
+# ============================================================================
+
+# End cap weight in grams per cap — keyed by (model, section_height_inches)
+# Standard: single end cap, 20ga (most common commercial configuration)
+END_CAP_WEIGHT_GRAMS = {
+    ("TX380", 21): 572,  ("TX380", 24): 648,
+    ("TX450", 21): 556,  ("TX450", 24): 638,
+    ("TX450-20", 21): 556, ("TX450-20", 24): 638,
+    ("TX500", 21): 581,  ("TX500", 24): 665,
+    ("TX500-20", 21): 581, ("TX500-20", 24): 665,
+    # Residential — lighter construction
+    ("KANATA", 21): 400,  ("KANATA", 24): 450,
+    ("CRAFT", 21): 400,   ("CRAFT", 24): 450,
+}
+GRAMS_PER_LB = 453.4
+
+# Retainer weight (lbs per linear foot) by model
+RETAINER_LBS_PER_FT = {
+    "TX380": 0.1824,      # 1-3/8" retainer
+    "TX450": 0.175,       # 1-3/4" retainer
+    "TX450-20": 0.175,
+    "TX500": 0.1513,      # 2" retainer
+    "TX500-20": 0.1513,
+    "KANATA": 0.15,       # residential retainer
+    "CRAFT": 0.15,
+}
+
+# Astragal weights (lbs per linear foot)
+BOTTOM_ASTRAGAL_LBS_PER_FT = 0.2282
+TOP_ASTRAGAL_LBS_PER_FT = 0.1427
+TOP_ASTRAGAL_MIN_WIDTH_IN = 216  # 18' — top astragal/retainer only on wide doors
+
+# End cap seal weights (lbs per seal piece)
+SEAL_WEIGHT_21 = 0.0379
+SEAL_WEIGHT_24 = 0.0441
+
+# Strut weight (lbs per linear foot of door width per strut)
+STRUT_WEIGHT_PER_FT = {
+    "20ga": 0.79,
+    "16ga": 1.05,
+    "z": 2.446,
+}
+
+# Thermalex Strutting Chart — lookup table for strut requirements
+# Rows = door width brackets, Columns = door height brackets
+# Value = number of struts; type determined by height column group
+STRUT_WIDTH_BRACKETS = [98, 110, 122, 134, 146, 158, 170, 182, 194, 206, 218, 230, 242, 254, 266, 278, 290, 302, 314]
+STRUT_HEIGHT_BRACKETS = [98, 121, 145, 169, 193, 217, 241, 265, 289, 313]
+# Height bracket index → strut type: 0-1=20ga, 2-5=16ga, 6-9=z
+STRUT_HEIGHT_TYPE = ["20ga", "20ga", "16ga", "16ga", "16ga", "16ga", "z", "z", "z", "z"]
+# Chart data: STRUT_CHART[width_idx][height_idx] = count
+STRUT_CHART = [
+    #  8'2  10'1  12'1  14'1  16'1  18'1  20'1  22'1  24'1  26'1   (heights)
+    [  0,    0,    0,    0,    0,    0,    0,   12,   13,   14],  # 8'2  width
+    [  0,    0,    0,    0,    0,    0,    0,   12,   13,   14],  # 9'2
+    [  0,    0,    0,    0,    0,    0,    0,   12,   13,   14],  # 10'2
+    [  0,    0,    0,    0,    0,    0,    0,   12,   13,   14],  # 11'2
+    [  0,    0,    0,    0,    0,    0,    0,   12,   13,   14],  # 12'2
+    [  0,    0,    0,    0,    0,    0,    0,   12,   13,   14],  # 13'2
+    [  0,    0,    0,    0,    0,    0,    0,   12,   13,   14],  # 14'2
+    [  0,    0,    0,    0,    5,    6,    7,   12,   13,   14],  # 15'2
+    [  0,    0,    0,    5,    5,    6,    7,   12,   13,   14],  # 16'2
+    [  3,    4,    4,    5,    5,    6,    7,   12,   13,   14],  # 17'2
+    [  3,    4,    4,    5,    5,    6,    7,   12,   13,   14],  # 18'2
+    [  3,    4,    4,    5,    5,    6,    7,   12,   13,   14],  # 19'2
+    [  3,    4,    4,    5,    5,    6,    7,   12,   13,   14],  # 20'2
+    [  4,    5,    6,    7,    8,    9,   10,   12,   13,   14],  # 21'2
+    [  4,    5,    6,    7,    8,    9,   10,   12,   13,   14],  # 22'2
+    [  4,    5,    6,    7,    8,    9,   10,   12,   13,   14],  # 23'2
+    [  4,    5,    6,    7,    8,    9,   10,   12,   13,   14],  # 24'2
+    [  5,    6,    7,    8,    9,   10,   11,   12,   13,   14],  # 25'2
+    [  5,    6,    7,    8,    9,   10,   11,   12,   13,   14],  # 26'2+
+]
+
+
+# ============================================================================
 # PART NUMBER SERVICE
 # ============================================================================
 
@@ -631,20 +708,20 @@ class PartNumberService:
 
     def _calculate_door_weight(self, config: DoorConfiguration) -> float:
         """
-        Calculate door weight using linear foot weights per section.
+        Calculate door weight for spring sizing using Thermalex component methodology.
 
-        Weight = (lbs_per_linear_ft × door_width_ft × num_sections) + hardware_weight
+        Weight = panel_weight + end_cap_weight + retainer_weight + astragal_weight
+                 + seal_weight + strut_weight
 
-        Panel weights (lbs per linear foot):
-        - 18" panels: 3.7655
-        - 21" panels: 4.1875
-        - 24" panels: 4.6392
-        - 28" panels: 5.1363
-        - 32" panels: 6.1875
+        Per Thermalex Door Weight Calculator, spring weight does NOT include hardware
+        (hinges, brackets, fasteners) — only panel assembly + accessories + struts.
+        The spring counter-balances the moving door assembly, and hardware component
+        weights are accounted for in the spring engineering formulas (IPPT), not added
+        to the raw door weight.
         """
-        # Weight per linear foot by section height
+        # Panel weight per linear foot by section height
         MODEL_WEIGHTS = {
-            # Commercial models
+            # Commercial models (from Thermalex Data Tables)
             "TX380": {"18": 3.4991, "21": 3.4991, "24": 3.933, "28": 4.5, "32": 5.0},
             "TX450": {"18": 3.83, "21": 3.83, "24": 4.38, "28": 5.0, "32": 5.5},
             "TX450-20": {"18": 5.18, "21": 5.18, "24": 5.6813, "28": 6.2, "32": 6.8},
@@ -655,17 +732,18 @@ class PartNumberService:
             "CRAFT": {"18": 3.7655, "21": 4.1875, "24": 4.6392, "28": 5.1363, "32": 6.1875},
         }
 
-        # Get model weights (default to KANATA if not found)
         model_weights = MODEL_WEIGHTS.get(config.door_series, MODEL_WEIGHTS["KANATA"])
-
         door_width_ft = config.door_width / 12
         door_height_in = config.door_height
+        series = config.door_series.upper()
 
-        # Use mixed-height breakdown for accurate per-section weight
+        # Section breakdown (21"/24" mix)
         breakdown = self._get_section_breakdown(door_height_in)
+        n21 = breakdown["21"]
+        n24 = breakdown["24"]
         num_sections = breakdown["total"]
 
-        # Calculate panel weight using correct weight for each section height
+        # 1. Panel weight
         panel_weight = 0.0
         for h in ["21", "24"]:
             count = breakdown[h]
@@ -673,31 +751,86 @@ class PartNumberService:
                 weight_per_ft = model_weights.get(h, model_weights.get("21", 4.0))
                 panel_weight += weight_per_ft * door_width_ft * count
 
-        # Add hardware weight - different for residential vs commercial
-        # Residential (2" hinges, lighter brackets): ~15-18 lbs
-        # Commercial (3" hinges, heavier brackets): ~27-35 lbs
-        is_residential = config.door_series.upper() in ["KANATA", "CRAFT", "KANATA_EXECUTIVE"]
-        if is_residential:
-            # Residential hardware weight (2" hinges, smaller rollers, lighter brackets)
-            # Based on typical residential hardware box contents
-            hardware_weight = 17.0
-        else:
-            # Commercial hardware weight (3" hinges, heavy-duty brackets)
-            hardware_weight = 27.0
+        # 2. End cap weight (2 caps per section — left + right)
+        ec_grams_21 = END_CAP_WEIGHT_GRAMS.get((series, 21), END_CAP_WEIGHT_GRAMS.get(("TX450", 21), 556))
+        ec_grams_24 = END_CAP_WEIGHT_GRAMS.get((series, 24), END_CAP_WEIGHT_GRAMS.get(("TX450", 24), 638))
+        end_cap_weight = (ec_grams_21 * 2 * n21 + ec_grams_24 * 2 * n24) / GRAMS_PER_LB
 
-        total_weight = panel_weight + hardware_weight
+        # 3. Retainer weight (bottom always; top only for doors >= 18' wide)
+        retainer_per_ft = RETAINER_LBS_PER_FT.get(series, 0.175)
+        retainer_count = 1
+        if config.door_width >= TOP_ASTRAGAL_MIN_WIDTH_IN:
+            retainer_count = 2  # add top retainer for wide doors
+        retainer_weight = retainer_count * door_width_ft * retainer_per_ft
 
-        hw_type = "residential 2\"" if is_residential else "commercial 3\""
+        # 4. Astragal weight (bottom always; top for doors >= 18' wide)
+        astragal_weight = door_width_ft * BOTTOM_ASTRAGAL_LBS_PER_FT
+        if config.door_width >= TOP_ASTRAGAL_MIN_WIDTH_IN:
+            astragal_weight += door_width_ft * TOP_ASTRAGAL_LBS_PER_FT
+
+        # 5. End cap seals
+        seal_weight = (n21 * 2 * SEAL_WEIGHT_21) + (n24 * 2 * SEAL_WEIGHT_24)
+
+        # 6. Strut weight (from Thermalex strutting chart)
+        # Per Thermalex, spring weight includes 20ga/16ga struts but NOT Z struts.
+        # Z struts are structural reinforcement excluded from spring balance weight.
+        strut_info = self._get_strut_requirements(config.door_width, config.door_height)
+        strut_weight = 0.0
+        if strut_info["count"] > 0 and strut_info["type"] != "z":
+            strut_weight = strut_info["count"] * door_width_ft * strut_info["weight_per_ft"]
+
+        total_weight = panel_weight + end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight
+
         breakdown_str = " + ".join(
             f"{breakdown[h]}x{h}\"" for h in ["24", "21"] if breakdown[h] > 0
         )
+        extras = end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight
         logger.info(
-            f"Door weight calculation: {config.door_series} {door_width_ft}'x{door_height_in}\" "
-            f"= [{breakdown_str}] sections × {door_width_ft}' + {hardware_weight} lbs ({hw_type} hw) "
+            f"Door weight (Thermalex): {series} {door_width_ft:.1f}'x{door_height_in}\" "
+            f"= [{breakdown_str}] panels={panel_weight:.1f} + extras={extras:.1f} "
+            f"(endcaps={end_cap_weight:.1f}, retainer={retainer_weight:.1f}, "
+            f"astragal={astragal_weight:.1f}, struts={strut_weight:.1f}) "
             f"= {total_weight:.1f} lbs"
         )
 
         return total_weight
+
+    @staticmethod
+    def _get_strut_requirements(door_width_in: int, door_height_in: int) -> dict:
+        """Look up strut requirements from the Thermalex strutting chart.
+
+        Returns: {"count": int, "type": str, "weight_per_ft": float}
+        """
+        # Find nearest width bracket (round up to next bracket)
+        w_idx = -1
+        for i, w in enumerate(STRUT_WIDTH_BRACKETS):
+            if door_width_in <= w:
+                w_idx = i
+                break
+        if w_idx == -1:
+            w_idx = len(STRUT_WIDTH_BRACKETS) - 1  # use last row for oversized
+
+        # Find nearest height bracket (round up to next bracket)
+        h_idx = -1
+        for i, h in enumerate(STRUT_HEIGHT_BRACKETS):
+            if door_height_in <= h:
+                h_idx = i
+                break
+
+        # Door height below minimum chart height → no struts needed
+        if h_idx == -1:
+            # Height exceeds chart → use last column
+            h_idx = len(STRUT_HEIGHT_BRACKETS) - 1
+        # Door width below minimum chart width → use first row
+        if door_width_in < STRUT_WIDTH_BRACKETS[0]:
+            # Small door below chart → likely 0 struts (use first row)
+            w_idx = 0
+
+        count = STRUT_CHART[w_idx][h_idx]
+        strut_type = STRUT_HEIGHT_TYPE[h_idx]
+        weight_per_ft = STRUT_WEIGHT_PER_FT[strut_type]
+
+        return {"count": count, "type": strut_type, "weight_per_ft": weight_per_ft}
 
     def _get_track_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get track part numbers using actual BC parts"""
@@ -1102,26 +1235,30 @@ class PartNumberService:
             )]
 
     def _get_strut_parts(self, config: DoorConfiguration) -> List[PartSelection]:
-        """Get strut part numbers using actual BC parts"""
-        mapper = get_bc_mapper()
+        """Get strut part numbers using Thermalex strutting chart.
 
+        The chart determines both the quantity and gauge of struts based on
+        door width and height. Small doors may need zero struts.
+        """
+        strut_info = self._get_strut_requirements(config.door_width, config.door_height)
+        strut_count = strut_info["count"]
+        strut_type = strut_info["type"]
+
+        if strut_count == 0:
+            return []
+
+        mapper = get_bc_mapper()
         door_width_feet = config.door_width // 12
-        # Commercial doors >16' wide get 16ga struts; all others get 20ga
-        if config.door_type == "commercial" and config.door_width > 192:
+
+        # Map strutting chart type to gauge for BC part number
+        if strut_type == "16ga":
             gauge = 16
         else:
+            # Both 20ga and z-struts use 20ga BC parts
+            # (z-struts are a different assembly but use the same part series)
             gauge = 20
 
-        # Get strut part number
         strut = mapper.get_strut(door_width_feet, gauge)
-
-        # Strut quantity based on door size
-        if config.door_width <= 108:  # Up to 9'
-            strut_count = 1
-        elif config.door_width <= 192:  # Up to 16'
-            strut_count = 2
-        else:
-            strut_count = 3
 
         return [PartSelection(
             part_number=strut.part_number,
