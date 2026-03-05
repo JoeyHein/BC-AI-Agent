@@ -21,6 +21,7 @@ class BusinessCentralClient:
         self.client_id = settings.BC_CLIENT_ID
         self.client_secret = settings.BC_CLIENT_SECRET
         self.base_url = settings.bc_api_url
+        self.odata_url = settings.bc_odata_url
         self.company_id = settings.BC_COMPANY_ID
 
         self._token: Optional[str] = None
@@ -288,6 +289,40 @@ class BusinessCentralClient:
             headers={"If-Match": etag},
         )
         return result
+
+    def set_quote_line_output(self, quote_number: str, line_no: int, output: bool = True) -> None:
+        """
+        Set the Output flag on a sales quote line via OData.
+
+        The standard v2.0 salesQuoteLines API doesn't expose the 'Output' field,
+        so we use the Sales_QuoteSalesLines_Excel OData endpoint directly.
+        When Output=True on a Comment line, BC shows it on printed quotes
+        and subtotals the items below it.
+        """
+        token = self._get_access_token()
+        key = f"Document_Type='Quote',Document_No='{quote_number}',Line_No={line_no}"
+        url = f"{self.odata_url}/Sales_QuoteSalesLines_Excel({key})"
+
+        # GET the current etag first
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        get_resp = requests.get(url, headers=headers, timeout=30)
+        if get_resp.status_code >= 400:
+            logger.warning(f"Could not GET OData line for Output flag: {get_resp.status_code}")
+            return
+        etag = get_resp.json().get("@odata.etag", "*")
+
+        # PATCH to set Output
+        patch_headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "If-Match": etag,
+        }
+        resp = requests.patch(url, json={"Output": output}, headers=patch_headers, timeout=30)
+        if resp.status_code < 300:
+            logger.info(f"Set Output={output} on {quote_number} line {line_no}")
+        else:
+            logger.warning(f"Failed to set Output on {quote_number} line {line_no}: {resp.status_code}")
 
     # ==================== Quote PDF (BC built-in) ====================
 
