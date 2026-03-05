@@ -238,6 +238,34 @@ class BusinessCentralClient:
 
         return result
 
+    def search_items_by_prefix(self, prefix: str, company_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Fetch all items whose number starts with a given prefix.
+        Paginates with $top=1000 to collect all matches.
+        """
+        cid = company_id or self.company_id
+        safe_prefix = prefix.replace("'", "''")
+        filter_query = f"startswith(number,'{safe_prefix}')"
+        select = "$select=number"
+        all_items: List[Dict[str, Any]] = []
+        skip = 0
+        page_size = 1000
+
+        while True:
+            endpoint = (
+                f"companies({cid})/items"
+                f"?$filter={filter_query}&{select}&$top={page_size}&$skip={skip}"
+            )
+            result = self._make_request("GET", endpoint)
+            items = result.get("value", [])
+            all_items.extend(items)
+            if len(items) < page_size:
+                break
+            skip += page_size
+
+        logger.info(f"search_items_by_prefix('{prefix}'): found {len(all_items)} items")
+        return all_items
+
     def search_items_by_name(self, search_term: str, company_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Search items by display name (partial match)"""
         cid = company_id or self.company_id

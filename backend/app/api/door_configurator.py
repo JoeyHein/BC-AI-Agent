@@ -11,7 +11,7 @@ import logging
 
 from app.services.part_number_service import get_parts_for_door_config, part_number_service, DoorConfiguration
 from app.services.door_calculator_service import door_calculator, calculate_door_from_config
-from app.services.spring_data_service import get_spring_inventory_settings
+from app.services.spring_data_service import get_bc_spring_inventory
 from app.services.pricing_service import calculate_selling_price
 from app.services.quote_review_service import save_quote_snapshot
 from app.integrations.bc.client import bc_client
@@ -762,8 +762,8 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
     11. Accessories
     """
     try:
-        # Load spring inventory so quotes use stocked springs matching specs tab
-        spring_inventory = get_spring_inventory_settings(db)
+        # Load spring inventory from BC so quotes use stocked springs
+        spring_inventory = get_bc_spring_inventory()
 
         # Step 1: Get parts for all doors with proper ordering
         all_lines = []  # Ordered lines ready for BC
@@ -1132,8 +1132,8 @@ async def get_part_numbers(config: DoorConfigRequest, db: Session = Depends(get_
             "targetCycles": config.targetCycles,
         }
 
-        # Get parts from service (with spring inventory for consistency with specs tab)
-        spring_inv = get_spring_inventory_settings(db)
+        # Get parts from service (with BC spring inventory for consistency with specs tab)
+        spring_inv = get_bc_spring_inventory()
         parts_summary = get_parts_for_door_config(config_dict, spring_inventory=spring_inv)
 
         return {
@@ -1189,7 +1189,7 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "shaftType": door.shaftType,
             }
 
-            spring_inv = get_spring_inventory_settings(db)
+            spring_inv = get_bc_spring_inventory()
             door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inv)
 
             parts_by_door.append({
@@ -1255,8 +1255,8 @@ async def calculate_door_specifications(request: DoorCalculationRequest, db: Ses
         if height_inches < 60 or height_inches > 288:
             raise HTTPException(status_code=400, detail="Door height must be between 60\" and 288\" (5' to 24')")
 
-        # Load spring inventory so we only select stocked springs
-        spring_inventory = get_spring_inventory_settings(db)
+        # Load spring inventory from BC so we only select stocked springs
+        spring_inventory = get_bc_spring_inventory()
 
         # Calculate door
         calc = door_calculator.calculate_door(

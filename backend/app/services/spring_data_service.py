@@ -5,6 +5,8 @@ Loads spring wire data from the spring-calculator JSON files
 
 import json
 import os
+import re
+import time
 from typing import List, Dict, Optional
 from pathlib import Path
 import logging
@@ -255,3 +257,108 @@ def filter_springs_by_inventory(
     result.sort(key=lambda x: (not x.get('is_stocked', False), spring_options.index(option) if option in spring_options else 999))
 
     return result
+
+
+# ==================== BC-Driven Spring Inventory ====================
+
+# Module-level cache (same pattern as pricing_service)
+_bc_spring_inventory_cache: Optional[Dict[str, List[str]]] = None
+_bc_spring_inventory_cache_time: float = 0
+_BC_SPRING_INVENTORY_TTL = 3600  # 1 hour
+
+
+def _build_reverse_lookups():
+    """Build reverse mappings from BC codes back to float values."""
+    from app.services.bc_part_number_mapper import BCPartNumberMapper
+    mapper = BCPartNumberMapper
+
+    # code -> float wire size  (e.g. "234" -> 0.234)
+    wire_code_to_float = {code: size for size, code in mapper.WIRE_SIZE_CODES.items()}
+    # code -> float coil size  (e.g. "20" -> 2.0)
+    coil_code_to_float = {code: size for size, code in mapper.COIL_SIZE_CODES.items()}
+
+    return wire_code_to_float, coil_code_to_float
+
+
+# Regex: SP{type 2 digits}-{wire 3 digits}{coil 2 digits}-{hand 2 digits}
+_SPRING_PN_RE = re.compile(r'^SP\d{2}-(\d{3})(\d{2})-\d{2}$')
+
+
+def get_bc_spring_inventory() -> Dict[str, List[str]]:
+    """
+    Fetch all spring items from live BC, parse wire/coil from part numbers,
+    return in the same format as get_spring_inventory_settings():
+    {"2.0": ["0.2180", "0.2340", ...], "2.625": [...], "3.75": [...], "6.0": [...]}
+
+    Results are cached for 1 hour. Falls back to DB settings on BC API failure.
+    """
+    global _bc_spring_inventory_cache, _bc_spring_inventory_cache_time
+
+    # Return cache if fresh
+    if _bc_spring_inventory_cache is not None and (time.time() - _bc_spring_inventory_cache_time) < _BC_SPRING_INVENTORY_TTL:
+        return _bc_spring_inventory_cache
+
+    try:
+        from app.integrations.bc.client import bc_client
+
+        wire_code_to_float, coil_code_to_float = _build_reverse_lookups()
+
+        # Fetch all items starting with SP1 (covers SP10, SP11, SP16)
+        items = bc_client.search_items_by_prefix("SP1")
+
+        # Parse into {coil_key: set(wire_str)}
+        inventory: Dict[str, set] = {}
+        for item in items:
+            number = item.get("number", "")
+            match = _SPRING_PN_RE.match(number)
+            if not match:
+                continue
+
+            wire_code = match.group(1)  # e.g. "234"
+            coil_code = match.group(2)  # e.g. "20"
+
+            wire_float = wire_code_to_float.get(wire_code)
+            coil_float = coil_code_to_float.get(coil_code)
+
+            if wire_float is None or coil_float is None:
+                continue
+
+            # Filter wire >= 0.218 (BC minimum)
+            if wire_float < 0.218:
+                continue
+
+            coil_key = str(coil_float)
+            if coil_key not in inventory:
+                inventory[coil_key] = set()
+            inventory[coil_key].add(f"{wire_float:.4f}")
+
+        # Convert sets to sorted lists, ensure all coil keys present
+        result: Dict[str, List[str]] = {}
+        for coil_key in ["2.0", "2.625", "3.75", "6.0"]:
+            wires = sorted(inventory.get(coil_key, set()))
+            result[coil_key] = wires
+
+        total = sum(len(v) for v in result.values())
+        logger.info(f"BC spring inventory: {total} wire/coil combos from {len(items)} items")
+
+        _bc_spring_inventory_cache = result
+        _bc_spring_inventory_cache_time = time.time()
+        return result
+
+    except Exception as e:
+        logger.warning(f"Failed to fetch BC spring inventory, falling back to DB settings: {e}")
+
+        # Return cached result if we have one (even if stale)
+        if _bc_spring_inventory_cache is not None:
+            return _bc_spring_inventory_cache
+
+        # Last resort: try DB settings
+        try:
+            from app.db.database import SessionLocal
+            db = SessionLocal()
+            try:
+                return get_spring_inventory_settings(db)
+            finally:
+                db.close()
+        except Exception:
+            return {"2.0": [], "2.625": [], "3.75": [], "6.0": []}
