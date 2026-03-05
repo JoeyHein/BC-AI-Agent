@@ -9,7 +9,8 @@ Tiers (Commercial):  Gold 30%, Silver 33%, Bronze 36%, Retail 42%
 """
 
 import logging
-from typing import Optional, Tuple, Dict, Any
+import time
+from typing import Optional, Tuple, Dict, Any, List
 
 from sqlalchemy.orm import Session
 
@@ -135,6 +136,65 @@ def resolve_tier_from_bc_group(bc_price_group: Optional[str], db: Session) -> Op
 
 
 # ============================================================================
+# Live BC cost cache
+# ============================================================================
+
+_bc_cost_cache: Dict[str, dict] = {}
+_cache_expiry: float = 0.0
+_CACHE_TTL = 3600  # 1 hour
+
+
+def warm_bc_cost_cache(part_numbers: List[str]) -> None:
+    """
+    Batch-fetch item costs from live BC and populate the module cache.
+    Call once before a pricing loop to avoid per-line API calls.
+    """
+    global _bc_cost_cache, _cache_expiry
+
+    if not part_numbers:
+        return
+
+    # Deduplicate
+    unique_pns = list(set(part_numbers))
+
+    try:
+        from app.integrations.bc.client import bc_client
+        items = bc_client.get_items_by_numbers(unique_pns)
+        _bc_cost_cache.update(items)
+        _cache_expiry = time.time() + _CACHE_TTL
+        logger.info(f"Warmed BC cost cache with {len(items)} items (requested {len(unique_pns)})")
+    except Exception as e:
+        logger.warning(f"Failed to warm BC cost cache: {e}")
+
+
+def _get_live_item(part_number: str) -> Optional[dict]:
+    """
+    Return item data (unitCost, generalProductPostingGroupCode) from the
+    live BC cache.  On cache miss, makes a single BC API call.
+    Falls back to the static bc_items mapper if BC API fails entirely.
+    """
+    global _bc_cost_cache, _cache_expiry
+
+    # Check cache (still valid?)
+    if time.time() < _cache_expiry and part_number in _bc_cost_cache:
+        return _bc_cost_cache[part_number]
+
+    # Cache miss — try single-item fetch from live BC
+    try:
+        from app.integrations.bc.client import bc_client
+        items = bc_client.get_items_by_numbers([part_number])
+        if part_number in items:
+            _bc_cost_cache[part_number] = items[part_number]
+            return items[part_number]
+    except Exception as e:
+        logger.warning(f"Live BC lookup failed for {part_number}: {e}")
+
+    # Final fallback: static mapper
+    mapper = get_bc_mapper()
+    return mapper.bc_items.get(part_number)
+
+
+# ============================================================================
 # Core pricing functions
 # ============================================================================
 
@@ -175,8 +235,7 @@ def calculate_selling_price(
     Returns rounded selling price, or None if unitCost is 0/missing
     (let BC use its default pricing in that case).
     """
-    mapper = get_bc_mapper()
-    item = mapper.bc_items.get(part_number)
+    item = _get_live_item(part_number)
     if not item:
         return None
 

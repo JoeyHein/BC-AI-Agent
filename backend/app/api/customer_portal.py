@@ -17,7 +17,7 @@ from app.api.customer_auth import get_current_customer
 from app.integrations.bc.client import bc_client
 from app.integrations.ai.client import ai_client
 from app.services.part_number_service import get_parts_for_door_config
-from app.services.pricing_service import calculate_selling_price
+from app.services.pricing_service import calculate_selling_price, warm_bc_cost_cache
 from app.services.spring_data_service import get_spring_inventory_settings
 from app.services.quote_review_service import save_quote_snapshot
 
@@ -556,7 +556,12 @@ def _generate_bc_quote_with_items(
     bc_quote_number = bc_quote.get("number")
     logger.info(f"Created BC quote: {bc_quote_number} (ID: {bc_quote_id})")
 
-    # Step 3: Add line items
+    # Step 3: Warm the BC cost cache so pricing uses live production costs
+    if pricing_tier and db:
+        item_pns = [l["part_number"] for l in all_lines if l.get("part_number")]
+        warm_bc_cost_cache(item_pns)
+
+    # Step 4: Add line items
     lines_added = 0
     lines_failed = []
     bc_items_cache: dict = {}  # category prefix → list of BC items (populated lazily)
@@ -895,6 +900,10 @@ def _estimate_pricing_locally(
                 "success": False,
                 "error": str(e),
             })
+
+    # Warm the BC cost cache so pricing uses live production costs
+    item_pns = [l["part_number"] for l in all_lines if l.get("part_number")]
+    warm_bc_cost_cache(item_pns)
 
     # Build line pricing locally using calculate_selling_price
     line_pricing = []

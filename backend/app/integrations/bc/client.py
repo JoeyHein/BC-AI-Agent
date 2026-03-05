@@ -207,6 +207,37 @@ class BusinessCentralClient:
         )
         return result.get("value", [])
 
+    def get_items_by_numbers(self, part_numbers: List[str],
+                              company_id: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+        """
+        Batch-fetch items by part number from BC.
+
+        Returns dict keyed by part number for O(1) lookup.
+        Batches requests to stay under URL length limits (~40 items per call).
+        """
+        if not part_numbers:
+            return {}
+
+        cid = company_id or self.company_id
+        select = "$select=number,unitCost,unitPrice,generalProductPostingGroupCode"
+        result: Dict[str, Dict[str, Any]] = {}
+        batch_size = 40
+
+        for start in range(0, len(part_numbers), batch_size):
+            batch = part_numbers[start:start + batch_size]
+            filter_parts = " or ".join(
+                f"number eq '{pn.replace(chr(39), chr(39)*2)}'" for pn in batch
+            )
+            endpoint = f"companies({cid})/items?$filter={filter_parts}&{select}"
+            try:
+                resp = self._make_request("GET", endpoint)
+                for item in resp.get("value", []):
+                    result[item["number"]] = item
+            except Exception as e:
+                logger.warning(f"Batch item fetch failed for {len(batch)} items: {e}")
+
+        return result
+
     def search_items_by_name(self, search_term: str, company_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Search items by display name (partial match)"""
         cid = company_id or self.company_id
