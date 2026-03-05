@@ -465,9 +465,9 @@ function DoorPreview({
     // Glazing color — glass for AL976, polycarbonate for Panorama/Solalite
     const glassLookup = isPolycarbonate ? {
       'CLEAR':        { fill: '#D8E8EC', ribStroke: 'rgba(180,200,210,0.5)', ribHighlight: 'rgba(255,255,255,0.3)' },
-      'LIGHT_BRONZE': { fill: '#C8A882', ribStroke: 'rgba(160,120,80,0.4)', ribHighlight: 'rgba(255,255,255,0.2)' },
-      'DARK_BRONZE':  { fill: '#7A5C3A', ribStroke: 'rgba(90,60,30,0.5)', ribHighlight: 'rgba(255,255,255,0.12)' },
-      'WHITE_OPAL':   { fill: '#F0EDE8', ribStroke: 'rgba(200,195,188,0.45)', ribHighlight: 'rgba(255,255,255,0.35)' },
+      'LIGHT_BRONZE': { fill: '#817F68', ribStroke: 'rgba(100,98,80,0.45)', ribHighlight: 'rgba(255,255,255,0.18)' },
+      'DARK_BRONZE':  { fill: '#4C4A44', ribStroke: 'rgba(55,53,48,0.5)', ribHighlight: 'rgba(255,255,255,0.10)' },
+      'WHITE_OPAL':   { fill: '#F4F4F4', ribStroke: 'rgba(210,210,210,0.45)', ribHighlight: 'rgba(255,255,255,0.4)' },
     } : {
       'CLEAR':      { fill: '#A8D8EA', reflection: 'rgba(255,255,255,0.35)' },
       'ETCHED':     { fill: '#D3D3D3', reflection: 'rgba(255,255,255,0.2)' },
