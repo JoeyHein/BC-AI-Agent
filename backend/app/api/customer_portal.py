@@ -520,6 +520,7 @@ def _generate_bc_quote_with_items(
                         "description": part["notes"],
                         "category": "COMMENT",
                         "door_index": door_index,
+                        "is_note": True,  # Not a door delimiter — don't split pricing groups
                     })
 
             door_results.append({
@@ -721,8 +722,11 @@ def _generate_bc_quote_with_items(
 
         for line in all_lines:
             if line.get("lineType") == "Comment":
+                # Window/note comments stay inside the current door group;
+                # only door description comments act as group delimiters.
+                ltype = "Note" if line.get("is_note") else "Comment"
                 line_pricing.append({
-                    "line_type": "Comment",
+                    "line_type": ltype,
                     "part_number": "",
                     "description": line["description"],
                     "quantity": 0,
@@ -873,6 +877,7 @@ def _estimate_pricing_locally(
                         "description": part["notes"],
                         "category": "COMMENT",
                         "door_index": door_index,
+                        "is_note": True,  # Not a door delimiter — don't split pricing groups
                     })
 
             door_results.append({
@@ -897,8 +902,9 @@ def _estimate_pricing_locally(
 
     for line in all_lines:
         if line.get("lineType") == "Comment":
+            ltype = "Note" if line.get("is_note") else "Comment"
             line_pricing.append({
-                "line_type": "Comment",
+                "line_type": ltype,
                 "part_number": "",
                 "description": line["description"],
                 "quantity": 0,

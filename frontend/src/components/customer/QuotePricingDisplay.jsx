@@ -35,6 +35,8 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
   if (linePricing) {
     for (const line of linePricing) {
       if (line.line_type === 'Comment') {
+        // Only door description comments start a new group;
+        // "Note" lines (e.g. window placement) stay in the current group.
         if (currentDoor) {
           doorSections.push(currentDoor)
         }
@@ -43,6 +45,9 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
           items: [],
           subtotal: 0,
         }
+      } else if (line.line_type === 'Note' && currentDoor) {
+        // Window/note comments — show inline as a note, don't split the group
+        currentDoor.items.push(line)
       } else if (currentDoor) {
         currentDoor.items.push(line)
         currentDoor.subtotal += line.line_total || 0
@@ -142,7 +147,7 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
                         {door.description}
                       </h4>
                       <span className="text-xs text-gray-500">
-                        {door.items.length} item{door.items.length !== 1 ? 's' : ''}
+                        {door.items.filter(i => i.line_type !== 'Note').length} item{door.items.filter(i => i.line_type !== 'Note').length !== 1 ? 's' : ''}
                       </span>
                     </div>
                   </div>
@@ -156,9 +161,11 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
                       <tbody className="text-xs text-gray-600">
                         {door.items.map((item, itemIdx) => (
                           <tr key={itemIdx}>
-                            <td className="py-0.5 pr-4">{item.description}</td>
+                            <td className={`py-0.5 pr-4 ${item.line_type === 'Note' ? 'font-medium text-gray-700 pt-2' : ''}`}>
+                              {item.description}
+                            </td>
                             <td className="py-0.5 text-right whitespace-nowrap text-gray-500">
-                              qty {item.quantity}
+                              {item.line_type !== 'Note' && `qty ${item.quantity}`}
                             </td>
                           </tr>
                         ))}
