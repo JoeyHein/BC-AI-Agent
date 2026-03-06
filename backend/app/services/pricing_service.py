@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 TIER_MARGINS_KEY = "pricing_tier_margins"
 COST_ADJUSTMENTS_KEY = "pricing_cost_adjustments"
 BC_GROUP_MAPPING_KEY = "bc_group_tier_mapping"
+PREFIX_MARGINS_KEY = "pricing_prefix_margins"
 
 VALID_TIERS = {"gold", "silver", "bronze", "retail"}
 
@@ -111,6 +112,16 @@ def _load_cost_adjustments(db: Session) -> dict:
     if setting and setting.setting_value:
         return setting.setting_value
     return get_default_cost_adjustments()
+
+
+def _load_prefix_margins(db: Session) -> dict:
+    """Load part-number prefix margin overrides from AppSettings."""
+    setting = db.query(AppSettings).filter(
+        AppSettings.setting_key == PREFIX_MARGINS_KEY
+    ).first()
+    if setting and setting.setting_value:
+        return setting.setting_value
+    return {}
 
 
 def _load_bc_group_mapping(db: Session) -> dict:
@@ -253,6 +264,19 @@ def calculate_selling_price(
 
     # Resolve margin
     _tier_name, margin_pct = resolve_tier(tier, door_type, db)
+
+    # Check for part-number prefix override (longest prefix wins)
+    prefix_overrides = _load_prefix_margins(db)
+    if prefix_overrides:
+        pn_upper = part_number.upper()
+        best_prefix = ""
+        for prefix in prefix_overrides:
+            if pn_upper.startswith(prefix.upper()) and len(prefix) > len(best_prefix):
+                best_prefix = prefix
+        if best_prefix:
+            override_margin = prefix_overrides[best_prefix].get("margin")
+            if override_margin is not None:
+                margin_pct = float(override_margin)
 
     # Apply formula: selling_price = (unitCost * (1 + adj%/100)) / (1 - margin%/100)
     adjusted_cost = unit_cost * (1 + cost_adj_pct / 100)

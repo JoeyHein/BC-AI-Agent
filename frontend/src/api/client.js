@@ -507,6 +507,13 @@ export const settingsApi = {
   getPricingCategories: () =>
     apiClient.get('/api/settings/pricing-categories'),
 
+  // Part-number prefix margin overrides
+  getPrefixMargins: () =>
+    apiClient.get('/api/settings/pricing-prefix-margins/current'),
+
+  updatePrefixMargins: (overrides) =>
+    apiClient.put('/api/settings/pricing-prefix-margins', { overrides }),
+
   // BC Group → Tier mapping
   getBCGroupMapping: () =>
     apiClient.get('/api/settings/bc-group-mapping/current'),

@@ -19,6 +19,7 @@ from app.services.pricing_service import (
     TIER_MARGINS_KEY,
     COST_ADJUSTMENTS_KEY,
     BC_GROUP_MAPPING_KEY,
+    PREFIX_MARGINS_KEY,
     VALID_TIERS,
     POSTING_GROUP_LABELS,
 )
@@ -65,6 +66,11 @@ class CostAdjustmentsUpdate(BaseModel):
 class BCGroupMappingUpdate(BaseModel):
     """Request model for updating BC price group → portal tier mapping"""
     mapping: Dict[str, str]  # { "RETAIL": "retail", "CONTRACTOR": "gold", ... }
+
+
+class PrefixMarginsUpdate(BaseModel):
+    """Request model for updating part-number prefix margin overrides"""
+    overrides: Dict[str, Any]  # { "GK17": { "margin": 60, "note": "Aluminum glazing" }, ... }
 
 
 # ============================================================================
@@ -427,6 +433,86 @@ async def get_pricing_categories():
     return {
         "success": True,
         "data": categories,
+    }
+
+
+# ============================================================================
+# Part-Number Prefix Margin Override Endpoints
+# ============================================================================
+
+@router.get("/pricing-prefix-margins/current")
+async def get_prefix_margins(db: Session = Depends(get_db)):
+    """Get current part-number prefix margin overrides (or empty dict if none saved)."""
+    setting = db.query(AppSettings).filter(
+        AppSettings.setting_key == PREFIX_MARGINS_KEY
+    ).first()
+
+    overrides = setting.setting_value if setting else {}
+
+    return {
+        "success": True,
+        "data": {
+            "overrides": overrides,
+            "isDefault": not bool(setting),
+            "updatedAt": setting.updated_at.isoformat() if setting and setting.updated_at else None,
+        }
+    }
+
+
+@router.put("/pricing-prefix-margins")
+async def update_prefix_margins(
+    update: PrefixMarginsUpdate,
+    db: Session = Depends(get_db),
+):
+    """Validate and save part-number prefix margin overrides."""
+    for prefix, entry in update.overrides.items():
+        if not prefix.strip():
+            raise HTTPException(status_code=400, detail="Prefix cannot be empty")
+        if not isinstance(entry, dict):
+            raise HTTPException(status_code=400, detail=f"Override for '{prefix}' must be an object")
+        margin = entry.get("margin")
+        if margin is None:
+            raise HTTPException(status_code=400, detail=f"Override for '{prefix}' is missing 'margin'")
+        if not (0 <= float(margin) <= 99):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Margin for prefix '{prefix}' must be between 0% and 99% (got {margin}%)"
+            )
+
+    # Normalize prefix keys to uppercase
+    normalized = {
+        k.upper().strip(): v
+        for k, v in update.overrides.items()
+        if k.strip()
+    }
+
+    setting = db.query(AppSettings).filter(
+        AppSettings.setting_key == PREFIX_MARGINS_KEY
+    ).first()
+
+    if setting:
+        setting.setting_value = normalized
+        setting.updated_at = datetime.utcnow()
+    else:
+        setting = AppSettings(
+            setting_key=PREFIX_MARGINS_KEY,
+            setting_value=normalized,
+            description="Part-number prefix margin overrides (e.g. GK17 → 60%)",
+            updated_at=datetime.utcnow(),
+        )
+        db.add(setting)
+
+    db.commit()
+    db.refresh(setting)
+    logger.info(f"Prefix margin overrides updated: {normalized}")
+
+    return {
+        "success": True,
+        "message": "Prefix margin overrides updated successfully",
+        "data": {
+            "overrides": setting.setting_value,
+            "updatedAt": setting.updated_at.isoformat() if setting.updated_at else None,
+        }
     }
 
 
