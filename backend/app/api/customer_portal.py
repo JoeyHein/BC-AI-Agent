@@ -318,10 +318,11 @@ def delete_saved_quote(
 
 # Standard line item ordering for BC quotes (same as door_configurator.py)
 LINE_ORDER = [
-    "comment", "panel", "v130g_section", "v130g_glass", "commercial_window",
-    "retainer", "astragal", "strut", "window",
+    "comment", "panel", "v130g_section", "v130g_glass",
+    "aluminum_section", "aluminum_glazing", "aluminum_glass", "commercial_window",
+    "retainer", "astragal", "top_seal", "strut", "window",
     "track", "highlift_track", "hardware", "spring", "spring_accessory",
-    "shaft", "weather_stripping", "top_seal", "accessory", "operator",
+    "shaft", "weather_stripping", "accessory", "operator",
 ]
 
 

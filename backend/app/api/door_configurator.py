@@ -718,21 +718,24 @@ LINE_ORDER = [
     "panel",             # 2. Panels (PN45, PN46, PN65, PN95, etc.)
     "v130g_section",     # 2b. V130G full-view sections (right after panels)
     "v130g_glass",       # 2c. V130G glass (with sections)
-    "commercial_window", # 2d. Commercial thermopane windows
+    "aluminum_section",  # 2d. Aluminum sections (AL976/Panorama/Solalite)
+    "aluminum_glazing",  # 2e. Aluminum polycarbonate glazing
+    "aluminum_glass",    # 2e. Aluminum glass glazing
+    "commercial_window", # 2f. Commercial thermopane windows
     "retainer",          # 3. Retainer (top/bottom)
     "astragal",          # 4. Astragal (bottom rubber)
-    "strut",             # 5. Struts
-    "window",            # 6. Windows / inserts (residential)
-    "track",             # 7. Track
-    "highlift_track",    # 7b. Highlift track (if applicable)
-    "hardware",          # 8. Hardware box
-    "spring",            # 9. Springs
-    "spring_accessory",  # 9b. Winders, plugs
-    "shaft",             # 9c. Shaft
-    "weather_stripping", # 10. Weather seal
-    "top_seal",          # 10b. Top seal (commercial/aluminium)
-    "accessory",         # 11. Accessories
-    "operator",          # 12. Operator (if applicable)
+    "top_seal",          # 5. Top seal (commercial/aluminium)
+    "strut",             # 6. Struts
+    "window",            # 7. Windows / inserts (residential)
+    "track",             # 8. Track
+    "highlift_track",    # 8b. Highlift track (if applicable)
+    "hardware",          # 9. Hardware box
+    "spring",            # 10. Springs
+    "spring_accessory",  # 10b. Winders, plugs
+    "shaft",             # 10c. Shaft
+    "weather_stripping", # 11. Weather seal
+    "accessory",         # 12. Accessories
+    "operator",          # 13. Operator (if applicable)
 ]
 
 
