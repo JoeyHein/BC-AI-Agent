@@ -1858,9 +1858,9 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
 
   // Shaft type options - auto-detect based on width (14'2" = 170")
   const shaftTypeOptions = [
-    { id: 'auto', name: 'Auto (Recommended)', description: door.doorWidth <= 170 ? 'Single shaft (≤14\'2")' : 'Split shaft with coupler (>14\'2")' },
+    { id: 'auto', name: 'Auto (Recommended)', description: 'Based on springs and door width' },
     { id: 'single', name: 'Single Shaft', description: 'No coupler - up to 14\'2" wide' },
-    { id: 'split', name: 'Split Shaft', description: 'Two pieces with coupler' },
+    { id: 'split', name: 'Split Shaft', description: 'Multiple pieces with couplers' },
   ]
 
   // Warn if single shaft selected for wide door
@@ -2622,10 +2622,23 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
                                   <span className="text-gray-500">Diameter:</span>
                                   <span className="font-medium">{item.calculation.shaft.diameter}"</span>
                                 </div>
-                                <div className="flex justify-between">
-                                  <span className="text-gray-500">Length (each):</span>
-                                  <span className="font-medium">{item.calculation.shaft.length_each}"</span>
-                                </div>
+                                {item.calculation.shaft.operator_length && item.calculation.shaft.operator_length !== item.calculation.shaft.length_each ? (
+                                  <>
+                                    <div className="flex justify-between">
+                                      <span className="text-gray-500">Standard shaft{item.calculation.shaft.pieces > 2 ? ` (×${item.calculation.shaft.pieces - 1})` : ''}:</span>
+                                      <span className="font-medium">{item.calculation.shaft.length_each}"</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-gray-500">Operator shaft:</span>
+                                      <span className="font-medium">{item.calculation.shaft.operator_length}"</span>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <div className="flex justify-between">
+                                    <span className="text-gray-500">Length (each):</span>
+                                    <span className="font-medium">{item.calculation.shaft.length_each}"</span>
+                                  </div>
+                                )}
                                 <div className="flex justify-between">
                                   <span className="text-gray-500">Pieces:</span>
                                   <span className="font-medium">{item.calculation.shaft.pieces}</span>

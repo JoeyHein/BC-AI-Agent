@@ -530,15 +530,22 @@ class PartNumberService:
             hw_parts = self._get_hardware_kit_parts(config)
             parts.extend(hw_parts)
 
-        # 9. SHAFT
-        if hardware.get("shafts", True):
-            shaft_parts = self._get_shaft_parts(config)
-            parts.extend(shaft_parts)
-
-        # 10. SPRINGS
+        # 9. SPRINGS (computed before shafts — spring count drives shaft count)
+        spring_parts = []
+        spring_count = 2  # default
         if hardware.get("springs", True):
             spring_parts = self._get_spring_parts(config)
+            # Extract spring quantity from parts list
+            for sp in spring_parts:
+                if sp.category == "spring":
+                    spring_count = sp.quantity
+                    break
             parts.extend(spring_parts)
+
+        # 10. SHAFT (uses spring_count to determine shaft count)
+        if hardware.get("shafts", True):
+            shaft_parts = self._get_shaft_parts(config, spring_count=spring_count)
+            parts.extend(shaft_parts)
 
         # 11. WEATHER SEAL (sides and header)
         if hardware.get("weatherStripping", True):
@@ -1084,7 +1091,7 @@ class PartNumberService:
 
         return parts
 
-    def _get_shaft_parts(self, config: DoorConfiguration) -> List[PartSelection]:
+    def _get_shaft_parts(self, config: DoorConfiguration, spring_count: int = 2) -> List[PartSelection]:
         """Get shaft part numbers using actual BC parts.
 
         Shaft type selection:
@@ -1093,17 +1100,9 @@ class PartNumberService:
         - Commercial (any weight <= 2000)   → 1\" solid keyed shaft (SH11)
         - Any door   + weight >  2000 lbs  → 1-1/4\" keyed shaft (SH10-00002-00)
 
-        Solid shaft sizing (single):
-          Physical length of SH11-1FF06 = FF*12 + 6 inches.
-          Must cover door_width + 16". Rearranging: FF >= (door_width + 10) / 12.
-          required_ff = ceil((door_width_in + 10) / 12)
-          Max SH11 = 15'-6" (186"). Single shaft works for doors up to 170" (14'2").
-
-        Split shaft sizing (2× SH11 + coupler):
-          Each half covers (door_width + 16) / 2.
-          FF*12+6 >= (door_width+16)/2 → FF >= (door_width + 4) / 24.
-          required_ff_each = ceil((door_width_in + 4) / 24)
-          Triggered automatically when door_width > 170" or when shaft_preference == 'split'.
+        Asymmetric overhang: 6\" non-operator + 12\" operator = door_width + 18\".
+        Shaft count N = max(ceil(spring_count / 2), width_minimum_shafts).
+        For N >= 2: N-1 standard shafts (round DOWN) + 1 operator shaft (round UP) + N-1 couplers.
         """
         mapper = get_bc_mapper()
 
@@ -1141,108 +1140,41 @@ class PartNumberService:
             )]
 
         # Heavy residential OR any commercial — 1" solid keyed shaft (SH11)
-        # Determine whether to use split shaft:
-        #   - auto: split when door_width > 170" (max single SH11 covers 170" door)
-        #   - split: always split
-        #   - single: always single (warn if too wide)
-        use_split = (
-            config.shaft_preference == 'split' or
-            (config.shaft_preference == 'auto' and config.door_width > 170)
-        )
+        # Calculate shaft count N
+        spring_driven = math.ceil(spring_count / 2)
+        width_minimum = 2 if config.door_width > 170 else 1
+        N = max(spring_driven, width_minimum)
 
-        if use_split:
-            # Two SH11 shafts (offset sizes) + one coupler
-            # Total combined length must be >= door_width + 16"
-            # Use offset pair (one shorter, one longer) to minimize total overhang
-            needed = config.door_width + 16
-            coupler = mapper.get_shaft_coupler(bore_size=1.0)
+        # Apply user overrides
+        if config.shaft_preference == 'single':
+            N = 1
+        elif config.shaft_preference == 'split' and N < 2:
+            N = 2
 
-            # Get all available SH11 sizes from the mapper
-            available_sh11 = []
-            for pn, item in mapper.bc_items.items():
-                if (pn.startswith("SH11-1") and len(pn) == 13 and
-                        pn[8:10] == "06" and pn.endswith("-00")):
-                    try:
-                        ff = int(pn[6:8])
-                        available_sh11.append(ff)
-                    except ValueError:
-                        pass
-            available_sh11.sort()
+        # Get all available SH11 sizes (FF values) from BC catalog
+        available_sh11 = []
+        for pn in mapper.bc_items:
+            if (pn.startswith("SH11-1") and len(pn) == 13 and
+                    pn[8:10] == "06" and pn.endswith("-00")):
+                try:
+                    available_sh11.append(int(pn[6:8]))
+                except ValueError:
+                    pass
+        available_sh11.sort()
+        if not available_sh11:
+            available_sh11 = [7, 8, 9, 10, 11, 12, 13, 14, 15]
 
-            if not available_sh11:
-                # Fallback: typical SH11 sizes (7'6" through 15'6")
-                available_sh11 = [7, 8, 9, 10, 11, 12, 13, 14, 15]
+        # Convert FF values to physical lengths (inches)
+        sh11_lengths = [(ff, ff * 12 + 6) for ff in available_sh11]
 
-            # Find best offset pair: two different sizes whose combined length >= needed
-            # minimizing total overhang
-            best_pair = None
-            best_overhang = float('inf')
-            for i, ff_a in enumerate(available_sh11):
-                len_a = ff_a * 12 + 6
-                for ff_b in available_sh11[i:]:
-                    len_b = ff_b * 12 + 6
-                    total = len_a + len_b
-                    if total >= needed:
-                        overhang = total - needed
-                        if overhang < best_overhang:
-                            best_overhang = overhang
-                            best_pair = (ff_a, ff_b)
-
-            if best_pair is None:
-                # Use two of the largest available
-                best_pair = (available_sh11[-1], available_sh11[-1])
-
-            ff_a, ff_b = best_pair
-            shaft_a = mapper.get_shaft(door_width_feet=ff_a, shaft_type="solid")
-            shaft_b = mapper.get_shaft(door_width_feet=ff_b, shaft_type="solid")
-
-            total_length = (ff_a * 12 + 6) + (ff_b * 12 + 6)
-            if total_length < needed:
-                logger.warning(
-                    f"Split shaft total {total_length}\" still short for {width_display} door "
-                    f"(need {needed}\"): using {shaft_a.part_number} + {shaft_b.part_number}"
-                )
-
-            parts = []
-            if ff_a == ff_b:
-                # Same size — qty 2
-                parts.append(PartSelection(
-                    part_number=shaft_a.part_number,
-                    description=f"1\" Solid Shaft Keyed {width_display} door width (split)",
-                    quantity=2,
-                    category="shaft"
-                ))
-            else:
-                # Offset pair — qty 1 each
-                parts.append(PartSelection(
-                    part_number=shaft_a.part_number,
-                    description=f"1\" Solid Shaft Keyed {width_display} door width (split - short side)",
-                    quantity=1,
-                    category="shaft"
-                ))
-                parts.append(PartSelection(
-                    part_number=shaft_b.part_number,
-                    description=f"1\" Solid Shaft Keyed {width_display} door width (split - long side)",
-                    quantity=1,
-                    category="shaft"
-                ))
-            parts.append(PartSelection(
-                part_number=coupler.part_number,
-                description=coupler.description,
-                quantity=1,
-                category="shaft"
-            ))
-            return parts
-
-        else:
-            # Single solid shaft
-            # FF*12+6 >= door_width+16 → FF >= (door_width+10)/12
-            required_ff = math.ceil((config.door_width + 10) / 12)
+        if N == 1:
+            # Single solid shaft: FF*12+6 >= door_width+18 → FF >= (door_width+12)/12
+            required_ff = math.ceil((config.door_width + 12) / 12)
             shaft = mapper.get_shaft(door_width_feet=required_ff, shaft_type="solid")
 
             selected_ff = int(shaft.part_number[6:8])
             physical_length = selected_ff * 12 + 6
-            needed = config.door_width + 16
+            needed = config.door_width + 18
             if physical_length < needed:
                 logger.warning(
                     f"No solid shaft long enough for {width_display} door "
@@ -1256,6 +1188,64 @@ class PartNumberService:
                 quantity=1,
                 category="shaft"
             )]
+        else:
+            # Multi-shaft: N-1 standard shafts + 1 operator shaft + N-1 couplers
+            total_needed = config.door_width + 18
+            base = total_needed / N
+
+            # Standard shaft: largest available SH11 <= base (round DOWN)
+            std_ff = available_sh11[0]  # fallback to smallest
+            for ff, length in sh11_lengths:
+                if length <= base:
+                    std_ff = ff
+                else:
+                    break
+            std_length = std_ff * 12 + 6
+
+            # Operator shaft: remainder rounded UP to nearest available SH11
+            op_remainder = total_needed - (std_length * (N - 1))
+            op_ff = available_sh11[-1]  # fallback to largest
+            for ff, length in sh11_lengths:
+                if length >= op_remainder:
+                    op_ff = ff
+                    break
+
+            shaft_std = mapper.get_shaft(door_width_feet=std_ff, shaft_type="solid")
+            shaft_op = mapper.get_shaft(door_width_feet=op_ff, shaft_type="solid")
+            coupler = mapper.get_shaft_coupler(bore_size=1.0)
+
+            op_length = op_ff * 12 + 6
+            total_actual = std_length * (N - 1) + op_length
+            if total_actual < total_needed:
+                logger.warning(
+                    f"Multi-shaft total {total_actual}\" short for {width_display} door "
+                    f"(need {total_needed}\"): {N-1}× {shaft_std.part_number} + {shaft_op.part_number}"
+                )
+
+            parts = []
+            # N-1 standard (non-operator) shafts
+            if N - 1 > 0:
+                parts.append(PartSelection(
+                    part_number=shaft_std.part_number,
+                    description=f"1\" Solid Shaft Keyed {width_display} door width (standard side)",
+                    quantity=N - 1,
+                    category="shaft"
+                ))
+            # 1 operator shaft
+            parts.append(PartSelection(
+                part_number=shaft_op.part_number,
+                description=f"1\" Solid Shaft Keyed {width_display} door width (operator side)",
+                quantity=1,
+                category="shaft"
+            ))
+            # N-1 couplers
+            parts.append(PartSelection(
+                part_number=coupler.part_number,
+                description=coupler.description,
+                quantity=N - 1,
+                category="shaft"
+            ))
+            return parts
 
     def _get_strut_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get strut part numbers using Thermalex strutting chart.

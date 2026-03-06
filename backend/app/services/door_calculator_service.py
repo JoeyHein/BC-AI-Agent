@@ -443,6 +443,7 @@ class ShaftConfiguration:
     pieces: int = 2
     coupler_qty: int = 1
     shaft_type: str = "solid"  # "tube", "solid", or "1-1/4"
+    operator_length: float = None  # longer operator-side shaft (None = same as length)
 
 
 @dataclass
@@ -611,9 +612,10 @@ class DoorCalculatorService:
             spring_inventory=spring_inventory,
         )
 
-        # 7. Calculate shaft
+        # 7. Calculate shaft (spring count drives shaft count)
         is_residential = door_type == "residential"
-        shaft = self._calculate_shaft(width_inches, weight.total_weight, shaft_type, is_residential=is_residential)
+        spring_count = springs.quantity if springs else 2
+        shaft = self._calculate_shaft(width_inches, weight.total_weight, shaft_type, is_residential=is_residential, spring_count=spring_count)
 
         # 8. Calculate hardware list
         hardware = self._calculate_hardware(
@@ -1209,24 +1211,23 @@ class DoorCalculatorService:
         door_weight: float,
         shaft_type: str = "auto",
         is_residential: bool = False,
+        spring_count: int = 2,
     ) -> ShaftConfiguration:
-        """Calculate shaft configuration
+        """Calculate shaft configuration with asymmetric overhang.
+
+        Overhang: 6" non-operator + 12" operator = door_width + 18" total.
+        Shaft count N = max(ceil(spring_count / 2), width_minimum_shafts).
+        For N >= 2: N-1 standard shafts + 1 longer operator shaft + N-1 couplers.
 
         Args:
             width_inches: Door width in inches
             door_weight: Door weight in lbs
             shaft_type: 'auto', 'single', or 'split'
-                - auto: Single shaft up to 14'2" (170"), split after
-                - single: Force single shaft (no coupler)
-                - split: Force split shaft (two pieces with coupler)
-            is_residential: Whether the door is residential (affects shaft type selection)
+            is_residential: Whether the door is residential
+            spring_count: Number of springs (drives minimum shaft count)
         """
 
         # Shaft diameter and type based on weight and door type
-        # Matches part_number_service._get_shaft_parts() logic:
-        #   weight > 2000          → 1-1/4" keyed shaft
-        #   residential ≤ 750 lbs  → 1" tube shaft
-        #   else                   → 1" solid keyed shaft
         if door_weight > 2000:
             diameter = "1-1/4"
             shaft_material = "1-1/4"
@@ -1237,18 +1238,22 @@ class DoorCalculatorService:
             diameter = "1"
             shaft_material = "solid"
 
-        # Determine if single or split shaft based on shaft_type and width
-        # 14'2" = 170 inches is the cutoff for single shaft
-        if shaft_type == "single":
-            use_single = True
-        elif shaft_type == "split":
-            use_single = False
-        else:  # auto
-            use_single = width_inches <= 170  # 14'2"
+        # Calculate shaft count N
+        # Spring-driven: 2 springs per shaft section
+        spring_driven = math.ceil(spring_count / 2)
+        # Width-driven: single SH11 max 186" covers doors up to 170"
+        width_minimum = 2 if width_inches > 170 else 1
+        N = max(spring_driven, width_minimum)
 
-        if use_single:
-            # Single shaft - one piece, no coupler
-            shaft_length = width_inches + 12  # Add 12" for drum clearance
+        # Apply user overrides
+        if shaft_type == "single":
+            N = 1
+        elif shaft_type == "split" and N < 2:
+            N = 2
+
+        if N == 1:
+            # Single shaft: door_width + 18" total (6" non-op + 12" operator)
+            shaft_length = width_inches + 18
             return ShaftConfiguration(
                 diameter=diameter,
                 length=round(shaft_length, 1),
@@ -1257,14 +1262,24 @@ class DoorCalculatorService:
                 shaft_type=shaft_material,
             )
         else:
-            # Split shaft - two pieces with coupler
-            shaft_length_each = (width_inches / 2) + 6  # 6" extra each end
+            # Multi-shaft: total = door_width + 18"
+            # N-1 standard shafts (shorter) + 1 operator shaft (longer)
+            total_length = width_inches + 18
+            base = total_length / N
+            # Standard shafts: round DOWN to nearest 6" increment
+            standard_length = math.floor(base / 6) * 6
+            # Operator shaft gets the remainder
+            operator_length = total_length - (standard_length * (N - 1))
+            # Round operator UP to nearest 6"
+            operator_length = math.ceil(operator_length / 6) * 6
+
             return ShaftConfiguration(
                 diameter=diameter,
-                length=round(shaft_length_each, 1),
-                pieces=2,
-                coupler_qty=1,
+                length=round(standard_length, 1),
+                pieces=N,
+                coupler_qty=N - 1,
                 shaft_type=shaft_material,
+                operator_length=round(operator_length, 1),
             )
 
     def _calculate_struts(
@@ -1453,6 +1468,7 @@ class DoorCalculatorService:
                 "pieces": calc.shaft.pieces if calc.shaft else None,
                 "couplers": calc.shaft.coupler_qty if calc.shaft else None,
                 "shaft_type": calc.shaft.shaft_type if calc.shaft else None,
+                "operator_length": calc.shaft.operator_length if calc.shaft else None,
             } if calc.shaft else None,
             "track": {
                 "size_inches": calc.track.size if calc.track else None,
