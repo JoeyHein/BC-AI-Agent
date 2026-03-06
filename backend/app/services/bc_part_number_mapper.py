@@ -648,6 +648,19 @@ class BCPartNumberMapper:
             height_code = f"{door_height_feet:02d}"
             part_number = f"{prefix}-LHR-{height_code}"
             desc = f"{track_size}\" LOW HEAD ROOM KIT,{door_height_feet}'"
+        elif lift_type == LiftType.HIGH_LIFT:
+            # High lift uses the same standard track assembly (STDBM)
+            # The extension kit is a separate line item handled by _get_highlift_parts()
+            mount_code = "BM" if mount_type == TrackMount.BRACKET else "AM"
+            height_code = f"{door_height_feet:02d}"
+
+            if track_size == 2:
+                radius_code = f"{radius_inches:02d}"
+                part_number = f"{prefix}-STD{mount_code}-{height_code}{radius_code}"
+                desc = f"{track_size}\" STANDARD LIFT {'BRACKET' if mount_type == TrackMount.BRACKET else 'ANGLE'} MOUNT; {door_height_feet}' High,{radius_inches}\"Radius"
+            else:
+                part_number = f"{prefix}-STD{mount_code}-{height_code}"
+                desc = f"{track_size}\" STANDARD LIFT {'BRACKET' if mount_type == TrackMount.BRACKET else 'ANGLE'} MOUNT, {door_height_feet}' High"
         else:
             # Default
             part_number = f"{prefix}-STDBM-{door_height_feet:02d}{radius_inches:02d}"

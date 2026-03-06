@@ -120,6 +120,7 @@ class DoorConfiguration:
     shaft_preference: str = 'auto'  # 'auto', 'single', or 'split'
     track_mount: str = 'bracket'  # 'bracket' or 'angle'
     lift_type: str = 'standard'  # 'standard', 'low_headroom', 'high_lift', 'vertical'
+    high_lift_inches: Optional[int] = None
     end_cap_type: str = 'auto'  # 'auto', 'SEC', 'DEC'
     window_size: str = 'long'  # 'short' (GK15-10xxx) or 'long' (GK15-11xxx)
     spring_inventory: Optional[Dict[str, list]] = None  # stocked coil/wire combos from settings
@@ -1300,7 +1301,9 @@ class PartNumberService:
             door_width_feet=door_width_feet,
             door_height_feet=door_height_feet,
             num_sections=num_sections,
-            commercial=is_commercial
+            commercial=is_commercial,
+            lift_type='high' if config.lift_type == 'high_lift' else 'standard',
+            high_lift_inches=config.high_lift_inches or 0
         )
 
         return [PartSelection(
@@ -1475,24 +1478,42 @@ class PartNumberService:
         )]
 
     def _get_highlift_parts(self, config: DoorConfiguration) -> List[PartSelection]:
-        """Get highlift or lowheadroom track parts if applicable
+        """Get high lift extension track kit parts.
 
-        Highlift/lowheadroom is determined by:
-        - Explicit configuration (future: add to DoorConfiguration)
-        - Track radius requirements
-        - Ceiling height constraints
-
-        For now, returns empty list - can be extended when highlift
-        configuration is added to the door configurator.
+        Extension kits are ADDITIONAL line items on top of the standard track assembly.
+        - 2" track: TR02-EXT4-00 (4' extension kit)
+        - 3" track: TR03-EXT4-00 (4' kit, HL ≤ 48") or TR03-EXT6-00 (6' kit, HL > 48")
+        - qty = max(1, ceil(hl_inches / kit_size_inches))
         """
-        # TODO: Add highlift/lowheadroom detection when config supports it
-        # Example conditions:
-        # - config.lift_type == "highlift"
-        # - config.lift_type == "lowheadroom"
-        # - config.headroom < standard_headroom
+        if config.lift_type != 'high_lift' or not config.high_lift_inches:
+            return []
 
-        # Currently no highlift parts - return empty
-        return []
+        hl_inches = config.high_lift_inches
+        track_size = int(config.track_thickness)
+
+        if track_size == 2:
+            part_number = "TR02-EXT4-00"
+            kit_size_inches = 48
+            description = "2\" HIGH LIFT EXTENSION 4' KIT"
+        else:
+            # 3" track
+            if hl_inches <= 48:
+                part_number = "TR03-EXT4-00"
+                kit_size_inches = 48
+                description = "3\" HIGH LIFT EXTENSION 4' KIT"
+            else:
+                part_number = "TR03-EXT6-00"
+                kit_size_inches = 72
+                description = "3\" HIGH LIFT EXTENSION 6' KIT"
+
+        qty = max(1, math.ceil(hl_inches / kit_size_inches))
+
+        return [PartSelection(
+            part_number=part_number,
+            description=description,
+            quantity=qty,
+            category="highlift_track"
+        )]
 
     def _get_aluminum_section_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get aluminum door section parts (PN97, PN80, PN20) + glass for all panels.
@@ -2124,6 +2145,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         track_thickness=config_dict.get("trackThickness", "2"),
         track_mount=config_dict.get("trackMount", "bracket"),
         lift_type=config_dict.get("liftType", "standard"),
+        high_lift_inches=config_dict.get("highLiftInches"),
         end_cap_type=config_dict.get("endCapType", "auto"),
         hardware=config_dict.get("hardware", {}),
         operator=config_dict.get("operator"),

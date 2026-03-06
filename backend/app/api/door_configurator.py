@@ -442,6 +442,8 @@ class DoorConfigRequest(BaseModel):
     trackRadius: str = "15"
     trackThickness: str = "2"
     trackMount: str = "bracket"  # 'bracket' or 'angle'
+    liftType: str = "standard"  # 'standard', 'low_headroom', 'high_lift', 'vertical'
+    highLiftInches: Optional[int] = None
     hardware: Dict[str, bool] = {}
     operator: Optional[str] = None
     notes: Optional[str] = None
@@ -823,6 +825,8 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "trackRadius": door.trackRadius,
                 "trackThickness": door.trackThickness,
                 "trackMount": door.trackMount,
+                "liftType": door.liftType,
+                "highLiftInches": door.highLiftInches,
                 "hardware": door.hardware,
                 "operator": door.operator,
                 "targetCycles": door.targetCycles,
@@ -1141,6 +1145,10 @@ async def get_part_numbers(config: DoorConfigRequest, db: Session = Depends(get_
             "glassColor": config.glassColor,
             "trackRadius": config.trackRadius,
             "trackThickness": config.trackThickness,
+            "liftType": config.liftType,
+            "highLiftInches": config.highLiftInches,
+            "trackMount": config.trackMount,
+            "shaftType": config.shaftType,
             "hardware": config.hardware,
             "operator": config.operator,
             "targetCycles": config.targetCycles,
@@ -1197,6 +1205,8 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "trackRadius": door.trackRadius,
                 "trackThickness": door.trackThickness,
                 "trackMount": door.trackMount,
+                "liftType": door.liftType,
+                "highLiftInches": door.highLiftInches,
                 "hardware": door.hardware,
                 "operator": door.operator,
                 "targetCycles": door.targetCycles,
