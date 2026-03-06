@@ -1,68 +1,228 @@
 {
-  "$schema": "../../schemas/vertical-lift-drum.schema.json",
   "model": "D850-132",
   "type": "vertical-lift",
-  "description": "Vertical-lift drum for doors 72\"-132\" height",
-  "hma": 4.25,
-  "minDoorHeight": 72,
-  "maxDoorHeight": 132,
-  "note": "Compact vertical-lift drum for residential/light commercial applications",
-  "availableDoorHeights": [72, 78, 84, 90, 96, 102, 108, 114, 120, 126, 132],
+  "minDoorHeight": 0,
+  "maxDoorHeight": 129,
   "multiplierTable": [
     {
-      "doorHeight": 72,
-      "multiplier": 0.5787,
+      "doorHeight": 0,
+      "multiplier": 0.3733,
+      "turns": 3.6
+    },
+    {
+      "doorHeight": 3,
+      "multiplier": 0.3772,
+      "turns": 3.9
+    },
+    {
+      "doorHeight": 6,
+      "multiplier": 0.3781,
+      "turns": 4.2
+    },
+    {
+      "doorHeight": 9,
+      "multiplier": 0.3771,
+      "turns": 4.5
+    },
+    {
+      "doorHeight": 12,
+      "multiplier": 0.3748,
+      "turns": 4.8
+    },
+    {
+      "doorHeight": 15,
+      "multiplier": 0.3718,
+      "turns": 5.1
+    },
+    {
+      "doorHeight": 18,
+      "multiplier": 0.3753,
+      "turns": 5.3
+    },
+    {
+      "doorHeight": 21,
+      "multiplier": 0.3776,
+      "turns": 5.5
+    },
+    {
+      "doorHeight": 24,
+      "multiplier": 0.3726,
+      "turns": 5.8
+    },
+    {
+      "doorHeight": 27,
+      "multiplier": 0.3737,
+      "turns": 6.0
+    },
+    {
+      "doorHeight": 30,
+      "multiplier": 0.3744,
+      "turns": 6.2
+    },
+    {
+      "doorHeight": 33,
+      "multiplier": 0.3745,
+      "turns": 6.4
+    },
+    {
+      "doorHeight": 36,
+      "multiplier": 0.3742,
+      "turns": 6.6
+    },
+    {
+      "doorHeight": 39,
+      "multiplier": 0.3738,
+      "turns": 6.8
+    },
+    {
+      "doorHeight": 42,
+      "multiplier": 0.373,
+      "turns": 7.0
+    },
+    {
+      "doorHeight": 45,
+      "multiplier": 0.3773,
+      "turns": 7.1
+    },
+    {
+      "doorHeight": 48,
+      "multiplier": 0.376,
+      "turns": 7.3
+    },
+    {
+      "doorHeight": 51,
+      "multiplier": 0.3747,
+      "turns": 7.5
+    },
+    {
+      "doorHeight": 54,
+      "multiplier": 0.3731,
+      "turns": 7.7
+    },
+    {
+      "doorHeight": 57,
+      "multiplier": 0.3762,
+      "turns": 7.8
+    },
+    {
+      "doorHeight": 60,
+      "multiplier": 0.3744,
+      "turns": 8.0
+    },
+    {
+      "doorHeight": 63,
+      "multiplier": 0.377,
+      "turns": 8.1
+    },
+    {
+      "doorHeight": 66,
+      "multiplier": 0.3749,
+      "turns": 8.3
+    },
+    {
+      "doorHeight": 69,
+      "multiplier": 0.3728,
       "turns": 8.5
     },
     {
+      "doorHeight": 72,
+      "multiplier": 0.375,
+      "turns": 8.6
+    },
+    {
+      "doorHeight": 75,
+      "multiplier": 0.377,
+      "turns": 8.7
+    },
+    {
       "doorHeight": 78,
-      "multiplier": 0.5385,
-      "turns": 9.1
+      "multiplier": 0.3746,
+      "turns": 8.9
+    },
+    {
+      "doorHeight": 81,
+      "multiplier": 0.3763,
+      "turns": 9.0
     },
     {
       "doorHeight": 84,
-      "multiplier": 0.5041,
-      "turns": 9.8
+      "multiplier": 0.3739,
+      "turns": 9.2
+    },
+    {
+      "doorHeight": 87,
+      "multiplier": 0.3755,
+      "turns": 9.3
     },
     {
       "doorHeight": 90,
-      "multiplier": 0.4744,
-      "turns": 10.4
+      "multiplier": 0.3768,
+      "turns": 9.4
+    },
+    {
+      "doorHeight": 93,
+      "multiplier": 0.3743,
+      "turns": 9.6
     },
     {
       "doorHeight": 96,
-      "multiplier": 0.4484,
-      "turns": 11.0
+      "multiplier": 0.3755,
+      "turns": 9.7
+    },
+    {
+      "doorHeight": 99,
+      "multiplier": 0.3766,
+      "turns": 9.8
     },
     {
       "doorHeight": 102,
-      "multiplier": 0.4256,
-      "turns": 11.6
+      "multiplier": 0.3739,
+      "turns": 10.0
+    },
+    {
+      "doorHeight": 105,
+      "multiplier": 0.375,
+      "turns": 10.1
     },
     {
       "doorHeight": 108,
-      "multiplier": 0.4054,
-      "turns": 12.2
+      "multiplier": 0.3759,
+      "turns": 10.2
+    },
+    {
+      "doorHeight": 111,
+      "multiplier": 0.3767,
+      "turns": 10.3
     },
     {
       "doorHeight": 114,
-      "multiplier": 0.3874,
-      "turns": 12.8
+      "multiplier": 0.3739,
+      "turns": 10.5
+    },
+    {
+      "doorHeight": 117,
+      "multiplier": 0.3746,
+      "turns": 10.6
     },
     {
       "doorHeight": 120,
-      "multiplier": 0.3712,
-      "turns": 13.4
+      "multiplier": 0.3753,
+      "turns": 10.7
+    },
+    {
+      "doorHeight": 123,
+      "multiplier": 0.376,
+      "turns": 10.8
     },
     {
       "doorHeight": 126,
-      "multiplier": 0.3567,
-      "turns": 13.9
+      "multiplier": 0.3765,
+      "turns": 10.9
     },
     {
-      "doorHeight": 132,
-      "multiplier": 0.3435,
-      "turns": 14.5
+      "doorHeight": 129,
+      "multiplier": 0.3737,
+      "turns": 11.1
     }
   ]
 }
