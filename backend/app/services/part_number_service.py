@@ -492,10 +492,14 @@ class PartNumberService:
             category="comment"
         ))
 
-        # 2. PANELS
+        # 2. PANELS (and aluminum sections/glass — treated as panels for aluminum doors)
         if hardware.get("panels", True):
             panel_parts = self._get_panel_parts(config)
             parts.extend(panel_parts)
+
+        if config.door_type == "aluminium":
+            aluminum_parts = self._get_aluminum_section_parts(config)
+            parts.extend(aluminum_parts)
 
         # 3. RETAINER (from bottom retainer parts - just retainer, not astragal)
         if hardware.get("bottomRetainer", True):
@@ -547,12 +551,8 @@ class PartNumberService:
             seal_parts = self._get_seal_parts(config)
             parts.extend(seal_parts)
 
-        # 12. EXTRAS (windows, operator)
-        # Aluminum doors: sections are the panels — generate PN97/PN80/PN20 parts + glass
-        if config.door_type == "aluminium":
-            aluminum_parts = self._get_aluminum_section_parts(config)
-            parts.extend(aluminum_parts)
-        else:
+        # 12. WINDOWS (non-aluminum doors only — aluminum sections already added above)
+        if config.door_type != "aluminium":
             has_windows = (config.window_count > 0) or (config.window_insert and config.window_insert not in (None, "NONE"))
             if has_windows:
                 window_parts = self._get_window_parts(config)
