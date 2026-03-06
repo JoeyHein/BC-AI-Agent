@@ -455,7 +455,7 @@ function QuoteBuilder() {
             series={config.doorSeries[currentDoor.doorType] || []}
             selected={currentDoor.doorSeries}
             onSelect={(series) => {
-              const isCommercialSeries = ['TX450', 'TX500', 'TX450-20', 'TX500-20'].includes(series)
+              const isCommercialSeries = ['TX380', 'TX450', 'TX500', 'TX450-20', 'TX500-20'].includes(series)
               const isAluminumSeries = ['AL976', 'PANORAMA', 'SOLALITE'].includes(series)
               updateCurrentDoor({
                 doorSeries: series,
@@ -834,6 +834,7 @@ function DesignStep({ door, colors, panelDesigns, config, onChange }) {
   const colorMap = {
     'KANATA': 'KANATA',
     'CRAFT': 'CRAFT',
+    'TX380': 'COMMERCIAL',
     'TX450': 'COMMERCIAL',
     'TX500': 'COMMERCIAL',
     'TX450-20': 'COMMERCIAL',
@@ -849,6 +850,7 @@ function DesignStep({ door, colors, panelDesigns, config, onChange }) {
     'KANATA': 'KANATA',
     'CRAFT': 'CRAFT',
     'KANATA_EXECUTIVE': 'EXECUTIVE',
+    'TX380': 'COMMERCIAL',
     'TX450': 'COMMERCIAL',
     'TX500': 'COMMERCIAL',
     'TX450-20': 'COMMERCIAL_20',
@@ -2262,8 +2264,11 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, onNa
     const colorMap = {
       'KANATA': 'KANATA',
       'CRAFT': 'CRAFT',
+      'TX380': 'COMMERCIAL',
       'TX450': 'COMMERCIAL',
       'TX500': 'COMMERCIAL',
+      'TX450-20': 'COMMERCIAL',
+      'TX500-20': 'COMMERCIAL',
       'AL976': 'AL976',
     }
     const colorKey = colorMap[seriesId] || 'KANATA'

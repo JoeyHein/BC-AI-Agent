@@ -85,7 +85,9 @@ class WindDirection(Enum):
 class DoorModel(Enum):
     TX380 = "TX380"
     TX450 = "TX450"
+    TX450_20 = "TX450-20"
     TX500 = "TX500"
+    TX500_20 = "TX500-20"
     KANATA = "KANATA"
     CRAFT = "CRAFT"
 
@@ -203,23 +205,29 @@ class BCPartNumberMapper:
         (6.0, 1.25, "RH"): "SP12-00242-00",
     }
 
-    # Panel series codes by model
-    # Width determines SEC (Single End Cap, ≤16') vs DEC (Double End Cap, >16')
-    # KANATA and CRAFT use same series code regardless of width
+    # Panel series codes by model: (SEC_prefix, DEC_prefix)
+    # SEC = Single End Cap, DEC = Double End Cap
+    # KANATA and CRAFT use same series code regardless of end cap type
     PANEL_SERIES_BY_MODEL = {
-        DoorModel.KANATA: ("PN65", "PN65"),    # Same for all widths
-        DoorModel.CRAFT: ("PN95", "PN95"),     # Same for all widths
-        DoorModel.TX380: ("PN35", "PN35"),     # Max width 16', only SEC
-        DoorModel.TX450: ("PN45", "PN46"),     # PN45 for ≤16', PN46 for >16'
-        DoorModel.TX500: ("PN55", "PN56"),     # PN55 for ≤16', PN56 for >16'
+        DoorModel.KANATA: ("PN65", "PN65"),      # Same for all widths
+        DoorModel.CRAFT: ("PN95", "PN95"),       # Same for all widths
+        DoorModel.TX380: ("PN35", "PN35"),       # Max width 16', only SEC
+        DoorModel.TX450: ("PN45", "PN46"),       # PN45=SEC, PN46=DEC
+        DoorModel.TX450_20: ("PN47", "PN48"),    # PN47=SEC, PN48=DEC (20-gauge)
+        DoorModel.TX500: ("PN55", "PN56"),       # PN55=SEC, PN56=DEC
+        DoorModel.TX500_20: ("PN57", "PN58"),    # PN57=SEC, PN58=DEC (20-gauge)
     }
 
     # Legacy mapping for backwards compatibility
     PANEL_SERIES = {
         (DoorModel.TX450, EndCapType.SINGLE): "PN45",
         (DoorModel.TX450, EndCapType.DOUBLE): "PN46",
+        (DoorModel.TX450_20, EndCapType.SINGLE): "PN47",
+        (DoorModel.TX450_20, EndCapType.DOUBLE): "PN48",
         (DoorModel.TX500, EndCapType.SINGLE): "PN55",
         (DoorModel.TX500, EndCapType.DOUBLE): "PN56",
+        (DoorModel.TX500_20, EndCapType.SINGLE): "PN57",
+        (DoorModel.TX500_20, EndCapType.DOUBLE): "PN58",
         (DoorModel.TX380, EndCapType.SINGLE): "PN35",
         (DoorModel.KANATA, EndCapType.SINGLE): "PN65",
         (DoorModel.KANATA, EndCapType.DOUBLE): "PN65",
@@ -260,8 +268,25 @@ class BCPartNumberMapper:
         6.5: "PL10-00005-03",  # 6.5" COMM bottom rubber
     }
 
-    # Retainer part number
+    # Retainer part number (commercial — sold by the roll, cut on site)
     RETAINER_1_75 = "PL10-00141-00"  # 1-3/4" Top/Bottom Retainer
+
+    # Residential retainer — pre-cut rigid retainer by width
+    RESI_RETAINER = {
+        7:  "PL10-00145-07",  # 7'
+        8:  "PL10-00145-01",  # 8'
+        9:  "PL10-00146-02",  # 9'
+        10: "PL10-00146-00",  # 10'
+        12: "PL10-00149-00",  # 12'
+        13: "PL10-00146-03",  # 13'
+        14: "PL10-00146-04",  # 14'
+        15: "PL10-00146-05",  # 15'
+        16: "PL10-00146-01",  # 16'
+        24: "PL10-00150-00",  # 24'
+    }
+
+    # Top seal part number (distinct from weather strip)
+    TOP_SEAL = "PL10-00127-00"  # TOP SEAL RUBBER (FS-1864 Die # 206)
 
     # Track assembly patterns
     # TR02-STDBM-{height}{radius} for 2" standard lift bracket mount
@@ -534,20 +559,48 @@ class BCPartNumberMapper:
             category="ASTRAGAL"
         )
 
-    def get_retainer(self, thickness: float = 1.75) -> BCPartNumber:
+    def get_retainer(self, thickness: float = 1.75, residential: bool = False, door_width_feet: int = 0) -> BCPartNumber:
         """
         Get retainer part number.
 
         Args:
             thickness: Panel thickness (default 1.75" for commercial)
+            residential: If True, use pre-cut rigid residential retainer
+            door_width_feet: Door width in feet (for residential size selection)
 
         Returns:
             BCPartNumber for retainer
         """
+        if residential and door_width_feet > 0:
+            # Find the smallest available length >= door width
+            available = sorted(self.RESI_RETAINER.keys())
+            for length in available:
+                if length >= door_width_feet:
+                    return BCPartNumber(
+                        part_number=self.RESI_RETAINER[length],
+                        description=f"BOTTOM RETAINER, 1 3/4\" RESI RIGID BLACK {length}'-0\"",
+                        category="RETAINER"
+                    )
+            # Wider than largest available — use largest
+            largest = available[-1]
+            return BCPartNumber(
+                part_number=self.RESI_RETAINER[largest],
+                description=f"BOTTOM RETAINER, 1 3/4\" RESI RIGID BLACK {largest}'-0\"",
+                category="RETAINER"
+            )
+
         return BCPartNumber(
             part_number=self.RETAINER_1_75,
             description="TOP/BOTTOM RETAINER, 1 3/4\"",
             category="RETAINER"
+        )
+
+    def get_top_seal(self) -> BCPartNumber:
+        """Get top seal rubber part number (distinct from weather strip)."""
+        return BCPartNumber(
+            part_number=self.TOP_SEAL,
+            description="TOP SEAL RUBBER (FS-1864 Die # 206)",
+            category="TOP_SEAL"
         )
 
     def get_track_assembly(
@@ -726,28 +779,30 @@ class BCPartNumberMapper:
             PN{series}-{height}{stamp}{color}-{width}
             Example: PN45-24400-0900 = TX450 24" white UDC 9' wide
 
-        Panel Series by Model and Width:
+        Panel Series by Model and End Cap:
             - KANATA: PN65 (all widths)
             - CRAFT: PN95 (all widths)
-            - TX380: PN35 (max 16', no DEC)
-            - TX450: PN45 (≤16') / PN46 (>16')
-            - TX500: PN55 (≤16') / PN56 (>16')
+            - TX380: PN35 (max 16', SEC only)
+            - TX450: PN45 (SEC) / PN46 (DEC)
+            - TX450-20: PN47 (SEC) / PN48 (DEC)
+            - TX500: PN55 (SEC) / PN56 (DEC)
+            - TX500-20: PN57 (SEC) / PN58 (DEC)
 
         Width Format: FFII (feet + inches)
             0900 = 9'0"
             1600 = 16'0"
             2400 = 24'0"
         """
-        # Determine panel series based on model and width
-        # Width > 16' uses DEC (Double End Cap) variant for commercial doors
-        is_wide_door = width_feet > 16
+        # Determine panel series based on model and end cap type
+        # SEC/DEC determines the panel prefix (e.g. PN45=SEC, PN46=DEC for TX450)
+        use_dec = end_cap_type == EndCapType.DOUBLE
 
         if model in self.PANEL_SERIES_BY_MODEL:
             sec_prefix, dec_prefix = self.PANEL_SERIES_BY_MODEL[model]
-            prefix = dec_prefix if is_wide_door else sec_prefix
+            prefix = dec_prefix if use_dec else sec_prefix
         else:
             # Fallback to legacy lookup
-            series_key = (model, EndCapType.DOUBLE if is_wide_door else EndCapType.SINGLE)
+            series_key = (model, end_cap_type)
             prefix = self.PANEL_SERIES.get(series_key, "PN45")
 
         # Height code

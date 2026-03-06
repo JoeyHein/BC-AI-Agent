@@ -767,7 +767,7 @@ class SpringCalculatorService:
         Returns: (wire_diameter, coil_diameter) or None
         """
         # Coil diameters to try, in order of preference (smaller is better for installation)
-        coil_diameters_to_try = [preferred_coil, 2.0, 2.5, 2.625, 3.375, 3.5, 3.75, 4.5, 5.25, 5.875, 6.0, 7.625]
+        coil_diameters_to_try = [preferred_coil, 2.0, 2.5, 2.625, 3.75, 4.5, 5.25, 5.875, 6.0, 7.625]
         # Remove duplicates while preserving order
         seen = set()
         coil_diameters_to_try = [x for x in coil_diameters_to_try if not (x in seen or seen.add(x))]

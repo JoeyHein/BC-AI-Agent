@@ -88,6 +88,7 @@ function DoorConfigurator() {
       targetCycles: 10000,
       shaftType: 'auto', // 'auto', 'single', 'split'
       trackMount: 'bracket', // 'bracket' or 'angle'
+      endCapType: 'auto', // 'auto', 'SEC', or 'DEC'
       // High lift inches (only used for high_lift)
       highLiftInches: null,  // extra inches above door opening
     }
@@ -117,6 +118,11 @@ function DoorConfigurator() {
     }
   }
 
+  // A3: Scroll to top on step navigation
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [currentStep])
+
   function nextStep() {
     if (currentStep < STEPS.length - 1) {
       setCurrentStep(currentStep + 1)
@@ -136,8 +142,13 @@ function DoorConfigurator() {
         return !!door.doorType
       case 'series':
         return !!door.doorSeries
-      case 'dimensions':
+      case 'dimensions': {
+        const seriesSpecs = config?.doorSeries[door.doorType]?.find(s => s.id === door.doorSeries)?.specs || {}
+        const maxW = seriesSpecs.maxWidth || 288
+        const maxH = seriesSpecs.maxHeight || 192
         return door.doorWidth > 0 && door.doorHeight > 0 && door.doorCount > 0
+          && door.doorWidth <= maxW && door.doorHeight <= maxH
+      }
       case 'design':
         return !!door.panelColor && !!door.panelDesign
       case 'windows':
@@ -184,12 +195,14 @@ function DoorConfigurator() {
         // Hardware
         trackRadius: door.trackRadius,
         trackThickness: door.trackThickness,
+        liftType: door.liftType,
         hardware: door.hardware,
         operator: door.operator !== 'NONE' ? door.operator : null,
         // Spring and shaft options
         targetCycles: door.targetCycles || 10000,
         shaftType: door.shaftType || 'auto',
         trackMount: door.trackMount || 'bracket',
+        endCapType: door.endCapType || 'auto',
       })),
       tagName: `Configurator Quote - ${doors.length} door(s)`,
       customerId: selectedCustomer?.bc_customer_id || null,
@@ -329,7 +342,7 @@ function DoorConfigurator() {
             series={config.doorSeries[currentDoor.doorType] || []}
             selected={currentDoor.doorSeries}
             onSelect={(series) => {
-              const isCommercialSeries = ['TX450', 'TX500', 'TX450-20', 'TX500-20'].includes(series)
+              const isCommercialSeries = ['TX380', 'TX450', 'TX500', 'TX450-20', 'TX500-20'].includes(series)
               const isAluminumSeries = ['AL976', 'PANORAMA', 'SOLALITE'].includes(series)
               updateCurrentDoor({
                 doorSeries: series,
@@ -451,6 +464,7 @@ function DoorConfigurator() {
             selectedCustomer={selectedCustomer}
             poNumber={poNumber}
             onPoNumberChange={setPoNumber}
+            onAddDoor={addDoor}
           />
         )}
       </div>
@@ -465,7 +479,7 @@ function DoorConfigurator() {
           ← Previous
         </button>
         <div className="flex space-x-3">
-          {doors.length === 1 && currentStep === STEPS.length - 1 && (
+          {currentStep === STEPS.length - 1 && (
             <button
               onClick={addDoor}
               className="inline-flex items-center px-4 py-2 border border-green-300 shadow-sm text-sm font-medium rounded-md text-green-700 bg-white hover:bg-green-50"
@@ -544,6 +558,12 @@ function DoorSeriesStep({ series, selected, onSelect }) {
 
 function DimensionsStep({ door, onChange, series }) {
   const specs = series?.specs || {}
+
+  // Dimension limit warnings
+  const maxWidth = specs.maxWidth || 288
+  const maxHeight = specs.maxHeight || 192
+  const widthExceeded = door.doorWidth > maxWidth
+  const heightExceeded = door.doorHeight > maxHeight
 
   // Common door sizes
   const commonSizes = [
@@ -671,11 +691,22 @@ function DimensionsStep({ door, onChange, series }) {
       </div>
 
       {/* Constraints Info */}
-      {specs.maxWidth && (
+      {(specs.maxWidth || specs.maxHeight) && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
           <p className="text-sm text-blue-700">
-            <strong>{series?.name}:</strong> Max width {specs.maxWidth}" ({Math.floor(specs.maxWidth / 12)}')
+            <strong>{series?.name}:</strong>
+            {specs.maxWidth && ` Max width ${specs.maxWidth}" (${Math.floor(specs.maxWidth / 12)}')`}
+            {specs.maxWidth && specs.maxHeight && ','}
+            {specs.maxHeight && ` Max height ${specs.maxHeight}" (${Math.floor(specs.maxHeight / 12)}')`}
             {specs.sectionHeights && `, Section heights: ${specs.sectionHeights.join('", ')}`}
+          </p>
+        </div>
+      )}
+      {(widthExceeded || heightExceeded) && (
+        <div className="bg-red-50 border border-red-300 rounded-lg p-3">
+          <p className="text-sm text-red-700 font-medium">
+            {widthExceeded && `Width exceeds ${series?.name || 'series'} maximum of ${Math.floor(maxWidth / 12)}'. `}
+            {heightExceeded && `Height exceeds ${series?.name || 'series'} maximum of ${Math.floor(maxHeight / 12)}'.`}
           </p>
         </div>
       )}
@@ -729,6 +760,7 @@ function DesignStep({ door, colors, panelDesigns, config, onChange }) {
   const colorMap = {
     'KANATA': 'KANATA',
     'CRAFT': 'CRAFT',
+    'TX380': 'COMMERCIAL',
     'TX450': 'COMMERCIAL',
     'TX500': 'COMMERCIAL',
     'TX450-20': 'COMMERCIAL',
@@ -745,6 +777,7 @@ function DesignStep({ door, colors, panelDesigns, config, onChange }) {
     'KANATA': 'KANATA',
     'CRAFT': 'CRAFT',
     'KANATA_EXECUTIVE': 'EXECUTIVE',
+    'TX380': 'COMMERCIAL',
     'TX450': 'COMMERCIAL',
     'TX500': 'COMMERCIAL',
     'TX450-20': 'COMMERCIAL_20',
@@ -1926,62 +1959,61 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         </div>
       )}
 
-      {/* Track Configuration - only show radius/thickness for standard lift */}
+      {/* Track Radius - only for standard lift */}
       {door.liftType === 'standard' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Track Radius
-            </label>
-            <div className="space-y-2">
-              {filteredRadius?.map((option) => (
-                <label key={option.id} className="flex items-center">
-                  <input
-                    type="radio"
-                    name="trackRadius"
-                    value={option.id}
-                    checked={door.trackRadius === option.id}
-                    onChange={(e) => handleRadiusChange(e.target.value)}
-                    className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300"
-                  />
-                  <span className="ml-2 text-sm text-gray-700">
-                    {option.name}
-                    {option.note && <span className="text-xs text-amber-600 ml-1">({option.note})</span>}
-                  </span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Track Thickness
-            </label>
-            <div className="space-y-2">
-              {filteredThickness?.map((option) => {
-                const isDisabled = !allowedThickness.includes(option.id)
-                return (
-                  <label key={option.id} className={`flex items-center ${isDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}>
-                    <input
-                      type="radio"
-                      name="trackThickness"
-                      value={option.id}
-                      checked={door.trackThickness === option.id}
-                      onChange={(e) => onChange({ trackThickness: e.target.value })}
-                      disabled={isDisabled}
-                      className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300"
-                    />
-                    <span className="ml-2 text-sm text-gray-700">
-                      {option.name}
-                      {isDisabled && <span className="text-xs text-red-500 ml-1">(not available with {door.trackRadius}" radius)</span>}
-                    </span>
-                  </label>
-                )
-              })}
-            </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Track Radius
+          </label>
+          <div className="space-y-2">
+            {filteredRadius?.map((option) => (
+              <label key={option.id} className="flex items-center">
+                <input
+                  type="radio"
+                  name="trackRadius"
+                  value={option.id}
+                  checked={door.trackRadius === option.id}
+                  onChange={(e) => handleRadiusChange(e.target.value)}
+                  className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300"
+                />
+                <span className="ml-2 text-sm text-gray-700">
+                  {option.name}
+                  {option.note && <span className="text-xs text-amber-600 ml-1">({option.note})</span>}
+                </span>
+              </label>
+            ))}
           </div>
         </div>
       )}
+
+      {/* Track Thickness - show for ALL lift types */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Track Thickness
+        </label>
+        <div className="space-y-2">
+          {filteredThickness?.map((option) => {
+            const isDisabled = door.liftType === 'standard' && !allowedThickness.includes(option.id)
+            return (
+              <label key={option.id} className={`flex items-center ${isDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                <input
+                  type="radio"
+                  name="trackThickness"
+                  value={option.id}
+                  checked={door.trackThickness === option.id}
+                  onChange={(e) => onChange({ trackThickness: e.target.value })}
+                  disabled={isDisabled}
+                  className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300"
+                />
+                <span className="ml-2 text-sm text-gray-700">
+                  {option.name}
+                  {isDisabled && <span className="text-xs text-red-500 ml-1">(not available with {door.trackRadius}" radius)</span>}
+                </span>
+              </label>
+            )
+          })}
+        </div>
+      </div>
 
       {/* Track Mount Type */}
       {door.liftType === 'standard' && (
@@ -1992,7 +2024,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
           <div className="grid grid-cols-2 gap-3 max-w-md">
             {[
               { id: 'bracket', name: 'Bracket Mount', description: 'Standard bracket mounting' },
-              { id: 'angle', name: 'Angle Mount', description: 'Angle iron mounting' },
+              { id: 'angle', name: 'Continuous Angle Mount', description: 'Continuous angle mounting' },
             ].map((option) => (
               <button
                 key={option.id}
@@ -2019,6 +2051,41 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
           </p>
         </div>
       )}
+
+      {/* End Cap Type (SEC/DEC) */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          End Cap Type
+        </label>
+        {(() => {
+          const widthFeet = Math.ceil(door.doorWidth / 12)
+          const autoType = widthFeet > 16 ? 'DEC' : 'SEC'
+          return (
+            <div className="space-y-2">
+              {[
+                { id: 'auto', label: `Auto (${autoType})`, desc: `Based on door width: ${autoType === 'SEC' ? 'Single' : 'Double'} End Cap` },
+                { id: 'SEC', label: 'SEC — Single End Cap', desc: 'Standard for doors ≤16\' wide' },
+                { id: 'DEC', label: 'DEC — Double End Cap', desc: 'Standard for doors >16\' wide' },
+              ].map((option) => (
+                <label key={option.id} className="flex items-center">
+                  <input
+                    type="radio"
+                    name="endCapType"
+                    value={option.id}
+                    checked={(door.endCapType || 'auto') === option.id}
+                    onChange={(e) => onChange({ endCapType: e.target.value })}
+                    className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300"
+                  />
+                  <span className="ml-2 text-sm text-gray-700">
+                    {option.label}
+                    <span className="text-xs text-gray-500 ml-1">— {option.desc}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          )
+        })()}
+      </div>
 
       {/* Spring Cycles */}
       <div>
@@ -2122,7 +2189,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
   )
 }
 
-function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult, selectedCustomer, poNumber, onPoNumberChange }) {
+function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult, selectedCustomer, poNumber, onPoNumberChange, onAddDoor }) {
   const [partsData, setPartsData] = useState(null)
   const [loadingParts, setLoadingParts] = useState(false)
   const [showParts, setShowParts] = useState(false)
@@ -2167,6 +2234,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
             trackRadius: door.trackRadius,
             trackThickness: door.liftType === 'low_headroom' ? '2' : door.trackThickness,
             liftType: door.liftType,
+            endCapType: door.endCapType || 'auto',
             hardware: door.hardware,
             operator: door.operator !== 'NONE' ? door.operator : null,
           }))
@@ -2233,8 +2301,11 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
     const colorMap = {
       'KANATA': 'KANATA',
       'CRAFT': 'CRAFT',
+      'TX380': 'COMMERCIAL',
       'TX450': 'COMMERCIAL',
       'TX500': 'COMMERCIAL',
+      'TX450-20': 'COMMERCIAL',
+      'TX500-20': 'COMMERCIAL',
       'AL976': 'AL976',
     }
     const colorKey = colorMap[seriesId] || 'KANATA'
@@ -2244,6 +2315,14 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <button
+          onClick={onAddDoor}
+          className="inline-flex items-center px-4 py-2 border border-green-300 shadow-sm text-sm font-medium rounded-md text-green-700 bg-white hover:bg-green-50"
+        >
+          + Add Another Door
+        </button>
+      </div>
       <div className="bg-gray-50 rounded-lg p-4">
         <h3 className="font-medium text-gray-900 mb-4">Configuration Summary</h3>
 

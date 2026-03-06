@@ -119,6 +119,8 @@ class DoorConfiguration:
     spring_quantity: int = 2  # number of springs (1 or 2)
     shaft_preference: str = 'auto'  # 'auto', 'single', or 'split'
     track_mount: str = 'bracket'  # 'bracket' or 'angle'
+    lift_type: str = 'standard'  # 'standard', 'low_headroom', 'high_lift', 'vertical'
+    end_cap_type: str = 'auto'  # 'auto', 'SEC', 'DEC'
     window_size: str = 'long'  # 'short' (GK15-10xxx) or 'long' (GK15-11xxx)
     spring_inventory: Optional[Dict[str, list]] = None  # stocked coil/wire combos from settings
 
@@ -630,8 +632,11 @@ class PartNumberService:
 
         # Map series string to DoorModel enum
         model_map = {
+            "TX380": DoorModel.TX380,
             "TX450": DoorModel.TX450,
-            "TX500": DoorModel.TX450,  # TX500 uses similar pattern
+            "TX450-20": DoorModel.TX450_20,
+            "TX500": DoorModel.TX500,
+            "TX500-20": DoorModel.TX500_20,
             "KANATA": DoorModel.KANATA,
             "CRAFT": DoorModel.CRAFT,
         }
@@ -644,8 +649,13 @@ class PartNumberService:
         # Round UP to next whole foot for BC part number (no panel exists for fractional widths)
         panel_width_feet = math.ceil(actual_width_feet)   # e.g., 13
 
-        # Determine end cap type based on rounded panel width
-        end_cap_type = EndCapType.DOUBLE if panel_width_feet > 16 else EndCapType.SINGLE
+        # Determine end cap type — user override or width-based auto
+        if config.end_cap_type == 'SEC':
+            end_cap_type = EndCapType.SINGLE
+        elif config.end_cap_type == 'DEC':
+            end_cap_type = EndCapType.DOUBLE
+        else:
+            end_cap_type = EndCapType.DOUBLE if panel_width_feet > 16 else EndCapType.SINGLE
 
         # Build display string showing the customer's actual requested width
         actual_ft = actual_width_in // 12
@@ -842,7 +852,13 @@ class PartNumberService:
         radius_inches = int(config.track_radius) if config.track_radius else 12
 
         # Determine lift type and mount type
-        lift_type = LiftType.STANDARD  # Default to standard lift
+        lift_type_map = {
+            'standard': LiftType.STANDARD,
+            'low_headroom': LiftType.LOW_HEADROOM,
+            'high_lift': LiftType.HIGH_LIFT,
+            'vertical': LiftType.VERTICAL,
+        }
+        lift_type = lift_type_map.get(config.lift_type, LiftType.STANDARD)
         mount_type = TrackMount.ANGLE if config.track_mount == 'angle' else TrackMount.BRACKET
         mount_label = "ANGLE MOUNT" if config.track_mount == 'angle' else "BRACKET MOUNT"
 
@@ -862,8 +878,15 @@ class PartNumberService:
             height_display = f"{actual_ft}'{actual_in}\""
         else:
             height_display = f"{actual_ft}'"
+        lift_label_map = {
+            'standard': 'STANDARD LIFT',
+            'low_headroom': 'LOW HEADROOM',
+            'high_lift': 'HIGH LIFT',
+            'vertical': 'VERTICAL LIFT',
+        }
+        lift_label = lift_label_map.get(config.lift_type, 'STANDARD LIFT')
         track_desc = (
-            f"{track_size}\" STANDARD LIFT {mount_label}; {height_display} High,"
+            f"{track_size}\" {lift_label} {mount_label}; {height_display} High,"
             f"{radius_inches}\"Radius"
         )
 
@@ -1312,9 +1335,15 @@ class PartNumberService:
         parts = []
         mapper = get_bc_mapper()
 
-        # Round UP to next available strip length (strips must cover the full dimension)
-        door_height_feet = math.ceil(config.door_height / 12)
-        door_width_feet = math.ceil(config.door_width / 12)
+        # Weather strip covers +2" beyond stated length (e.g. 12' strip covers 12'2")
+        # Only round up if remainder exceeds 2"
+        def _strip_feet(inches: int) -> int:
+            feet = inches // 12
+            remainder = inches % 12
+            return feet if remainder <= 2 else feet + 1
+
+        door_height_feet = _strip_feet(config.door_height)
+        door_width_feet = _strip_feet(config.door_width)
         color = config.panel_color.replace("_", " ")
         is_commercial = config.door_type == "commercial"
 
@@ -1391,22 +1420,33 @@ class PartNumberService:
         """Get retainer part numbers only (without astragal)"""
         parts = []
         mapper = get_bc_mapper()
+        is_residential = config.door_type == "residential"
+        door_width_feet = math.ceil(config.door_width / 12)
 
-        # Commercial gets top + bottom retainer; residential gets bottom only
-        retainer = mapper.get_retainer()
-        if config.door_type != "residential":
+        # Commercial gets top + bottom retainer (same roll part);
+        # residential gets bottom only (pre-cut rigid retainer by width)
+        if not is_residential:
+            retainer = mapper.get_retainer()
             parts.append(PartSelection(
                 part_number=retainer.part_number,
                 description=f"{retainer.description} (TOP)",
                 quantity=1,
                 category="retainer"
             ))
-        parts.append(PartSelection(
-            part_number=retainer.part_number,
-            description=f"{retainer.description} (BOTTOM)",
-            quantity=1,
-            category="retainer"
-        ))
+            parts.append(PartSelection(
+                part_number=retainer.part_number,
+                description=f"{retainer.description} (BOTTOM)",
+                quantity=1,
+                category="retainer"
+            ))
+        else:
+            retainer = mapper.get_retainer(residential=True, door_width_feet=door_width_feet)
+            parts.append(PartSelection(
+                part_number=retainer.part_number,
+                description=f"{retainer.description} (BOTTOM)",
+                quantity=1,
+                category="retainer"
+            ))
 
         return parts
 
@@ -1429,38 +1469,19 @@ class PartNumberService:
         Top seal is typically used on:
         - Insulated doors (TX450-20, TX500-20)
         - Doors with weather seal requirements
+
+        Uses a distinct top seal rubber part (PL10-00127-00), NOT the same as weather strip.
         """
         # Top seal on all commercial and aluminium doors
         if config.door_type not in ("commercial", "aluminium"):
             return []
 
         mapper = get_bc_mapper()
-        # Round UP to next available strip length
-        door_width_feet = math.ceil(config.door_width / 12)
-
-        # Top seal uses same weather stripping as header
-        # but categorized separately for ordering
-        color = config.panel_color.replace("_", " ")
-        is_commercial = config.door_type == "commercial"
-
-        top_seal = mapper.get_weather_stripping(
-            door_height_feet=door_width_feet,  # Width for header
-            color=color,
-            commercial=is_commercial
-        )
-
-        # Description shows the customer's actual requested door width
-        actual_ft = config.door_width // 12
-        actual_in = config.door_width % 12
-        w_display = f"{actual_ft}'{actual_in}\"" if actual_in else f"{actual_ft}'"
-        color_upper = color.upper()
+        top_seal = mapper.get_top_seal()
 
         return [PartSelection(
             part_number=top_seal.part_number,
-            description=(
-                f"PLASTICS, WEATHER STRIP, GALVANIZED STEEL/FLEXIBLE VINYL,"
-                f" {color_upper}, {w_display} (TOP SEAL)"
-            ),
+            description=top_seal.description,
             quantity=1,
             category="top_seal"
         )]
@@ -2115,6 +2136,8 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         track_radius=config_dict.get("trackRadius", "15"),
         track_thickness=config_dict.get("trackThickness", "2"),
         track_mount=config_dict.get("trackMount", "bracket"),
+        lift_type=config_dict.get("liftType", "standard"),
+        end_cap_type=config_dict.get("endCapType", "auto"),
         hardware=config_dict.get("hardware", {}),
         operator=config_dict.get("operator"),
         target_cycles=config_dict.get("targetCycles", config_dict.get("target_cycles", 10000)),
