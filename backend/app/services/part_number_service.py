@@ -532,14 +532,9 @@ class PartNumberService:
 
         # 9. SPRINGS (computed before shafts — spring count drives shaft count)
         spring_parts = []
-        spring_count = 2  # default
+        spring_count = 2  # default (number of individual springs, NOT inches)
         if hardware.get("springs", True):
-            spring_parts = self._get_spring_parts(config)
-            # Extract spring quantity from parts list
-            for sp in spring_parts:
-                if sp.category == "spring":
-                    spring_count = sp.quantity
-                    break
+            spring_parts, spring_count = self._get_spring_parts(config)
             parts.extend(spring_parts)
 
         # 10. SHAFT (uses spring_count to determine shaft count)
@@ -904,7 +899,7 @@ class PartNumberService:
             category="track"
         )]
 
-    def _get_spring_parts(self, config: DoorConfiguration) -> List[PartSelection]:
+    def _get_spring_parts(self, config: DoorConfiguration) -> Tuple[List[PartSelection], int]:
         """
         Get spring part numbers using door_calculator for spring selection + BC part number mapper.
 
@@ -915,6 +910,9 @@ class PartNumberService:
         Then maps to actual BC part numbers:
         - SP11-{wire}{coil}-{wind} for oil tempered springs
         - SP12-{code} for winder/stationary sets
+
+        Returns (parts_list, spring_qty) where spring_qty is the number of individual
+        springs (e.g. 2, 4, 6, 8) — NOT inches of spring wire.
         """
         parts = []
 
@@ -1089,7 +1087,7 @@ class PartNumberService:
             category="spring_accessory"
         ))
 
-        return parts
+        return parts, spring_qty
 
     def _get_shaft_parts(self, config: DoorConfiguration, spring_count: int = 2) -> List[PartSelection]:
         """Get shaft part numbers using actual BC parts.
