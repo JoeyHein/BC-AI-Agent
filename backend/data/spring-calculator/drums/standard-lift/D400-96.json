@@ -1,93 +1,161 @@
 {
-  "$schema": "../../schemas/standard-lift-drum.schema.json",
-  "model": "D400-96",
   "type": "standard-lift",
-  "description": "Standard-lift drum for doors 72\" to 98\" height (Canimex catalog page 14)",
-  "hma": 2.275,
-  "lma": 2.063,
-  "minDoorHeight": 72,
-  "maxDoorHeight": 98,
-  "availableRadii": [12, 15, "low-headroom"],
-  "multiplierTable": [
-    {
-      "doorHeight": 72,
-      "byRadius": {
-        "12": { "multiplier": 0.3374, "turns": 6.7 },
-        "15": { "multiplier": 0.3219, "turns": 7.1 },
-        "low-headroom": { "multiplier": 0.3631, "turns": 6.3 }
-      }
+  "min_height": 72,
+  "max_height": 98,
+  "radii": [
+    12,
+    15
+  ],
+  "table": {
+    "72": {
+      "12": [
+        0.3374,
+        6.7
+      ],
+      "15": [
+        0.3219,
+        7.1
+      ],
+      "lhr": [
+        0.3631,
+        6.3
+      ],
+      "pitch_factor": 0.2837
     },
-    {
-      "doorHeight": 75,
-      "byRadius": {
-        "12": { "multiplier": 0.3266, "turns": 7.0 },
-        "15": { "multiplier": 0.3124, "turns": 7.3 },
-        "low-headroom": { "multiplier": 0.3504, "turns": 6.5 }
-      }
+    "75": {
+      "12": [
+        0.3266,
+        7.0
+      ],
+      "15": [
+        0.3124,
+        7.3
+      ],
+      "lhr": [
+        0.3504,
+        6.5
+      ],
+      "pitch_factor": 0.2757
     },
-    {
-      "doorHeight": 78,
-      "byRadius": {
-        "12": { "multiplier": 0.3165, "turns": 7.2 },
-        "15": { "multiplier": 0.3033, "turns": 7.5 },
-        "low-headroom": { "multiplier": 0.3385, "turns": 6.7 }
-      }
+    "78": {
+      "12": [
+        0.3165,
+        7.2
+      ],
+      "15": [
+        0.3033,
+        7.5
+      ],
+      "lhr": [
+        0.3385,
+        6.7
+      ],
+      "pitch_factor": 0.2681
     },
-    {
-      "doorHeight": 81,
-      "byRadius": {
-        "12": { "multiplier": 0.3070, "turns": 7.4 },
-        "15": { "multiplier": 0.2948, "turns": 7.7 },
-        "low-headroom": { "multiplier": 0.3274, "turns": 6.9 }
-      }
+    "81": {
+      "12": [
+        0.307,
+        7.4
+      ],
+      "15": [
+        0.2948,
+        7.7
+      ],
+      "lhr": [
+        0.3274,
+        6.9
+      ],
+      "pitch_factor": 0.2608
     },
-    {
-      "doorHeight": 84,
-      "byRadius": {
-        "12": { "multiplier": 0.2980, "turns": 7.6 },
-        "15": { "multiplier": 0.2866, "turns": 7.9 },
-        "low-headroom": { "multiplier": 0.3170, "turns": 7.2 }
-      }
+    "84": {
+      "12": [
+        0.298,
+        7.6
+      ],
+      "15": [
+        0.2866,
+        7.9
+      ],
+      "lhr": [
+        0.317,
+        7.2
+      ],
+      "pitch_factor": 0.2539
     },
-    {
-      "doorHeight": 87,
-      "byRadius": {
-        "12": { "multiplier": 0.2895, "turns": 7.9 },
-        "15": { "multiplier": 0.2789, "turns": 8.2 },
-        "low-headroom": { "multiplier": 0.3072, "turns": 7.4 }
-      }
+    "87": {
+      "12": [
+        0.2895,
+        7.9
+      ],
+      "15": [
+        0.2789,
+        8.2
+      ],
+      "lhr": [
+        0.3072,
+        7.4
+      ],
+      "pitch_factor": 0.2473
     },
-    {
-      "doorHeight": 90,
-      "byRadius": {
-        "12": { "multiplier": 0.2814, "turns": 8.1 },
-        "15": { "multiplier": 0.2715, "turns": 8.4 },
-        "low-headroom": { "multiplier": 0.2979, "turns": 7.6 }
-      }
+    "90": {
+      "12": [
+        0.2814,
+        8.1
+      ],
+      "15": [
+        0.2715,
+        8.4
+      ],
+      "lhr": [
+        0.2979,
+        7.6
+      ],
+      "pitch_factor": 0.241
     },
-    {
-      "doorHeight": 93,
-      "byRadius": {
-        "12": { "multiplier": 0.2738, "turns": 8.3 },
-        "15": { "multiplier": 0.2645, "turns": 8.6 },
-        "low-headroom": { "multiplier": 0.2893, "turns": 7.9 }
-      }
+    "93": {
+      "12": [
+        0.2738,
+        8.3
+      ],
+      "15": [
+        0.2645,
+        8.6
+      ],
+      "lhr": [
+        0.2893,
+        7.9
+      ],
+      "pitch_factor": 0.235
     },
-    {
-      "doorHeight": 96,
-      "byRadius": {
-        "12": { "multiplier": 0.2666, "turns": 8.5 },
-        "15": { "multiplier": 0.2579, "turns": 8.8 },
-        "low-headroom": { "multiplier": 0.2811, "turns": 8.1 }
-      }
+    "96": {
+      "12": [
+        0.2666,
+        8.5
+      ],
+      "15": [
+        0.2579,
+        8.8
+      ],
+      "lhr": [
+        0.2811,
+        8.1
+      ],
+      "pitch_factor": 0.2292
     },
-    {
-      "doorHeight": 98,
-      "byRadius": {
-        "12": { "multiplier": 0.2619, "turns": 8.7 },
-        "15": { "multiplier": 0.2536, "turns": 9.0 },
-        "low-headroom": { "multiplier": 0.2758, "turns": 8.2 }
-      }
+    "98": {
+      "12": [
+        0.2619,
+        8.7
+      ],
+      "15": [
+        0.2536,
+        9.0
+      ],
+      "lhr": [
+        0.2758,
+        8.2
+      ],
+      "pitch_factor": 0.2255
     }
-  ]
+  }
 }
