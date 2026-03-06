@@ -1,0 +1,157 @@
+{
+  "$schema": "../../schemas/standard-lift-drum.schema.json",
+  "model": "D800-384",
+  "type": "standard-lift",
+  "description": "Standard-lift drum for doors 180\" to 384\" height (commercial/industrial)",
+  "hma": 8.0,
+  "lma": 4.0,
+  "minDoorHeight": 180,
+  "maxDoorHeight": 384,
+  "availableRadii": [15, 20, 24],
+  "multiplierTable": [
+    {
+      "doorHeight": 180,
+      "byRadius": {
+        "15": { "multiplier": 0.5116, "turns": 15.7 },
+        "20": { "multiplier": 0.4651, "turns": 17.2 },
+        "24": { "multiplier": 0.4340, "turns": 18.5 }
+      }
+    },
+    {
+      "doorHeight": 192,
+      "byRadius": {
+        "15": { "multiplier": 0.4844, "turns": 16.7 },
+        "20": { "multiplier": 0.4414, "turns": 18.3 },
+        "24": { "multiplier": 0.4124, "turns": 19.6 }
+      }
+    },
+    {
+      "doorHeight": 204,
+      "byRadius": {
+        "15": { "multiplier": 0.4601, "turns": 17.7 },
+        "20": { "multiplier": 0.4199, "turns": 19.3 },
+        "24": { "multiplier": 0.3927, "turns": 20.7 }
+      }
+    },
+    {
+      "doorHeight": 216,
+      "byRadius": {
+        "15": { "multiplier": 0.4381, "turns": 18.6 },
+        "20": { "multiplier": 0.4004, "turns": 20.4 },
+        "24": { "multiplier": 0.3748, "turns": 21.8 }
+      }
+    },
+    {
+      "doorHeight": 228,
+      "byRadius": {
+        "15": { "multiplier": 0.4181, "turns": 19.6 },
+        "20": { "multiplier": 0.3826, "turns": 21.4 },
+        "24": { "multiplier": 0.3584, "turns": 22.9 }
+      }
+    },
+    {
+      "doorHeight": 240,
+      "byRadius": {
+        "15": { "multiplier": 0.3998, "turns": 20.5 },
+        "20": { "multiplier": 0.3663, "turns": 22.4 },
+        "24": { "multiplier": 0.3433, "turns": 24.0 }
+      }
+    },
+    {
+      "doorHeight": 252,
+      "byRadius": {
+        "15": { "multiplier": 0.3831, "turns": 21.5 },
+        "20": { "multiplier": 0.3513, "turns": 23.5 },
+        "24": { "multiplier": 0.3294, "turns": 25.1 }
+      }
+    },
+    {
+      "doorHeight": 264,
+      "byRadius": {
+        "15": { "multiplier": 0.3677, "turns": 22.4 },
+        "20": { "multiplier": 0.3375, "turns": 24.5 },
+        "24": { "multiplier": 0.3166, "turns": 26.1 }
+      }
+    },
+    {
+      "doorHeight": 276,
+      "byRadius": {
+        "15": { "multiplier": 0.3534, "turns": 23.4 },
+        "20": { "multiplier": 0.3247, "turns": 25.5 },
+        "24": { "multiplier": 0.3048, "turns": 27.2 }
+      }
+    },
+    {
+      "doorHeight": 288,
+      "byRadius": {
+        "15": { "multiplier": 0.3402, "turns": 24.3 },
+        "20": { "multiplier": 0.3128, "turns": 26.5 },
+        "24": { "multiplier": 0.2938, "turns": 28.3 }
+      }
+    },
+    {
+      "doorHeight": 300,
+      "byRadius": {
+        "15": { "multiplier": 0.3278, "turns": 25.2 },
+        "20": { "multiplier": 0.3017, "turns": 27.5 },
+        "24": { "multiplier": 0.2835, "turns": 29.3 }
+      }
+    },
+    {
+      "doorHeight": 312,
+      "byRadius": {
+        "15": { "multiplier": 0.3163, "turns": 26.2 },
+        "20": { "multiplier": 0.2912, "turns": 28.5 },
+        "24": { "multiplier": 0.2738, "turns": 30.4 }
+      }
+    },
+    {
+      "doorHeight": 324,
+      "byRadius": {
+        "15": { "multiplier": 0.3054, "turns": 27.1 },
+        "20": { "multiplier": 0.2814, "turns": 29.5 },
+        "24": { "multiplier": 0.2647, "turns": 31.4 }
+      }
+    },
+    {
+      "doorHeight": 336,
+      "byRadius": {
+        "15": { "multiplier": 0.2952, "turns": 28.0 },
+        "20": { "multiplier": 0.2721, "turns": 30.5 },
+        "24": { "multiplier": 0.2561, "turns": 32.4 }
+      }
+    },
+    {
+      "doorHeight": 348,
+      "byRadius": {
+        "15": { "multiplier": 0.2855, "turns": 29.0 },
+        "20": { "multiplier": 0.2633, "turns": 31.5 },
+        "24": { "multiplier": 0.2479, "turns": 33.5 }
+      }
+    },
+    {
+      "doorHeight": 360,
+      "byRadius": {
+        "15": { "multiplier": 0.2763, "turns": 29.9 },
+        "20": { "multiplier": 0.2550, "turns": 32.5 },
+        "24": { "multiplier": 0.2402, "turns": 34.5 }
+      }
+    },
+    {
+      "doorHeight": 372,
+      "byRadius": {
+        "15": { "multiplier": 0.2676, "turns": 30.8 },
+        "20": { "multiplier": 0.2471, "turns": 33.4 },
+        "24": { "multiplier": 0.2328, "turns": 35.5 }
+      }
+    },
+    {
+      "doorHeight": 384,
+      "byRadius": {
+        "15": { "multiplier": 0.2593, "turns": 31.8 },
+        "20": { "multiplier": 0.2395, "turns": 34.4 },
+        "24": { "multiplier": 0.2258, "turns": 36.5 }
+      }
+    }
+  ]
+}

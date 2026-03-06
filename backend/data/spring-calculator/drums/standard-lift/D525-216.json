@@ -1,0 +1,184 @@
+{
+  "$schema": "../../schemas/standard-lift-drum.schema.json",
+  "model": "D525-216",
+  "type": "standard-lift",
+  "description": "Standard-lift drum for doors 108\" to 216\" height",
+  "hma": 5.25,
+  "lma": 2.625,
+  "minDoorHeight": 108,
+  "maxDoorHeight": 216,
+  "availableRadii": [10, 12, 15, "low-headroom"],
+  "multiplierTable": [
+    {
+      "doorHeight": 108,
+      "byRadius": {
+        "10": { "multiplier": 0.5609, "turns": 9.6 },
+        "12": { "multiplier": 0.5207, "turns": 10.4 },
+        "15": { "multiplier": 0.4783, "turns": 11.3 },
+        "low-headroom": { "multiplier": 0.6042, "turns": 8.9 }
+      }
+    },
+    {
+      "doorHeight": 114,
+      "byRadius": {
+        "10": { "multiplier": 0.5359, "turns": 10.1 },
+        "12": { "multiplier": 0.4981, "turns": 10.9 },
+        "15": { "multiplier": 0.4582, "turns": 11.8 },
+        "low-headroom": { "multiplier": 0.5761, "turns": 9.4 }
+      }
+    },
+    {
+      "doorHeight": 120,
+      "byRadius": {
+        "10": { "multiplier": 0.5130, "turns": 10.6 },
+        "12": { "multiplier": 0.4772, "turns": 11.4 },
+        "15": { "multiplier": 0.4396, "turns": 12.4 },
+        "low-headroom": { "multiplier": 0.5503, "turns": 9.9 }
+      }
+    },
+    {
+      "doorHeight": 126,
+      "byRadius": {
+        "10": { "multiplier": 0.4919, "turns": 11.1 },
+        "12": { "multiplier": 0.4580, "turns": 11.9 },
+        "15": { "multiplier": 0.4224, "turns": 12.9 },
+        "low-headroom": { "multiplier": 0.5266, "turns": 10.3 }
+      }
+    },
+    {
+      "doorHeight": 132,
+      "byRadius": {
+        "10": { "multiplier": 0.4723, "turns": 11.6 },
+        "12": { "multiplier": 0.4402, "turns": 12.4 },
+        "15": { "multiplier": 0.4065, "turns": 13.4 },
+        "low-headroom": { "multiplier": 0.5047, "turns": 10.8 }
+      }
+    },
+    {
+      "doorHeight": 138,
+      "byRadius": {
+        "10": { "multiplier": 0.4542, "turns": 12.0 },
+        "12": { "multiplier": 0.4236, "turns": 12.9 },
+        "15": { "multiplier": 0.3917, "turns": 13.9 },
+        "low-headroom": { "multiplier": 0.4844, "turns": 11.2 }
+      }
+    },
+    {
+      "doorHeight": 144,
+      "byRadius": {
+        "10": { "multiplier": 0.4374, "turns": 12.5 },
+        "12": { "multiplier": 0.4082, "turns": 13.4 },
+        "15": { "multiplier": 0.3779, "turns": 14.5 },
+        "low-headroom": { "multiplier": 0.4656, "turns": 11.7 }
+      }
+    },
+    {
+      "doorHeight": 150,
+      "byRadius": {
+        "10": { "multiplier": 0.4217, "turns": 13.0 },
+        "12": { "multiplier": 0.3939, "turns": 13.9 },
+        "15": { "multiplier": 0.3651, "turns": 15.0 },
+        "low-headroom": { "multiplier": 0.4482, "turns": 12.2 }
+      }
+    },
+    {
+      "doorHeight": 156,
+      "byRadius": {
+        "10": { "multiplier": 0.4071, "turns": 13.5 },
+        "12": { "multiplier": 0.3805, "turns": 14.4 },
+        "15": { "multiplier": 0.3530, "turns": 15.5 },
+        "low-headroom": { "multiplier": 0.4320, "turns": 12.6 }
+      }
+    },
+    {
+      "doorHeight": 162,
+      "byRadius": {
+        "10": { "multiplier": 0.3934, "turns": 14.0 },
+        "12": { "multiplier": 0.3680, "turns": 14.9 },
+        "15": { "multiplier": 0.3417, "turns": 16.0 },
+        "low-headroom": { "multiplier": 0.4167, "turns": 13.1 }
+      }
+    },
+    {
+      "doorHeight": 168,
+      "byRadius": {
+        "10": { "multiplier": 0.3806, "turns": 14.4 },
+        "12": { "multiplier": 0.3562, "turns": 15.4 },
+        "15": { "multiplier": 0.3310, "turns": 16.5 },
+        "low-headroom": { "multiplier": 0.4025, "turns": 13.5 }
+      }
+    },
+    {
+      "doorHeight": 174,
+      "byRadius": {
+        "10": { "multiplier": 0.3685, "turns": 14.9 },
+        "12": { "multiplier": 0.3451, "turns": 15.9 },
+        "15": { "multiplier": 0.3209, "turns": 17.1 },
+        "low-headroom": { "multiplier": 0.3892, "turns": 14.0 }
+      }
+    },
+    {
+      "doorHeight": 180,
+      "byRadius": {
+        "10": { "multiplier": 0.3571, "turns": 15.4 },
+        "12": { "multiplier": 0.3347, "turns": 16.4 },
+        "15": { "multiplier": 0.3114, "turns": 17.6 },
+        "low-headroom": { "multiplier": 0.3766, "turns": 14.5 }
+      }
+    },
+    {
+      "doorHeight": 186,
+      "byRadius": {
+        "10": { "multiplier": 0.3464, "turns": 15.9 },
+        "12": { "multiplier": 0.3248, "turns": 16.8 },
+        "15": { "multiplier": 0.3024, "turns": 18.1 },
+        "low-headroom": { "multiplier": 0.3648, "turns": 14.9 }
+      }
+    },
+    {
+      "doorHeight": 192,
+      "byRadius": {
+        "10": { "multiplier": 0.3362, "turns": 16.3 },
+        "12": { "multiplier": 0.3154, "turns": 17.3 },
+        "15": { "multiplier": 0.2938, "turns": 18.6 },
+        "low-headroom": { "multiplier": 0.3537, "turns": 15.4 }
+      }
+    },
+    {
+      "doorHeight": 198,
+      "byRadius": {
+        "10": { "multiplier": 0.3265, "turns": 16.8 },
+        "12": { "multiplier": 0.3065, "turns": 17.8 },
+        "15": { "multiplier": 0.2857, "turns": 19.1 },
+        "low-headroom": { "multiplier": 0.3431, "turns": 15.9 }
+      }
+    },
+    {
+      "doorHeight": 204,
+      "byRadius": {
+        "10": { "multiplier": 0.3173, "turns": 17.3 },
+        "12": { "multiplier": 0.2980, "turns": 18.3 },
+        "15": { "multiplier": 0.2780, "turns": 19.6 },
+        "low-headroom": { "multiplier": 0.3331, "turns": 16.3 }
+      }
+    },
+    {
+      "doorHeight": 210,
+      "byRadius": {
+        "10": { "multiplier": 0.3086, "turns": 17.7 },
+        "12": { "multiplier": 0.2899, "turns": 18.8 },
+        "15": { "multiplier": 0.2706, "turns": 20.1 },
+        "low-headroom": { "multiplier": 0.3235, "turns": 16.8 }
+      }
+    },
+    {
+      "doorHeight": 216,
+      "byRadius": {
+        "10": { "multiplier": 0.3003, "turns": 18.2 },
+        "12": { "multiplier": 0.2822, "turns": 19.3 },
+        "15": { "multiplier": 0.2636, "turns": 20.6 },
+        "low-headroom": { "multiplier": 0.3143, "turns": 17.2 }
+      }
+    }
+  ]
+}

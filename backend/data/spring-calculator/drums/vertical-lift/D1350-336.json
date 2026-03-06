@@ -1,0 +1,98 @@
+{
+  "$schema": "../../schemas/vertical-lift-drum.schema.json",
+  "model": "D1350-336",
+  "type": "vertical-lift",
+  "description": "Vertical-lift drum for doors 144\"-336\" height",
+  "hma": 6.75,
+  "minDoorHeight": 144,
+  "maxDoorHeight": 336,
+  "note": "Large vertical-lift drum for industrial applications",
+  "availableDoorHeights": [144, 150, 156, 162, 168, 174, 180, 186, 192, 198, 204, 210, 216, 222, 228, 234, 240, 246, 252, 258, 264, 270, 276, 282, 288, 294, 300, 306, 312, 318, 324, 330, 336],
+  "multiplierTable": [
+    {
+      "doorHeight": 144,
+      "multiplier": 0.4608,
+      "turns": 14.5
+    },
+    {
+      "doorHeight": 156,
+      "multiplier": 0.4330,
+      "turns": 15.4
+    },
+    {
+      "doorHeight": 168,
+      "multiplier": 0.4091,
+      "turns": 16.4
+    },
+    {
+      "doorHeight": 180,
+      "multiplier": 0.3884,
+      "turns": 17.4
+    },
+    {
+      "doorHeight": 192,
+      "multiplier": 0.3702,
+      "turns": 18.3
+    },
+    {
+      "doorHeight": 204,
+      "multiplier": 0.3541,
+      "turns": 19.2
+    },
+    {
+      "doorHeight": 216,
+      "multiplier": 0.3398,
+      "turns": 20.1
+    },
+    {
+      "doorHeight": 228,
+      "multiplier": 0.3269,
+      "turns": 21.0
+    },
+    {
+      "doorHeight": 240,
+      "multiplier": 0.3153,
+      "turns": 21.9
+    },
+    {
+      "doorHeight": 252,
+      "multiplier": 0.3048,
+      "turns": 22.8
+    },
+    {
+      "doorHeight": 264,
+      "multiplier": 0.2952,
+      "turns": 23.7
+    },
+    {
+      "doorHeight": 276,
+      "multiplier": 0.2864,
+      "turns": 24.5
+    },
+    {
+      "doorHeight": 288,
+      "multiplier": 0.2783,
+      "turns": 25.4
+    },
+    {
+      "doorHeight": 300,
+      "multiplier": 0.2708,
+      "turns": 26.2
+    },
+    {
+      "doorHeight": 312,
+      "multiplier": 0.2639,
+      "turns": 27.1
+    },
+    {
+      "doorHeight": 324,
+      "multiplier": 0.2575,
+      "turns": 27.9
+    },
+    {
+      "doorHeight": 336,
+      "multiplier": 0.2515,
+      "turns": 28.7
+    }
+  ]
+}

@@ -378,6 +378,131 @@ DRUM_MULTIPLIERS = {
 
 
 # ============================================================================
+# HIGH-LIFT DRUM MULTIPLIER TABLES
+# From Canimex Cable Drum Catalog — high-lift drums
+# Table structure: hi_lift_inches -> {door_height: (multiplier, turns)}
+# ============================================================================
+
+HIGH_LIFT_DRUM_MULTIPLIERS = {
+    "D400-54": {
+        "type": "high-lift",
+        "min_height": 60, "max_height": 144,
+        "max_hi_lift": 54,
+        "table": {
+            0: {60: (0.6143, 4.0), 66: (0.5720, 4.4), 72: (0.5356, 4.8), 78: (0.5039, 5.1), 84: (0.4761, 5.5), 90: (0.4514, 5.8), 96: (0.4293, 6.2)},
+            6: {60: (0.5765, 4.4), 66: (0.5399, 4.8), 72: (0.5077, 5.2), 78: (0.4792, 5.5), 84: (0.4540, 5.9), 90: (0.4314, 6.2), 96: (0.4111, 6.6)},
+            12: {72: (0.4810, 5.6), 78: (0.4557, 5.9), 84: (0.4331, 6.3), 90: (0.4127, 6.6), 96: (0.3942, 7.0), 102: (0.3775, 7.3)},
+            24: {84: (0.3965, 7.2), 90: (0.3794, 7.6), 96: (0.3639, 7.9), 102: (0.3497, 8.3), 108: (0.3367, 8.6), 114: (0.3248, 9.0)},
+            36: {96: (0.3385, 8.7), 102: (0.3268, 9.1), 108: (0.3159, 9.4), 114: (0.3059, 9.8), 120: (0.2966, 10.1), 126: (0.2879, 10.5)},
+            48: {108: (0.2988, 10.3), 114: (0.2906, 10.6), 120: (0.2829, 11.0), 126: (0.2757, 11.3), 132: (0.2689, 11.7), 138: (0.2626, 12.0)},
+            54: {114: (0.2824, 11.0), 120: (0.2757, 11.3), 126: (0.2694, 11.7), 132: (0.2634, 12.0), 138: (0.2577, 12.3), 144: (0.2523, 12.7)},
+        }
+    },
+    "D525-54": {
+        "type": "high-lift",
+        "min_height": 84, "max_height": 192,
+        "max_hi_lift": 54,
+        "table": {
+            0: {84: (0.5606, 5.7), 90: (0.5289, 6.1), 96: (0.5011, 6.5), 102: (0.4764, 6.8), 108: (0.4543, 7.2), 114: (0.4345, 7.5), 120: (0.4166, 7.9)},
+            6: {84: (0.5285, 6.1), 90: (0.5000, 6.5), 96: (0.4747, 6.9), 102: (0.4521, 7.2), 108: (0.4317, 7.6), 114: (0.4133, 7.9), 120: (0.3966, 8.3)},
+            12: {90: (0.4728, 6.9), 96: (0.4500, 7.3), 102: (0.4294, 7.6), 108: (0.4107, 8.0), 114: (0.3936, 8.3), 120: (0.3781, 8.7), 126: (0.3638, 9.0)},
+            24: {108: (0.3733, 8.8), 114: (0.3588, 9.2), 120: (0.3456, 9.5), 126: (0.3334, 9.9), 132: (0.3222, 10.2), 138: (0.3118, 10.6), 144: (0.3021, 10.9)},
+            36: {126: (0.3077, 10.8), 132: (0.2983, 11.1), 138: (0.2895, 11.5), 144: (0.2812, 11.8), 150: (0.2734, 12.2), 156: (0.2661, 12.5), 162: (0.2592, 12.9)},
+            48: {144: (0.2638, 12.7), 150: (0.2573, 13.0), 156: (0.2512, 13.4), 162: (0.2454, 13.7), 168: (0.2400, 14.0), 174: (0.2348, 14.4), 180: (0.2299, 14.7)},
+            54: {156: (0.2451, 13.8), 162: (0.2400, 14.1), 168: (0.2352, 14.5), 174: (0.2306, 14.8), 180: (0.2262, 15.1), 186: (0.2220, 15.4), 192: (0.2180, 15.8)},
+        }
+    },
+    "D575-120": {
+        "type": "high-lift",
+        "min_height": 72, "max_height": 264,
+        "max_hi_lift": 120,
+        "table": {
+            0: {72: (0.6143, 4.8), 78: (0.5720, 5.2), 84: (0.5356, 5.5), 90: (0.5039, 5.9), 96: (0.4761, 6.2), 102: (0.4514, 6.6), 108: (0.4293, 6.9), 114: (0.4095, 7.3), 120: (0.3916, 7.6)},
+            3: {72: (0.5953, 5.1), 78: (0.5559, 5.4), 84: (0.5216, 5.8), 90: (0.4915, 6.1), 96: (0.4650, 6.5), 102: (0.4414, 6.8), 108: (0.4202, 7.2), 114: (0.4011, 7.5), 120: (0.3839, 7.9)},
+            6: {72: (0.5765, 5.3), 78: (0.5399, 5.7), 84: (0.5077, 6.0), 90: (0.4792, 6.4), 96: (0.4540, 6.8), 102: (0.4314, 7.1), 108: (0.4111, 7.5), 114: (0.3928, 7.8), 120: (0.3762, 8.2)},
+            36: {180: (0.2929, 12.0)},
+            120: {180: (0.2927, 15.6), 186: (0.2898, 15.7), 192: (0.2865, 15.9), 198: (0.2831, 16.1), 204: (0.2796, 16.3), 210: (0.2759, 16.5), 216: (0.2722, 16.7), 222: (0.2684, 17.0), 228: (0.2646, 17.2)},
+        }
+    },
+    "D6375-164": {
+        "type": "high-lift",
+        "min_height": 72, "max_height": 390,
+        "max_hi_lift": 164,
+        "table": {
+            0: {72: (0.6854, 5.4), 78: (0.6374, 5.8), 84: (0.5966, 6.2), 90: (0.5614, 6.6), 96: (0.5308, 7.0), 102: (0.5037, 7.4), 108: (0.4798, 7.8), 114: (0.4583, 8.2), 120: (0.4390, 8.6)},
+            6: {72: (0.6512, 5.7), 78: (0.6078, 6.1), 84: (0.5706, 6.5), 90: (0.5384, 6.9), 96: (0.5102, 7.3), 102: (0.4853, 7.7), 108: (0.4631, 8.1), 114: (0.4432, 8.4), 120: (0.4252, 8.8)},
+            24: {96: (0.4489, 8.4), 102: (0.4285, 8.8), 108: (0.4101, 9.2), 114: (0.3936, 9.6), 120: (0.3785, 10.0), 126: (0.3648, 10.4), 132: (0.3523, 10.8), 138: (0.3407, 11.2)},
+            48: {120: (0.3390, 11.5), 126: (0.3281, 11.9), 132: (0.3181, 12.3), 138: (0.3087, 12.7), 144: (0.3000, 13.1), 150: (0.2918, 13.5), 156: (0.2842, 13.8), 162: (0.2770, 14.2)},
+            72: {144: (0.2747, 14.3), 150: (0.2681, 14.7), 156: (0.2619, 15.1), 162: (0.2561, 15.5), 168: (0.2506, 15.8), 174: (0.2454, 16.2), 180: (0.2404, 16.6), 186: (0.2357, 16.9)},
+            96: {168: (0.2340, 17.0), 174: (0.2297, 17.4), 180: (0.2255, 17.8), 186: (0.2216, 18.1), 192: (0.2179, 18.5), 198: (0.2143, 18.9), 204: (0.2109, 19.2), 210: (0.2076, 19.6)},
+            120: {192: (0.2052, 19.6), 198: (0.2022, 20.0), 204: (0.1993, 20.3), 210: (0.1965, 20.7), 216: (0.1938, 21.1), 222: (0.1913, 21.4), 228: (0.1888, 21.8), 234: (0.1864, 22.1)},
+            144: {216: (0.1843, 22.2), 222: (0.1822, 22.5), 228: (0.1801, 22.9), 234: (0.1781, 23.2), 240: (0.1762, 23.6), 246: (0.1743, 23.9), 252: (0.1725, 24.2), 258: (0.1708, 24.6)},
+            164: {236: (0.1756, 24.0), 252: (0.1686, 25.0), 264: (0.1636, 25.8), 276: (0.1590, 26.5), 288: (0.1547, 27.3), 300: (0.1508, 28.0), 312: (0.1471, 28.7), 324: (0.1436, 29.4), 336: (0.1404, 30.1), 348: (0.1373, 30.8), 360: (0.1344, 31.5), 372: (0.1317, 32.1), 384: (0.1291, 32.8), 390: (0.1278, 33.1)},
+        }
+    },
+    "D800-120": {
+        "type": "high-lift",
+        "min_height": 72, "max_height": 198,
+        "max_hi_lift": 120,
+        "table": {
+            0: {72: (0.8143, 6.4), 78: (0.7568, 6.9), 84: (0.7084, 7.4), 90: (0.6667, 7.9), 96: (0.6302, 8.3), 102: (0.5981, 8.8), 108: (0.5695, 9.2)},
+            6: {72: (0.7765, 6.7), 78: (0.7247, 7.2), 84: (0.6805, 7.7), 90: (0.6420, 8.1), 96: (0.6084, 8.6), 102: (0.5786, 9.1), 108: (0.5522, 9.5)},
+            12: {78: (0.6944, 7.5), 84: (0.6543, 8.0), 90: (0.6191, 8.4), 96: (0.5881, 8.9), 102: (0.5607, 9.4), 108: (0.5361, 9.8), 114: (0.5141, 10.2)},
+            36: {108: (0.4682, 11.3), 114: (0.4509, 11.7), 120: (0.4352, 12.1), 126: (0.4207, 12.5), 132: (0.4073, 12.9), 138: (0.3949, 13.3)},
+            60: {132: (0.3700, 14.2), 138: (0.3598, 14.6), 144: (0.3503, 15.0), 150: (0.3414, 15.4), 156: (0.3330, 15.8), 162: (0.3251, 16.2)},
+            84: {156: (0.3060, 17.2), 162: (0.2996, 17.6), 168: (0.2936, 18.0), 174: (0.2879, 18.4), 180: (0.2824, 18.8)},
+            120: {180: (0.2654, 20.0), 186: (0.2607, 20.4), 192: (0.2562, 20.8), 198: (0.2519, 21.2)},
+        }
+    },
+}
+
+
+# ============================================================================
+# VERTICAL-LIFT DRUM MULTIPLIER TABLES
+# From Canimex Cable Drum Catalog — vertical-lift drums
+# Table structure: door_height -> (multiplier, turns) — no radius/HL dimension
+# ============================================================================
+
+VERTICAL_LIFT_DRUM_MULTIPLIERS = {
+    "850-132": {
+        "type": "vertical-lift",
+        "min_height": 72, "max_height": 132,
+        "table": {
+            72: (0.5787, 8.5), 78: (0.5385, 9.1), 84: (0.5041, 9.8),
+            90: (0.4744, 10.4), 96: (0.4484, 11.0), 102: (0.4256, 11.6),
+            108: (0.4054, 12.2), 114: (0.3874, 12.8), 120: (0.3712, 13.4),
+            126: (0.3567, 13.9), 132: (0.3435, 14.5),
+        }
+    },
+    "1100-216": {
+        "type": "vertical-lift",
+        "min_height": 96, "max_height": 216,
+        "table": {
+            96: (0.5628, 10.0), 102: (0.5341, 10.5), 108: (0.5087, 11.1),
+            114: (0.4861, 11.6), 120: (0.4659, 12.2), 126: (0.4477, 12.7),
+            132: (0.4312, 13.2), 138: (0.4162, 13.7), 144: (0.4025, 14.2),
+            150: (0.3899, 14.7), 156: (0.3783, 15.2), 162: (0.3676, 15.7),
+            168: (0.3577, 16.2), 174: (0.3484, 16.7), 180: (0.3398, 17.2),
+            186: (0.3317, 17.7), 192: (0.3241, 18.1), 198: (0.3170, 18.6),
+            204: (0.3103, 19.1), 210: (0.3040, 19.6), 216: (0.2980, 20.0),
+        }
+    },
+    "1350-336": {
+        "type": "vertical-lift",
+        "min_height": 144, "max_height": 336,
+        "table": {
+            144: (0.4608, 14.5), 156: (0.4330, 15.4), 168: (0.4091, 16.4),
+            180: (0.3884, 17.4), 192: (0.3702, 18.3), 204: (0.3541, 19.2),
+            216: (0.3398, 20.1), 228: (0.3269, 21.0), 240: (0.3153, 21.9),
+            252: (0.3048, 22.8), 264: (0.2952, 23.7), 276: (0.2864, 24.5),
+            288: (0.2783, 25.4), 300: (0.2708, 26.2), 312: (0.2639, 27.1),
+            324: (0.2575, 27.9), 336: (0.2515, 28.7),
+        }
+    },
+}
+
+
+# ============================================================================
 # DATA CLASSES
 # ============================================================================
 
@@ -446,6 +571,8 @@ class SpringCalculatorService:
         self.dead_coil_factors = CANIMEX_DEAD_COIL_FACTORS
         self.mip_capacity = CANIMEX_MIP_CAPACITY
         self.drum_multipliers = DRUM_MULTIPLIERS
+        self.hl_drum_multipliers = HIGH_LIFT_DRUM_MULTIPLIERS
+        self.vl_drum_multipliers = VERTICAL_LIFT_DRUM_MULTIPLIERS
 
     def calculate_ippt(self, multiplier: float, door_weight: float) -> float:
         """
@@ -524,40 +651,90 @@ class SpringCalculatorService:
 
     def select_drum(self, door_height: int, lift_type: str = "standard") -> Optional[str]:
         """Select appropriate drum model for door height."""
+        # Standard drums
         for drum_model, drum_data in self.drum_multipliers.items():
             if drum_data["type"] == f"{lift_type}-lift":
                 if drum_data["min_height"] <= door_height <= drum_data["max_height"]:
                     return drum_model
+        # High-lift drums
+        if lift_type == "high":
+            for drum_model, drum_data in self.hl_drum_multipliers.items():
+                if drum_data["min_height"] <= door_height <= drum_data["max_height"]:
+                    return drum_model
+        # Vertical-lift drums
+        if lift_type == "vertical":
+            for drum_model, drum_data in self.vl_drum_multipliers.items():
+                if drum_data["min_height"] <= door_height <= drum_data["max_height"]:
+                    return drum_model
         return None
 
-    def get_drum_data(self, door_height: int, track_radius: int, drum_model: str = None) -> Optional[Tuple[str, float, float]]:
+    def get_drum_data(self, door_height: int, track_radius: int, drum_model: str = None, high_lift_inches: int = 0) -> Optional[Tuple[str, float, float]]:
         """
         Get drum multiplier and turns for door height and track radius.
+
+        Args:
+            door_height: Door height in inches
+            track_radius: Track radius (12 or 15 inches)
+            drum_model: Specific drum model (optional, will auto-select if None)
+            high_lift_inches: Inches of high lift (0 for standard/vertical)
 
         Returns: (drum_model, multiplier, turns) or None
         """
         if drum_model is None:
             drum_model = self.select_drum(door_height)
 
-        if drum_model is None or drum_model not in self.drum_multipliers:
-            return None
+        # Check standard drums
+        if drum_model and drum_model in self.drum_multipliers:
+            drum_data = self.drum_multipliers[drum_model]
+            table = drum_data["table"]
+            closest_height = min(table.keys(), key=lambda h: abs(h - door_height))
+            radius_data = table[closest_height].get(track_radius)
+            if radius_data is None:
+                radius_data = table[closest_height].get(15)
+            if radius_data is None:
+                return None
+            multiplier, turns = radius_data
+            return (drum_model, multiplier, turns)
 
-        drum_data = self.drum_multipliers[drum_model]
+        # Check high-lift drums
+        if drum_model and drum_model in self.hl_drum_multipliers:
+            return self._get_hl_drum_data(drum_model, door_height, high_lift_inches)
+
+        # Check vertical-lift drums
+        if drum_model and drum_model in self.vl_drum_multipliers:
+            return self._get_vl_drum_data(drum_model, door_height)
+
+        return None
+
+    def _get_hl_drum_data(self, drum_model: str, door_height: int, high_lift_inches: int) -> Optional[Tuple[str, float, float]]:
+        """Look up high-lift drum multiplier: HL inches -> door height -> (mult, turns)."""
+        drum_data = self.hl_drum_multipliers[drum_model]
         table = drum_data["table"]
 
-        # Find closest height in table
-        closest_height = min(table.keys(), key=lambda h: abs(h - door_height))
+        # Find closest high-lift row
+        hl_keys = sorted(table.keys())
+        closest_hl = min(hl_keys, key=lambda hl: abs(hl - high_lift_inches))
 
-        # Get multiplier and turns for radius
-        radius_data = table[closest_height].get(track_radius)
-        if radius_data is None:
-            # Try 15" radius as default
-            radius_data = table[closest_height].get(15)
-
-        if radius_data is None:
+        height_table = table[closest_hl]
+        if not height_table:
             return None
 
-        multiplier, turns = radius_data
+        # Find closest door height in that HL row
+        closest_height = min(height_table.keys(), key=lambda h: abs(h - door_height))
+        result = height_table[closest_height]
+        if result is None:
+            return None
+
+        multiplier, turns = result
+        return (drum_model, multiplier, turns)
+
+    def _get_vl_drum_data(self, drum_model: str, door_height: int) -> Optional[Tuple[str, float, float]]:
+        """Look up vertical-lift drum multiplier: door height -> (mult, turns)."""
+        drum_data = self.vl_drum_multipliers[drum_model]
+        table = drum_data["table"]
+
+        closest_height = min(table.keys(), key=lambda h: abs(h - door_height))
+        multiplier, turns = table[closest_height]
         return (drum_model, multiplier, turns)
 
     def calculate_spring(
@@ -569,7 +746,8 @@ class SpringCalculatorService:
         wire_diameter: float = None,
         coil_diameter: float = 2.0,
         target_cycles: int = 10000,
-        drum_model: str = None
+        drum_model: str = None,
+        high_lift_inches: int = 0
     ) -> Optional[SpringResult]:
         """
         Calculate spring specifications for a door.
@@ -583,12 +761,13 @@ class SpringCalculatorService:
             coil_diameter: Coil inside diameter (default 2.0")
             target_cycles: Target cycle life (10000, 15000, 25000, 50000, 100000)
             drum_model: Specific drum model (optional, will auto-select if None)
+            high_lift_inches: Inches of high lift (for HL drum lookup)
 
         Returns:
             SpringResult with complete spring specifications
         """
         # Get drum data
-        drum_data = self.get_drum_data(door_height, track_radius, drum_model)
+        drum_data = self.get_drum_data(door_height, track_radius, drum_model, high_lift_inches=high_lift_inches)
         if drum_data is None:
             logger.warning(f"No drum found for height {door_height}\"")
             return None
@@ -645,7 +824,8 @@ class SpringCalculatorService:
         track_radius: int = 15,
         spring_qty: int = 2,
         target_cycles: int = 10000,
-        drum_model: str = None
+        drum_model: str = None,
+        high_lift_inches: int = 0
     ) -> SpringOptions:
         """
         Calculate multiple spring options for a door configuration.
@@ -654,7 +834,7 @@ class SpringCalculatorService:
         sorted by spring length (shortest first).
         """
         # Get drum data
-        drum_data = self.get_drum_data(door_height, track_radius, drum_model)
+        drum_data = self.get_drum_data(door_height, track_radius, drum_model, high_lift_inches=high_lift_inches)
         if drum_data is None:
             return SpringOptions(
                 door_weight=door_weight,
@@ -699,7 +879,8 @@ class SpringCalculatorService:
                     wire_diameter=wire_diam,
                     coil_diameter=coil_diam,
                     target_cycles=target_cycles,
-                    drum_model=selected_drum
+                    drum_model=selected_drum,
+                    high_lift_inches=high_lift_inches
                 )
 
                 if result:

@@ -1,0 +1,18 @@
+{
+  "$schema": "../schemas/pitch-sines.schema.json",
+  "description": "Appendix 3 - Roof pitch angles and equivalent sines",
+  "entries": [
+    { "pitchRatio": "1/12", "rise": 1, "sine": 0.083 },
+    { "pitchRatio": "2/12", "rise": 2, "sine": 0.164 },
+    { "pitchRatio": "3/12", "rise": 3, "sine": 0.243 },
+    { "pitchRatio": "4/12", "rise": 4, "sine": 0.316 },
+    { "pitchRatio": "5/12", "rise": 5, "sine": 0.385 },
+    { "pitchRatio": "6/12", "rise": 6, "sine": 0.447 },
+    { "pitchRatio": "7/12", "rise": 7, "sine": 0.504 },
+    { "pitchRatio": "8/12", "rise": 8, "sine": 0.555 },
+    { "pitchRatio": "9/12", "rise": 9, "sine": 0.600 },
+    { "pitchRatio": "10/12", "rise": 10, "sine": 0.640 },
+    { "pitchRatio": "11/12", "rise": 11, "sine": 0.675 },
+    { "pitchRatio": "12/12", "rise": 12, "sine": 0.707 }
+  ]
+}

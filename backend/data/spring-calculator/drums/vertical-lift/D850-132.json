@@ -1,0 +1,68 @@
+{
+  "$schema": "../../schemas/vertical-lift-drum.schema.json",
+  "model": "D850-132",
+  "type": "vertical-lift",
+  "description": "Vertical-lift drum for doors 72\"-132\" height",
+  "hma": 4.25,
+  "minDoorHeight": 72,
+  "maxDoorHeight": 132,
+  "note": "Compact vertical-lift drum for residential/light commercial applications",
+  "availableDoorHeights": [72, 78, 84, 90, 96, 102, 108, 114, 120, 126, 132],
+  "multiplierTable": [
+    {
+      "doorHeight": 72,
+      "multiplier": 0.5787,
+      "turns": 8.5
+    },
+    {
+      "doorHeight": 78,
+      "multiplier": 0.5385,
+      "turns": 9.1
+    },
+    {
+      "doorHeight": 84,
+      "multiplier": 0.5041,
+      "turns": 9.8
+    },
+    {
+      "doorHeight": 90,
+      "multiplier": 0.4744,
+      "turns": 10.4
+    },
+    {
+      "doorHeight": 96,
+      "multiplier": 0.4484,
+      "turns": 11.0
+    },
+    {
+      "doorHeight": 102,
+      "multiplier": 0.4256,
+      "turns": 11.6
+    },
+    {
+      "doorHeight": 108,
+      "multiplier": 0.4054,
+      "turns": 12.2
+    },
+    {
+      "doorHeight": 114,
+      "multiplier": 0.3874,
+      "turns": 12.8
+    },
+    {
+      "doorHeight": 120,
+      "multiplier": 0.3712,
+      "turns": 13.4
+    },
+    {
+      "doorHeight": 126,
+      "multiplier": 0.3567,
+      "turns": 13.9
+    },
+    {
+      "doorHeight": 132,
+      "multiplier": 0.3435,
+      "turns": 14.5
+    }
+  ]
+}

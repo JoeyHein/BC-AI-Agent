@@ -1,0 +1,157 @@
+{
+  "$schema": "../../schemas/high-lift-drum.schema.json",
+  "model": "D6375-164",
+  "type": "high-lift",
+  "description": "High-lift drum for 0-164\" high-lift, doors 72\"-390\"",
+  "maxHiLift": 164,
+  "minDoorHeight": 72,
+  "maxDoorHeight": 390,
+  "note": "Extra-large high-lift drum for heavy commercial/industrial applications. H.M.A. ranges from 3.3130\" to 5.3839\"",
+  "availableDoorHeights": [72, 78, 84, 90, 96, 102, 108, 114, 120, 126, 132, 138, 144, 150, 156, 162, 168, 174, 180, 186, 192, 198, 204, 210, 216, 222, 228, 234, 240, 246, 252, 258, 264, 270, 276, 282, 288, 294, 300, 306, 312, 318, 324, 330, 336, 342, 348, 354, 360, 366, 372, 378, 384, 390],
+  "multiplierTable": [
+    {
+      "hiLift": 0,
+      "hma": 3.3130,
+      "revOfSpiral": 0.0000,
+      "byDoorHeight": {
+        "72": { "multiplier": 0.6854, "turns": 5.4, "pitchFactor": 0.6854 },
+        "78": { "multiplier": 0.6374, "turns": 5.8, "pitchFactor": 0.6374 },
+        "84": { "multiplier": 0.5966, "turns": 6.2, "pitchFactor": 0.5966 },
+        "90": { "multiplier": 0.5614, "turns": 6.6, "pitchFactor": 0.5614 },
+        "96": { "multiplier": 0.5308, "turns": 7.0, "pitchFactor": 0.5308 },
+        "102": { "multiplier": 0.5037, "turns": 7.4, "pitchFactor": 0.5037 },
+        "108": { "multiplier": 0.4798, "turns": 7.8, "pitchFactor": 0.4798 },
+        "114": { "multiplier": 0.4583, "turns": 8.2, "pitchFactor": 0.4583 },
+        "120": { "multiplier": 0.4390, "turns": 8.6, "pitchFactor": 0.4390 }
+      }
+    },
+    {
+      "hiLift": 6,
+      "hma": 3.4119,
+      "revOfSpiral": 0.3164,
+      "byDoorHeight": {
+        "72": { "multiplier": 0.6512, "turns": 5.7, "pitchFactor": 0.6318 },
+        "78": { "multiplier": 0.6078, "turns": 6.1, "pitchFactor": 0.5902 },
+        "84": { "multiplier": 0.5706, "turns": 6.5, "pitchFactor": 0.5545 },
+        "90": { "multiplier": 0.5384, "turns": 6.9, "pitchFactor": 0.5236 },
+        "96": { "multiplier": 0.5102, "turns": 7.3, "pitchFactor": 0.4965 },
+        "102": { "multiplier": 0.4853, "turns": 7.7, "pitchFactor": 0.4726 },
+        "108": { "multiplier": 0.4631, "turns": 8.1, "pitchFactor": 0.4512 },
+        "114": { "multiplier": 0.4432, "turns": 8.4, "pitchFactor": 0.4321 },
+        "120": { "multiplier": 0.4252, "turns": 8.8, "pitchFactor": 0.4148 }
+      }
+    },
+    {
+      "hiLift": 24,
+      "hma": 3.7075,
+      "revOfSpiral": 1.2389,
+      "byDoorHeight": {
+        "96": { "multiplier": 0.4489, "turns": 8.4, "pitchFactor": 0.3989 },
+        "102": { "multiplier": 0.4285, "turns": 8.8, "pitchFactor": 0.3813 },
+        "108": { "multiplier": 0.4101, "turns": 9.2, "pitchFactor": 0.3656 },
+        "114": { "multiplier": 0.3936, "turns": 9.6, "pitchFactor": 0.3514 },
+        "120": { "multiplier": 0.3785, "turns": 10.0, "pitchFactor": 0.3386 },
+        "126": { "multiplier": 0.3648, "turns": 10.4, "pitchFactor": 0.3270 },
+        "132": { "multiplier": 0.3523, "turns": 10.8, "pitchFactor": 0.3164 },
+        "138": { "multiplier": 0.3407, "turns": 11.2, "pitchFactor": 0.3066 }
+      }
+    },
+    {
+      "hiLift": 48,
+      "hma": 4.0953,
+      "revOfSpiral": 2.4215,
+      "byDoorHeight": {
+        "120": { "multiplier": 0.3390, "turns": 11.5, "pitchFactor": 0.2574 },
+        "126": { "multiplier": 0.3281, "turns": 11.9, "pitchFactor": 0.2499 },
+        "132": { "multiplier": 0.3181, "turns": 12.3, "pitchFactor": 0.2430 },
+        "138": { "multiplier": 0.3087, "turns": 12.7, "pitchFactor": 0.2367 },
+        "144": { "multiplier": 0.3000, "turns": 13.1, "pitchFactor": 0.2309 },
+        "150": { "multiplier": 0.2918, "turns": 13.5, "pitchFactor": 0.2254 },
+        "156": { "multiplier": 0.2842, "turns": 13.8, "pitchFactor": 0.2204 },
+        "162": { "multiplier": 0.2770, "turns": 14.2, "pitchFactor": 0.2156 }
+      }
+    },
+    {
+      "hiLift": 72,
+      "hma": 4.4797,
+      "revOfSpiral": 3.5877,
+      "byDoorHeight": {
+        "144": { "multiplier": 0.2747, "turns": 14.3, "pitchFactor": 0.1850 },
+        "150": { "multiplier": 0.2681, "turns": 14.7, "pitchFactor": 0.1815 },
+        "156": { "multiplier": 0.2619, "turns": 15.1, "pitchFactor": 0.1783 },
+        "162": { "multiplier": 0.2561, "turns": 15.5, "pitchFactor": 0.1752 },
+        "168": { "multiplier": 0.2506, "turns": 15.8, "pitchFactor": 0.1724 },
+        "174": { "multiplier": 0.2454, "turns": 16.2, "pitchFactor": 0.1697 },
+        "180": { "multiplier": 0.2404, "turns": 16.6, "pitchFactor": 0.1672 },
+        "186": { "multiplier": 0.2357, "turns": 16.9, "pitchFactor": 0.1648 }
+      }
+    },
+    {
+      "hiLift": 96,
+      "hma": 4.8608,
+      "revOfSpiral": 4.7407,
+      "byDoorHeight": {
+        "168": { "multiplier": 0.2340, "turns": 17.0, "pitchFactor": 0.1415 },
+        "174": { "multiplier": 0.2297, "turns": 17.4, "pitchFactor": 0.1396 },
+        "180": { "multiplier": 0.2255, "turns": 17.8, "pitchFactor": 0.1378 },
+        "186": { "multiplier": 0.2216, "turns": 18.1, "pitchFactor": 0.1360 },
+        "192": { "multiplier": 0.2179, "turns": 18.5, "pitchFactor": 0.1343 },
+        "198": { "multiplier": 0.2143, "turns": 18.9, "pitchFactor": 0.1328 },
+        "204": { "multiplier": 0.2109, "turns": 19.2, "pitchFactor": 0.1313 },
+        "210": { "multiplier": 0.2076, "turns": 19.6, "pitchFactor": 0.1299 }
+      }
+    },
+    {
+      "hiLift": 120,
+      "hma": 5.2390,
+      "revOfSpiral": 5.8805,
+      "byDoorHeight": {
+        "192": { "multiplier": 0.2052, "turns": 19.6, "pitchFactor": 0.1118 },
+        "198": { "multiplier": 0.2022, "turns": 20.0, "pitchFactor": 0.1107 },
+        "204": { "multiplier": 0.1993, "turns": 20.3, "pitchFactor": 0.1096 },
+        "210": { "multiplier": 0.1965, "turns": 20.7, "pitchFactor": 0.1086 },
+        "216": { "multiplier": 0.1938, "turns": 21.1, "pitchFactor": 0.1076 },
+        "222": { "multiplier": 0.1913, "turns": 21.4, "pitchFactor": 0.1066 },
+        "228": { "multiplier": 0.1888, "turns": 21.8, "pitchFactor": 0.1057 },
+        "234": { "multiplier": 0.1864, "turns": 22.1, "pitchFactor": 0.1049 }
+      }
+    },
+    {
+      "hiLift": 144,
+      "hma": 5.6142,
+      "revOfSpiral": 7.0072,
+      "byDoorHeight": {
+        "216": { "multiplier": 0.1843, "turns": 22.2, "pitchFactor": 0.0919 },
+        "222": { "multiplier": 0.1822, "turns": 22.5, "pitchFactor": 0.0912 },
+        "228": { "multiplier": 0.1801, "turns": 22.9, "pitchFactor": 0.0906 },
+        "234": { "multiplier": 0.1781, "turns": 23.2, "pitchFactor": 0.0900 },
+        "240": { "multiplier": 0.1762, "turns": 23.6, "pitchFactor": 0.0894 },
+        "246": { "multiplier": 0.1743, "turns": 23.9, "pitchFactor": 0.0888 },
+        "252": { "multiplier": 0.1725, "turns": 24.2, "pitchFactor": 0.0883 },
+        "258": { "multiplier": 0.1708, "turns": 24.6, "pitchFactor": 0.0878 }
+      }
+    },
+    {
+      "hiLift": 164,
+      "hma": 5.9270,
+      "revOfSpiral": 7.9459,
+      "byDoorHeight": {
+        "236": { "multiplier": 0.1756, "turns": 24.0, "pitchFactor": 0.0786 },
+        "252": { "multiplier": 0.1686, "turns": 25.0, "pitchFactor": 0.0764 },
+        "264": { "multiplier": 0.1636, "turns": 25.8, "pitchFactor": 0.0749 },
+        "276": { "multiplier": 0.1590, "turns": 26.5, "pitchFactor": 0.0735 },
+        "288": { "multiplier": 0.1547, "turns": 27.3, "pitchFactor": 0.0723 },
+        "300": { "multiplier": 0.1508, "turns": 28.0, "pitchFactor": 0.0711 },
+        "312": { "multiplier": 0.1471, "turns": 28.7, "pitchFactor": 0.0701 },
+        "324": { "multiplier": 0.1436, "turns": 29.4, "pitchFactor": 0.0691 },
+        "336": { "multiplier": 0.1404, "turns": 30.1, "pitchFactor": 0.0682 },
+        "348": { "multiplier": 0.1373, "turns": 30.8, "pitchFactor": 0.0673 },
+        "360": { "multiplier": 0.1344, "turns": 31.5, "pitchFactor": 0.0665 },
+        "372": { "multiplier": 0.1317, "turns": 32.1, "pitchFactor": 0.0657 },
+        "384": { "multiplier": 0.1291, "turns": 32.8, "pitchFactor": 0.0650 },
+        "390": { "multiplier": 0.1278, "turns": 33.1, "pitchFactor": 0.0647 }
+      }
+    }
+  ],
+  "_dataNote": "Template with representative data. Full data from Canimex Catalog pages 46-57 should have hi-lift values in 3\" increments (0, 3, 6, 9...164) with complete door height columns ranging from 72\" to 390\"."
+}

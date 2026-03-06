@@ -1,0 +1,118 @@
+{
+  "$schema": "../../schemas/vertical-lift-drum.schema.json",
+  "model": "D1100-216",
+  "type": "vertical-lift",
+  "description": "Vertical-lift drum for doors 96\"-216\" height",
+  "hma": 5.5,
+  "minDoorHeight": 96,
+  "maxDoorHeight": 216,
+  "note": "Medium vertical-lift drum for commercial applications",
+  "availableDoorHeights": [96, 102, 108, 114, 120, 126, 132, 138, 144, 150, 156, 162, 168, 174, 180, 186, 192, 198, 204, 210, 216],
+  "multiplierTable": [
+    {
+      "doorHeight": 96,
+      "multiplier": 0.5628,
+      "turns": 10.0
+    },
+    {
+      "doorHeight": 102,
+      "multiplier": 0.5341,
+      "turns": 10.5
+    },
+    {
+      "doorHeight": 108,
+      "multiplier": 0.5087,
+      "turns": 11.1
+    },
+    {
+      "doorHeight": 114,
+      "multiplier": 0.4861,
+      "turns": 11.6
+    },
+    {
+      "doorHeight": 120,
+      "multiplier": 0.4659,
+      "turns": 12.2
+    },
+    {
+      "doorHeight": 126,
+      "multiplier": 0.4477,
+      "turns": 12.7
+    },
+    {
+      "doorHeight": 132,
+      "multiplier": 0.4312,
+      "turns": 13.2
+    },
+    {
+      "doorHeight": 138,
+      "multiplier": 0.4162,
+      "turns": 13.7
+    },
+    {
+      "doorHeight": 144,
+      "multiplier": 0.4025,
+      "turns": 14.2
+    },
+    {
+      "doorHeight": 150,
+      "multiplier": 0.3899,
+      "turns": 14.7
+    },
+    {
+      "doorHeight": 156,
+      "multiplier": 0.3783,
+      "turns": 15.2
+    },
+    {
+      "doorHeight": 162,
+      "multiplier": 0.3676,
+      "turns": 15.7
+    },
+    {
+      "doorHeight": 168,
+      "multiplier": 0.3577,
+      "turns": 16.2
+    },
+    {
+      "doorHeight": 174,
+      "multiplier": 0.3484,
+      "turns": 16.7
+    },
+    {
+      "doorHeight": 180,
+      "multiplier": 0.3398,
+      "turns": 17.2
+    },
+    {
+      "doorHeight": 186,
+      "multiplier": 0.3317,
+      "turns": 17.7
+    },
+    {
+      "doorHeight": 192,
+      "multiplier": 0.3241,
+      "turns": 18.1
+    },
+    {
+      "doorHeight": 198,
+      "multiplier": 0.3170,
+      "turns": 18.6
+    },
+    {
+      "doorHeight": 204,
+      "multiplier": 0.3103,
+      "turns": 19.1
+    },
+    {
+      "doorHeight": 210,
+      "multiplier": 0.3040,
+      "turns": 19.6
+    },
+    {
+      "doorHeight": 216,
+      "multiplier": 0.2980,
+      "turns": 20.0
+    }
+  ]
+}

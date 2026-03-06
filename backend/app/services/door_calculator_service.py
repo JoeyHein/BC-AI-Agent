@@ -610,6 +610,7 @@ class DoorCalculatorService:
             target_cycles,
             track_radius=track_radius,
             spring_inventory=spring_inventory,
+            high_lift_inches=high_lift_inches or 0,
         )
 
         # 7. Calculate shaft (spring count drives shaft count)
@@ -855,6 +856,7 @@ class DoorCalculatorService:
         track_radius: int = 15,
         spring_qty: int = 2,
         spring_inventory: Optional[Dict[str, List[str]]] = None,
+        high_lift_inches: int = 0,
     ) -> Optional[SpringSelection]:
         """
         Calculate spring specifications using Canimex methodology.
@@ -879,6 +881,7 @@ class DoorCalculatorService:
             spring_qty: Number of springs (1 or 2, default 2)
             spring_inventory: Optional dict of stocked coil/wire combos
                 e.g. {"2.0": ["0.2070", "0.2500"], "6.0": ["0.3750"]}
+            high_lift_inches: Inches of high lift (for HL drum lookup)
 
         Returns:
             SpringSelection with complete spring specifications
@@ -887,12 +890,7 @@ class DoorCalculatorService:
             logger.warning("Door weight must be greater than 0")
             return None
 
-        # Use the drum model from drum selection so spring calculator uses correct multipliers.
-        # For high lift/vertical drums that aren't in the spring calculator's multiplier
-        # table, pass None to let it auto-select the standard drum for torque calculation.
         drum_model = drums.model if drums else None
-        if drum_model and drum_model not in spring_calculator.drum_multipliers:
-            drum_model = None
 
         if spring_inventory:
             result = self._calculate_springs_from_inventory(
@@ -900,6 +898,7 @@ class DoorCalculatorService:
                 track_radius, spring_inventory, width_inches,
                 drum_model=drum_model,
                 starting_qty=spring_qty,
+                high_lift_inches=high_lift_inches,
             )
             if result is not None:
                 return result
@@ -921,6 +920,7 @@ class DoorCalculatorService:
                     coil_diameter=coil_diam,
                     target_cycles=target_cycles,
                     drum_model=drum_model,
+                    high_lift_inches=high_lift_inches,
                 )
                 if result is not None:
                     return SpringSelection(
@@ -949,6 +949,7 @@ class DoorCalculatorService:
         width_inches: int = 240,
         drum_model: Optional[str] = None,
         starting_qty: int = 2,
+        high_lift_inches: int = 0,
     ) -> Optional[SpringSelection]:
         """
         Find the best spring from stocked inventory.
@@ -1003,6 +1004,7 @@ class DoorCalculatorService:
                     coil_diameter=coil_diam,
                     target_cycles=target_cycles,
                     drum_model=drum_model,
+                    high_lift_inches=high_lift_inches,
                 )
                 if result is not None:
                     # Verify MIP capacity is sufficient
@@ -1036,6 +1038,7 @@ class DoorCalculatorService:
                 door_weight, height_inches, target_cycles,
                 track_radius, inventory, duplex_pairs,
                 drum_model=drum_model,
+                high_lift_inches=high_lift_inches,
             )
             if duplex is not None:
                 all_candidates.append(duplex)
@@ -1095,6 +1098,7 @@ class DoorCalculatorService:
         inventory: Dict[str, List[str]],
         duplex_pairs: int = 2,
         drum_model: Optional[str] = None,
+        high_lift_inches: int = 0,
     ) -> Optional[SpringSelection]:
         """
         Calculate duplex spring configuration.
@@ -1125,7 +1129,7 @@ class DoorCalculatorService:
             return None
 
         # Calculate what each spring needs to handle
-        drum_data = spring_calculator.get_drum_data(height_inches, track_radius, drum_model)
+        drum_data = spring_calculator.get_drum_data(height_inches, track_radius, drum_model, high_lift_inches=high_lift_inches)
         if drum_data is None:
             return None
 
@@ -1150,7 +1154,8 @@ class DoorCalculatorService:
                     wire_diameter=wire_diam,
                     coil_diameter=6.0,
                     target_cycles=target_cycles,
-                    drum_model=drum_model
+                    drum_model=drum_model,
+                    high_lift_inches=high_lift_inches,
                 )
                 if result:
                     outer_candidates.append(result)
@@ -1172,7 +1177,8 @@ class DoorCalculatorService:
                     wire_diameter=wire_diam,
                     coil_diameter=3.75,
                     target_cycles=target_cycles,
-                    drum_model=drum_model
+                    drum_model=drum_model,
+                    high_lift_inches=high_lift_inches,
                 )
                 if result:
                     inner_candidates.append(result)

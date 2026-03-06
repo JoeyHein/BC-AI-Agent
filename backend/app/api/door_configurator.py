@@ -430,6 +430,7 @@ class DoorConfigRequest(BaseModel):
     doorCount: int = 1
     panelColor: str
     panelDesign: str
+    hasWindows: bool = False
     windowInsert: Optional[str] = None
     windowPositions: Optional[List[WindowPosition]] = []  # Multi-stamp window positions
     windowSection: Optional[int] = None  # Legacy: single section (for backward compatibility)
@@ -811,12 +812,12 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "doorCount": door.doorCount,
                 "panelColor": door.panelColor,
                 "panelDesign": door.panelDesign,
-                "windowInsert": door.windowInsert,
+                "windowInsert": door.windowInsert if door.hasWindows else None,
                 "windowSize": getattr(door, 'windowSize', 'long') or 'long',
                 "windowPositions": [{"section": p.section, "col": p.col} for p in door.windowPositions] if door.windowPositions else [],
-                "windowCount": window_count,
+                "windowCount": window_count if door.hasWindows else 0,
                 "windowSection": door.windowSection,
-                "windowQty": door.windowQty,
+                "windowQty": door.windowQty if door.hasWindows else 0,
                 "windowPanels": door.windowPanels,
                 "windowFrameColor": door.windowFrameColor,
                 "glazingType": door.glazingType,
@@ -1133,11 +1134,11 @@ async def get_part_numbers(config: DoorConfigRequest, db: Session = Depends(get_
             "doorCount": config.doorCount,
             "panelColor": config.panelColor,
             "panelDesign": config.panelDesign,
-            "windowInsert": config.windowInsert,
+            "windowInsert": config.windowInsert if config.hasWindows else None,
             "windowPositions": [{"section": p.section, "col": p.col} for p in config.windowPositions] if config.windowPositions else [],
-            "windowCount": window_count,
+            "windowCount": window_count if config.hasWindows else 0,
             "windowSection": config.windowSection,
-            "windowQty": config.windowQty,
+            "windowQty": config.windowQty if config.hasWindows else 0,
             "windowPanels": config.windowPanels,
             "windowFrameColor": config.windowFrameColor,
             "glazingType": config.glazingType,
@@ -1192,11 +1193,11 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "doorCount": door.doorCount,
                 "panelColor": door.panelColor,
                 "panelDesign": door.panelDesign,
-                "windowInsert": door.windowInsert,
+                "windowInsert": door.windowInsert if door.hasWindows else None,
                 "windowPositions": [{"section": p.section, "col": p.col} for p in door.windowPositions] if door.windowPositions else [],
-                "windowCount": window_count,
+                "windowCount": window_count if door.hasWindows else 0,
                 "windowSection": door.windowSection,
-                "windowQty": door.windowQty,
+                "windowQty": door.windowQty if door.hasWindows else 0,
                 "windowPanels": door.windowPanels,
                 "windowFrameColor": door.windowFrameColor,
                 "glazingType": door.glazingType,

@@ -1753,10 +1753,6 @@ class PartNumberService:
         if config.window_insert in ("24X12_THERMOPANE", "34X16_THERMOPANE", "18X8_THERMOPANE"):
             return self._get_commercial_window_parts(config)
 
-        # Commercial doors should only have commercial windows (handled above) — never GK15
-        if config.door_type == "commercial":
-            return []
-
         # Residential window glass kits — build GK15 part number
         mapper = get_bc_mapper()
 
@@ -1810,7 +1806,7 @@ class PartNumberService:
             description = f"GLASS KIT, 1-3/4\" KANATA, {size_label}, {glass_label}, {panel_color_normalized}"
 
         # Window quantity: use actual window count from positions, or estimate from door width
-        window_qty = config.window_count or max(1, config.door_width // 24)
+        window_qty = config.window_count if config.window_count > 0 else max(1, config.door_width // 24)
 
         # Build window placement note
         window_note = self._build_window_placement_note(config)

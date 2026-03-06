@@ -1,0 +1,112 @@
+{
+  "$schema": "../../schemas/high-lift-drum.schema.json",
+  "model": "D525-54",
+  "type": "high-lift",
+  "description": "High-lift drum for 0-54\" high-lift, doors 84\"-192\"",
+  "maxHiLift": 54,
+  "minDoorHeight": 84,
+  "maxDoorHeight": 192,
+  "note": "Medium high-lift drum for residential/light commercial applications",
+  "availableDoorHeights": [84, 90, 96, 102, 108, 114, 120, 126, 132, 138, 144, 150, 156, 162, 168, 174, 180, 186, 192],
+  "multiplierTable": [
+    {
+      "hiLift": 0,
+      "hma": 3.2190,
+      "revOfSpiral": 0.0000,
+      "byDoorHeight": {
+        "84": { "multiplier": 0.5606, "turns": 5.7, "pitchFactor": 0.5606 },
+        "90": { "multiplier": 0.5289, "turns": 6.1, "pitchFactor": 0.5289 },
+        "96": { "multiplier": 0.5011, "turns": 6.5, "pitchFactor": 0.5011 },
+        "102": { "multiplier": 0.4764, "turns": 6.8, "pitchFactor": 0.4764 },
+        "108": { "multiplier": 0.4543, "turns": 7.2, "pitchFactor": 0.4543 },
+        "114": { "multiplier": 0.4345, "turns": 7.5, "pitchFactor": 0.4345 },
+        "120": { "multiplier": 0.4166, "turns": 7.9, "pitchFactor": 0.4166 }
+      }
+    },
+    {
+      "hiLift": 6,
+      "hma": 3.3179,
+      "revOfSpiral": 0.3164,
+      "byDoorHeight": {
+        "84": { "multiplier": 0.5285, "turns": 6.1, "pitchFactor": 0.5092 },
+        "90": { "multiplier": 0.5000, "turns": 6.5, "pitchFactor": 0.4822 },
+        "96": { "multiplier": 0.4747, "turns": 6.9, "pitchFactor": 0.4580 },
+        "102": { "multiplier": 0.4521, "turns": 7.2, "pitchFactor": 0.4364 },
+        "108": { "multiplier": 0.4317, "turns": 7.6, "pitchFactor": 0.4169 },
+        "114": { "multiplier": 0.4133, "turns": 7.9, "pitchFactor": 0.3992 },
+        "120": { "multiplier": 0.3966, "turns": 8.3, "pitchFactor": 0.3831 }
+      }
+    },
+    {
+      "hiLift": 12,
+      "hma": 3.4159,
+      "revOfSpiral": 0.6277,
+      "byDoorHeight": {
+        "90": { "multiplier": 0.4728, "turns": 6.9, "pitchFactor": 0.4377 },
+        "96": { "multiplier": 0.4500, "turns": 7.3, "pitchFactor": 0.4170 },
+        "102": { "multiplier": 0.4294, "turns": 7.6, "pitchFactor": 0.3982 },
+        "108": { "multiplier": 0.4107, "turns": 8.0, "pitchFactor": 0.3811 },
+        "114": { "multiplier": 0.3936, "turns": 8.3, "pitchFactor": 0.3655 },
+        "120": { "multiplier": 0.3781, "turns": 8.7, "pitchFactor": 0.3513 },
+        "126": { "multiplier": 0.3638, "turns": 9.0, "pitchFactor": 0.3382 }
+      }
+    },
+    {
+      "hiLift": 24,
+      "hma": 3.6103,
+      "revOfSpiral": 1.2389,
+      "byDoorHeight": {
+        "108": { "multiplier": 0.3733, "turns": 8.8, "pitchFactor": 0.3148 },
+        "114": { "multiplier": 0.3588, "turns": 9.2, "pitchFactor": 0.3034 },
+        "120": { "multiplier": 0.3456, "turns": 9.5, "pitchFactor": 0.2930 },
+        "126": { "multiplier": 0.3334, "turns": 9.9, "pitchFactor": 0.2835 },
+        "132": { "multiplier": 0.3222, "turns": 10.2, "pitchFactor": 0.2747 },
+        "138": { "multiplier": 0.3118, "turns": 10.6, "pitchFactor": 0.2666 },
+        "144": { "multiplier": 0.3021, "turns": 10.9, "pitchFactor": 0.2591 }
+      }
+    },
+    {
+      "hiLift": 36,
+      "hma": 3.8021,
+      "revOfSpiral": 1.8368,
+      "byDoorHeight": {
+        "126": { "multiplier": 0.3077, "turns": 10.8, "pitchFactor": 0.2348 },
+        "132": { "multiplier": 0.2983, "turns": 11.1, "pitchFactor": 0.2283 },
+        "138": { "multiplier": 0.2895, "turns": 11.5, "pitchFactor": 0.2223 },
+        "144": { "multiplier": 0.2812, "turns": 11.8, "pitchFactor": 0.2167 },
+        "150": { "multiplier": 0.2734, "turns": 12.2, "pitchFactor": 0.2114 },
+        "156": { "multiplier": 0.2661, "turns": 12.5, "pitchFactor": 0.2065 },
+        "162": { "multiplier": 0.2592, "turns": 12.9, "pitchFactor": 0.2019 }
+      }
+    },
+    {
+      "hiLift": 48,
+      "hma": 3.9913,
+      "revOfSpiral": 2.4215,
+      "byDoorHeight": {
+        "144": { "multiplier": 0.2638, "turns": 12.7, "pitchFactor": 0.1802 },
+        "150": { "multiplier": 0.2573, "turns": 13.0, "pitchFactor": 0.1764 },
+        "156": { "multiplier": 0.2512, "turns": 13.4, "pitchFactor": 0.1728 },
+        "162": { "multiplier": 0.2454, "turns": 13.7, "pitchFactor": 0.1695 },
+        "168": { "multiplier": 0.2400, "turns": 14.0, "pitchFactor": 0.1664 },
+        "174": { "multiplier": 0.2348, "turns": 14.4, "pitchFactor": 0.1635 },
+        "180": { "multiplier": 0.2299, "turns": 14.7, "pitchFactor": 0.1607 }
+      }
+    },
+    {
+      "hiLift": 54,
+      "hma": 4.0852,
+      "revOfSpiral": 2.7102,
+      "byDoorHeight": {
+        "156": { "multiplier": 0.2451, "turns": 13.8, "pitchFactor": 0.1572 },
+        "162": { "multiplier": 0.2400, "turns": 14.1, "pitchFactor": 0.1546 },
+        "168": { "multiplier": 0.2352, "turns": 14.5, "pitchFactor": 0.1521 },
+        "174": { "multiplier": 0.2306, "turns": 14.8, "pitchFactor": 0.1498 },
+        "180": { "multiplier": 0.2262, "turns": 15.1, "pitchFactor": 0.1476 },
+        "186": { "multiplier": 0.2220, "turns": 15.4, "pitchFactor": 0.1455 },
+        "192": { "multiplier": 0.2180, "turns": 15.8, "pitchFactor": 0.1435 }
+      }
+    }
+  ],
+  "_dataNote": "Template with representative data. Full data should have hi-lift values in 3\" increments (0, 3, 6, 9...54)."
+}
