@@ -1753,6 +1753,10 @@ class PartNumberService:
         if config.window_insert in ("24X12_THERMOPANE", "34X16_THERMOPANE", "18X8_THERMOPANE"):
             return self._get_commercial_window_parts(config)
 
+        # Commercial doors should only have commercial windows (handled above) — never GK15
+        if config.door_type == "commercial":
+            return []
+
         # Residential window glass kits — build GK15 part number
         mapper = get_bc_mapper()
 

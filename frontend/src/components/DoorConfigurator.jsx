@@ -181,7 +181,7 @@ function DoorConfigurator() {
         glassColor: door.glassColor,
         hasInserts: door.hasInserts || false,
         windowInsert: door.doorType === 'commercial'
-          ? (door.windowInsert || null)
+          ? (door.windowInsert && door.windowInsert !== 'NONE' ? door.windowInsert : null)
           : (() => {
               if (!door.hasWindows || !(door.windowPositions || []).length) return null
               if (door.hasInserts && door.windowInsert !== 'NONE') return door.windowInsert
@@ -2224,7 +2224,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
             glassColor: door.glassColor,
             hasInserts: door.hasInserts || false,
             windowInsert: door.doorType === 'commercial'
-              ? (door.windowInsert || null)
+              ? (door.windowInsert && door.windowInsert !== 'NONE' ? door.windowInsert : null)
               : (door.hasInserts && door.windowInsert !== 'NONE' ? door.windowInsert : null),
             windowSection: door.windowSection,
             windowQty: door.windowQty || 0,
