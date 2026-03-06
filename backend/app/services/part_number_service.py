@@ -1653,7 +1653,7 @@ class PartNumberService:
                     notes=f"Solalite section {section_num} of {panel_count}"
                 ))
 
-        # Glazing — GL20 glass for AL976, GK17 polycarbonate for Panorama/Solalite
+        # Glazing — GK17 glass for AL976, GK17 polycarbonate for Panorama/Solalite
         glazing_sqft_per_section = (config.door_width * section_height) / 144
         total_glazing_sqft = round(glazing_sqft_per_section * panel_count, 2)
 
@@ -1676,21 +1676,21 @@ class PartNumberService:
                 notes=f"Polycarbonate for {panel_count} sections ({glazing_sqft_per_section:.2f} sqft each)"
             ))
         else:
-            # AL976 — GL20 glass
+            # AL976 — GK17 aluminum glazing kits
             glass_color = (config.glass_color or "CLEAR").upper()
             pane_type = (config.glass_pane_type or "INSULATED").upper()
 
-            gl20_map = {
-                ("CLEAR", "INSULATED"):      ("GL20-00300-01", "GLASS, 3MM THERMO CLEAR/CLEAR"),
-                ("CLEAR", "SINGLE"):         ("GL20-00100-01", "GLASS, 3MM SINGLE CLEAR"),
-                ("ETCHED", "INSULATED"):     ("GL20-00300-02", "GLASS, 3MM THERMO CLEAR/ETCHED"),
-                ("ETCHED", "SINGLE"):        ("GL20-00100-02", "GLASS, 3MM SINGLE ETCHED"),
-                ("SUPER_GREY", "INSULATED"): ("GL20-00300-03", "GLASS, 3MM THERMO SUPER GREY"),
-                ("SUPER_GREY", "SINGLE"):    ("GL20-00100-03", "GLASS, 3MM SINGLE SUPER GREY"),
+            gk17_glass_map = {
+                ("CLEAR", "INSULATED"):      ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR"),
+                ("CLEAR", "SINGLE"):         ("GK17-10100-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
+                ("ETCHED", "INSULATED"):     ("GK17-11700-00", "GLAZING KIT, ALUM, THERM, ETCHED/CLEAR"),
+                ("ETCHED", "SINGLE"):        ("GK17-10300-00", "GLAZING KIT, ALUM, SINGLE 3MM, ETCHED"),
+                ("SUPER_GREY", "INSULATED"): ("GK17-12300-00", "GLAZING KIT, ALUM, THERM, TINTED GR/CLEAR"),
+                ("SUPER_GREY", "SINGLE"):    ("GK17-12300-00", "GLAZING KIT, ALUM, THERM, TINTED GR/CLEAR"),
             }
-            glass_pn, glass_desc = gl20_map.get(
+            glass_pn, glass_desc = gk17_glass_map.get(
                 (glass_color, pane_type),
-                ("GL20-00300-01", "GLASS, 3MM THERMO CLEAR/CLEAR")
+                ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR")
             )
 
             parts.append(PartSelection(
@@ -1912,22 +1912,21 @@ class PartNumberService:
                 notes=f"Full view aluminum section - replaces insulated panel at section {section_num}"
             ))
 
-        # V130G Glass (GL20 series, separate from section frame)
-        # Map glass color + pane type to GL20 part number
+        # V130G Glass (GK17 aluminum glazing kits, separate from section frame)
         glass_color = (config.glass_color or "CLEAR").upper()
         pane_type = (config.glass_pane_type or "INSULATED").upper()
 
-        gl20_map = {
-            ("CLEAR", "INSULATED"):    ("GL20-00300-01", "GLASS, 3MM V130G THERMO CLEAR/CLEAR"),
-            ("CLEAR", "SINGLE"):       ("GL20-00100-01", "GLASS, 3MM V130G SINGLE CLEAR"),
-            ("ETCHED", "INSULATED"):   ("GL20-00300-02", "GLASS, 3MM V130G THERMO CLEAR/ETCHED"),
-            ("ETCHED", "SINGLE"):      ("GL20-00100-02", "GLASS, 3MM V130G SINGLE ETCHED"),
-            ("SUPER_GREY", "INSULATED"): ("GL20-00300-03", "GLASS, 3MM V130G THERMO SUPER GREY"),
-            ("SUPER_GREY", "SINGLE"):  ("GL20-00100-03", "GLASS, 3MM V130G SINGLE SUPER GREY"),
+        gk17_glass_map = {
+            ("CLEAR", "INSULATED"):      ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR"),
+            ("CLEAR", "SINGLE"):         ("GK17-10100-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
+            ("ETCHED", "INSULATED"):     ("GK17-11700-00", "GLAZING KIT, ALUM, THERM, ETCHED/CLEAR"),
+            ("ETCHED", "SINGLE"):        ("GK17-10300-00", "GLAZING KIT, ALUM, SINGLE 3MM, ETCHED"),
+            ("SUPER_GREY", "INSULATED"): ("GK17-12300-00", "GLAZING KIT, ALUM, THERM, TINTED GR/CLEAR"),
+            ("SUPER_GREY", "SINGLE"):    ("GK17-12300-00", "GLAZING KIT, ALUM, THERM, TINTED GR/CLEAR"),
         }
-        glass_pn, glass_desc = gl20_map.get(
+        glass_pn, glass_desc = gk17_glass_map.get(
             (glass_color, pane_type),
-            ("GL20-00300-01", "GLASS, 3MM V130G THERMO CLEAR/CLEAR")
+            ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR")
         )
 
         # Calculate glass square footage per section, then multiply by number of sections
