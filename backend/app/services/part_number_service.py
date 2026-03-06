@@ -507,14 +507,14 @@ class PartNumberService:
             astragal_parts = self._get_astragal_only_parts(config)
             parts.extend(astragal_parts)
 
-        # 5. STRUTS (right after astragal, before tracks)
+        # 5. TOP SEAL (if applicable - for insulated/commercial/aluminum doors)
+        top_seal_parts = self._get_top_seal_parts(config)
+        parts.extend(top_seal_parts)
+
+        # 6. STRUTS
         if hardware.get("struts", True):
             strut_parts = self._get_strut_parts(config)
             parts.extend(strut_parts)
-
-        # 6. TOP SEAL (if applicable - for insulated doors)
-        top_seal_parts = self._get_top_seal_parts(config)
-        parts.extend(top_seal_parts)
 
         # 7. TRACKS
         if hardware.get("tracks", True):
