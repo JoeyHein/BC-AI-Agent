@@ -145,7 +145,7 @@ function DoorConfigurator() {
       case 'dimensions': {
         const seriesSpecs = config?.doorSeries[door.doorType]?.find(s => s.id === door.doorSeries)?.specs || {}
         const maxW = seriesSpecs.maxWidth || 288
-        const maxH = seriesSpecs.maxHeight || 192
+        const maxH = seriesSpecs.maxHeight || 384
         return door.doorWidth > 0 && door.doorHeight > 0 && door.doorCount > 0
           && door.doorWidth <= maxW && door.doorHeight <= maxH
       }
@@ -561,7 +561,7 @@ function DimensionsStep({ door, onChange, series }) {
 
   // Dimension limit warnings
   const maxWidth = specs.maxWidth || 288
-  const maxHeight = specs.maxHeight || 192
+  const maxHeight = specs.maxHeight || 384
   const widthExceeded = door.doorWidth > maxWidth
   const heightExceeded = door.doorHeight > maxHeight
 
@@ -652,7 +652,7 @@ function DimensionsStep({ door, onChange, series }) {
                   onChange({ doorHeight: feet * 12 + inches })
                 }}
                 min={Math.floor((specs.minHeight || 72) / 12)}
-                max={Math.ceil((specs.maxHeight || 192) / 12)}
+                max={Math.ceil((specs.maxHeight || 384) / 12)}
                 className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
               />
               <p className="mt-1 text-xs text-gray-500">feet</p>

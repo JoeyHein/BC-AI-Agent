@@ -19,6 +19,20 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # Clean up any partially-created tables from a previous failed migration attempt
+    # (PostgreSQL may leave sequences/tables behind if a prior run failed mid-transaction)
+    op.execute("DROP TABLE IF EXISTS po_agent_log CASCADE")
+    op.execute("DROP TABLE IF EXISTS demand_signals CASCADE")
+    op.execute("DROP TABLE IF EXISTS special_order_queue CASCADE")
+    op.execute("DROP TABLE IF EXISTS duplicate_candidates CASCADE")
+    op.execute("DROP TABLE IF EXISTS catalog_review_queue CASCADE")
+    op.execute("DROP TABLE IF EXISTS bc_staging CASCADE")
+    op.execute("DROP TABLE IF EXISTS stocked_inside_diameters CASCADE")
+    op.execute("DROP TABLE IF EXISTS wire_size_constraints CASCADE")
+    op.execute("DROP TABLE IF EXISTS door_weight_defaults CASCADE")
+    op.execute("DROP TABLE IF EXISTS drum_types CASCADE")
+    op.execute("DROP TABLE IF EXISTS parts CASCADE")
+
     # --- parts ---
     op.create_table(
         'parts',

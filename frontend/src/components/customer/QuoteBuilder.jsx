@@ -775,7 +775,7 @@ function DimensionsStep({ door, onChange, series }) {
                   onChange({ doorHeight: feet * 12 + inches })
                 }}
                 min={Math.floor((specs.minHeight || 72) / 12)}
-                max={Math.ceil((specs.maxHeight || 192) / 12)}
+                max={Math.ceil((specs.maxHeight || 384) / 12)}
                 className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
               />
               <p className="mt-1 text-xs text-gray-500">feet</p>
