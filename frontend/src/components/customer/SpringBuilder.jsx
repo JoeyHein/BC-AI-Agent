@@ -61,6 +61,7 @@ export default function SpringBuilder() {
   const [submitting, setSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(null);
   const [cartAdded, setCartAdded] = useState(false);
+  const [selectedSprings, setSelectedSprings] = useState({ lh: true, rh: true });
   const { addItems } = useCart();
 
   function handleCalcChange(e) {
@@ -79,6 +80,8 @@ export default function SpringBuilder() {
     setError(null);
     setResult(null);
     setOrderSuccess(null);
+    setSelectedSprings({ lh: true, rh: true });
+    setCartAdded(false);
     try {
       const res = await springBuilderApi.calculate({
         door_weight: parseFloat(calcForm.door_weight),
@@ -105,6 +108,8 @@ export default function SpringBuilder() {
     setError(null);
     setResult(null);
     setOrderSuccess(null);
+    setSelectedSprings({ lh: true, rh: true });
+    setCartAdded(false);
     try {
       const res = await springBuilderApi.lookup({
         wire_diameter: parseFloat(directForm.wire_diameter),
@@ -470,16 +475,23 @@ export default function SpringBuilder() {
             </div>
           )}
 
-          {/* SKU Matches */}
+          {/* SKU Matches — selectable LH / RH */}
           <div className="bg-white rounded-lg border p-6">
             <h2 className="text-lg font-semibold mb-4">Catalog Match</h2>
             <div className="space-y-3">
               {['lh', 'rh'].map(side => {
                 const spring = result.springs?.[side];
                 if (!spring) return null;
+                const springLen = result.calculation?.length || result.specs?.length;
                 return (
-                  <div key={side} className="flex items-center justify-between py-2 border-b last:border-0">
-                    <div>
+                  <label key={side} className={`flex items-center justify-between py-2 border-b last:border-0 cursor-pointer rounded px-2 ${selectedSprings[side] ? 'bg-blue-50' : ''}`}>
+                    <div className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedSprings[side]}
+                        onChange={e => setSelectedSprings(prev => ({ ...prev, [side]: e.target.checked }))}
+                        className="h-4 w-4 text-blue-600 rounded mr-3"
+                      />
                       <span className="text-xs text-gray-400 uppercase mr-2">{side}</span>
                       <span className="font-mono text-sm font-medium">{spring.part_number}</span>
                       <span className="ml-2 text-sm text-gray-500">{spring.description}</span>
@@ -488,24 +500,30 @@ export default function SpringBuilder() {
                       {spring.matched ? (
                         <>
                           <span className="px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded-full">In Stock</span>
-                          {spring.price && <span className="font-medium">${spring.price.toFixed(2)}</span>}
+                          {spring.price != null && (
+                            <span className="font-medium text-sm">${spring.price.toFixed(2)}/in</span>
+                          )}
+                          {spring.price != null && springLen && (
+                            <span className="text-xs text-gray-500">({springLen}" = ${(spring.price * springLen).toFixed(2)})</span>
+                          )}
                         </>
                       ) : (
                         <span className="px-2 py-0.5 bg-yellow-100 text-yellow-800 text-xs rounded-full">Special Order</span>
                       )}
                     </div>
-                  </div>
+                  </label>
                 );
               })}
             </div>
           </div>
 
-          {/* Cone Sets */}
-          {result.cone_sets && (
+          {/* Cone Sets — shown for selected springs */}
+          {result.cone_sets && (selectedSprings.lh || selectedSprings.rh) && (
             <div className="bg-white rounded-lg border p-6">
               <h2 className="text-lg font-semibold mb-4">Winder/Stationary Sets</h2>
               <div className="space-y-2">
                 {['lh', 'rh'].map(side => {
+                  if (!selectedSprings[side]) return null;
                   const cone = result.cone_sets[side];
                   if (!cone) return null;
                   return (
@@ -522,50 +540,53 @@ export default function SpringBuilder() {
             </div>
           )}
 
-          {/* Add Spring Set to Cart */}
-          {result.springs?.lh?.matched && result.springs?.rh?.matched && (
+          {/* Add to Cart */}
+          {(result.springs?.lh?.matched || result.springs?.rh?.matched) && (selectedSprings.lh || selectedSprings.rh) && (
             <div>
               {cartAdded ? (
                 <div className="bg-green-50 text-green-800 p-3 rounded-lg text-sm text-center">
-                  Spring set added to cart!
+                  Added to cart!
                 </div>
               ) : (
                 <button
                   onClick={() => {
                     const cartItems = [];
+                    const springLen = result.calculation?.length || result.specs?.length || 1;
                     for (const side of ['lh', 'rh']) {
+                      if (!selectedSprings[side]) continue;
                       const spring = result.springs[side];
-                      if (spring?.part_number) {
+                      if (!spring?.part_number || !spring.matched) continue;
+                      // Springs sold by the inch
+                      cartItems.push({
+                        item_number: spring.part_number,
+                        description: spring.description || `${side.toUpperCase()} Spring`,
+                        quantity: springLen,
+                        unit_price_estimate: spring.price || null,
+                        source: 'spring-builder',
+                      });
+                      // Matching cone set
+                      const cone = result.cone_sets?.[side];
+                      if (cone?.part_number) {
                         cartItems.push({
-                          item_number: spring.part_number,
-                          description: spring.description || `${side.toUpperCase()} Spring`,
+                          item_number: cone.part_number,
+                          description: cone.description || `${side.toUpperCase()} Cone Set`,
                           quantity: 1,
-                          unit_price_estimate: spring.price || null,
+                          unit_price_estimate: null,
                           source: 'spring-builder',
                         });
                       }
                     }
-                    if (result.cone_sets) {
-                      for (const side of ['lh', 'rh']) {
-                        const cone = result.cone_sets[side];
-                        if (cone?.part_number) {
-                          cartItems.push({
-                            item_number: cone.part_number,
-                            description: cone.description || `${side.toUpperCase()} Cone Set`,
-                            quantity: 1,
-                            unit_price_estimate: null,
-                            source: 'spring-builder',
-                          });
-                        }
-                      }
+                    if (cartItems.length > 0) {
+                      addItems(cartItems);
+                      setCartAdded(true);
+                      setTimeout(() => setCartAdded(false), 3000);
                     }
-                    addItems(cartItems);
-                    setCartAdded(true);
-                    setTimeout(() => setCartAdded(false), 3000);
                   }}
                   className="w-full py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
                 >
-                  Add Spring Set to Cart
+                  {selectedSprings.lh && selectedSprings.rh
+                    ? 'Add Spring Set to Cart'
+                    : `Add ${selectedSprings.lh ? 'LH' : 'RH'} Spring to Cart`}
                 </button>
               )}
             </div>

@@ -863,7 +863,12 @@ class PartNumberService:
         }
         lift_type = lift_type_map.get(config.lift_type, LiftType.STANDARD)
         mount_type = TrackMount.ANGLE if config.track_mount == 'angle' else TrackMount.BRACKET
-        mount_label = "ANGLE MOUNT" if config.track_mount == 'angle' else "BRACKET MOUNT"
+
+        # Bracket mount tracks max out at 20' — switch to angle mount for taller doors
+        if mount_type == TrackMount.BRACKET and door_height_feet > 20:
+            mount_type = TrackMount.ANGLE
+
+        mount_label = "ANGLE MOUNT" if mount_type == TrackMount.ANGLE else "BRACKET MOUNT"
 
         # Get track assembly part number using the rounded-up height
         track = mapper.get_track_assembly(
