@@ -1,8 +1,10 @@
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
+import { useCart } from '../../contexts/CartContext'
 
 function CustomerLayout() {
   const { user, logout, isBCLinked } = useCustomerAuth()
+  const { itemCount } = useCart()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -23,6 +25,7 @@ function CustomerLayout() {
     { path: 'saved-quotes', label: 'My Quotes', icon: DocumentIcon },
     { path: 'catalog', label: 'Catalog', icon: CatalogIcon },
     { path: 'spring-builder', label: 'Spring Builder', icon: SpringIcon },
+    { path: 'cart', label: 'Cart', icon: ShoppingBagIcon, badge: true },
     { path: 'orders', label: 'Orders', icon: ShoppingCartIcon },
     { path: 'account', label: 'Account', icon: UserIcon },
   ]
@@ -43,7 +46,7 @@ function CustomerLayout() {
                   <Link
                     key={item.path}
                     to={item.path}
-                    className={`inline-flex items-center px-3 h-14 border-b-2 text-sm font-medium transition-colors ${
+                    className={`relative inline-flex items-center px-3 h-14 border-b-2 text-sm font-medium transition-colors ${
                       isActive(item.path)
                         ? 'border-odc-600 text-odc-700'
                         : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -51,6 +54,11 @@ function CustomerLayout() {
                   >
                     <item.icon className="h-4 w-4 mr-1.5" />
                     {item.label}
+                    {item.badge && itemCount > 0 && (
+                      <span className="absolute -top-0.5 right-0 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold leading-none text-white bg-red-500 rounded-full">
+                        {itemCount}
+                      </span>
+                    )}
                   </Link>
                 ))}
               </div>
@@ -109,6 +117,14 @@ function DocumentIcon({ className }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
+  )
+}
+
+function ShoppingBagIcon({ className }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
     </svg>
   )
 }

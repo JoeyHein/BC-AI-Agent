@@ -2239,3 +2239,263 @@ def list_special_orders(
         ],
         "count": len(orders),
     }
+
+
+# ============================================================================
+# PARTS CART ENDPOINTS
+# ============================================================================
+
+class CartItem(BaseModel):
+    item_number: str
+    description: Optional[str] = None
+    quantity: int = 1
+
+class CartQuoteRequest(BaseModel):
+    items: List[CartItem]
+
+class CartPlaceOrderRequest(BaseModel):
+    bc_quote_id: str
+
+
+@router.post("/cart/quote")
+def create_cart_quote(
+    body: CartQuoteRequest,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db),
+):
+    """
+    Create a BC sales quote from parts cart items.
+    Applies customer's pricing tier to each line.
+    """
+    if not current_user.bc_customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Your account is not linked to a Business Central customer."
+        )
+
+    if not body.items:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cart is empty."
+        )
+
+    try:
+        pricing_tier = _get_customer_pricing_tier(current_user.bc_customer_id, db)
+
+        # Warm BC cost cache for all part numbers
+        part_numbers = [item.item_number for item in body.items]
+        warm_bc_cost_cache(part_numbers)
+
+        # Create BC quote
+        quote_data = {
+            "customerId": current_user.bc_customer_id,
+            "externalDocumentNumber": f"CART-{current_user.id}",
+        }
+        bc_quote = bc_client.create_sales_quote(quote_data)
+        if not bc_quote:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create quote in Business Central"
+            )
+
+        bc_quote_id = bc_quote.get("id")
+        bc_quote_number = bc_quote.get("number")
+        logger.info(f"Created cart BC quote: {bc_quote_number} (ID: {bc_quote_id})")
+
+        # Add line items
+        line_pricing = []
+        lines_failed = []
+
+        for item in body.items:
+            try:
+                line_data = {
+                    "lineType": "Item",
+                    "lineObjectNumber": item.item_number,
+                    "description": item.description or "",
+                    "quantity": item.quantity,
+                }
+                added_line = bc_client.add_quote_line(bc_quote_id, line_data)
+
+                # Apply tier pricing
+                selling_price = calculate_selling_price(
+                    part_number=item.item_number,
+                    door_type="residential",
+                    tier=pricing_tier,
+                    db=db,
+                )
+                if selling_price is not None:
+                    etag = added_line.get("@odata.etag", "*")
+                    bc_client.update_quote_line(
+                        bc_quote_id,
+                        added_line["id"],
+                        etag,
+                        {"unitPrice": selling_price},
+                    )
+
+                unit_price = selling_price if selling_price is not None else added_line.get("unitPrice", 0)
+                line_pricing.append({
+                    "item_number": item.item_number,
+                    "description": added_line.get("description", item.description or ""),
+                    "quantity": item.quantity,
+                    "unit_price": unit_price,
+                    "line_total": round(unit_price * item.quantity, 2),
+                })
+
+            except Exception as line_err:
+                logger.warning(f"Cart: failed to add line {item.item_number}: {line_err}")
+                # Fall back to Comment line
+                try:
+                    comment_data = {
+                        "lineType": "Comment",
+                        "description": f"{item.item_number} - {item.description or 'N/A'} (x{item.quantity}) [item not found]",
+                    }
+                    bc_client.add_quote_line(bc_quote_id, comment_data)
+                except Exception:
+                    pass
+                lines_failed.append(item.item_number)
+
+        # Fetch final quote totals from BC
+        final_quote = bc_client.get_sales_quote(bc_quote_id)
+        subtotal = final_quote.get("totalAmountExcludingTax", 0)
+        total = final_quote.get("totalAmountIncludingTax", 0)
+        tax = round(total - subtotal, 2) if total and subtotal else 0
+
+        return {
+            "bc_quote_id": bc_quote_id,
+            "bc_quote_number": bc_quote_number,
+            "pricing": {
+                "subtotal": subtotal,
+                "tax": tax,
+                "total": total,
+            },
+            "line_pricing": line_pricing,
+            "lines_failed": lines_failed,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating cart quote: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create quote: {str(e)}"
+        )
+
+
+@router.post("/cart/place-order")
+def place_order_from_cart(
+    body: CartPlaceOrderRequest,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db),
+):
+    """
+    Convert a cart BC quote to a sales order.
+    """
+    if not current_user.bc_customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Your account is not linked to a Business Central customer."
+        )
+
+    if not body.bc_quote_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No quote ID provided."
+        )
+
+    try:
+        # Verify quote exists and belongs to customer
+        quote = bc_client.get_sales_quote(body.bc_quote_id)
+        if not quote:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Quote not found"
+            )
+        if quote.get("customerId") != current_user.bc_customer_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This quote does not belong to your account."
+            )
+
+        bc_quote_number = quote.get("number")
+
+        # Check for existing order
+        existing_order = db.query(SalesOrder).filter(
+            SalesOrder.bc_quote_number == bc_quote_number
+        ).first()
+        if existing_order:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"An order already exists for this quote (Order #{existing_order.bc_order_number})"
+            )
+
+        # Convert quote to order
+        bc_order = bc_client.convert_quote_to_order(body.bc_quote_id)
+
+        bc_order_id = bc_order.get("id")
+        bc_order_number = bc_order.get("number")
+        total_amount = bc_order.get("totalAmountIncludingTax", 0)
+
+        # Parse delivery date
+        bc_delivery_date = None
+        raw_delivery = bc_order.get("requestedDeliveryDate")
+        if raw_delivery and raw_delivery != "0001-01-01":
+            try:
+                bc_delivery_date = datetime.strptime(raw_delivery[:10], "%Y-%m-%d")
+            except (ValueError, TypeError):
+                pass
+
+        # Create local SalesOrder record
+        sales_order = SalesOrder(
+            quote_request_id=None,
+            bc_order_id=bc_order_id,
+            bc_order_number=bc_order_number,
+            bc_quote_number=bc_quote_number,
+            customer_id=current_user.bc_customer_id,
+            bc_customer_id=current_user.bc_customer_id,
+            customer_name=current_user.name,
+            customer_email=current_user.email,
+            status=OrderStatus.CONFIRMED,
+            total_amount=total_amount,
+            currency="CAD",
+            order_date=datetime.utcnow(),
+            confirmed_at=datetime.utcnow(),
+            requested_delivery_date=bc_delivery_date,
+        )
+        db.add(sales_order)
+        db.commit()
+        db.refresh(sales_order)
+
+        logger.info(
+            f"Cart order placed: BC Order {bc_order_number}, Amount: {total_amount}"
+        )
+
+        return {
+            "success": True,
+            "order_id": sales_order.id,
+            "bc_order_number": bc_order_number,
+            "total_amount": float(total_amount) if total_amount else None,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Error placing cart order: {error_msg}", exc_info=True)
+
+        if "404" in error_msg or "not found" in error_msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Quote not found in Business Central. It may have expired or been deleted."
+            )
+
+        if "DialogException" in error_msg or "50005" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This quote cannot be converted to an order. It may have already been converted."
+            )
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to place order: {error_msg}"
+        )

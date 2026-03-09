@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { catalogApi } from '../../api/customerClient';
+import { useCart } from '../../contexts/CartContext';
 
 const CATEGORIES = [
   { value: '', label: 'All Categories' },
@@ -20,6 +21,8 @@ export default function PartsCatalog() {
   const [loading, setLoading] = useState(false);
   const [pricingTier, setPricingTier] = useState(null);
   const [catalogHidden, setCatalogHidden] = useState(false);
+  const [addedItem, setAddedItem] = useState(null);
+  const { addItem } = useCart();
 
   useEffect(() => { loadParts(); }, [category]);
 
@@ -122,6 +125,7 @@ export default function PartsCatalog() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Price</th>
+                <th className="px-4 py-3 w-28"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -135,6 +139,28 @@ export default function PartsCatalog() {
                   </td>
                   <td className="px-4 py-3 text-sm text-right text-gray-900">
                     {part.retail_price != null ? `$${part.retail_price.toFixed(2)}` : '-'}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    {addedItem === part.item_number ? (
+                      <span className="text-green-600 text-xs font-medium">Added!</span>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          addItem({
+                            item_number: part.item_number,
+                            description: part.description,
+                            quantity: 1,
+                            unit_price_estimate: part.retail_price,
+                            source: 'catalog',
+                          });
+                          setAddedItem(part.item_number);
+                          setTimeout(() => setAddedItem(null), 2000);
+                        }}
+                        className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                      >
+                        Add to Cart
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

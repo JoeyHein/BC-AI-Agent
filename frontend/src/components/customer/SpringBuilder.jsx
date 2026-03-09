@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { springBuilderApi } from '../../api/customerClient';
+import { useCart } from '../../contexts/CartContext';
 
 const WIRE_SIZES = [
   { value: 0.1875, label: '.1875"' },
@@ -59,6 +60,8 @@ export default function SpringBuilder() {
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(null);
+  const [cartAdded, setCartAdded] = useState(false);
+  const { addItems } = useCart();
 
   function handleCalcChange(e) {
     const { name, value } = e.target;
@@ -516,6 +519,55 @@ export default function SpringBuilder() {
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {/* Add Spring Set to Cart */}
+          {result.springs?.lh?.matched && result.springs?.rh?.matched && (
+            <div>
+              {cartAdded ? (
+                <div className="bg-green-50 text-green-800 p-3 rounded-lg text-sm text-center">
+                  Spring set added to cart!
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    const cartItems = [];
+                    for (const side of ['lh', 'rh']) {
+                      const spring = result.springs[side];
+                      if (spring?.part_number) {
+                        cartItems.push({
+                          item_number: spring.part_number,
+                          description: spring.description || `${side.toUpperCase()} Spring`,
+                          quantity: 1,
+                          unit_price_estimate: spring.price || null,
+                          source: 'spring-builder',
+                        });
+                      }
+                    }
+                    if (result.cone_sets) {
+                      for (const side of ['lh', 'rh']) {
+                        const cone = result.cone_sets[side];
+                        if (cone?.part_number) {
+                          cartItems.push({
+                            item_number: cone.part_number,
+                            description: cone.description || `${side.toUpperCase()} Cone Set`,
+                            quantity: 1,
+                            unit_price_estimate: null,
+                            source: 'spring-builder',
+                          });
+                        }
+                      }
+                    }
+                    addItems(cartItems);
+                    setCartAdded(true);
+                    setTimeout(() => setCartAdded(false), 3000);
+                  }}
+                  className="w-full py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+                >
+                  Add Spring Set to Cart
+                </button>
+              )}
             </div>
           )}
 

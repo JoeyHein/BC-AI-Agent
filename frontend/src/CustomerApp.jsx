@@ -19,6 +19,8 @@ import ErrorBoundary from './components/customer/ErrorBoundary'
 import PartsCatalog from './components/customer/PartsCatalog'
 import SpringBuilder from './components/customer/SpringBuilder'
 import SpecialOrders from './components/customer/SpecialOrders'
+import PartsCart from './components/customer/PartsCart'
+import { CartProvider } from './contexts/CartContext'
 
 // Create React Query client
 const queryClient = new QueryClient({
@@ -111,6 +113,7 @@ function CustomerAppContent() {
         <Route path="saved-quotes/:id" element={<QuoteBuilder />} />
         <Route path="catalog" element={<PartsCatalog />} />
         <Route path="spring-builder" element={<SpringBuilder />} />
+        <Route path="cart" element={<PartsCart />} />
         <Route path="special-orders" element={<SpecialOrders />} />
         <Route path="orders" element={<MyOrders />} />
         <Route path="orders/:id" element={<OrderDetail />} />
@@ -130,7 +133,9 @@ function CustomerApp() {
       <QueryClientProvider client={queryClient}>
         <Router>
           <CustomerAuthProvider>
-            <CustomerAppContent />
+            <CartProvider>
+              <CustomerAppContent />
+            </CartProvider>
           </CustomerAuthProvider>
         </Router>
       </QueryClientProvider>

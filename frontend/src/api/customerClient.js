@@ -217,6 +217,14 @@ export const springBuilderApi = {
     customerApiClient.get('/api/customer/portal/special-orders', { params }),
 };
 
+// Parts Cart API
+export const cartApi = {
+  createQuote: (items) =>
+    customerApiClient.post('/api/customer/portal/cart/quote', { items }),
+  placeOrder: (bcQuoteId) =>
+    customerApiClient.post('/api/customer/portal/cart/place-order', { bc_quote_id: bcQuoteId }),
+};
+
 // Combined customer API export
 export const customerApi = {
   auth: customerAuthApi,
@@ -227,6 +235,7 @@ export const customerApi = {
   doorConfig: customerDoorConfigApi,
   catalog: catalogApi,
   springBuilder: springBuilderApi,
+  cart: cartApi,
 };
 
 export default customerApiClient;
