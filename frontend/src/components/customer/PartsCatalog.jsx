@@ -19,6 +19,7 @@ export default function PartsCatalog() {
   const [category, setCategory] = useState('');
   const [loading, setLoading] = useState(false);
   const [pricingTier, setPricingTier] = useState(null);
+  const [catalogHidden, setCatalogHidden] = useState(false);
 
   useEffect(() => { loadParts(); }, [category]);
 
@@ -28,8 +29,14 @@ export default function PartsCatalog() {
       const params = { limit: 100 };
       if (category) params.category = category;
       const res = await catalogApi.browse(params);
-      setParts(res.data.items || []);
-      setPricingTier(res.data.pricing_tier);
+      if (res.data.catalog_hidden) {
+        setCatalogHidden(true);
+        setParts([]);
+      } else {
+        setCatalogHidden(false);
+        setParts(res.data.items || []);
+        setPricingTier(res.data.pricing_tier);
+      }
     } catch (e) {
       console.error('Failed to load catalog:', e);
     }
@@ -64,6 +71,12 @@ export default function PartsCatalog() {
           </span>
         )}
       </div>
+
+      {catalogHidden && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+          <p className="text-blue-800">The parts catalog is currently unavailable. Please check back later.</p>
+        </div>
+      )}
 
       {/* Search & Filter */}
       <div className="flex flex-col sm:flex-row gap-3">

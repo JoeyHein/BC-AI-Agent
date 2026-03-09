@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Any, Dict
 
 from app.db.database import SessionLocal
-from app.db.models import User, SavedQuoteConfig, SalesOrder, OrderStatus, Shipment, Invoice, BCCustomer, Part, SpecialOrderRequest
+from app.db.models import User, SavedQuoteConfig, SalesOrder, OrderStatus, Shipment, Invoice, BCCustomer, Part, SpecialOrderRequest, AppSettings
 from app.api.customer_auth import get_current_customer
 from app.integrations.bc.client import bc_client
 from app.integrations.ai.client import ai_client
@@ -2008,6 +2008,16 @@ def get_customer_history(
 # PARTS CATALOG (Customer Browse - Read Only)
 # ============================================================================
 
+def _is_catalog_visible(db: Session) -> bool:
+    """Check if catalog is enabled for customers."""
+    setting = db.query(AppSettings).filter(
+        AppSettings.setting_key == "catalog_visible_to_customers"
+    ).first()
+    if not setting:
+        return False  # Hidden by default until admin enables
+    return setting.setting_value is True or setting.setting_value == "true"
+
+
 @router.get("/catalog")
 def browse_catalog(
     category: Optional[str] = None,
@@ -2018,6 +2028,8 @@ def browse_catalog(
     db: Session = Depends(get_db),
 ):
     """Browse parts catalog (active items only, with tier pricing)."""
+    if not _is_catalog_visible(db):
+        return {"items": [], "count": 0, "pricing_tier": None, "catalog_hidden": True}
     q = db.query(Part).filter(Part.catalog_status == "active")
     if category:
         q = q.filter(Part.category == category)
@@ -2060,6 +2072,8 @@ def search_catalog(
     db: Session = Depends(get_db),
 ):
     """Keyword search in parts catalog."""
+    if not _is_catalog_visible(db):
+        return {"items": [], "count": 0, "catalog_hidden": True}
     query = db.query(Part).filter(
         Part.catalog_status == "active",
         (Part.bc_item_number.ilike(f"%{q}%")) |

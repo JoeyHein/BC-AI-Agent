@@ -564,6 +564,8 @@ export const catalogApi = {
   updateSpecialOrder: (orderId, data) => apiClient.patch(`/api/admin/catalog/special-orders/${orderId}`, data),
   updatePartStatus: (partId, catalogStatus) => apiClient.patch(`/api/admin/catalog/parts/${partId}/status`, { catalog_status: catalogStatus }),
   bulkActivateParts: (data) => apiClient.post('/api/admin/catalog/parts/activate', data),
+  getVisibility: () => apiClient.get('/api/admin/catalog/visibility'),
+  setVisibility: (visible) => apiClient.post('/api/admin/catalog/visibility', { visible }),
 };
 
 // Inventory Agent API (Admin)

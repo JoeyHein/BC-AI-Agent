@@ -8,6 +8,8 @@ export default function CatalogBuilder() {
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState(null);
+  const [catalogVisible, setCatalogVisible] = useState(false);
+  const [togglingVisibility, setTogglingVisibility] = useState(false);
 
   useEffect(() => { loadStats(); }, []);
   useEffect(() => { loadTabData(); }, [activeTab]);
@@ -16,9 +18,25 @@ export default function CatalogBuilder() {
     try {
       const res = await catalogApi.getStats();
       setStats(res.data);
+      if (res.data.catalog_visible !== undefined) {
+        setCatalogVisible(res.data.catalog_visible);
+      }
     } catch (e) {
       console.error('Failed to load stats:', e);
     }
+  }
+
+  async function toggleVisibility() {
+    setTogglingVisibility(true);
+    try {
+      const newVal = !catalogVisible;
+      await catalogApi.setVisibility(newVal);
+      setCatalogVisible(newVal);
+      setMessage({ type: 'success', text: `Catalog is now ${newVal ? 'visible' : 'hidden'} to customers.` });
+    } catch (e) {
+      setMessage({ type: 'error', text: `Failed to update visibility: ${e.response?.data?.detail || e.message}` });
+    }
+    setTogglingVisibility(false);
   }
 
   async function loadTabData() {
@@ -39,8 +57,8 @@ export default function CatalogBuilder() {
           setItems(res.data.items || []);
           break;
         case 'parts':
-          res = await catalogApi.getParts({ limit: 100 });
-          setItems(res.data.items || []);
+          // PartsTable manages its own data loading
+          setItems([]);
           break;
         case 'special-orders':
           res = await catalogApi.getSpecialOrders({ limit: 100 });
@@ -82,12 +100,37 @@ export default function CatalogBuilder() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold text-gray-900">Catalog Builder</h2>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={runPipeline}
+            disabled={running}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          >
+            {running ? 'Running Pipeline...' : 'Run Pipeline'}
+          </button>
+        </div>
+      </div>
+
+      {/* Customer Visibility Toggle */}
+      <div className={`flex items-center justify-between p-4 rounded-lg border ${catalogVisible ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900">Customer Catalog Visibility</h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {catalogVisible
+              ? 'Customers can browse the parts catalog on the portal.'
+              : 'Parts catalog is hidden from customers.'}
+          </p>
+        </div>
         <button
-          onClick={runPipeline}
-          disabled={running}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          onClick={toggleVisibility}
+          disabled={togglingVisibility}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+            catalogVisible ? 'bg-green-600' : 'bg-gray-300'
+          } ${togglingVisibility ? 'opacity-50' : ''}`}
         >
-          {running ? 'Running Pipeline...' : 'Run Pipeline'}
+          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+            catalogVisible ? 'translate-x-6' : 'translate-x-1'
+          }`} />
         </button>
       </div>
 

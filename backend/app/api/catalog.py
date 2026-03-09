@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 from app.db.database import SessionLocal
-from app.db.models import User, UserRole, Part, SpecialOrderRequest
+from app.db.models import User, UserRole, Part, SpecialOrderRequest, AppSettings
 from app.services.auth_service import auth_service
 from app.services.catalog_builder_service import catalog_builder_service
 
@@ -273,6 +273,49 @@ async def bulk_activate_parts(
 
 
 # ============================================================================
+# CUSTOMER VISIBILITY SETTING
+# ============================================================================
+
+CATALOG_VISIBILITY_KEY = "catalog_visible_to_customers"
+
+
+@router.get("/visibility")
+async def get_catalog_visibility(
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Get whether catalog is visible to customers."""
+    setting = db.query(AppSettings).filter(
+        AppSettings.setting_key == CATALOG_VISIBILITY_KEY
+    ).first()
+    return {"visible": setting.setting_value is True if setting else False}
+
+
+@router.post("/visibility")
+async def set_catalog_visibility(
+    body: dict,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Toggle catalog visibility for customers."""
+    visible = body.get("visible", False)
+    setting = db.query(AppSettings).filter(
+        AppSettings.setting_key == CATALOG_VISIBILITY_KEY
+    ).first()
+    if setting:
+        setting.setting_value = visible
+    else:
+        setting = AppSettings(
+            setting_key=CATALOG_VISIBILITY_KEY,
+            setting_value=visible,
+            description="Whether the parts catalog is visible to customer portal users",
+        )
+        db.add(setting)
+    db.commit()
+    return {"success": True, "visible": visible}
+
+
+# ============================================================================
 # STATS ENDPOINT
 # ============================================================================
 
@@ -282,7 +325,13 @@ async def pipeline_stats(
     admin: User = Depends(get_current_admin),
 ):
     """Pipeline statistics."""
-    return catalog_builder_service.get_stats(db)
+    stats = catalog_builder_service.get_stats(db)
+    # Include visibility setting in stats
+    vis = db.query(AppSettings).filter(
+        AppSettings.setting_key == CATALOG_VISIBILITY_KEY
+    ).first()
+    stats["catalog_visible"] = vis.setting_value is True if vis else False
+    return stats
 
 
 # ============================================================================
