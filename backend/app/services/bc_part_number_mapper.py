@@ -253,8 +253,13 @@ class BCPartNumberMapper:
     }
 
     # Weather strip part numbers by length and color
-    # Format: PL10-{length}203-{color}
-    WEATHER_STRIP_LENGTHS = [7, 8, 9, 10, 12, 14, 16, 18]
+    # PL10 format: PL10-{height}203-{color} (galvanized steel/flexible vinyl)
+    # PL11 format: PL11-{1|2}2{height}2-{color} (dual fin, alum/vinyl)
+    #   1 = residential, 2 = commercial
+    WEATHER_STRIP_LENGTHS = [7, 8, 9, 10, 12, 14, 16, 18, 20]
+
+    # Colors that use PL11 (dual fin) instead of PL10
+    PL11_COLOR_CODES = {"25", "30", "40", "55"}  # Iron Ore, New Almond, Hazelwood, English Chestnut
 
     # Astragal sizes by door width (width in feet -> astragal inches)
     ASTRAGAL_BY_WIDTH = {
@@ -525,13 +530,18 @@ class BCPartNumberMapper:
         # Get color code
         color_code = self.COLOR_CODES.get(color.upper(), "00")
 
-        # Build part number: PL10-{height}203-{color}
-        height_code = f"{height:02d}"
-        part_number = f"PL10-{height_code}203-{color_code}"
+        # Specialty colors (woodgrain finishes) use PL11 dual fin strips
+        if color_code in self.PL11_COLOR_CODES:
+            resi_comm = "2" if commercial else "1"
+            part_number = f"PL11-{resi_comm}2{height:02d}2-{color_code}"
+            desc = f"WEATHER STRIP, DUAL FIN, {height:02d}' 2\", {color.upper()}"
+        else:
+            part_number = f"PL10-{height:02d}203-{color_code}"
+            desc = f"PLASTICS, WEATHER STRIP, GALVANIZED STEEL/FLEXIBLE VINYL, {color.upper()}, {height:02d}'"
 
         return BCPartNumber(
             part_number=part_number,
-            description=f"PLASTICS, WEATHER STRIP, GALVANIZED STEEL/FLEXIBLE VINYL, {color.upper()}, {height:02d}'",
+            description=desc,
             category="WEATHER_STRIPPING"
         )
 
