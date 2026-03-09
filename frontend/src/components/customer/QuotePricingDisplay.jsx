@@ -179,28 +179,7 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
         </div>
       )}
 
-      {/* Failed items warning */}
-      {linesFailed && linesFailed.length > 0 && (
-        <div className="px-4 py-3 bg-yellow-50 border-t border-yellow-200">
-          <div className="flex items-start space-x-2">
-            <WarningIcon className="h-4 w-4 text-yellow-600 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="text-xs font-medium text-yellow-800">
-                {linesFailed.length} item{linesFailed.length > 1 ? 's' : ''} could not be priced
-              </p>
-              <ul className="mt-1 text-xs text-yellow-700 space-y-0.5">
-                {linesFailed.map((item, idx) => (
-                  <li key={idx}>
-                    {item.part_number}
-                    {item.description && ` - ${item.description}`}
-                    {item.fallback === 'comment' && ' (added as note)'}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Pricing warnings are logged server-side for admin visibility only */}
 
       {/* Totals */}
       <div className="px-4 py-3 bg-gray-50 border-t border-gray-200">

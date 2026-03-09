@@ -772,6 +772,14 @@ def _generate_bc_quote_with_items(
     except Exception as snap_err:
         logger.warning(f"Could not save quote snapshot: {snap_err}")
 
+    # Log pricing failures for admin visibility (not shown to customers)
+    if lines_failed:
+        failed_parts = [f"{f.get('part_number', '?')} ({f.get('fallback', 'failed')})" for f in lines_failed]
+        logger.warning(
+            f"Quote {bc_quote_number}: {len(lines_failed)} item(s) could not be priced: "
+            f"{', '.join(failed_parts)}"
+        )
+
     return {
         "bc_quote_id": bc_quote_id,
         "bc_quote_number": bc_quote_number,
