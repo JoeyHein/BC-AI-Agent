@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Any, Dict
 
 from app.db.database import SessionLocal
-from app.db.models import User, SavedQuoteConfig, SalesOrder, OrderStatus, Shipment, Invoice, BCCustomer
+from app.db.models import User, SavedQuoteConfig, SalesOrder, OrderStatus, Shipment, Invoice, BCCustomer, Part, SpecialOrderRequest
 from app.api.customer_auth import get_current_customer
 from app.integrations.bc.client import bc_client
 from app.integrations.ai.client import ai_client
@@ -2001,4 +2001,202 @@ def get_customer_history(
             }
             for i in recent_invoices
         ]
+    }
+
+
+# ============================================================================
+# PARTS CATALOG (Customer Browse - Read Only)
+# ============================================================================
+
+@router.get("/catalog")
+def browse_catalog(
+    category: Optional[str] = None,
+    search: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 50,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db),
+):
+    """Browse parts catalog (active items only, with tier pricing)."""
+    q = db.query(Part).filter(Part.catalog_status == "active")
+    if category:
+        q = q.filter(Part.category == category)
+    if search:
+        q = q.filter(
+            (Part.bc_item_number.ilike(f"%{search}%")) |
+            (Part.bc_description.ilike(f"%{search}%"))
+        )
+    parts = q.order_by(Part.bc_item_number).offset(skip).limit(limit).all()
+
+    # Get customer pricing tier
+    tier = _get_customer_pricing_tier(db, current_user)
+
+    return {
+        "items": [
+            {
+                "id": p.id,
+                "item_number": p.bc_item_number,
+                "description": p.bc_description,
+                "category": p.category,
+                "subcategory": p.subcategory,
+                "attributes": p.attributes,
+                "retail_price": float(p.retail_price) if p.retail_price else None,
+                "lead_time_days": p.lead_time_days,
+            }
+            for p in parts
+        ],
+        "count": len(parts),
+        "pricing_tier": tier,
+    }
+
+
+@router.get("/catalog/search")
+def search_catalog(
+    q: str,
+    category: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 50,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db),
+):
+    """Keyword search in parts catalog."""
+    query = db.query(Part).filter(
+        Part.catalog_status == "active",
+        (Part.bc_item_number.ilike(f"%{q}%")) |
+        (Part.bc_description.ilike(f"%{q}%"))
+    )
+    if category:
+        query = query.filter(Part.category == category)
+    parts = query.order_by(Part.bc_item_number).offset(skip).limit(limit).all()
+
+    return {
+        "items": [
+            {
+                "id": p.id,
+                "item_number": p.bc_item_number,
+                "description": p.bc_description,
+                "category": p.category,
+                "subcategory": p.subcategory,
+                "attributes": p.attributes,
+                "retail_price": float(p.retail_price) if p.retail_price else None,
+            }
+            for p in parts
+        ],
+        "count": len(parts),
+    }
+
+
+# ============================================================================
+# SPRING BUILDER (Customer Portal)
+# ============================================================================
+
+class SpringBuilderRequest(BaseModel):
+    door_weight: float
+    door_height: int
+    track_radius: int = 15
+    spring_qty: int = 2
+    target_cycles: int = 10000
+    coil_diameter: float = 2.0
+    drum_model: Optional[str] = None
+    high_lift_inches: int = 0
+
+
+class SpecialOrderSubmit(BaseModel):
+    wire_diameter: float
+    coil_diameter: float
+    spring_length: float
+    wind_direction: str
+    quantity: int = 1
+    spring_type: str = "SP11"
+    door_width: Optional[float] = None
+    door_height: Optional[float] = None
+    door_weight: Optional[float] = None
+    calculation_data: Optional[dict] = None
+
+
+@router.post("/spring-builder/calculate")
+def spring_builder_calculate(
+    body: SpringBuilderRequest,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db),
+):
+    """Calculate spring specs and match to catalog SKUs."""
+    from app.services.spring_builder_service import spring_builder_service
+
+    result = spring_builder_service.calculate_and_match(
+        db=db,
+        door_weight=body.door_weight,
+        door_height=body.door_height,
+        track_radius=body.track_radius,
+        spring_qty=body.spring_qty,
+        target_cycles=body.target_cycles,
+        coil_diameter=body.coil_diameter,
+        drum_model=body.drum_model,
+        high_lift_inches=body.high_lift_inches,
+    )
+    return result
+
+
+@router.post("/spring-builder/special-order")
+def submit_special_order(
+    body: SpecialOrderSubmit,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db),
+):
+    """Submit a special order for a spring that can't be fulfilled from catalog."""
+    from app.services.spring_builder_service import spring_builder_service
+
+    order = spring_builder_service.submit_special_order(
+        db=db,
+        user=current_user,
+        wire_diameter=body.wire_diameter,
+        coil_diameter=body.coil_diameter,
+        spring_length=body.spring_length,
+        wind_direction=body.wind_direction,
+        quantity=body.quantity,
+        spring_type=body.spring_type,
+        door_width=body.door_width,
+        door_height=body.door_height,
+        door_weight=body.door_weight,
+        calculation_data=body.calculation_data,
+    )
+    db.commit()
+    return {
+        "success": True,
+        "order_id": order.id,
+        "status": order.status,
+    }
+
+
+@router.get("/special-orders")
+def list_special_orders(
+    skip: int = 0,
+    limit: int = 50,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db),
+):
+    """List customer's special orders."""
+    from app.services.spring_builder_service import spring_builder_service
+
+    orders = spring_builder_service.get_customer_special_orders(
+        db, current_user.id, skip=skip, limit=limit
+    )
+    return {
+        "items": [
+            {
+                "id": o.id,
+                "wire_diameter": o.wire_diameter,
+                "coil_diameter": o.coil_diameter,
+                "spring_length": o.spring_length,
+                "wind_direction": o.wind_direction,
+                "quantity": o.quantity,
+                "status": o.status,
+                "quoted_price": float(o.quoted_price) if o.quoted_price else None,
+                "quoted_lead_time_days": o.quoted_lead_time_days,
+                "admin_notes": o.admin_notes,
+                "created_at": o.created_at.isoformat() if o.created_at else None,
+            }
+            for o in orders
+        ],
+        "count": len(orders),
     }

@@ -1077,3 +1077,394 @@ class AppSettings(Base):
             "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
             "updatedBy": self.updated_by,
         }
+
+
+# ============================================================================
+# OPENDC PLATFORM MODELS (Catalog, Agents, Inventory, PO)
+# ============================================================================
+
+class CatalogStatus(enum.Enum):
+    """Status of a part in the catalog"""
+    PENDING_REVIEW = "pending_review"
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    DISCONTINUED = "discontinued"
+
+
+class SpecialOrderStatus(enum.Enum):
+    """Status of a special order request"""
+    PENDING = "pending"
+    QUOTED = "quoted"
+    ORDERED = "ordered"
+    RECEIVED = "received"
+    CANCELLED = "cancelled"
+
+
+class DemandSignalType(enum.Enum):
+    """Types of inventory demand signals"""
+    CRITICAL_STOCKOUT = "critical_stockout"
+    REORDER_NEEDED = "reorder_needed"
+    DEMAND_SIGNAL = "demand_signal"
+
+
+class POAgentMode(enum.Enum):
+    """PO Agent operation modes"""
+    DRAFT_ONLY = "draft_only"
+    PENDING_APPROVAL = "pending_approval"
+    AUTO_APPROVE = "auto_approve"
+
+
+class POStatus(enum.Enum):
+    """PO draft status"""
+    DRAFT = "draft"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    SUBMITTED = "submitted"
+    FAILED = "failed"
+
+
+class Part(Base):
+    """Core parts catalog — items extracted from BC, classified and enriched"""
+    __tablename__ = "parts"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # BC reference
+    bc_item_id = Column(String(100), nullable=True, index=True)
+    bc_item_number = Column(String(100), nullable=False, index=True)
+    bc_description = Column(String(500), nullable=True)
+
+    # Classification
+    category = Column(String(50), nullable=False, index=True)  # spring, panel, track, hardware, etc.
+    subcategory = Column(String(50), nullable=True)
+
+    # Enriched attributes (JSONB-style)
+    attributes = Column(JSON, nullable=True)  # wire_size, coil_diameter, wind_direction, color, etc.
+
+    # Pricing
+    unit_cost = Column(Numeric(10, 2), nullable=True)
+    retail_price = Column(Numeric(10, 2), nullable=True)
+
+    # Supplier
+    vendor_id = Column(String(100), nullable=True)
+    vendor_name = Column(String(255), nullable=True)
+    lead_time_days = Column(Integer, nullable=True)
+
+    # Compatibility
+    compatibility = Column(JSON, nullable=True)  # door models, lift types, etc.
+
+    # Status
+    catalog_status = Column(
+        String(30), nullable=False, default="pending_review", index=True
+    )
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<Part(id={self.id}, item={self.bc_item_number}, cat={self.category})>"
+
+
+class DrumType(Base):
+    """Drum radius reference for torque calculations"""
+    __tablename__ = "drum_types"
+
+    id = Column(Integer, primary_key=True, index=True)
+    drum_model = Column(String(50), nullable=False, unique=True)
+    radius_inches = Column(Float, nullable=False)
+    lift_type = Column(String(30), nullable=False)  # standard, high_lift, vertical
+    max_door_height_inches = Column(Integer, nullable=True)
+    description = Column(String(255), nullable=True)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<DrumType(model={self.drum_model}, radius={self.radius_inches})>"
+
+
+class DoorWeightDefault(Base):
+    """Weight lookup by door dimensions and material"""
+    __tablename__ = "door_weight_defaults"
+
+    id = Column(Integer, primary_key=True, index=True)
+    door_model = Column(String(50), nullable=False, index=True)
+    width_inches = Column(Integer, nullable=False)
+    height_inches = Column(Integer, nullable=False)
+    weight_lbs = Column(Float, nullable=False)
+    material = Column(String(50), nullable=True)  # insulated, non-insulated, etc.
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<DoorWeightDefault(model={self.door_model}, {self.width_inches}x{self.height_inches}, {self.weight_lbs}lbs)>"
+
+
+class WireSizeConstraint(Base):
+    """IPPT ranges per wire size / inside diameter / cycle rating"""
+    __tablename__ = "wire_size_constraints"
+
+    id = Column(Integer, primary_key=True, index=True)
+    wire_diameter = Column(Float, nullable=False)
+    inside_diameter = Column(Float, nullable=False)
+    cycle_rating = Column(Integer, nullable=False)  # 10000, 15000, 20000, 25000, 50000, 100000
+    min_ippt = Column(Float, nullable=True)
+    max_ippt = Column(Float, nullable=True)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<WireSizeConstraint(wire={self.wire_diameter}, ID={self.inside_diameter}, cycles={self.cycle_rating})>"
+
+
+class StockedInsideDiameter(Base):
+    """Stocked coil inside diameters — 4 fixed rows"""
+    __tablename__ = "stocked_inside_diameters"
+
+    id = Column(Integer, primary_key=True, index=True)
+    inside_diameter = Column(Float, nullable=False, unique=True)
+    description = Column(String(100), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<StockedInsideDiameter(ID={self.inside_diameter})>"
+
+
+class BCStagingItem(Base):
+    """Catalog builder extraction staging — raw BC items before classification"""
+    __tablename__ = "bc_staging"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # BC raw data
+    bc_item_id = Column(String(100), nullable=False, index=True)
+    bc_item_number = Column(String(100), nullable=False, index=True)
+    bc_description = Column(String(500), nullable=True)
+    bc_unit_cost = Column(Numeric(10, 2), nullable=True)
+    bc_unit_price = Column(Numeric(10, 2), nullable=True)
+    bc_inventory = Column(Float, nullable=True)
+    bc_raw_data = Column(JSON, nullable=True)
+
+    # Processing state
+    is_processed = Column(Boolean, nullable=False, default=False, index=True)
+    classified_category = Column(String(50), nullable=True)
+    enriched_attributes = Column(JSON, nullable=True)
+    processing_notes = Column(Text, nullable=True)
+
+    # Pipeline tracking
+    pipeline_run_id = Column(String(50), nullable=True, index=True)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    processed_at = Column(DateTime, nullable=True)
+
+    def __repr__(self):
+        return f"<BCStagingItem(item={self.bc_item_number}, processed={self.is_processed})>"
+
+
+class CatalogReviewItem(Base):
+    """Items needing human review/classification"""
+    __tablename__ = "catalog_review_queue"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Reference to staging
+    staging_id = Column(Integer, ForeignKey("bc_staging.id"), nullable=True)
+    bc_item_number = Column(String(100), nullable=False, index=True)
+    bc_description = Column(String(500), nullable=True)
+
+    # Review context
+    reason = Column(String(100), nullable=False)  # unknown_prefix, ambiguous_classification, etc.
+    suggested_category = Column(String(50), nullable=True)
+    suggested_attributes = Column(JSON, nullable=True)
+
+    # Resolution
+    is_resolved = Column(Boolean, nullable=False, default=False, index=True)
+    resolved_category = Column(String(50), nullable=True)
+    resolved_attributes = Column(JSON, nullable=True)
+    resolved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relationships
+    staging_item = relationship("BCStagingItem", foreign_keys=[staging_id])
+    resolver = relationship("User", foreign_keys=[resolved_by])
+
+    def __repr__(self):
+        return f"<CatalogReviewItem(item={self.bc_item_number}, resolved={self.is_resolved})>"
+
+
+class DuplicateCandidate(Base):
+    """Deduplication flagging — potential duplicate parts"""
+    __tablename__ = "duplicate_candidates"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # The two items being compared
+    item_a_number = Column(String(100), nullable=False, index=True)
+    item_b_number = Column(String(100), nullable=False, index=True)
+    item_a_id = Column(Integer, ForeignKey("parts.id"), nullable=True)
+    item_b_id = Column(Integer, ForeignKey("parts.id"), nullable=True)
+
+    # Similarity scoring
+    similarity_score = Column(Float, nullable=False)  # 0.0 to 1.0
+    match_reasons = Column(JSON, nullable=True)  # ["same_attributes", "similar_description", etc.]
+
+    # Resolution
+    is_resolved = Column(Boolean, nullable=False, default=False, index=True)
+    resolution = Column(String(50), nullable=True)  # keep_both, merge, discard_b
+    resolved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relationships
+    part_a = relationship("Part", foreign_keys=[item_a_id])
+    part_b = relationship("Part", foreign_keys=[item_b_id])
+    resolver = relationship("User", foreign_keys=[resolved_by])
+
+    def __repr__(self):
+        return f"<DuplicateCandidate(A={self.item_a_number}, B={self.item_b_number}, score={self.similarity_score})>"
+
+
+class SpecialOrderRequest(Base):
+    """Spring specs that can't be fulfilled from catalog"""
+    __tablename__ = "special_order_queue"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Customer reference
+    customer_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    bc_customer_id = Column(String(100), nullable=True)
+
+    # Spring specification
+    wire_diameter = Column(Float, nullable=False)
+    coil_diameter = Column(Float, nullable=False)
+    spring_length = Column(Float, nullable=False)
+    wind_direction = Column(String(5), nullable=False)  # LH or RH
+    quantity = Column(Integer, nullable=False, default=1)
+    spring_type = Column(String(10), nullable=True)  # SP10, SP11
+
+    # Door context
+    door_width = Column(Float, nullable=True)
+    door_height = Column(Float, nullable=True)
+    door_weight = Column(Float, nullable=True)
+
+    # Calculation context
+    calculation_data = Column(JSON, nullable=True)  # full spring calc output
+
+    # Status tracking
+    status = Column(
+        String(20), nullable=False, default="pending", index=True
+    )
+    admin_notes = Column(Text, nullable=True)
+    quoted_price = Column(Numeric(10, 2), nullable=True)
+    quoted_lead_time_days = Column(Integer, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+
+    # Relationships
+    customer = relationship("User", foreign_keys=[customer_user_id])
+
+    def __repr__(self):
+        return f"<SpecialOrderRequest(id={self.id}, wire={self.wire_diameter}, status={self.status})>"
+
+
+class DemandSignal(Base):
+    """Inventory review agent output — demand signals for restocking"""
+    __tablename__ = "demand_signals"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Part reference
+    part_id = Column(Integer, ForeignKey("parts.id"), nullable=True)
+    bc_item_number = Column(String(100), nullable=False, index=True)
+
+    # Signal details
+    signal_type = Column(
+        String(30), nullable=False, index=True
+    )  # critical_stockout, reorder_needed, demand_signal
+    severity = Column(Integer, nullable=False, default=5)  # 1-10, 10 = most urgent
+
+    # Inventory snapshot at signal time
+    current_stock = Column(Float, nullable=True)
+    reorder_point = Column(Float, nullable=True)
+    avg_daily_demand = Column(Float, nullable=True)
+    days_of_stock = Column(Float, nullable=True)
+
+    # Recommended action
+    recommended_qty = Column(Float, nullable=True)
+    recommended_vendor = Column(String(255), nullable=True)
+    estimated_lead_time_days = Column(Integer, nullable=True)
+
+    # Status
+    is_acknowledged = Column(Boolean, nullable=False, default=False, index=True)
+    acknowledged_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    acknowledged_at = Column(DateTime, nullable=True)
+    linked_po_id = Column(Integer, nullable=True)  # linked to po_agent_log if PO was generated
+
+    # Pipeline tracking
+    review_run_id = Column(String(50), nullable=True, index=True)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relationships
+    part = relationship("Part", foreign_keys=[part_id])
+    acknowledger = relationship("User", foreign_keys=[acknowledged_by])
+
+    def __repr__(self):
+        return f"<DemandSignal(item={self.bc_item_number}, type={self.signal_type}, severity={self.severity})>"
+
+
+class POAgentLog(Base):
+    """PO tracking — drafts, approvals, rejections for learning"""
+    __tablename__ = "po_agent_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Vendor
+    vendor_id = Column(String(100), nullable=True)
+    vendor_name = Column(String(255), nullable=False)
+
+    # PO details
+    status = Column(
+        String(20), nullable=False, default="draft", index=True
+    )  # draft, approved, rejected, submitted, failed
+    total_amount = Column(Numeric(10, 2), nullable=True)
+    currency = Column(String(10), nullable=False, default="CAD")
+
+    # Line items
+    line_items = Column(JSON, nullable=False)  # [{bc_item_number, qty, unit_cost, description}, ...]
+
+    # Source signals
+    demand_signal_ids = Column(JSON, nullable=True)  # [signal_id, ...]
+
+    # BC reference (after submission)
+    bc_po_id = Column(String(100), nullable=True)
+    bc_po_number = Column(String(50), nullable=True)
+
+    # Approval workflow
+    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    rejected_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    rejected_at = Column(DateTime, nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+
+    # Pipeline tracking
+    po_run_id = Column(String(50), nullable=True, index=True)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+    submitted_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    approver = relationship("User", foreign_keys=[approved_by])
+    rejector = relationship("User", foreign_keys=[rejected_by])
+
+    def __repr__(self):
+        return f"<POAgentLog(id={self.id}, vendor={self.vendor_name}, status={self.status})>"

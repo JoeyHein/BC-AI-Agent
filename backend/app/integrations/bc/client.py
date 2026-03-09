@@ -500,6 +500,27 @@ class BusinessCentralClient:
         result = self._make_request("GET", f"companies({cid})/purchaseOrders?$top={top}")
         return result.get("value", [])
 
+    def create_purchase_order(self, po_data: Dict[str, Any], company_id: Optional[str] = None) -> Dict[str, Any]:
+        """Create a new purchase order in BC"""
+        cid = company_id or self.company_id
+        result = self._make_request(
+            "POST",
+            f"companies({cid})/purchaseOrders",
+            json=po_data
+        )
+        return result
+
+    def add_purchase_order_line(self, po_id: str, line_data: Dict[str, Any],
+                                 company_id: Optional[str] = None) -> Dict[str, Any]:
+        """Add a line item to a purchase order"""
+        cid = company_id or self.company_id
+        result = self._make_request(
+            "POST",
+            f"companies({cid})/purchaseOrders({po_id})/purchaseOrderLines",
+            json=line_data
+        )
+        return result
+
     # ==================== Sales Orders ====================
 
     def get_sales_orders(self, company_id: Optional[str] = None, top: int = 100,

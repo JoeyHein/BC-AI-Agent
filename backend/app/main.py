@@ -14,6 +14,9 @@ from app.api import feedback, auth, email_connections, email_feedback, quotes, o
 from app.api import customer_auth, customer_portal, admin_customers, inventory, production, production_tasks
 from app.api import chat, quote_review
 from app.api import settings as settings_api
+from app.api import catalog
+from app.api import inventory_agent
+from app.api import po_agent
 
 # Import services
 from app.services.scheduler_service import get_scheduler
@@ -139,6 +142,18 @@ app.include_router(quote_review.router)
 # Settings router (Spring Inventory, etc.)
 logger.info(f"Including settings router: {settings_api.router.prefix}")
 app.include_router(settings_api.router)
+
+# Catalog Builder router (OPENDC)
+logger.info(f"Including catalog router: {catalog.router.prefix}")
+app.include_router(catalog.router)
+
+# Inventory Agent router (OPENDC)
+logger.info(f"Including inventory_agent router: {inventory_agent.router.prefix}")
+app.include_router(inventory_agent.router)
+
+# PO Agent router (OPENDC)
+logger.info(f"Including po_agent router: {po_agent.router.prefix}")
+app.include_router(po_agent.router)
 
 logger.info(f"Total routes after including routers: {len(app.routes)}")
 

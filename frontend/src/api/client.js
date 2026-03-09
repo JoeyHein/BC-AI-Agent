@@ -551,4 +551,34 @@ export const customersApi = {
     }),
 };
 
+// Catalog Builder API (Admin)
+export const catalogApi = {
+  runPipeline: () => apiClient.post('/api/admin/catalog/run-pipeline'),
+  getStaging: (params = {}) => apiClient.get('/api/admin/catalog/staging', { params }),
+  getReviewQueue: (params = {}) => apiClient.get('/api/admin/catalog/review-queue', { params }),
+  resolveReview: (reviewId, data) => apiClient.post(`/api/admin/catalog/review/${reviewId}`, data),
+  getDuplicates: (params = {}) => apiClient.get('/api/admin/catalog/duplicates', { params }),
+  getParts: (params = {}) => apiClient.get('/api/admin/catalog/parts', { params }),
+  getStats: () => apiClient.get('/api/admin/catalog/stats'),
+  getSpecialOrders: (params = {}) => apiClient.get('/api/admin/catalog/special-orders', { params }),
+  updateSpecialOrder: (orderId, data) => apiClient.patch(`/api/admin/catalog/special-orders/${orderId}`, data),
+};
+
+// Inventory Agent API (Admin)
+export const inventoryAgentApi = {
+  runReview: () => apiClient.post('/api/admin/inventory-agent/run'),
+  getSignals: (params = {}) => apiClient.get('/api/admin/inventory-agent/signals', { params }),
+  getDashboard: () => apiClient.get('/api/admin/inventory-agent/dashboard'),
+  acknowledgeSignal: (signalId) => apiClient.post(`/api/admin/inventory-agent/signals/${signalId}/ack`),
+};
+
+// PO Agent API (Admin)
+export const poAgentApi = {
+  runGeneration: () => apiClient.post('/api/admin/po-agent/run'),
+  getDrafts: (params = {}) => apiClient.get('/api/admin/po-agent/drafts', { params }),
+  approveDraft: (draftId) => apiClient.post(`/api/admin/po-agent/drafts/${draftId}/approve`),
+  rejectDraft: (draftId, data) => apiClient.post(`/api/admin/po-agent/drafts/${draftId}/reject`, data),
+  getStats: () => apiClient.get('/api/admin/po-agent/stats'),
+};
+
 export default apiClient;

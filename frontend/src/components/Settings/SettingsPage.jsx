@@ -2,6 +2,9 @@ import { useState } from 'react'
 import SpringInventorySettings from './SpringInventorySettings'
 import GeneralSettings from './GeneralSettings'
 import PricingSettings from './PricingSettings'
+import CatalogBuilder from './CatalogBuilder'
+import InventoryDashboard from '../InventoryAgent/InventoryDashboard'
+import POAgentDashboard from '../POAgent/POAgentDashboard'
 
 function SettingsPage() {
   const [activeTab, setActiveTab] = useState('springs')
@@ -9,6 +12,9 @@ function SettingsPage() {
   const tabs = [
     { id: 'springs', name: 'Spring Inventory', icon: 'cog' },
     { id: 'pricing', name: 'Pricing', icon: 'currency' },
+    { id: 'catalog', name: 'Catalog Builder', icon: 'cog' },
+    { id: 'inventory', name: 'Inventory Agent', icon: 'adjustments' },
+    { id: 'po-agent', name: 'PO Agent', icon: 'currency' },
     { id: 'email', name: 'Email', icon: 'envelope' },
     { id: 'general', name: 'General', icon: 'adjustments' },
   ]
@@ -82,6 +88,9 @@ function SettingsPage() {
         <div className="p-6">
           {activeTab === 'springs' && <SpringInventorySettings />}
           {activeTab === 'pricing' && <PricingSettings />}
+          {activeTab === 'catalog' && <CatalogBuilder />}
+          {activeTab === 'inventory' && <InventoryDashboard />}
+          {activeTab === 'po-agent' && <POAgentDashboard />}
           {activeTab === 'email' && <EmailSettingsTab />}
           {activeTab === 'general' && <GeneralSettings />}
         </div>

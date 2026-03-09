@@ -16,6 +16,9 @@ import EmailVerification from './components/customer/EmailVerification'
 import ResetPassword from './components/customer/ResetPassword'
 import NotFound from './components/customer/NotFound'
 import ErrorBoundary from './components/customer/ErrorBoundary'
+import PartsCatalog from './components/customer/PartsCatalog'
+import SpringBuilder from './components/customer/SpringBuilder'
+import SpecialOrders from './components/customer/SpecialOrders'
 
 // Create React Query client
 const queryClient = new QueryClient({
@@ -106,6 +109,9 @@ function CustomerAppContent() {
         <Route path="saved-quotes" element={<SavedQuotes />} />
         <Route path="saved-quotes/new" element={<QuoteBuilder />} />
         <Route path="saved-quotes/:id" element={<QuoteBuilder />} />
+        <Route path="catalog" element={<PartsCatalog />} />
+        <Route path="spring-builder" element={<SpringBuilder />} />
+        <Route path="special-orders" element={<SpecialOrders />} />
         <Route path="orders" element={<MyOrders />} />
         <Route path="orders/:id" element={<OrderDetail />} />
         <Route path="orders/:id/tracking" element={<OrderTracking />} />

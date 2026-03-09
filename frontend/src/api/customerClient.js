@@ -197,6 +197,24 @@ export const customerDoorConfigApi = {
     customerApiClient.get('/api/door-config/drum-models'),
 };
 
+// Parts Catalog API (Customer browse)
+export const catalogApi = {
+  browse: (params = {}) =>
+    customerApiClient.get('/api/customer/portal/catalog', { params }),
+  search: (query, params = {}) =>
+    customerApiClient.get('/api/customer/portal/catalog/search', { params: { q: query, ...params } }),
+};
+
+// Spring Builder API (Customer)
+export const springBuilderApi = {
+  calculate: (data) =>
+    customerApiClient.post('/api/customer/portal/spring-builder/calculate', data),
+  submitSpecialOrder: (data) =>
+    customerApiClient.post('/api/customer/portal/spring-builder/special-order', data),
+  getSpecialOrders: (params = {}) =>
+    customerApiClient.get('/api/customer/portal/special-orders', { params }),
+};
+
 // Combined customer API export
 export const customerApi = {
   auth: customerAuthApi,
@@ -205,6 +223,8 @@ export const customerApi = {
   orders: ordersApi,
   history: historyApi,
   doorConfig: customerDoorConfigApi,
+  catalog: catalogApi,
+  springBuilder: springBuilderApi,
 };
 
 export default customerApiClient;
