@@ -139,7 +139,7 @@ export default function CatalogBuilder() {
         ) : activeTab === 'duplicates' ? (
           <DuplicatesTable items={items} />
         ) : activeTab === 'parts' ? (
-          <PartsTable items={items} onUpdate={() => { loadTabData(); loadStats(); }} setMessage={setMessage} />
+          <PartsTable onStatsChange={loadStats} setMessage={setMessage} />
         ) : activeTab === 'special-orders' ? (
           <SpecialOrdersTable items={items} onUpdate={loadTabData} />
         ) : null}
@@ -302,16 +302,70 @@ function DuplicatesTable({ items }) {
   );
 }
 
-function PartsTable({ items, onUpdate, setMessage }) {
-  const [activating, setActivating] = useState(false);
-  const pendingCount = items.filter(i => i.catalog_status === 'pending_review').length;
+const PART_CATEGORIES = [
+  { value: '', label: 'All Categories' },
+  { value: 'spring', label: 'Springs' },
+  { value: 'panel', label: 'Panels' },
+  { value: 'track', label: 'Tracks' },
+  { value: 'shaft', label: 'Shafts' },
+  { value: 'hardware_kit', label: 'Hardware Kits' },
+  { value: 'hardware', label: 'Hardware' },
+  { value: 'plastic', label: 'Plastics/Weather Strip' },
+  { value: 'aluminum', label: 'Aluminum' },
+  { value: 'glazing_kit', label: 'Glazing Kits' },
+];
 
-  async function handleActivateAll() {
+const STATUS_OPTIONS = [
+  { value: '', label: 'All Statuses' },
+  { value: 'active', label: 'Active' },
+  { value: 'pending_review', label: 'Pending Review' },
+];
+
+function PartsTable({ onStatsChange, setMessage }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [activating, setActivating] = useState(false);
+  const [category, setCategory] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(0);
+  const pageSize = 50;
+
+  useEffect(() => { loadParts(); }, [category, statusFilter, page]);
+
+  async function loadParts() {
+    setLoading(true);
+    try {
+      const params = { limit: pageSize, skip: page * pageSize };
+      if (category) params.category = category;
+      if (statusFilter) params.status = statusFilter;
+      if (search) params.search = search;
+      const res = await catalogApi.getParts(params);
+      setItems(res.data.items || []);
+    } catch (e) {
+      console.error('Failed to load parts:', e);
+    }
+    setLoading(false);
+  }
+
+  function handleSearch(e) {
+    e.preventDefault();
+    setPage(0);
+    loadParts();
+  }
+
+  async function handleActivateCategory() {
+    const target = category || 'all pending';
+    if (!confirm(`Activate all pending parts${category ? ` in "${category}"` : ''}?`)) return;
     setActivating(true);
     try {
-      const res = await catalogApi.bulkActivateParts({ activate_all_pending: true });
+      const body = category
+        ? { category }
+        : { activate_all_pending: true };
+      const res = await catalogApi.bulkActivateParts(body);
       setMessage({ type: 'success', text: `Activated ${res.data.activated_count} part(s).` });
-      onUpdate();
+      loadParts();
+      onStatsChange();
     } catch (e) {
       setMessage({ type: 'error', text: `Activation failed: ${e.response?.data?.detail || e.message}` });
     }
@@ -322,72 +376,143 @@ function PartsTable({ items, onUpdate, setMessage }) {
     const newStatus = currentStatus === 'active' ? 'pending_review' : 'active';
     try {
       await catalogApi.updatePartStatus(partId, newStatus);
-      onUpdate();
+      loadParts();
+      onStatsChange();
     } catch (e) {
       setMessage({ type: 'error', text: `Status update failed: ${e.response?.data?.detail || e.message}` });
     }
   }
 
-  if (!items.length) return <div className="text-gray-500 py-4">No parts in catalog yet.</div>;
   return (
-    <div className="space-y-3">
-      {pendingCount > 0 && (
-        <div className="flex items-center justify-between bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-          <span className="text-sm text-yellow-800">{pendingCount} part(s) pending review</span>
-          <button
-            onClick={handleActivateAll}
-            disabled={activating}
-            className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50"
+    <div className="space-y-4">
+      {/* Filters */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Category</label>
+          <select
+            value={category}
+            onChange={e => { setCategory(e.target.value); setPage(0); }}
+            className="px-3 py-2 border rounded-lg text-sm"
           >
-            {activating ? 'Activating...' : 'Activate All Pending'}
-          </button>
-        </div>
-      )}
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Item #</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Description</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Category</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Status</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Unit Cost</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Action</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200">
-            {items.map(item => (
-              <tr key={item.id}>
-                <td className="px-4 py-2 text-sm font-mono">{item.bc_item_number}</td>
-                <td className="px-4 py-2 text-sm">{item.bc_description}</td>
-                <td className="px-4 py-2 text-sm capitalize">{item.category}</td>
-                <td className="px-4 py-2 text-sm">
-                  <span className={`px-2 py-0.5 rounded-full text-xs ${
-                    item.catalog_status === 'active' ? 'bg-green-100 text-green-800' :
-                    item.catalog_status === 'pending_review' ? 'bg-yellow-100 text-yellow-800' :
-                    'bg-gray-100 text-gray-800'
-                  }`}>
-                    {item.catalog_status}
-                  </span>
-                </td>
-                <td className="px-4 py-2 text-sm">{item.unit_cost != null ? `$${item.unit_cost.toFixed(2)}` : '-'}</td>
-                <td className="px-4 py-2 text-sm">
-                  <button
-                    onClick={() => handleToggleStatus(item.id, item.catalog_status)}
-                    className={`px-2 py-1 text-xs rounded ${
-                      item.catalog_status === 'active'
-                        ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'
-                        : 'bg-green-100 text-green-800 hover:bg-green-200'
-                    }`}
-                  >
-                    {item.catalog_status === 'active' ? 'Deactivate' : 'Activate'}
-                  </button>
-                </td>
-              </tr>
+            {PART_CATEGORIES.map(c => (
+              <option key={c.value} value={c.value}>{c.label}</option>
             ))}
-          </tbody>
-        </table>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
+          <select
+            value={statusFilter}
+            onChange={e => { setStatusFilter(e.target.value); setPage(0); }}
+            className="px-3 py-2 border rounded-lg text-sm"
+          >
+            {STATUS_OPTIONS.map(s => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+        </div>
+        <form onSubmit={handleSearch} className="flex gap-2">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Item # or description"
+              className="px-3 py-2 border rounded-lg text-sm w-48"
+            />
+          </div>
+          <button type="submit" className="self-end px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200">
+            Search
+          </button>
+        </form>
+        <button
+          onClick={handleActivateCategory}
+          disabled={activating}
+          className="self-end px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50"
+        >
+          {activating ? 'Activating...' : category ? `Activate All "${category}"` : 'Activate All Pending'}
+        </button>
       </div>
+
+      {/* Table */}
+      {loading ? (
+        <div className="text-center py-8 text-gray-500">Loading...</div>
+      ) : items.length === 0 ? (
+        <div className="text-gray-500 py-4">No parts found.</div>
+      ) : (
+        <>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Item #</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Description</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Category</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Subcategory</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Cost</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {items.map(item => (
+                  <tr key={item.id}>
+                    <td className="px-4 py-2 text-sm font-mono">{item.bc_item_number}</td>
+                    <td className="px-4 py-2 text-sm max-w-xs truncate">{item.bc_description}</td>
+                    <td className="px-4 py-2 text-sm capitalize">{item.category}</td>
+                    <td className="px-4 py-2 text-sm capitalize">{item.subcategory || '-'}</td>
+                    <td className="px-4 py-2 text-sm">
+                      <span className={`px-2 py-0.5 rounded-full text-xs ${
+                        item.catalog_status === 'active' ? 'bg-green-100 text-green-800' :
+                        item.catalog_status === 'pending_review' ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {item.catalog_status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-sm">{item.unit_cost != null ? `$${item.unit_cost.toFixed(2)}` : '-'}</td>
+                    <td className="px-4 py-2 text-sm">
+                      <button
+                        onClick={() => handleToggleStatus(item.id, item.catalog_status)}
+                        className={`px-2 py-1 text-xs rounded ${
+                          item.catalog_status === 'active'
+                            ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'
+                            : 'bg-green-100 text-green-800 hover:bg-green-200'
+                        }`}
+                      >
+                        {item.catalog_status === 'active' ? 'Deactivate' : 'Activate'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {/* Pagination */}
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-gray-500">
+              Showing {page * pageSize + 1}-{page * pageSize + items.length}
+            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPage(p => Math.max(0, p - 1))}
+                disabled={page === 0}
+                className="px-3 py-1 border rounded text-sm disabled:opacity-50 hover:bg-gray-50"
+              >
+                Previous
+              </button>
+              <button
+                onClick={() => setPage(p => p + 1)}
+                disabled={items.length < pageSize}
+                className="px-3 py-1 border rounded text-sm disabled:opacity-50 hover:bg-gray-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
