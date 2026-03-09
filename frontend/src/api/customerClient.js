@@ -215,6 +215,8 @@ export const springBuilderApi = {
     customerApiClient.post('/api/customer/portal/spring-builder/special-order', data),
   getSpecialOrders: (params = {}) =>
     customerApiClient.get('/api/customer/portal/special-orders', { params }),
+  getDrums: (liftType) =>
+    customerApiClient.get('/api/customer/portal/spring-builder/drums', { params: { lift_type: liftType } }),
 };
 
 // Parts Cart API

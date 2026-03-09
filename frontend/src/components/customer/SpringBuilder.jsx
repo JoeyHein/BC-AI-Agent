@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { springBuilderApi } from '../../api/customerClient';
 import { useCart } from '../../contexts/CartContext';
 
@@ -45,11 +45,15 @@ export default function SpringBuilder() {
     door_weight: '',
     door_height: '',
     door_width: '',
-    track_radius: 15,
+    lift_type: 'standard_15',
+    assembly: 'standard',
+    drum_model: '',
+    high_lift_inches: 0,
     spring_qty: 2,
     target_cycles: 10000,
     coil_diameter: 2.0,
   });
+  const [availableDrums, setAvailableDrums] = useState([]);
   const [directForm, setDirectForm] = useState({
     wire_diameter: 0.234,
     coil_diameter: 2.0,
@@ -64,9 +68,26 @@ export default function SpringBuilder() {
   const [selectedSprings, setSelectedSprings] = useState({ lh: true, rh: true });
   const { addItems } = useCart();
 
+  // Fetch drum list when lift type changes
+  useEffect(() => {
+    springBuilderApi.getDrums(calcForm.lift_type)
+      .then(res => setAvailableDrums(res.data || []))
+      .catch(() => setAvailableDrums([]));
+  }, [calcForm.lift_type]);
+
   function handleCalcChange(e) {
     const { name, value } = e.target;
-    setCalcForm(prev => ({ ...prev, [name]: value }));
+    if (name === 'lift_type') {
+      setCalcForm(prev => ({ ...prev, lift_type: value, drum_model: '' }));
+    } else if (name === 'assembly') {
+      setCalcForm(prev => ({
+        ...prev,
+        assembly: value,
+        spring_qty: value === 'single' ? 1 : 2,
+      }));
+    } else {
+      setCalcForm(prev => ({ ...prev, [name]: value }));
+    }
   }
 
   function handleDirectChange(e) {
@@ -87,10 +108,13 @@ export default function SpringBuilder() {
         door_weight: parseFloat(calcForm.door_weight),
         door_height: parseInt(calcForm.door_height),
         door_width: calcForm.door_width ? parseFloat(calcForm.door_width) : undefined,
-        track_radius: parseInt(calcForm.track_radius),
         spring_qty: parseInt(calcForm.spring_qty),
         target_cycles: parseInt(calcForm.target_cycles),
         coil_diameter: parseFloat(calcForm.coil_diameter),
+        lift_type: calcForm.lift_type,
+        assembly: calcForm.assembly,
+        drum_model: calcForm.drum_model || undefined,
+        high_lift_inches: calcForm.lift_type === 'high_lift' ? parseInt(calcForm.high_lift_inches) || 0 : 0,
       });
       setResult(res.data);
       if (!res.data.success) {
@@ -229,30 +253,30 @@ export default function SpringBuilder() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Track Radius</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Lift Type</label>
               <select
-                name="track_radius"
-                value={calcForm.track_radius}
+                name="lift_type"
+                value={calcForm.lift_type}
                 onChange={handleCalcChange}
                 className="w-full px-3 py-2 border rounded-lg"
               >
-                <option value="12">12"</option>
-                <option value="15">15"</option>
+                <option value="standard_15">Standard (15" radius)</option>
+                <option value="standard_12">Standard (12" radius)</option>
+                <option value="high_lift">High-Lift</option>
+                <option value="vertical">Vertical</option>
+                <option value="low_headroom">Low Headroom</option>
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Spring Qty</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Assembly</label>
               <select
-                name="spring_qty"
-                value={calcForm.spring_qty}
+                name="assembly"
+                value={calcForm.assembly}
                 onChange={handleCalcChange}
                 className="w-full px-3 py-2 border rounded-lg"
               >
-                <option value="1">1</option>
-                <option value="2">2</option>
-                <option value="4">4</option>
-                <option value="6">6</option>
-                <option value="8">8</option>
+                <option value="standard">Standard (2 springs)</option>
+                <option value="single">Single Spring</option>
               </select>
             </div>
             <div>
@@ -283,6 +307,35 @@ export default function SpringBuilder() {
                 ))}
               </select>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Drum</label>
+              <select
+                name="drum_model"
+                value={calcForm.drum_model}
+                onChange={handleCalcChange}
+                className="w-full px-3 py-2 border rounded-lg"
+              >
+                <option value="">Auto (recommended)</option>
+                {availableDrums.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </div>
+            {calcForm.lift_type === 'high_lift' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">High-Lift Inches</label>
+                <input
+                  type="number"
+                  name="high_lift_inches"
+                  value={calcForm.high_lift_inches}
+                  onChange={handleCalcChange}
+                  min="0"
+                  max="240"
+                  placeholder="e.g. 24"
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            )}
           </div>
           <button
             type="submit"
@@ -400,6 +453,18 @@ export default function SpringBuilder() {
                   <span className="text-gray-500">Drum</span>
                   <div className="font-mono font-bold">{result.calculation.drum_model}</div>
                 </div>
+                {result.calculation.pitch != null && (
+                  <div>
+                    <span className="text-gray-500">Pitch</span>
+                    <div className="font-mono font-bold">{result.calculation.pitch}"</div>
+                  </div>
+                )}
+                {result.calculation.cable_length != null && (
+                  <div>
+                    <span className="text-gray-500">Cable Length</span>
+                    <div className="font-mono font-bold">{result.calculation.cable_length}"</div>
+                  </div>
+                )}
               </div>
             </div>
           )}

@@ -137,6 +137,7 @@ class SpringBuilderService:
         coil_diameter: float = 2.0,
         drum_model: str = None,
         high_lift_inches: int = 0,
+        lift_type: str = "standard_15",
     ) -> dict:
         """
         Calculate spring specs and match to catalog SKUs.
@@ -196,6 +197,14 @@ class SpringBuilderService:
         # Resolve cone sets
         cone_sets = self._resolve_cone_sets(result.coil_diameter)
 
+        # Cable length depends on lift type
+        if lift_type == "vertical":
+            cable_length = door_height * 2 + 8
+        elif lift_type == "high_lift":
+            cable_length = door_height + high_lift_inches + 8
+        else:
+            cable_length = door_height + 8
+
         # Build response
         calc_data = {
             "wire_diameter": result.wire_diameter,
@@ -208,6 +217,8 @@ class SpringBuilderService:
             "spring_quantity": result.spring_quantity,
             "cycle_life": result.cycle_life,
             "drum_model": result.drum_model,
+            "pitch": round(result.wire_diameter, 4),
+            "cable_length": cable_length,
         }
 
         return {
@@ -427,6 +438,16 @@ class SpringBuilderService:
                     })
 
         return alternatives[:limit]
+
+    def get_drum_list(self, lift_type: str) -> list:
+        """Return available drum models for a given lift type."""
+        if lift_type in ("high_lift",):
+            drums = list(calculator.hl_drum_multipliers.keys())
+        elif lift_type in ("vertical",):
+            drums = list(calculator.vl_drum_multipliers.keys())
+        else:
+            drums = list(calculator.drum_multipliers.keys())
+        return sorted(drums)
 
 
 # Global instance

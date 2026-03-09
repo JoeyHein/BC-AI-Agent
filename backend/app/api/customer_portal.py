@@ -2114,6 +2114,8 @@ class SpringBuilderRequest(BaseModel):
     coil_diameter: float = 2.0
     drum_model: Optional[str] = None
     high_lift_inches: int = 0
+    lift_type: str = "standard_15"   # standard_12, standard_15, high_lift, vertical, low_headroom
+    assembly: str = "standard"        # standard, single
 
 
 class SpringLookupRequest(BaseModel):
@@ -2144,19 +2146,58 @@ def spring_builder_calculate(
     """Calculate spring specs and match to catalog SKUs."""
     from app.services.spring_builder_service import spring_builder_service
 
+    # Derive track_radius and high_lift_inches from lift_type
+    lift_type = body.lift_type
+    track_radius = body.track_radius
+    high_lift_inches = body.high_lift_inches
+    drum_model = body.drum_model
+
+    if lift_type == "standard_12":
+        track_radius = 12
+        high_lift_inches = 0
+    elif lift_type == "standard_15":
+        track_radius = 15
+        high_lift_inches = 0
+    elif lift_type == "high_lift":
+        track_radius = 15
+        # high_lift_inches comes from body
+    elif lift_type == "vertical":
+        track_radius = 15
+        high_lift_inches = 0
+    elif lift_type == "low_headroom":
+        track_radius = 12
+        high_lift_inches = 0
+
+    # Map assembly to spring_qty (body.spring_qty still overrides if not default)
+    spring_qty = body.spring_qty
+    if body.assembly == "single" and body.spring_qty == 2:
+        spring_qty = 1
+
     result = spring_builder_service.calculate_and_match(
         db=db,
         door_weight=body.door_weight,
         door_height=body.door_height,
         door_width=body.door_width,
-        track_radius=body.track_radius,
-        spring_qty=body.spring_qty,
+        track_radius=track_radius,
+        spring_qty=spring_qty,
         target_cycles=body.target_cycles,
         coil_diameter=body.coil_diameter,
-        drum_model=body.drum_model,
-        high_lift_inches=body.high_lift_inches,
+        drum_model=drum_model if drum_model else None,
+        high_lift_inches=high_lift_inches,
+        lift_type=lift_type,
     )
     return result
+
+
+@router.get("/spring-builder/drums")
+def get_available_drums(
+    lift_type: str = "standard",
+    current_user: User = Depends(get_current_customer),
+):
+    """Return available drum models for a given lift type."""
+    from app.services.spring_builder_service import spring_builder_service
+
+    return spring_builder_service.get_drum_list(lift_type)
 
 
 @router.post("/spring-builder/lookup")
