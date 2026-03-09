@@ -426,7 +426,7 @@ class CatalogBuilderService:
                 attributes=attrs if attrs else None,
                 unit_cost=item.bc_unit_cost,
                 retail_price=item.bc_unit_price,
-                catalog_status="pending_review",
+                catalog_status="active",
                 created_at=datetime.utcnow(),
             )
             db.add(part)
@@ -491,7 +491,7 @@ class CatalogBuilderService:
                     attributes=attributes,
                     unit_cost=staging.bc_unit_cost,
                     retail_price=staging.bc_unit_price,
-                    catalog_status="pending_review",
+                    catalog_status="active",
                     created_at=datetime.utcnow(),
                 )
                 db.add(part)
