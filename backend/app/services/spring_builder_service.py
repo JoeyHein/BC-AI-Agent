@@ -181,6 +181,65 @@ class SpringBuilderService:
             },
         }
 
+    def lookup_by_specs(
+        self,
+        db: Session,
+        wire_diameter: float,
+        coil_diameter: float,
+        wind: str = "LH",
+        spring_length: float = None,
+    ) -> dict:
+        """
+        Look up a spring by direct specs (wire, coil, wind) without calculating from door params.
+        Returns catalog match, cone sets, and alternatives.
+        """
+        lh_part = mapper.get_spring_part_number(wire_diameter, coil_diameter, "LH")
+        rh_part = mapper.get_spring_part_number(wire_diameter, coil_diameter, "RH")
+
+        lh_match = self._match_sku(db, lh_part.part_number)
+        rh_match = self._match_sku(db, rh_part.part_number)
+
+        # If no match, try stepping up wire
+        if not lh_match:
+            lh_match, stepped_pn = self._try_step_up_wire(db, wire_diameter, coil_diameter, "LH")
+            if stepped_pn:
+                lh_part.part_number = stepped_pn
+        if not rh_match:
+            rh_match, stepped_pn = self._try_step_up_wire(db, wire_diameter, coil_diameter, "RH")
+            if stepped_pn:
+                rh_part.part_number = stepped_pn
+
+        special_order_needed = not lh_match and not rh_match
+        cone_sets = self._resolve_cone_sets(coil_diameter)
+
+        return {
+            "success": True,
+            "mode": "direct_entry",
+            "specs": {
+                "wire_diameter": wire_diameter,
+                "coil_diameter": coil_diameter,
+                "length": spring_length,
+            },
+            "springs": {
+                "lh": {
+                    "part_number": lh_part.part_number,
+                    "description": lh_part.description,
+                    "matched": lh_match is not None,
+                    "catalog_id": lh_match.id if lh_match else None,
+                    "price": float(lh_match.retail_price) if lh_match and lh_match.retail_price else None,
+                },
+                "rh": {
+                    "part_number": rh_part.part_number,
+                    "description": rh_part.description,
+                    "matched": rh_match is not None,
+                    "catalog_id": rh_match.id if rh_match else None,
+                    "price": float(rh_match.retail_price) if rh_match and rh_match.retail_price else None,
+                },
+            },
+            "cone_sets": cone_sets,
+            "special_order_needed": special_order_needed,
+        }
+
     def submit_special_order(
         self,
         db: Session,

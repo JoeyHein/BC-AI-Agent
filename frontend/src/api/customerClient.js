@@ -209,6 +209,8 @@ export const catalogApi = {
 export const springBuilderApi = {
   calculate: (data) =>
     customerApiClient.post('/api/customer/portal/spring-builder/calculate', data),
+  lookup: (data) =>
+    customerApiClient.post('/api/customer/portal/spring-builder/lookup', data),
   submitSpecialOrder: (data) =>
     customerApiClient.post('/api/customer/portal/spring-builder/special-order', data),
   getSpecialOrders: (params = {}) =>

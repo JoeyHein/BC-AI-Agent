@@ -2093,12 +2093,19 @@ def search_catalog(
 class SpringBuilderRequest(BaseModel):
     door_weight: float
     door_height: int
+    door_width: Optional[float] = None
     track_radius: int = 15
     spring_qty: int = 2
     target_cycles: int = 10000
     coil_diameter: float = 2.0
     drum_model: Optional[str] = None
     high_lift_inches: int = 0
+
+
+class SpringLookupRequest(BaseModel):
+    wire_diameter: float
+    coil_diameter: float
+    spring_length: Optional[float] = None
 
 
 class SpecialOrderSubmit(BaseModel):
@@ -2135,6 +2142,23 @@ def spring_builder_calculate(
         high_lift_inches=body.high_lift_inches,
     )
     return result
+
+
+@router.post("/spring-builder/lookup")
+def spring_builder_lookup(
+    body: SpringLookupRequest,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db),
+):
+    """Look up a spring by direct specs (wire, coil diameter) and match to catalog."""
+    from app.services.spring_builder_service import spring_builder_service
+
+    return spring_builder_service.lookup_by_specs(
+        db=db,
+        wire_diameter=body.wire_diameter,
+        coil_diameter=body.coil_diameter,
+        spring_length=body.spring_length,
+    )
 
 
 @router.post("/spring-builder/special-order")
