@@ -396,6 +396,54 @@ export default function SpringBuilder() {
             </div>
           )}
 
+          {/* Shaft Fitment Check */}
+          {result.shaft_fitment && (
+            <div className={`rounded-lg border p-4 ${
+              result.shaft_fitment.fits
+                ? 'bg-green-50 border-green-200'
+                : 'bg-red-50 border-red-200'
+            }`}>
+              <div className="flex items-start gap-3">
+                <div className={`mt-0.5 ${result.shaft_fitment.fits ? 'text-green-600' : 'text-red-600'}`}>
+                  {result.shaft_fitment.fits ? (
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : (
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                    </svg>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <h3 className={`text-sm font-semibold ${result.shaft_fitment.fits ? 'text-green-800' : 'text-red-800'}`}>
+                    {result.shaft_fitment.fits ? 'Shaft Fitment: OK' : 'Shaft Fitment: May Not Fit'}
+                  </h3>
+                  <p className={`text-sm mt-1 ${result.shaft_fitment.fits ? 'text-green-700' : 'text-red-700'}`}>
+                    Required: {result.shaft_fitment.required_width}" / Available: {result.shaft_fitment.door_width}"
+                    {' '}({result.shaft_fitment.margin > 0 ? '+' : ''}{result.shaft_fitment.margin}" margin)
+                  </p>
+                  <details className="mt-2">
+                    <summary className={`text-xs cursor-pointer ${result.shaft_fitment.fits ? 'text-green-600' : 'text-red-600'}`}>
+                      Component breakdown
+                    </summary>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2 text-xs">
+                      {Object.entries(result.shaft_fitment.breakdown).map(([key, val]) => (
+                        <div key={key}>
+                          <span className="text-gray-500">{key.replace(/_/g, ' ')}</span>
+                          <div className="font-mono">{val}"</div>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                  {result.shaft_fitment.note && (
+                    <p className="text-xs text-red-500 mt-1 italic">{result.shaft_fitment.note}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Direct entry specs summary */}
           {result.specs && !result.calculation && (
             <div className="bg-white rounded-lg border p-6">

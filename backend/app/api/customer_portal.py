@@ -2134,6 +2134,7 @@ def spring_builder_calculate(
         db=db,
         door_weight=body.door_weight,
         door_height=body.door_height,
+        door_width=body.door_width,
         track_radius=body.track_radius,
         spring_qty=body.spring_qty,
         target_cycles=body.target_cycles,

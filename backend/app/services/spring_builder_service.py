@@ -20,15 +20,117 @@ logger = logging.getLogger(__name__)
 calculator = SpringCalculatorService()
 mapper = BCPartNumberMapper()
 
+# ============================================================================
+# SHAFT FITMENT COMPONENT WIDTHS (inches, axial dimension on shaft)
+# TODO: Replace estimates with verified Canimex dimensions
+# ============================================================================
+DRUM_WIDTHS = {
+    "D400-96":    4.5,
+    "D400-144":   4.5,
+    "D525-216":   5.5,
+    "D800-384":   7.0,
+    "D400-54":    4.5,   # high-lift
+    "D525-54":    5.5,   # high-lift
+    "D575-120":   6.0,   # high-lift
+    "D6375-164":  6.5,   # high-lift
+    "D800-120":   7.0,   # high-lift
+    "850-132":    5.5,   # vertical
+    "1100-216":   6.5,   # vertical
+    "1350-336":   7.5,   # vertical
+}
+DRUM_WIDTH_DEFAULT = 5.0
+
+BEARING_END_PLATE_WIDTH = 2.5     # each side
+CENTER_BEARING_PLATE_WIDTH = 2.5  # for 4+ spring setups
+COUPLER_WIDTH = 3.5               # shaft coupler
+
+WINDER_CONE_WIDTHS = {  # winder + stationary per coil size
+    1.75:  2.5,
+    2.0:   3.0,
+    2.625: 3.5,
+    3.75:  4.0,
+    6.0:   5.0,
+}
+WINDER_CONE_WIDTH_DEFAULT = 3.0
+
+CLEARANCE_PER_GAP = 0.25  # gap between components
+
 
 class SpringBuilderService:
     """Spring builder with catalog integration."""
+
+    def check_shaft_fitment(
+        self,
+        door_width: float,
+        spring_length: float,
+        spring_qty: int,
+        coil_diameter: float,
+        drum_model: str = None,
+    ) -> dict:
+        """
+        Check if springs + shaft components fit within the door width.
+
+        Shaft layout (2-spring):
+          [end_plate | drum | winder | SPRING | winder | drum | end_plate]
+
+        Shaft layout (4-spring, 2 shaft pieces):
+          [end_plate | drum | winder | SPRING | SPRING | winder | coupler | winder | SPRING | SPRING | winder | drum | end_plate]
+
+        Returns dict with fits (bool), available_width, required_width, breakdown.
+        """
+        drum_width = DRUM_WIDTHS.get(drum_model, DRUM_WIDTH_DEFAULT)
+        winder_width = WINDER_CONE_WIDTHS.get(coil_diameter, WINDER_CONE_WIDTH_DEFAULT)
+
+        # Springs per shaft side (springs are split L/R of center or across shaft pieces)
+        # For standard 2-spring: 1 spring each side, no coupler
+        # For 4+: springs grouped in pairs per shaft piece with couplers between
+        num_couplers = max(0, (spring_qty // 2) - 1)
+        num_winder_sets = spring_qty  # each spring needs a winder cone
+
+        # Component widths
+        drums_total = 2 * drum_width
+        end_plates_total = 2 * BEARING_END_PLATE_WIDTH
+        couplers_total = num_couplers * COUPLER_WIDTH
+        center_plates_total = num_couplers * CENTER_BEARING_PLATE_WIDTH if num_couplers > 0 else 0
+        winders_total = num_winder_sets * winder_width
+        springs_total = spring_qty * spring_length
+
+        # Gaps: between each component
+        # Rough estimate: 2 end plates + 2 drums + N springs + N winders + couplers + center plates
+        num_components = 2 + 2 + spring_qty + num_winder_sets + num_couplers
+        gaps_total = num_components * CLEARANCE_PER_GAP
+
+        required_width = (
+            drums_total + end_plates_total + couplers_total +
+            center_plates_total + winders_total + springs_total + gaps_total
+        )
+
+        fits = required_width <= door_width
+        margin = door_width - required_width
+
+        return {
+            "fits": fits,
+            "door_width": door_width,
+            "required_width": round(required_width, 2),
+            "margin": round(margin, 2),
+            "breakdown": {
+                "drums": round(drums_total, 2),
+                "end_plates": round(end_plates_total, 2),
+                "springs": round(springs_total, 2),
+                "winder_cones": round(winders_total, 2),
+                "couplers": round(couplers_total, 2),
+                "center_plates": round(center_plates_total, 2),
+                "clearance_gaps": round(gaps_total, 2),
+            },
+            "note": "Component widths are estimates — verify against Canimex specs" if not fits else None,
+        }
 
     def calculate_and_match(
         self,
         db: Session,
         door_weight: float,
         door_height: int,
+        door_width: float = None,
         track_radius: int = 15,
         spring_qty: int = 2,
         target_cycles: int = 10000,
@@ -129,6 +231,13 @@ class SpringBuilderService:
             },
             "cone_sets": cone_sets,
             "special_order_needed": special_order_needed,
+            "shaft_fitment": self.check_shaft_fitment(
+                door_width=door_width,
+                spring_length=result.length,
+                spring_qty=result.spring_quantity,
+                coil_diameter=result.coil_diameter,
+                drum_model=result.drum_model,
+            ) if door_width else None,
         }
 
     def _match_sku(self, db: Session, part_number: str) -> Optional[Part]:
