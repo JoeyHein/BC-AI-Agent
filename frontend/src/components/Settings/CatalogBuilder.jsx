@@ -139,7 +139,7 @@ export default function CatalogBuilder() {
         ) : activeTab === 'duplicates' ? (
           <DuplicatesTable items={items} />
         ) : activeTab === 'parts' ? (
-          <PartsTable items={items} />
+          <PartsTable items={items} onUpdate={() => { loadTabData(); loadStats(); }} setMessage={setMessage} />
         ) : activeTab === 'special-orders' ? (
           <SpecialOrdersTable items={items} onUpdate={loadTabData} />
         ) : null}
@@ -302,40 +302,92 @@ function DuplicatesTable({ items }) {
   );
 }
 
-function PartsTable({ items }) {
+function PartsTable({ items, onUpdate, setMessage }) {
+  const [activating, setActivating] = useState(false);
+  const pendingCount = items.filter(i => i.catalog_status === 'pending_review').length;
+
+  async function handleActivateAll() {
+    setActivating(true);
+    try {
+      const res = await catalogApi.bulkActivateParts({ activate_all_pending: true });
+      setMessage({ type: 'success', text: `Activated ${res.data.activated_count} part(s).` });
+      onUpdate();
+    } catch (e) {
+      setMessage({ type: 'error', text: `Activation failed: ${e.response?.data?.detail || e.message}` });
+    }
+    setActivating(false);
+  }
+
+  async function handleToggleStatus(partId, currentStatus) {
+    const newStatus = currentStatus === 'active' ? 'pending_review' : 'active';
+    try {
+      await catalogApi.updatePartStatus(partId, newStatus);
+      onUpdate();
+    } catch (e) {
+      setMessage({ type: 'error', text: `Status update failed: ${e.response?.data?.detail || e.message}` });
+    }
+  }
+
   if (!items.length) return <div className="text-gray-500 py-4">No parts in catalog yet.</div>;
   return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full divide-y divide-gray-200">
-        <thead className="bg-gray-50">
-          <tr>
-            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Item #</th>
-            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Description</th>
-            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Category</th>
-            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Status</th>
-            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Unit Cost</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-200">
-          {items.map(item => (
-            <tr key={item.id}>
-              <td className="px-4 py-2 text-sm font-mono">{item.bc_item_number}</td>
-              <td className="px-4 py-2 text-sm">{item.bc_description}</td>
-              <td className="px-4 py-2 text-sm capitalize">{item.category}</td>
-              <td className="px-4 py-2 text-sm">
-                <span className={`px-2 py-0.5 rounded-full text-xs ${
-                  item.catalog_status === 'active' ? 'bg-green-100 text-green-800' :
-                  item.catalog_status === 'pending_review' ? 'bg-yellow-100 text-yellow-800' :
-                  'bg-gray-100 text-gray-800'
-                }`}>
-                  {item.catalog_status}
-                </span>
-              </td>
-              <td className="px-4 py-2 text-sm">{item.unit_cost != null ? `$${item.unit_cost.toFixed(2)}` : '-'}</td>
+    <div className="space-y-3">
+      {pendingCount > 0 && (
+        <div className="flex items-center justify-between bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+          <span className="text-sm text-yellow-800">{pendingCount} part(s) pending review</span>
+          <button
+            onClick={handleActivateAll}
+            disabled={activating}
+            className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50"
+          >
+            {activating ? 'Activating...' : 'Activate All Pending'}
+          </button>
+        </div>
+      )}
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Item #</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Description</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Category</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Unit Cost</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Action</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-gray-200">
+            {items.map(item => (
+              <tr key={item.id}>
+                <td className="px-4 py-2 text-sm font-mono">{item.bc_item_number}</td>
+                <td className="px-4 py-2 text-sm">{item.bc_description}</td>
+                <td className="px-4 py-2 text-sm capitalize">{item.category}</td>
+                <td className="px-4 py-2 text-sm">
+                  <span className={`px-2 py-0.5 rounded-full text-xs ${
+                    item.catalog_status === 'active' ? 'bg-green-100 text-green-800' :
+                    item.catalog_status === 'pending_review' ? 'bg-yellow-100 text-yellow-800' :
+                    'bg-gray-100 text-gray-800'
+                  }`}>
+                    {item.catalog_status}
+                  </span>
+                </td>
+                <td className="px-4 py-2 text-sm">{item.unit_cost != null ? `$${item.unit_cost.toFixed(2)}` : '-'}</td>
+                <td className="px-4 py-2 text-sm">
+                  <button
+                    onClick={() => handleToggleStatus(item.id, item.catalog_status)}
+                    className={`px-2 py-1 text-xs rounded ${
+                      item.catalog_status === 'active'
+                        ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'
+                        : 'bg-green-100 text-green-800 hover:bg-green-200'
+                    }`}
+                  >
+                    {item.catalog_status === 'active' ? 'Deactivate' : 'Activate'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

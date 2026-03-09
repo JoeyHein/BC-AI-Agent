@@ -562,6 +562,8 @@ export const catalogApi = {
   getStats: () => apiClient.get('/api/admin/catalog/stats'),
   getSpecialOrders: (params = {}) => apiClient.get('/api/admin/catalog/special-orders', { params }),
   updateSpecialOrder: (orderId, data) => apiClient.patch(`/api/admin/catalog/special-orders/${orderId}`, data),
+  updatePartStatus: (partId, catalogStatus) => apiClient.patch(`/api/admin/catalog/parts/${partId}/status`, { catalog_status: catalogStatus }),
+  bulkActivateParts: (data) => apiClient.post('/api/admin/catalog/parts/activate', data),
 };
 
 // Inventory Agent API (Admin)

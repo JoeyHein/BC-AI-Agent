@@ -2029,7 +2029,7 @@ def browse_catalog(
     parts = q.order_by(Part.bc_item_number).offset(skip).limit(limit).all()
 
     # Get customer pricing tier
-    tier = _get_customer_pricing_tier(db, current_user)
+    tier = _get_customer_pricing_tier(current_user.bc_customer_id, db)
 
     return {
         "items": [

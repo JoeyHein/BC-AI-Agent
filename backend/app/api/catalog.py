@@ -224,6 +224,55 @@ async def list_parts(
 
 
 # ============================================================================
+# PARTS STATUS MANAGEMENT
+# ============================================================================
+
+class PartStatusUpdate(BaseModel):
+    catalog_status: str  # "active", "pending_review", "archived"
+
+
+@router.patch("/parts/{part_id}/status")
+async def update_part_status(
+    part_id: int,
+    body: PartStatusUpdate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Update a single part's catalog status."""
+    part = db.query(Part).get(part_id)
+    if not part:
+        raise HTTPException(status_code=404, detail="Part not found")
+    part.catalog_status = body.catalog_status
+    db.commit()
+    return {"success": True, "id": part.id, "catalog_status": part.catalog_status}
+
+
+class BulkActivateRequest(BaseModel):
+    part_ids: Optional[List[int]] = None
+    category: Optional[str] = None
+    activate_all_pending: bool = False
+
+
+@router.post("/parts/activate")
+async def bulk_activate_parts(
+    body: BulkActivateRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Bulk activate parts by IDs, category, or all pending."""
+    q = db.query(Part).filter(Part.catalog_status == "pending_review")
+    if body.part_ids:
+        q = q.filter(Part.id.in_(body.part_ids))
+    elif body.category:
+        q = q.filter(Part.category == body.category)
+    elif not body.activate_all_pending:
+        raise HTTPException(status_code=400, detail="Provide part_ids, category, or set activate_all_pending=true")
+    count = q.update({"catalog_status": "active"}, synchronize_session="fetch")
+    db.commit()
+    return {"success": True, "activated_count": count}
+
+
+# ============================================================================
 # STATS ENDPOINT
 # ============================================================================
 
