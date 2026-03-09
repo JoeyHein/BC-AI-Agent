@@ -239,6 +239,9 @@ WINDOW_CUTOUT_WEIGHTS = {
 # Net window weight (window weight - cutout weight)
 # Pre-calculated for convenience
 
+# Stocked spring coil diameters (inches) — these are the only coils we carry
+STOCKED_COIL_DIAMETERS = [2.0, 2.625, 3.75, 6.0]
+
 # Drum selection table
 # Format: {drum_model: {max_height: int, max_weight: int, offset: float, cable_diameters: [small, large]}}
 DRUM_TABLE = {
@@ -907,9 +910,10 @@ class DoorCalculatorService:
 
         # Unfiltered calculation (no inventory, or inventory had no match)
         # Try stocked coil sizes in order of preference, scaling up spring count
-        stocked_coils = [2.0, 2.625, 3.75, 6.0]
+        stocked_coils = STOCKED_COIL_DIAMETERS
 
-        unfiltered_progression = list(dict.fromkeys([1, spring_qty, 2, 4, 6, 8]))
+        # Try requested qty first (usually 2), then scale up, then 1 as last resort
+        unfiltered_progression = list(dict.fromkeys([spring_qty, 2, 4, 6, 8, 1]))
         for qty in unfiltered_progression:
             for coil_diam in stocked_coils:
                 result = spring_calculator.calculate_spring(

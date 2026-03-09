@@ -925,15 +925,35 @@ class PartNumberService:
         # Parse track radius (handle string format)
         track_radius = int(config.track_radius) if config.track_radius else 15
 
+        # Map lift type to door_calculator's lift config for correct drum selection
+        # Without this, VL/HL doors get a standard drum → wrong spring calculation
+        lift_type_map = {
+            'standard': 'standard',
+            'low_headroom': 'standard',
+            'high_lift': 'high',
+            'vertical': 'vertical',
+        }
+        dc_lift_type = lift_type_map.get(config.lift_type, 'standard')
+        lift_config = {"type": dc_lift_type, "radius": track_radius}
+
+        # Select the correct drum for this lift type
+        high_lift_inches = config.high_lift_inches or 0
+        effective_height = config.door_height + high_lift_inches if dc_lift_type == 'high' else config.door_height
+        drums = door_calculator._select_drum(
+            config.door_height, door_weight, lift_config,
+            effective_height=effective_height,
+        )
+
         # Use door_calculator._calculate_springs() — same engine as specs tab
         spring_result = door_calculator._calculate_springs(
             door_weight=door_weight,
             height_inches=config.door_height,
             width_inches=config.door_width,
-            drums=None,  # Let calculator auto-select drum for torque calculation
+            drums=drums,
             target_cycles=config.target_cycles,
             track_radius=track_radius,
             spring_inventory=config.spring_inventory,
+            high_lift_inches=high_lift_inches,
         )
 
         if spring_result is None:
@@ -957,17 +977,16 @@ class PartNumberService:
         # Residential doors: if wire < .218 with 2+ springs, retry with 1 spring
         # BC minimum wire is .218 — anything smaller has no BC part number
         if wire_size < 0.218 and config.door_type == "residential" and spring_qty >= 2:
-            # Parse track radius (handle string format)
-            retry_track_radius = int(config.track_radius) if config.track_radius else 15
             single_result = door_calculator._calculate_springs(
                 door_weight=door_weight,
                 height_inches=config.door_height,
                 width_inches=config.door_width,
-                drums=None,
+                drums=drums,
                 target_cycles=config.target_cycles,
-                track_radius=retry_track_radius,
+                track_radius=track_radius,
                 spring_qty=1,
                 spring_inventory=config.spring_inventory,
+                high_lift_inches=high_lift_inches,
             )
             if single_result and single_result.wire_diameter >= 0.218:
                 wire_size = single_result.wire_diameter
