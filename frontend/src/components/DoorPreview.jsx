@@ -208,6 +208,7 @@ function DoorPreview({
   hasInserts = false,  // Whether decorative inserts are added
   glassColor = 'CLEAR',  // Glass color: CLEAR, ETCHED, SUPER_GREY
   windowQty = 0,  // For commercial doors
+  windowPanels = null,  // Per-panel window config: { "1": { qty: 4 }, "3": { qty: 4 } }
   windowFrameColor = 'MATCH',  // 'MATCH' = darken door color, or a color ID / 'WHITE' / 'BLACK'
   doorType = 'residential',
   doorSeries = '',  // 'CRAFT' for 3-panel doors
@@ -321,16 +322,19 @@ function DoorPreview({
 
     // V130G full-view section: renders entire section as aluminum/glass
     if (isCommercial && windowInsert === 'V130G' && windowQty > 0) {
-      // Render V130G on the selected section(s) starting from windowSection
-      const v130gStart = (windowSection || 1) - 1
-      if (sectionIndex >= v130gStart && sectionIndex < v130gStart + windowQty) {
+      const hasV130G = windowPanels
+        ? !!(windowPanels[sectionIndex + 1]?.qty)
+        : (sectionIndex >= ((windowSection || 1) - 1) && sectionIndex < ((windowSection || 1) - 1) + windowQty)
+      if (hasV130G) {
         return renderV130GSection(sectionY, sectionHeight, padding, panelWidth)
       }
     }
 
     // Check if this section has commercial thermopane windows (not V130G)
+    const panelNum = sectionIndex + 1  // panels are 1-indexed
+    const panelWindowQty = windowPanels ? (windowPanels[panelNum]?.qty || 0) : (sectionIndex === (windowSection - 1) ? windowQty : 0)
     const hasCommercialWindows = isCommercial && windowInsert && windowInsert !== 'NONE' && windowInsert !== 'V130G' &&
-        sectionIndex === (windowSection - 1) && windowQty > 0
+        panelWindowQty > 0
 
     // Craft series designs: delegate to Craft-specific renderer
     if (pattern.type === 'xbrace' || pattern.type === 'raised_grid') {
@@ -360,7 +364,7 @@ function DoorPreview({
 
     // Overlay commercial thermopane windows on top of the panel design
     if (hasCommercialWindows) {
-      const windowOverlay = renderCommercialWindows(sectionY + padding, panelWidth, panelHeight, padding)
+      const windowOverlay = renderCommercialWindows(sectionY + padding, panelWidth, panelHeight, padding, sectionIndex, panelWindowQty)
       return <>{baseElements}{windowOverlay}</>
     }
 
@@ -586,8 +590,8 @@ function DoorPreview({
     return <g key={`al-section-${sectionIndex}`}>{elements}</g>
   }
 
-  // Render commercial windows (multiple windows across top section)
-  const renderCommercialWindows = (y, w, h, padding) => {
+  // Render commercial windows (multiple windows across a section)
+  const renderCommercialWindows = (y, w, h, padding, sectionIdx = 0, qty = windowQty) => {
     const elements = []
     const frameColor = windowFrameColor === 'BLACK' ? '#1a1a1a' : '#FFFFFF'
     const frameStroke = windowFrameColor === 'BLACK' ? '#000' : '#888'
@@ -601,7 +605,6 @@ function DoorPreview({
     const windowSize = windowSizes[windowInsert] || { width: 24, height: 12 }
 
     // Get actual section height in inches for proper vertical scaling
-    const sectionIdx = (windowSection || 1) - 1
     const sectionInches = sectionConfig[sectionIdx] || 24
 
     // Scale using the panel's actual dimensions (w maps to door width, h maps to section height)
@@ -613,17 +616,17 @@ function DoorPreview({
     const frameThickness = Math.max(2, 2.5 * hScale)
 
     // Calculate even spacing across the full panel width
-    const totalWindowWidth = scaledWindowWidth * windowQty
-    const spaces = windowQty + 1
+    const totalWindowWidth = scaledWindowWidth * qty
+    const spaces = qty + 1
     const spacing = (w - totalWindowWidth) / spaces
 
     // Render each window
-    for (let i = 0; i < windowQty; i++) {
+    for (let i = 0; i < qty; i++) {
       const windowX = padding + spacing + i * (scaledWindowWidth + spacing)
       const windowY = y + (h - scaledWindowHeight) / 2  // vertically centered
 
       elements.push(
-        <g key={`commercial-window-${i}`}>
+        <g key={`commercial-window-${sectionIdx}-${i}`}>
           {/* Panel-colored cutout behind window (covers panel ribs/design) */}
           <rect
             x={windowX - frameThickness - 1}

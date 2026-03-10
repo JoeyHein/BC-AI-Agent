@@ -1245,6 +1245,7 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
                   doorSeries={door.doorSeries || ''}
                   windowQty={door.windowQty || 0}
                   windowSection={door.windowSection || 1}
+                  windowPanels={door.windowPanels || null}
                   showDimensions={false}
                   scale={0.7}
                   interactive={!isCommercial}
@@ -1553,6 +1554,7 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
               doorSeries={door.doorSeries || ''}
               windowQty={door.windowQty || 0}
               windowSection={door.windowSection || 1}
+              windowPanels={door.windowPanels || null}
               showDimensions={true}
               scale={0.6}
             />
