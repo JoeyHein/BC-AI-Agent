@@ -2112,7 +2112,7 @@ class SpringBuilderRequest(BaseModel):
     spring_qty: int = 2
     target_cycles: int = 10000
     coil_diameter: float = 2.0
-    drum_model: Optional[str] = None
+    drum_model: str
     high_lift_inches: int = 0
     lift_type: str = "standard_15"   # standard_12, standard_15, high_lift, vertical, low_headroom
     assembly: str = "standard"        # standard, single
@@ -2182,7 +2182,7 @@ def spring_builder_calculate(
         spring_qty=spring_qty,
         target_cycles=body.target_cycles,
         coil_diameter=body.coil_diameter,
-        drum_model=drum_model if drum_model else None,
+        drum_model=drum_model,
         high_lift_inches=high_lift_inches,
         lift_type=lift_type,
     )

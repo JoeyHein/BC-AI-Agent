@@ -68,10 +68,17 @@ export default function SpringBuilder() {
   const [selectedSprings, setSelectedSprings] = useState({ lh: true, rh: true });
   const { addItems } = useCart();
 
-  // Fetch drum list when lift type changes
+  // Fetch drum list when lift type changes, auto-select first drum
   useEffect(() => {
     springBuilderApi.getDrums(calcForm.lift_type)
-      .then(res => setAvailableDrums(res.data || []))
+      .then(res => {
+        const drums = res.data || [];
+        setAvailableDrums(drums);
+        // Auto-select first drum if current selection isn't in the new list
+        if (drums.length > 0 && !drums.includes(calcForm.drum_model)) {
+          setCalcForm(prev => ({ ...prev, drum_model: drums[0] }));
+        }
+      })
       .catch(() => setAvailableDrums([]));
   }, [calcForm.lift_type]);
 
@@ -113,7 +120,7 @@ export default function SpringBuilder() {
         coil_diameter: parseFloat(calcForm.coil_diameter),
         lift_type: calcForm.lift_type,
         assembly: calcForm.assembly,
-        drum_model: calcForm.drum_model || undefined,
+        drum_model: calcForm.drum_model,
         high_lift_inches: calcForm.lift_type === 'high_lift' ? parseInt(calcForm.high_lift_inches) || 0 : 0,
       });
       setResult(res.data);
@@ -313,9 +320,12 @@ export default function SpringBuilder() {
                 name="drum_model"
                 value={calcForm.drum_model}
                 onChange={handleCalcChange}
+                required
                 className="w-full px-3 py-2 border rounded-lg"
               >
-                <option value="">Auto (recommended)</option>
+                {availableDrums.length === 0 && (
+                  <option value="">Loading drums...</option>
+                )}
                 {availableDrums.map(d => (
                   <option key={d} value={d}>{d}</option>
                 ))}
@@ -339,7 +349,7 @@ export default function SpringBuilder() {
           </div>
           <button
             type="submit"
-            disabled={loading || !calcForm.door_weight || !calcForm.door_height}
+            disabled={loading || !calcForm.door_weight || !calcForm.door_height || !calcForm.drum_model}
             className="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium"
           >
             {loading ? 'Calculating...' : 'Calculate Spring'}
