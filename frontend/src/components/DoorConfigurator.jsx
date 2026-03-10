@@ -2250,10 +2250,10 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
         setLoadingParts(false)
       }
 
-      // Fetch calculations for each door (commercial doors only)
+      // Fetch calculations for each door
       try {
         const calcPromises = doors
-          .filter(door => ['TX450', 'TX500', 'TX450-20', 'TX500-20', 'TX380'].includes(door.doorSeries))
+          .filter(door => door.doorSeries && door.doorWidth && door.doorHeight)
           .map(async (door) => {
             const calcRequest = {
               doorModel: door.doorSeries,
