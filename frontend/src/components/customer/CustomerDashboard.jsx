@@ -174,7 +174,7 @@ function CustomerDashboard() {
               </div>
             ) : ordersLoading ? (
               <div className="p-6 text-center text-gray-500">Loading...</div>
-            ) : orders?.length === 0 ? (
+            ) : !orders?.length ? (
               <div className="p-6 text-center text-gray-500">No orders yet</div>
             ) : (
               orders.slice(0, 5).map((order) => (
