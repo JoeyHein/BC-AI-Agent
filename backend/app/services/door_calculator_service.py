@@ -1075,8 +1075,8 @@ class DoorCalculatorService:
         is_narrow_tall = width_inches <= 168 and height_inches >= 192  # <=14' wide, >=16' tall
 
         # Pick best candidate
-        # Max practical spring length is ~48" (4 feet) for handling/shipping
-        MAX_PRACTICAL_LENGTH = 48.0
+        # Max practical spring length is 75" for handling/shipping
+        MAX_PRACTICAL_LENGTH = 75.0
 
         # Single springs over 36" are impractical — penalize in sorting
         MAX_SINGLE_SPRING_LENGTH = 36.0
