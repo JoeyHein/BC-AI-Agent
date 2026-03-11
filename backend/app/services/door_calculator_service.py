@@ -1349,13 +1349,13 @@ class DoorCalculatorService:
 
         strut_count = THERMALEX_STRUT_TABLE[w_idx][h_idx]
 
-        # Determine strut type from height index
-        if h_idx <= 1:      # ≤121" (10'-1")
-            strut_type = "20ga"
-        elif h_idx <= 5:    # 145"-217" (12'-1" to 18'-1")
-            strut_type = "16ga"
-        else:               # ≥241" (20'-1"+)
+        # Determine strut type: Z struts from height, 20ga/16ga from width
+        if h_idx > 5:       # ≥241" (20'-1"+) tall → Z struts (structural)
             strut_type = "z"
+        elif width_inches <= 216:  # ≤18' wide → 20ga
+            strut_type = "20ga"
+        else:                      # >18' wide → 16ga
+            strut_type = "16ga"
 
         return (strut_count, strut_type)
 
