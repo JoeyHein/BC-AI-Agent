@@ -396,11 +396,19 @@ class BCPartNumberMapper:
         )
 
     def _get_closest_wire_code(self, wire_size: float) -> str:
-        """Find the next-size-up BC wire size code for a given wire diameter.
-        Returns the smallest available wire size >= wire_size for a stronger spring spec.
+        """Find the matching BC wire size code for a given wire diameter.
+
+        First checks for an exact match, then tries closest BC size within
+        tolerance (handles Canimex values like 0.3625 mapping to BC's 0.362).
+        Falls back to next-size-up for a stronger spring spec.
         """
         if wire_size in self.WIRE_SIZE_CODES:
             return self.WIRE_SIZE_CODES[wire_size]
+
+        # Try closest BC wire within tolerance (Canimex ↔ BC rounding differences)
+        closest = min(self.WIRE_SIZE_CODES.keys(), key=lambda w: abs(w - wire_size))
+        if abs(closest - wire_size) <= 0.005:
+            return self.WIRE_SIZE_CODES[closest]
 
         # Find next size up (smallest available >= requested)
         sizes_above = [s for s in self.WIRE_SIZE_CODES.keys() if s >= wire_size]
