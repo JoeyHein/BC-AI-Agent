@@ -842,10 +842,13 @@ class PartNumberService:
         count = STRUT_CHART[w_idx][h_idx]
         strut_type = STRUT_HEIGHT_TYPE[h_idx]
 
-        # Width-based gauge override: ≤18' (216") = 20ga, >18' = 16ga
-        # Z struts (structural, height-driven) are not affected
-        if strut_type != "z":
-            strut_type = "20ga" if door_width_in <= 216 else "16ga"
+        # Strut type determined entirely by width
+        if door_width_in >= 336:      # ≥28' wide → Z struts
+            strut_type = "z"
+        elif door_width_in > 216:     # >18' wide → 16ga
+            strut_type = "16ga"
+        else:                         # ≤18' wide → 20ga
+            strut_type = "20ga"
 
         weight_per_ft = STRUT_WEIGHT_PER_FT[strut_type]
 
