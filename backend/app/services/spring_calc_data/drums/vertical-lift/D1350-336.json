@@ -1,0 +1,208 @@
+{
+  "model": "D1350-336",
+  "type": "vertical-lift",
+  "minDoorHeight": 216,
+  "maxDoorHeight": 331,
+  "multiplierTable": [
+    {
+      "doorHeight": 216,
+      "multiplier": 0.3758,
+      "turns": 14.0
+    },
+    {
+      "doorHeight": 219,
+      "multiplier": 0.3755,
+      "turns": 14.1
+    },
+    {
+      "doorHeight": 222,
+      "multiplier": 0.3752,
+      "turns": 14.2
+    },
+    {
+      "doorHeight": 225,
+      "multiplier": 0.375,
+      "turns": 14.3
+    },
+    {
+      "doorHeight": 228,
+      "multiplier": 0.3747,
+      "turns": 14.4
+    },
+    {
+      "doorHeight": 231,
+      "multiplier": 0.3743,
+      "turns": 14.5
+    },
+    {
+      "doorHeight": 234,
+      "multiplier": 0.374,
+      "turns": 14.6
+    },
+    {
+      "doorHeight": 237,
+      "multiplier": 0.3763,
+      "turns": 14.6
+    },
+    {
+      "doorHeight": 240,
+      "multiplier": 0.3759,
+      "turns": 14.7
+    },
+    {
+      "doorHeight": 243,
+      "multiplier": 0.3755,
+      "turns": 14.8
+    },
+    {
+      "doorHeight": 246,
+      "multiplier": 0.3752,
+      "turns": 14.9
+    },
+    {
+      "doorHeight": 249,
+      "multiplier": 0.3749,
+      "turns": 15.0
+    },
+    {
+      "doorHeight": 252,
+      "multiplier": 0.3744,
+      "turns": 15.1
+    },
+    {
+      "doorHeight": 255,
+      "multiplier": 0.3741,
+      "turns": 15.2
+    },
+    {
+      "doorHeight": 258,
+      "multiplier": 0.3761,
+      "turns": 15.2
+    },
+    {
+      "doorHeight": 261,
+      "multiplier": 0.3757,
+      "turns": 15.3
+    },
+    {
+      "doorHeight": 264,
+      "multiplier": 0.3753,
+      "turns": 15.4
+    },
+    {
+      "doorHeight": 267,
+      "multiplier": 0.3748,
+      "turns": 15.5
+    },
+    {
+      "doorHeight": 270,
+      "multiplier": 0.3744,
+      "turns": 15.6
+    },
+    {
+      "doorHeight": 273,
+      "multiplier": 0.374,
+      "turns": 15.7
+    },
+    {
+      "doorHeight": 276,
+      "multiplier": 0.3759,
+      "turns": 15.7
+    },
+    {
+      "doorHeight": 279,
+      "multiplier": 0.3754,
+      "turns": 15.8
+    },
+    {
+      "doorHeight": 282,
+      "multiplier": 0.375,
+      "turns": 15.9
+    },
+    {
+      "doorHeight": 285,
+      "multiplier": 0.3745,
+      "turns": 16.0
+    },
+    {
+      "doorHeight": 288,
+      "multiplier": 0.374,
+      "turns": 16.1
+    },
+    {
+      "doorHeight": 291,
+      "multiplier": 0.3759,
+      "turns": 16.1
+    },
+    {
+      "doorHeight": 294,
+      "multiplier": 0.3754,
+      "turns": 16.2
+    },
+    {
+      "doorHeight": 297,
+      "multiplier": 0.3749,
+      "turns": 16.3
+    },
+    {
+      "doorHeight": 300,
+      "multiplier": 0.3744,
+      "turns": 16.4
+    },
+    {
+      "doorHeight": 303,
+      "multiplier": 0.3739,
+      "turns": 16.5
+    },
+    {
+      "doorHeight": 306,
+      "multiplier": 0.3756,
+      "turns": 16.5
+    },
+    {
+      "doorHeight": 309,
+      "multiplier": 0.3751,
+      "turns": 16.6
+    },
+    {
+      "doorHeight": 312,
+      "multiplier": 0.3746,
+      "turns": 16.7
+    },
+    {
+      "doorHeight": 315,
+      "multiplier": 0.374,
+      "turns": 16.8
+    },
+    {
+      "doorHeight": 318,
+      "multiplier": 0.3758,
+      "turns": 16.8
+    },
+    {
+      "doorHeight": 321,
+      "multiplier": 0.3752,
+      "turns": 16.9
+    },
+    {
+      "doorHeight": 324,
+      "multiplier": 0.3746,
+      "turns": 17.0
+    },
+    {
+      "doorHeight": 327,
+      "multiplier": 0.3741,
+      "turns": 17.1
+    },
+    {
+      "doorHeight": 330,
+      "multiplier": 0.3757,
+      "turns": 17.1
+    },
+    {
+      "doorHeight": 331,
+      "multiplier": 0.3741,
+      "turns": 17.2
+    }
+  ]
+}

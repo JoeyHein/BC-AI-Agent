@@ -26,20 +26,27 @@ logger = logging.getLogger(__name__)
 
 # Data directory - look for spring-calculator data
 # __file__ is backend/app/services/spring_calculator_service.py
-BACKEND_DIR = Path(__file__).parent.parent.parent  # -> backend/
+SERVICES_DIR = Path(__file__).parent  # -> backend/app/services/
+BACKEND_DIR = SERVICES_DIR.parent.parent  # -> backend/
 BASE_DIR = BACKEND_DIR.parent  # -> bc-ai-agent/
-SPRING_CALC_DATA = BASE_DIR.parent / "spring-calculator" / "data"  # sibling project
-LOCAL_DATA = BACKEND_DIR / "data" / "spring-calculator"  # backend/data/spring-calculator/
+# Priority 1: Bundled with service code (survives Docker volume mounts on /app/data)
+BUNDLED_DATA = SERVICES_DIR / "spring_calc_data"
+# Priority 2: Sibling spring-calculator project
+SPRING_CALC_DATA = BASE_DIR.parent / "spring-calculator" / "data"
+# Priority 3: backend/data/spring-calculator (may be hidden by Docker volume)
+LOCAL_DATA = BACKEND_DIR / "data" / "spring-calculator"
 
 def get_data_path() -> Path:
     """Get the path to spring calculator data files."""
-    if SPRING_CALC_DATA.exists():
+    if BUNDLED_DATA.exists():
+        return BUNDLED_DATA
+    elif SPRING_CALC_DATA.exists():
         return SPRING_CALC_DATA
     elif LOCAL_DATA.exists():
         return LOCAL_DATA
     else:
         raise FileNotFoundError(
-            f"Spring calculator data not found at {SPRING_CALC_DATA} or {LOCAL_DATA}"
+            f"Spring calculator data not found at {BUNDLED_DATA}, {SPRING_CALC_DATA}, or {LOCAL_DATA}"
         )
 
 
@@ -158,12 +165,19 @@ CANIMEX_MIP_CAPACITY = {
 # Loads exact Canimex data from JSON files extracted from Cable Drum Catalog PDFs
 # ============================================================================
 
+def _find_drum_dir(lift_type: str) -> Optional[Path]:
+    """Find drum data directory, checking bundled path first."""
+    for base in [BUNDLED_DATA, LOCAL_DATA, SPRING_CALC_DATA]:
+        d = base / "drums" / lift_type
+        if d.exists():
+            return d
+    return None
+
+
 def _load_standard_lift_drums() -> dict:
     """Load standard-lift drum multiplier data from JSON files."""
-    data_dir = LOCAL_DATA / "drums" / "standard-lift"
-    if not data_dir.exists():
-        data_dir = SPRING_CALC_DATA / "drums" / "standard-lift"
-    if not data_dir.exists():
+    data_dir = _find_drum_dir("standard-lift")
+    if not data_dir:
         logger.warning(f"Standard-lift drum data directory not found")
         return {}
 
@@ -198,10 +212,8 @@ def _load_standard_lift_drums() -> dict:
 
 def _load_high_lift_drums() -> dict:
     """Load high-lift drum multiplier data from JSON files."""
-    data_dir = LOCAL_DATA / "drums" / "high-lift"
-    if not data_dir.exists():
-        data_dir = SPRING_CALC_DATA / "drums" / "high-lift"
-    if not data_dir.exists():
+    data_dir = _find_drum_dir("high-lift")
+    if not data_dir:
         logger.warning(f"High-lift drum data directory not found")
         return {}
 
@@ -238,10 +250,8 @@ def _load_high_lift_drums() -> dict:
 
 def _load_vertical_lift_drums() -> dict:
     """Load vertical-lift drum multiplier data from JSON files."""
-    data_dir = LOCAL_DATA / "drums" / "vertical-lift"
-    if not data_dir.exists():
-        data_dir = SPRING_CALC_DATA / "drums" / "vertical-lift"
-    if not data_dir.exists():
+    data_dir = _find_drum_dir("vertical-lift")
+    if not data_dir:
         logger.warning(f"Vertical-lift drum data directory not found")
         return {}
 
