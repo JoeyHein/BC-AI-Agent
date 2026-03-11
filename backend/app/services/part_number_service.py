@@ -987,7 +987,7 @@ class PartNumberService:
         else:
             wire_size = spring_result.wire_diameter
             coil_id = spring_result.coil_diameter
-            spring_length = int(spring_result.length)
+            spring_length = math.ceil(spring_result.length)
             spring_qty = spring_result.quantity
             is_duplex = spring_result.is_duplex
 
@@ -1059,6 +1059,15 @@ class PartNumberService:
                         spring_rh = mapper.get_spring_part_number(bc_wire, coil_id, "RH")
                         break
 
+        # Spring detail comment: wire, ID, length, qty per hand
+        parts.append(PartSelection(
+            part_number="",
+            description=f"Springs: {wire_size}\" wire x {coil_id}\" ID x {spring_length}\" long | {pairs} LH + {pairs} RH ({spring_qty} total)",
+            quantity=0,
+            category="spring_comment",
+            notes="spring_detail_comment",
+        ))
+
         # Springs are quoted by length (inches of spring) × number of that wind
         parts.append(PartSelection(
             part_number=spring_lh.part_number,
@@ -1080,7 +1089,7 @@ class PartNumberService:
         if is_duplex and spring_result:
             inner_wire = spring_result.inner_wire_diameter
             inner_coil = spring_result.inner_coil_diameter
-            inner_length = int(spring_result.inner_length)
+            inner_length = math.ceil(spring_result.inner_length)
             duplex_pairs = spring_result.duplex_pairs
 
             inner_lh = mapper.get_spring_part_number(inner_wire, inner_coil, "LH")
