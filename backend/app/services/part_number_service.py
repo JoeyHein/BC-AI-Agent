@@ -1017,6 +1017,17 @@ class PartNumberService:
         # Get BC Part Number Mapper
         mapper = get_bc_mapper()
 
+        # Spring info comment line — door weight, drum, and turns
+        drum_model = drums.model if drums else "N/A"
+        spring_turns = spring_result.turns if spring_result else 0
+        parts.append(PartSelection(
+            part_number="",
+            description=f"Door Weight: {door_weight:.0f} lbs | Drum: {drum_model} | Turns: {spring_turns:.1f}",
+            quantity=0,
+            category="spring_comment",
+            notes="spring_info_comment",
+        ))
+
         # How many LH/RH pairs (each pair = 1 LH + 1 RH, minimum 1 pair)
         pairs = max(1, spring_qty // 2)
 
