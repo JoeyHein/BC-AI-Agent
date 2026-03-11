@@ -942,11 +942,14 @@ class PartNumberService:
         lift_config = {"type": dc_lift_type, "radius": track_radius}
 
         # Select the correct drum for this lift type
+        # 3" track forces D525-216 minimum (no D400 drums)
+        track_size = int(config.track_thickness) if config.track_thickness else 2
         high_lift_inches = config.high_lift_inches or 0
         effective_height = config.door_height + high_lift_inches if dc_lift_type == 'high' else config.door_height
         drums = door_calculator._select_drum(
             config.door_height, door_weight, lift_config,
             effective_height=effective_height,
+            track_size=track_size,
         )
 
         # Use door_calculator._calculate_springs() — same engine as specs tab

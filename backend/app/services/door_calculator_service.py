@@ -599,8 +599,8 @@ class DoorCalculatorService:
 
         track = self._calculate_track(dimensions, track_size, lift_config, effective_height=effective_height)
 
-        # 5. Select drum
-        drums = self._select_drum(height_inches, weight.total_weight, lift_config, effective_height=effective_height)
+        # 5. Select drum (3" track forces D525-216 minimum — no D400 drums)
+        drums = self._select_drum(height_inches, weight.total_weight, lift_config, effective_height=effective_height, track_size=track_size)
         if drums is None:
             warnings.append("No suitable drum found for door specifications")
 
@@ -798,8 +798,13 @@ class DoorCalculatorService:
         door_weight: float,
         lift_config: Dict,
         effective_height: Optional[int] = None,
+        track_size: int = 2,
     ) -> Optional[DrumSelection]:
-        """Select appropriate drum based on height and weight"""
+        """Select appropriate drum based on height and weight.
+
+        For 3" track hardware, drums with radius 12 are excluded
+        (e.g. D400-144 is skipped in favor of D525-216).
+        """
 
         lift_type = lift_config.get("type", "standard")
         eff_h = effective_height or height_inches
@@ -809,6 +814,13 @@ class DoorCalculatorService:
             (name, spec) for name, spec in self.drum_table.items()
             if spec["lift"] == lift_type
         ]
+
+        # 3" track requires 15" radius drums — exclude 12" radius drums (e.g. D400-144)
+        if track_size == 3:
+            eligible_drums = [
+                (name, spec) for name, spec in eligible_drums
+                if spec.get("radius") != 12
+            ]
 
         # Find smallest drum that can handle the effective height and weight
         # Sort by max_height ascending so we pick the smallest drum that fits
@@ -914,7 +926,11 @@ class DoorCalculatorService:
         stocked_coils = STOCKED_COIL_DIAMETERS
 
         # Try requested qty first (usually 2), then scale up, then 1 as last resort
-        unfiltered_progression = list(dict.fromkeys([spring_qty, 2, 4, 6, 8, 1]))
+        # Doors >= 150 lbs must use 2+ springs
+        if door_weight >= 150:
+            unfiltered_progression = list(dict.fromkeys([spring_qty, 2, 4, 6, 8]))
+        else:
+            unfiltered_progression = list(dict.fromkeys([spring_qty, 2, 4, 6, 8, 1]))
         for qty in unfiltered_progression:
             for coil_diam in stocked_coils:
                 result = spring_calculator.calculate_spring(
@@ -996,7 +1012,11 @@ class DoorCalculatorService:
         all_candidates = []
 
         # Try regular springs: 1, 2, 4, 6, 8 (include 1-spring for lighter doors)
-        qty_progression = list(dict.fromkeys([1, starting_qty, 2, 4, 6, 8]))  # deduplicated, order preserved
+        # Doors >= 150 lbs must use 2+ springs
+        if door_weight >= 150:
+            qty_progression = list(dict.fromkeys([starting_qty, 2, 4, 6, 8]))  # no single spring for heavy doors
+        else:
+            qty_progression = list(dict.fromkeys([1, starting_qty, 2, 4, 6, 8]))  # deduplicated, order preserved
         for spring_qty in qty_progression:
             qty_candidates = []
             for coil_diam, wire_diam in stocked_pairs:
