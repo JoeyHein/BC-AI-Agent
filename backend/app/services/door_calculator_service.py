@@ -1096,11 +1096,11 @@ class DoorCalculatorService:
                 duplex_pref = 1 if c.is_duplex else 0
 
             if is_reasonable:
-                # Reasonable length: prefer fewer springs, then smaller coil, then shorter
-                return (0, effective_qty, duplex_pref, c.coil_diameter, c.length)
+                # Reasonable length: prefer regular over duplex, then fewer springs, then smaller coil, then shorter
+                return (0, duplex_pref, effective_qty, c.coil_diameter, c.length)
             else:
-                # Overlong: prefer shorter springs first (more practical), then fewer
-                return (1, c.length, effective_qty, duplex_pref, c.coil_diameter)
+                # Overlong: prefer regular over duplex, then shorter springs, then fewer
+                return (1, duplex_pref, c.length, effective_qty, c.coil_diameter)
 
         best = min(all_candidates, key=candidate_sort_key)
 
