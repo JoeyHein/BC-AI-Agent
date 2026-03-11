@@ -1454,18 +1454,19 @@ class PartNumberService:
 
         # Commercial gets top + bottom retainer (same roll part);
         # residential gets bottom only (pre-cut rigid retainer by width)
+        # Quantity = door width in inches (retainer sold by the inch)
         if not is_residential:
             retainer = mapper.get_retainer()
             parts.append(PartSelection(
                 part_number=retainer.part_number,
                 description=f"{retainer.description} (TOP)",
-                quantity=1,
+                quantity=config.door_width,
                 category="retainer"
             ))
             parts.append(PartSelection(
                 part_number=retainer.part_number,
                 description=f"{retainer.description} (BOTTOM)",
-                quantity=1,
+                quantity=config.door_width,
                 category="retainer"
             ))
         else:
@@ -1473,7 +1474,7 @@ class PartNumberService:
             parts.append(PartSelection(
                 part_number=retainer.part_number,
                 description=f"{retainer.description} (BOTTOM)",
-                quantity=1,
+                quantity=config.door_width,
                 category="retainer"
             ))
 
@@ -1488,7 +1489,7 @@ class PartNumberService:
         return [PartSelection(
             part_number=astragal.part_number,
             description=astragal.description,
-            quantity=1,
+            quantity=config.door_width,
             category="astragal"
         )]
 
@@ -1511,7 +1512,7 @@ class PartNumberService:
         return [PartSelection(
             part_number=top_seal.part_number,
             description=top_seal.description,
-            quantity=1,
+            quantity=config.door_width,
             category="top_seal"
         )]
 
