@@ -399,8 +399,10 @@ class SpringCalculatorService:
         wire_dividers = self.dividers.get(wire_diameter)
         if wire_dividers is None:
             # Try to find closest wire diameter
+            # Tolerance 0.005 accommodates BC inventory wire sizes (e.g. 0.272)
+            # matching Canimex engineering sizes (e.g. 0.2730)
             closest_wire = min(self.dividers.keys(), key=lambda w: abs(w - wire_diameter))
-            if abs(closest_wire - wire_diameter) < 0.001:
+            if abs(closest_wire - wire_diameter) <= 0.005:
                 wire_dividers = self.dividers[closest_wire]
             else:
                 return None
@@ -432,8 +434,9 @@ class SpringCalculatorService:
         """Get MIP capacity for wire at given cycle life."""
         mip_table = self.mip_capacity.get(wire_diameter)
         if mip_table is None:
+            # Tolerance 0.005 to match BC inventory wire sizes to Canimex sizes
             closest_wire = min(self.mip_capacity.keys(), key=lambda w: abs(w - wire_diameter))
-            if abs(closest_wire - wire_diameter) < 0.001:
+            if abs(closest_wire - wire_diameter) <= 0.005:
                 mip_table = self.mip_capacity[closest_wire]
             else:
                 return None
@@ -759,6 +762,24 @@ class SpringCalculatorService:
 
 # Global instance
 spring_calculator = SpringCalculatorService()
+
+
+def normalize_wire_diameter(wire: float) -> float:
+    """
+    Normalize a wire diameter to the nearest Canimex engineering value.
+
+    BC inventory and part numbers use rounded wire sizes (e.g. 0.272, 0.293, 0.348)
+    while Canimex tables use precise values (0.2730, 0.2950, 0.3437). This function
+    maps any input wire to the closest Canimex value within tolerance.
+
+    Returns the original value if no close match is found.
+    """
+    if wire in CANIMEX_DIVIDERS:
+        return wire
+    closest = min(CANIMEX_DIVIDERS.keys(), key=lambda w: abs(w - wire))
+    if abs(closest - wire) <= 0.005:
+        return closest
+    return wire
 
 
 # ============================================================================

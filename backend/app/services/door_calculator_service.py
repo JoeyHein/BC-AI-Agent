@@ -23,7 +23,8 @@ from enum import Enum
 from app.services.spring_calculator_service import (
     spring_calculator,
     SpringCalculatorService,
-    SpringResult
+    SpringResult,
+    normalize_wire_diameter,
 )
 
 logger = logging.getLogger(__name__)
@@ -981,7 +982,7 @@ class DoorCalculatorService:
                 continue
             for wire_str in wire_list:
                 try:
-                    wire_diam = float(wire_str)
+                    wire_diam = normalize_wire_diameter(float(wire_str))
                 except (ValueError, TypeError):
                     continue
                 stocked_pairs.append((coil_diam, wire_diam))
@@ -1145,7 +1146,7 @@ class DoorCalculatorService:
         outer_candidates = []
         for wire_str in outer_wires:
             try:
-                wire_diam = float(wire_str)
+                wire_diam = normalize_wire_diameter(float(wire_str))
             except (ValueError, TypeError):
                 continue
             mip_cap = spring_calculator.get_mip_capacity(wire_diam, target_cycles)
@@ -1168,7 +1169,7 @@ class DoorCalculatorService:
         inner_candidates = []
         for wire_str in inner_wires:
             try:
-                wire_diam = float(wire_str)
+                wire_diam = normalize_wire_diameter(float(wire_str))
             except (ValueError, TypeError):
                 continue
             mip_cap = spring_calculator.get_mip_capacity(wire_diam, target_cycles)
