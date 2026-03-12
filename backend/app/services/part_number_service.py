@@ -854,8 +854,22 @@ class PartNumberService:
 
         return {"count": count, "type": strut_type, "weight_per_ft": weight_per_ft}
 
+    # Available track heights in BC by track size and mount type
+    TRACK_AVAILABILITY = {
+        (3, "BM"): [8, 10, 12, 14, 16],
+        (3, "AM"): [10, 14, 18, 20, 22, 24],
+        (2, "BM"): [7, 8, 9, 10, 12, 14],
+        (2, "AM"): [8],
+    }
+
     def _get_track_parts(self, config: DoorConfiguration) -> List[PartSelection]:
-        """Get track part numbers using actual BC parts"""
+        """Get track part numbers using actual BC parts.
+
+        Respects the user's mount type selection. If the exact height isn't
+        available, steps up to the next available size.  If no larger size
+        exists in the requested mount type, falls back to angle mount.
+        Doors >= 16' (192") always get angle mount.
+        """
         mapper = get_bc_mapper()
 
         # Round UP to next whole foot for BC part number (track must cover full door height)
@@ -877,18 +891,37 @@ class PartNumberService:
         if config.door_height >= 192:
             mount_type = TrackMount.ANGLE
 
+        # Resolve actual part: find the smallest available height >= requested
+        mount_code = "BM" if mount_type == TrackMount.BRACKET else "AM"
+        available = self.TRACK_AVAILABILITY.get((track_size, mount_code), [])
+        valid_heights = [h for h in available if h >= door_height_feet]
+
+        if valid_heights:
+            # Use the smallest available height that fits
+            part_height = min(valid_heights)
+        else:
+            # No bracket mount large enough — fall back to angle mount
+            if mount_type == TrackMount.BRACKET:
+                mount_type = TrackMount.ANGLE
+                mount_code = "AM"
+                available = self.TRACK_AVAILABILITY.get((track_size, "AM"), [])
+                valid_heights = [h for h in available if h >= door_height_feet]
+                part_height = min(valid_heights) if valid_heights else door_height_feet
+            else:
+                part_height = door_height_feet
+
         mount_label = "ANGLE MOUNT" if mount_type == TrackMount.ANGLE else "BRACKET MOUNT"
 
-        # Get track assembly part number using the rounded-up height
+        # Get track assembly part number using the resolved height
         track = mapper.get_track_assembly(
-            door_height_feet=door_height_feet,
+            door_height_feet=part_height,
             track_size=track_size,
             lift_type=lift_type,
             mount_type=mount_type,
             radius_inches=radius_inches
         )
 
-        # Build description showing the customer's actual requested door height
+        # Build description showing the actual door height and resolved part info
         actual_ft = config.door_height // 12
         actual_in = config.door_height % 12
         if actual_in > 0:
