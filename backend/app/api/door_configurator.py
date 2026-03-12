@@ -12,7 +12,7 @@ import logging
 from app.services.part_number_service import get_parts_for_door_config, part_number_service, DoorConfiguration
 from app.services.door_calculator_service import door_calculator, calculate_door_from_config
 from app.services.spring_data_service import get_bc_spring_inventory
-from app.services.pricing_service import calculate_selling_price
+from app.services.pricing_service import calculate_selling_price, warm_bc_cost_cache
 from app.services.quote_review_service import save_quote_snapshot
 from app.integrations.bc.client import bc_client
 from app.db.database import get_db
@@ -704,10 +704,16 @@ def _format_door_description(door: DoorConfigRequest) -> str:
     # Get track size display
     track_display = f"{door.trackThickness}\" HW" if door.trackThickness else "2\" HW"
 
-    # Determine lift type from track radius
-    lift_type = "STD LIFT"
-    if door.trackRadius == "12":
+    # Determine lift type
+    lift_type_raw = getattr(door, 'liftType', 'standard') or 'standard'
+    if lift_type_raw == "low_headroom" or door.trackRadius == "12":
         lift_type = "LHR"
+    elif lift_type_raw == "high_lift":
+        lift_type = "HIGH LIFT"
+    elif lift_type_raw == "vertical":
+        lift_type = "VERTICAL"
+    else:
+        lift_type = "STD LIFT"
 
     # Format: (qty) WxH SERIES, COLOR, DESIGN, TRACK HW, LIFT
     return f"({door.doorCount}) {width_ft}x{height_ft} {door.doorSeries}, {door.panelColor}, {door.panelDesign}, {track_display}, {lift_type}"
@@ -733,6 +739,7 @@ LINE_ORDER = [
     "track",             # 8. Track
     "highlift_track",    # 8b. Highlift track (if applicable)
     "hardware",          # 9. Hardware box
+    "spring_comment",    # 9b. Spring info comment (door weight, drum, turns)
     "spring",            # 10. Springs
     "spring_accessory",  # 10b. Winders, plugs
     "shaft",             # 10c. Shaft
@@ -797,7 +804,8 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "lineType": "Comment",
                 "description": door_desc,
                 "category": "COMMENT",
-                "door_index": door_index
+                "door_index": door_index,
+                "is_door_desc": True,
             })
 
             # Get parts for this door configuration
@@ -845,6 +853,12 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
             for part in sorted_parts:
                 part["door_index"] = door_index
                 part["door_type"] = door.doorType
+
+                # Spring info comment → BC Comment line (not an item)
+                if part.get("category") == "spring_comment":
+                    part["lineType"] = "Comment"
+                    part["is_note"] = True
+
                 all_lines.append(part)
 
                 # After window parts, emit a placement comment if notes exist
@@ -853,7 +867,9 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                     all_lines.append({
                         "lineType": "Comment",
                         "description": part["notes"],
+                        "category": "COMMENT",
                         "door_index": door_index,
+                        "is_note": True,
                     })
 
             parts_by_door.append({
@@ -893,6 +909,11 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
 
         logger.info(f"Created BC quote: {bc_quote_number} (ID: {bc_quote_id})")
 
+        # Warm the BC cost cache so pricing uses live production costs
+        if request.customerId:
+            item_pns = [l["part_number"] for l in all_lines if l.get("part_number")]
+            warm_bc_cost_cache(item_pns)
+
         # Step 3: Add line items to the quote in proper order
         lines_added = 0
         lines_failed = []
@@ -916,6 +937,16 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
 
                 added_line = bc_client.add_quote_line(bc_quote_id, line_data)
                 lines_added += 1
+
+                # Door description comments: set Output=True so BC
+                # shows them on printed quotes and subtotals items below them.
+                if line.get("is_door_desc") and added_line.get("sequence"):
+                    try:
+                        bc_client.set_quote_line_output(
+                            bc_quote_number, added_line["sequence"], output=True
+                        )
+                    except Exception as out_err:
+                        logger.warning(f"Failed to set Output flag on door desc line: {out_err}")
 
                 # BC's item price list overrides unitPrice on POST.
                 # PATCH the line afterward to lock in the customer-tier price.

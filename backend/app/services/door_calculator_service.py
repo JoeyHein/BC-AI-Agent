@@ -36,11 +36,11 @@ logger = logging.getLogger(__name__)
 
 # Door Model Weight per Foot (lbs/ft) by section height
 DOOR_MODEL_WEIGHTS = {
-    # Commercial models
-    "TX380": {"18": 3.4991, "21": 3.4991, "24": 3.933, "28": 4.5, "32": 5.0},
-    "TX450": {"18": 3.83, "21": 3.83, "24": 4.2656, "28": 5.0, "32": 5.5},
+    # Commercial models (from BC Items with Weights — PN40/PN50 BULK)
+    "TX380": {"18": 3.4991, "21": 3.4992, "24": 3.9331, "28": 4.5, "32": 5.0},
+    "TX450": {"18": 3.812, "21": 3.812, "24": 3.978, "28": 5.0, "32": 5.5},
     "TX450-20": {"18": 5.18, "21": 5.18, "24": 5.6813, "28": 6.2, "32": 6.8},
-    "TX500": {"18": 4.002, "21": 4.002, "24": 4.57, "28": 5.2, "32": 5.7},
+    "TX500": {"18": 4.002, "21": 4.002, "24": 4.570, "28": 5.2, "32": 5.7},
     "TX500-20": {"18": 5.2865, "21": 5.2865, "24": 5.63, "28": 6.1, "32": 6.6},
     # Residential models (Kanata/Craft use same weights)
     "KANATA": {"18": 3.7655, "21": 4.1875, "24": 4.6392, "28": 5.1363, "32": 6.1875},
@@ -573,7 +573,8 @@ class DoorCalculatorService:
             window_type,
             window_qty,
             strut_count,
-            strut_type
+            strut_type,
+            door_type=door_type,
         )
 
         # 4. Calculate track configuration
@@ -681,33 +682,72 @@ class DoorCalculatorService:
         window_type: Optional[str],
         window_qty: int,
         strut_count: int = 0,
-        strut_type: str = "16ga"
+        strut_type: str = "16ga",
+        door_type: str = "commercial",
     ) -> WeightBreakdown:
-        """Calculate door weight breakdown including strut weight and component hardware"""
+        """Calculate door weight breakdown matching part_number_service methodology.
+
+        Steel weight includes: panels + end caps + retainer + astragal + seals.
+        Hardware weight: from BC hardware kit (HK02/HK03) weights.
+        Strut weight: 20ga/16ga struts (Z struts excluded from spring weight).
+        """
+        # Import here to avoid circular imports at module level
+        from app.services.part_number_service import (
+            END_CAP_WEIGHT_LBS, RETAINER_LBS_PER_FT,
+            BOTTOM_ASTRAGAL_LBS_PER_FT, TOP_ASTRAGAL_LBS_PER_FT,
+            TOP_ASTRAGAL_MIN_WIDTH_IN, SEAL_WEIGHT_21, SEAL_WEIGHT_24,
+            _get_hk_weight,
+        )
+
         weight = WeightBreakdown()
 
         # Get model weight factors
         model_weights = self.model_weights.get(door_model, self.model_weights["TX450"])
         width_ft = dimensions.width_ft
+        series = door_model.upper()
 
-        # Steel weight: section panels
+        # 1. Panel weight
+        panel_weight = 0.0
         if panel_config.sections_21 > 0:
-            weight.steel_weight += model_weights["21"] * width_ft * panel_config.sections_21
+            panel_weight += model_weights["21"] * width_ft * panel_config.sections_21
         if panel_config.sections_24 > 0:
-            weight.steel_weight += model_weights["24"] * width_ft * panel_config.sections_24
+            panel_weight += model_weights["24"] * width_ft * panel_config.sections_24
 
-        # Hardware weight: calculated from components (Thermalex methodology)
-        hardware_grams = self._calculate_hardware_weight_grams(
-            dimensions, panel_config, track_size, door_model
-        )
-        weight.hardware_weight = round(hardware_grams / 454)
+        # 2. End cap weight (2 caps per section — left + right)
+        n21 = panel_config.sections_21
+        n24 = panel_config.sections_24
+        ec_lbs_21 = END_CAP_WEIGHT_LBS.get((series, 21), END_CAP_WEIGHT_LBS.get(("TX450", 21), 1.26))
+        ec_lbs_24 = END_CAP_WEIGHT_LBS.get((series, 24), END_CAP_WEIGHT_LBS.get(("TX450", 24), 1.45))
+        end_cap_weight = ec_lbs_21 * 2 * n21 + ec_lbs_24 * 2 * n24
 
-        # Strut weight (using type from strutting chart)
-        if strut_count > 0:
+        # 3. Retainer weight
+        retainer_per_ft = RETAINER_LBS_PER_FT.get(series, 0.175)
+        retainer_count = 1
+        if dimensions.width >= TOP_ASTRAGAL_MIN_WIDTH_IN:
+            retainer_count = 2
+        retainer_weight = retainer_count * width_ft * retainer_per_ft
+
+        # 4. Astragal weight
+        astragal_weight = width_ft * BOTTOM_ASTRAGAL_LBS_PER_FT
+        if dimensions.width >= TOP_ASTRAGAL_MIN_WIDTH_IN:
+            astragal_weight += width_ft * TOP_ASTRAGAL_LBS_PER_FT
+
+        # 5. End cap seals
+        seal_weight = (n21 * 2 * SEAL_WEIGHT_21) + (n24 * 2 * SEAL_WEIGHT_24)
+
+        # Steel = panels + end caps + retainer + astragal + seals
+        weight.steel_weight = panel_weight + end_cap_weight + retainer_weight + astragal_weight + seal_weight
+
+        # 6. Hardware kit weight (from BC HK02/HK03 weights)
+        commercial = door_type == "commercial"
+        weight.hardware_weight = _get_hk_weight(dimensions.width, dimensions.height, commercial)
+
+        # 7. Strut weight (20ga/16ga only — Z struts excluded from spring weight)
+        if strut_count > 0 and strut_type != "z":
             strut_lbs_per_ft = STRUT_WEIGHT_PER_FT.get(strut_type, 1.05)
             weight.strut_weight = strut_count * width_ft * strut_lbs_per_ft
 
-        # Window weight
+        # 8. Window weight
         if window_type and window_qty > 0:
             window_weights = WINDOW_WEIGHTS.get(door_model, WINDOW_WEIGHTS["TX450"])
             cutout_weights = WINDOW_CUTOUT_WEIGHTS.get(door_model, WINDOW_CUTOUT_WEIGHTS["TX450"])

@@ -44,8 +44,10 @@ HARDWARE (HK):
 - HK01-HK06: Complete hardware kits
 """
 
+import json
 import logging
 import math
+import os
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
@@ -424,6 +426,82 @@ STRUT_CHART = [
     [  5,    6,    7,    8,    9,   10,   11,   12,   13,   14],  # 26'2+
 ]
 
+# Hardware kit weights (lbs) — loaded from BC Items with Weights spreadsheet
+_HK_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "hardware_kit_weights.json")
+with open(_HK_WEIGHTS_PATH, "r") as _f:
+    HK_WEIGHTS = json.load(_f)
+
+
+def _get_hk_weight(door_width_in: int, door_height_in: int, commercial: bool) -> float:
+    """Look up hardware kit weight by generating the HK part number.
+
+    Uses the same width/height code logic as bc_part_number_mapper.get_hardware_box().
+    Returns weight in lbs, or 0.0 if not found.
+    """
+    door_width_feet = round(door_width_in / 12)
+    door_height_feet = round(door_height_in / 12)
+
+    # Width code (same as get_hardware_box)
+    if door_width_feet <= 11:
+        wc = "11"
+    elif door_width_feet <= 14:
+        wc = "14"
+    elif door_width_feet <= 16:
+        wc = "16"
+    elif door_width_feet <= 18:
+        wc = "18"
+    elif door_width_feet <= 20:
+        wc = "20"
+    elif door_width_feet <= 22:
+        wc = "22"
+    elif door_width_feet <= 24:
+        wc = "24"
+    elif door_width_feet <= 26:
+        wc = "26"
+    elif door_width_feet <= 28:
+        wc = "28"
+    else:
+        wc = "29"
+
+    # Height code (same as get_hardware_box)
+    if door_height_feet <= 8:
+        hc = "080"
+    elif door_height_feet <= 10:
+        hc = "100"
+    elif door_height_feet <= 12:
+        hc = "120"
+    elif door_height_feet <= 14:
+        hc = "140"
+    elif door_height_feet <= 16:
+        hc = "160"
+    elif door_height_feet <= 18:
+        hc = "180"
+    elif door_height_feet <= 20:
+        hc = "200"
+    elif door_height_feet <= 21:
+        hc = "210"
+    elif door_height_feet <= 22:
+        hc = "220"
+    elif door_height_feet <= 24:
+        hc = "240"
+    else:
+        hc = "260"
+
+    if commercial:
+        # HK03 format: HK03-WWHHX-RC where X is 0 or 1 variant
+        variant = "1" if door_width_feet > 14 else "0"
+        pn = f"HK03-{wc}{hc[:-1]}{variant}-RC"
+    else:
+        # HK02 format: HK02-WWHH0-RC
+        pn = f"HK02-{wc}{hc}-RC"
+
+    weight = HK_WEIGHTS.get(pn, 0.0)
+    if weight == 0.0:
+        logger.warning(f"Hardware kit weight not found for {pn} — excluded from door weight")
+    else:
+        logger.info(f"Hardware kit weight: {pn} = {weight} lbs")
+    return weight
+
 
 # ============================================================================
 # PART NUMBER SERVICE
@@ -721,16 +799,10 @@ class PartNumberService:
 
     def _calculate_door_weight(self, config: DoorConfiguration) -> float:
         """
-        Calculate door weight for spring sizing using Thermalex component methodology.
+        Calculate door weight for spring sizing.
 
         Weight = panel_weight + end_cap_weight + retainer_weight + astragal_weight
-                 + seal_weight + strut_weight
-
-        Per Thermalex Door Weight Calculator, spring weight does NOT include hardware
-        (hinges, brackets, fasteners) — only panel assembly + accessories + struts.
-        The spring counter-balances the moving door assembly, and hardware component
-        weights are accounted for in the spring engineering formulas (IPPT), not added
-        to the raw door weight.
+                 + seal_weight + strut_weight + hardware_kit_weight
         """
         # Panel weight per linear foot by section height (BULK panels, from BC item weights)
         MODEL_WEIGHTS = {
@@ -792,18 +864,22 @@ class PartNumberService:
         if strut_info["count"] > 0 and strut_info["type"] != "z":
             strut_weight = strut_info["count"] * door_width_ft * strut_info["weight_per_ft"]
 
-        total_weight = panel_weight + end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight
+        # 7. Hardware kit weight (HK02 residential / HK03 commercial)
+        commercial = config.door_type in ("commercial",)
+        hardware_weight = _get_hk_weight(config.door_width, config.door_height, commercial)
+
+        total_weight = panel_weight + end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight + hardware_weight
 
         breakdown_str = " + ".join(
             f"{breakdown[h]}x{h}\"" for h in ["24", "21"] if breakdown[h] > 0
         )
-        extras = end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight
+        extras = end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight + hardware_weight
         logger.info(
-            f"Door weight (Thermalex): {series} {door_width_ft:.1f}'x{door_height_in}\" "
+            f"Door weight: {series} {door_width_ft:.1f}'x{door_height_in}\" "
             f"= [{breakdown_str}] panels={panel_weight:.1f} + extras={extras:.1f} "
             f"(endcaps={end_cap_weight:.1f}, retainer={retainer_weight:.1f}, "
-            f"astragal={astragal_weight:.1f}, struts={strut_weight:.1f}) "
-            f"= {total_weight:.1f} lbs"
+            f"astragal={astragal_weight:.1f}, struts={strut_weight:.1f}, "
+            f"hardware={hardware_weight:.1f}) = {total_weight:.1f} lbs"
         )
 
         return total_weight
