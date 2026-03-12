@@ -1072,43 +1072,11 @@ class BCPartNumberMapper:
         else:
             # Standard Lift hardware kits
             if commercial:
-                # For commercial standard lift, check if HW box exists first
-                # HW boxes are only available for specific size combinations:
-                # 8' wide: 8', 10' heights
-                # 10' wide: 12' height only
-                # 12-18' wide: 10', 12', 14', 16', 18' heights
-                hw_available = {
-                    8: [8, 10],
-                    10: [12],
-                    12: [10, 12, 14, 16, 18],
-                    14: [10, 12, 14, 16, 18],
-                    16: [8, 10, 12, 14, 16, 18],
-                    18: [8, 10, 12, 14, 16, 18],
-                }
-
-                # Find closest available width
-                hw_widths = list(hw_available.keys())
-                closest_hw_width = min(hw_widths, key=lambda x: abs(x - door_width_feet))
-
-                # Check if height is available for this width
-                available_heights = hw_available.get(closest_hw_width, [])
-                if available_heights:
-                    closest_hw_height = min(available_heights, key=lambda x: abs(x - door_height_feet))
-                else:
-                    closest_hw_height = None
-
-                if (door_width_feet <= 18 and door_height_feet <= 18 and
-                    closest_hw_height is not None):
-                    # Use HW box for standard commercial doors
-                    part_number = f"HW{closest_hw_width:02d}-{closest_hw_height:02d}000-00"
-                    description = f"HARDWARE BOX, {closest_hw_width:02d} X {closest_hw_height:02d}, 3\""
-                else:
-                    # Use HK03 for larger commercial doors or sizes not covered by HW
-                    # HK03 format: HK03-WWHHX-RC where X is 0 or 1 variant
-                    # Heights use 3-digit code (080, 100, etc.) but drop trailing 0 for some
-                    variant = "1" if door_width_feet > 14 else "0"
-                    part_number = f"HK03-{width_code}{height_code[:-1]}{variant}-RC"
-                    description = f"HARDWARE KIT, STD LIFT 3\", {door_width_feet}'x{door_height_feet}'"
+                # Always use HK03 for commercial standard lift (not HW boxes)
+                # HK03 format: HK03-WWHHX-RC where X is 0 or 1 variant
+                variant = "1" if door_width_feet > 14 else "0"
+                part_number = f"HK03-{width_code}{height_code[:-1]}{variant}-RC"
+                description = f"HARDWARE KIT, STD LIFT 3\", {door_width_feet}'x{door_height_feet}'"
             else:
                 # Residential 2" Track - Check for premade HK10 boxes first
                 # HK10 premade boxes are more cost-effective for standard sizes:
