@@ -1597,11 +1597,12 @@ class PartNumberService:
                 category="retainer"
             ))
         else:
+            # Residential retainers are pre-cut to size — qty is 1 each
             retainer = mapper.get_retainer(residential=True, door_width_feet=door_width_feet)
             parts.append(PartSelection(
                 part_number=retainer.part_number,
                 description=f"{retainer.description} (BOTTOM)",
-                quantity=config.door_width,
+                quantity=1,
                 category="retainer"
             ))
 
