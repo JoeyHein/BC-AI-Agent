@@ -354,17 +354,17 @@ OPERATOR_RULES = {
 
 # End cap weight in grams per cap — keyed by (model, section_height_inches)
 # Standard: single end cap, 20ga (most common commercial configuration)
-END_CAP_WEIGHT_GRAMS = {
-    ("TX380", 21): 572,  ("TX380", 24): 648,
-    ("TX450", 21): 556,  ("TX450", 24): 638,
-    ("TX450-20", 21): 556, ("TX450-20", 24): 638,
-    ("TX500", 21): 581,  ("TX500", 24): 665,
-    ("TX500-20", 21): 581, ("TX500-20", 24): 665,
+# End cap weight in LBS per cap (from BC Items with Weights — FH10 UNIVERSAL singles)
+END_CAP_WEIGHT_LBS = {
+    ("TX380", 21): 1.30,  ("TX380", 24): 1.48,   # 1-1/2" 20ga
+    ("TX450", 21): 1.26,  ("TX450", 24): 1.45,    # 1-3/4" 20ga SGL
+    ("TX450-20", 21): 1.26, ("TX450-20", 24): 1.45,
+    ("TX500", 21): 1.32,  ("TX500", 24): 1.51,    # 2" 20ga SGL
+    ("TX500-20", 21): 1.32, ("TX500-20", 24): 1.51,
     # Residential — lighter construction
-    ("KANATA", 21): 400,  ("KANATA", 24): 450,
-    ("CRAFT", 21): 400,   ("CRAFT", 24): 450,
+    ("KANATA", 21): 1.05,  ("KANATA", 24): 1.20,
+    ("CRAFT", 21): 1.05,   ("CRAFT", 24): 1.20,
 }
-GRAMS_PER_LB = 453.4
 
 # Retainer weight (lbs per linear foot) by model
 RETAINER_LBS_PER_FT = {
@@ -388,8 +388,8 @@ SEAL_WEIGHT_24 = 0.0441
 
 # Strut weight (lbs per linear foot of door width per strut)
 STRUT_WEIGHT_PER_FT = {
-    "20ga": 0.79,
-    "16ga": 1.05,
+    "20ga": 0.8025,   # from BC: FH17-00003-00 (16') = 12.84 lbs / 16 = 0.8025
+    "16ga": 1.0594,   # from BC: FH17-00018-00 (24') = 25.425 lbs / 24 = 1.05938
     "z": 2.446,
 }
 
@@ -732,13 +732,13 @@ class PartNumberService:
         weights are accounted for in the spring engineering formulas (IPPT), not added
         to the raw door weight.
         """
-        # Panel weight per linear foot by section height
+        # Panel weight per linear foot by section height (BULK panels, from BC item weights)
         MODEL_WEIGHTS = {
-            # Commercial models (from Thermalex Data Tables)
-            "TX380": {"18": 3.4991, "21": 3.4991, "24": 3.933, "28": 4.5, "32": 5.0},
-            "TX450": {"18": 3.83, "21": 3.83, "24": 4.38, "28": 5.0, "32": 5.5},
+            # Commercial models (from BC Items with Weights — PN40/PN50 BULK)
+            "TX380": {"18": 3.4991, "21": 3.4992, "24": 3.9331, "28": 4.5, "32": 5.0},
+            "TX450": {"18": 3.812, "21": 3.812, "24": 3.978, "28": 5.0, "32": 5.5},
             "TX450-20": {"18": 5.18, "21": 5.18, "24": 5.6813, "28": 6.2, "32": 6.8},
-            "TX500": {"18": 4.002, "21": 4.002, "24": 4.57, "28": 5.2, "32": 5.7},
+            "TX500": {"18": 4.002, "21": 4.002, "24": 4.570, "28": 5.2, "32": 5.7},
             "TX500-20": {"18": 5.2865, "21": 5.2865, "24": 5.63, "28": 6.1, "32": 6.6},
             # Residential models (Kanata/Craft)
             "KANATA": {"18": 3.7655, "21": 4.1875, "24": 4.6392, "28": 5.1363, "32": 6.1875},
@@ -765,9 +765,9 @@ class PartNumberService:
                 panel_weight += weight_per_ft * door_width_ft * count
 
         # 2. End cap weight (2 caps per section — left + right)
-        ec_grams_21 = END_CAP_WEIGHT_GRAMS.get((series, 21), END_CAP_WEIGHT_GRAMS.get(("TX450", 21), 556))
-        ec_grams_24 = END_CAP_WEIGHT_GRAMS.get((series, 24), END_CAP_WEIGHT_GRAMS.get(("TX450", 24), 638))
-        end_cap_weight = (ec_grams_21 * 2 * n21 + ec_grams_24 * 2 * n24) / GRAMS_PER_LB
+        ec_lbs_21 = END_CAP_WEIGHT_LBS.get((series, 21), END_CAP_WEIGHT_LBS.get(("TX450", 21), 1.26))
+        ec_lbs_24 = END_CAP_WEIGHT_LBS.get((series, 24), END_CAP_WEIGHT_LBS.get(("TX450", 24), 1.45))
+        end_cap_weight = ec_lbs_21 * 2 * n21 + ec_lbs_24 * 2 * n24
 
         # 3. Retainer weight (bottom always; top only for doors >= 18' wide)
         retainer_per_ft = RETAINER_LBS_PER_FT.get(series, 0.175)

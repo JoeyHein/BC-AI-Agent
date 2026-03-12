@@ -336,9 +336,9 @@ THERMALEX_STRUT_TABLE = [
 ]
 # Strut weight per foot by type
 STRUT_WEIGHT_PER_FT = {
-    "20ga": 0.79,
-    "16ga": 1.05,
-    "z": 0.8,
+    "20ga": 0.8025,   # from BC: 12.84 lbs / 16' = 0.8025
+    "16ga": 1.0594,   # from BC: 25.425 lbs / 24' = 1.05938
+    "z": 2.446,
 }
 
 # Lift type configurations
