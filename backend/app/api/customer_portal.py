@@ -1137,6 +1137,8 @@ def get_pricing_for_saved_quote(
                 except Exception as e:
                     logger.warning(f"Could not delete previous BC quote {config.bc_quote_id}: {e}")
 
+            delivery_type = (config.config_data or {}).get("deliveryType", "delivery")
+
             result = _generate_bc_quote_with_items(
                 doors=doors,
                 bc_customer_id=current_user.bc_customer_id,
@@ -1144,6 +1146,7 @@ def get_pricing_for_saved_quote(
                 pricing_tier=pricing_tier,
                 db=db,
                 po_number=(config.config_data or {}).get("poNumber"),
+                delivery_type=delivery_type,
             )
 
             # Store BC quote reference (but NOT submitted)
@@ -1152,11 +1155,13 @@ def get_pricing_for_saved_quote(
         else:
             # Unlinked customer: estimate locally at retail, no BC quote created
             pricing_tier = "retail"
+            delivery_type = (config.config_data or {}).get("deliveryType", "delivery")
             result = _estimate_pricing_locally(
                 doors=doors,
                 pricing_tier=pricing_tier,
                 config_id=config.id,
                 db=db,
+                delivery_type=delivery_type,
             )
 
         config.updated_at = datetime.utcnow()
@@ -1179,6 +1184,7 @@ def get_pricing_for_saved_quote(
             "pricing": result["pricing"],
             "line_pricing": result["line_pricing"],
             "door_results": result["door_results"],
+            "freight": result.get("freight"),
         }
 
     except HTTPException:
@@ -1277,6 +1283,8 @@ def refresh_pricing_for_saved_quote(
                 except Exception as e:
                     logger.warning(f"Could not delete old BC quote {config.bc_quote_id}: {e}")
 
+            delivery_type = (config.config_data or {}).get("deliveryType", "delivery")
+
             result = _generate_bc_quote_with_items(
                 doors=doors,
                 bc_customer_id=current_user.bc_customer_id,
@@ -1284,6 +1292,7 @@ def refresh_pricing_for_saved_quote(
                 pricing_tier=pricing_tier,
                 db=db,
                 po_number=(config.config_data or {}).get("poNumber"),
+                delivery_type=delivery_type,
             )
 
             config.bc_quote_id = result["bc_quote_id"]
@@ -1291,11 +1300,13 @@ def refresh_pricing_for_saved_quote(
         else:
             # Unlinked customer: recalculate local estimate at retail
             pricing_tier = "retail"
+            delivery_type = (config.config_data or {}).get("deliveryType", "delivery")
             result = _estimate_pricing_locally(
                 doors=doors,
                 pricing_tier=pricing_tier,
                 config_id=config.id,
                 db=db,
+                delivery_type=delivery_type,
             )
 
         config.updated_at = datetime.utcnow()
@@ -1314,6 +1325,7 @@ def refresh_pricing_for_saved_quote(
             "pricing": result["pricing"],
             "line_pricing": result["line_pricing"],
             "door_results": result["door_results"],
+            "freight": result.get("freight"),
         }
 
     except HTTPException:

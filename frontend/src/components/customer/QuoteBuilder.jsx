@@ -27,6 +27,7 @@ function QuoteBuilder() {
   const [quoteName, setQuoteName] = useState('')
   const [quoteDescription, setQuoteDescription] = useState('')
   const [poNumber, setPoNumber] = useState('')
+  const [deliveryType, setDeliveryType] = useState('')  // '' = not chosen, 'delivery' or 'pickup'
   const [currentStep, setCurrentStep] = useState(0)
   const [doors, setDoors] = useState([createEmptyDoor()])
   const [currentDoorIndex, setCurrentDoorIndex] = useState(0)
@@ -61,6 +62,7 @@ function QuoteBuilder() {
     if (existingQuote) {
       setQuoteName(existingQuote.name || '')
       setQuoteDescription(existingQuote.description || '')
+      setDeliveryType(existingQuote.config_data?.deliveryType || '')
       if (existingQuote.config_data?.doors) {
         setDoors(existingQuote.config_data.doors)
       } else if (existingQuote.config_data) {
@@ -208,7 +210,7 @@ function QuoteBuilder() {
       await saveMutation.mutateAsync({
         name: quoteName.trim(),
         description: quoteDescription.trim(),
-        config_data: { doors, poNumber: poNumber || undefined }
+        config_data: { doors, poNumber: poNumber || undefined, deliveryType: deliveryType || undefined }
       })
     } catch (error) {
       console.error('Save error:', error)
@@ -223,6 +225,10 @@ function QuoteBuilder() {
       setErrors({ name: 'Quote name is required' })
       return
     }
+    if (!deliveryType) {
+      setErrors({ delivery: 'Please select Delivery or Pickup before requesting pricing' })
+      return
+    }
 
     setErrors({})
     setPricingLoading(true)
@@ -235,7 +241,7 @@ function QuoteBuilder() {
         const saveResponse = await savedQuotesApi.create({
           name: quoteName.trim(),
           description: quoteDescription.trim(),
-          config_data: { doors },
+          config_data: { doors, deliveryType },
         })
         quoteId = saveResponse.data.id
         setSavedQuoteId(quoteId)
@@ -244,7 +250,7 @@ function QuoteBuilder() {
         await savedQuotesApi.update(quoteId, {
           name: quoteName.trim(),
           description: quoteDescription.trim(),
-          config_data: { doors },
+          config_data: { doors, deliveryType },
         })
       }
 
@@ -583,9 +589,11 @@ function QuoteBuilder() {
             quoteName={quoteName}
             quoteDescription={quoteDescription}
             poNumber={poNumber}
+            deliveryType={deliveryType}
             onNameChange={setQuoteName}
             onDescriptionChange={setQuoteDescription}
             onPoNumberChange={setPoNumber}
+            onDeliveryTypeChange={setDeliveryType}
             onSave={handleSave}
             isSaving={saving}
             errors={errors}
@@ -2254,7 +2262,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
   )
 }
 
-function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, onNameChange, onDescriptionChange, onPoNumberChange, onSave, isSaving, errors, isBCLinked, pricingData, pricingLoading, onGetPricing, onConfirmSubmit }) {
+function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deliveryType, onNameChange, onDescriptionChange, onPoNumberChange, onDeliveryTypeChange, onSave, isSaving, errors, isBCLinked, pricingData, pricingLoading, onGetPricing, onConfirmSubmit }) {
   function getSeriesName(doorType, seriesId) {
     const series = config?.doorSeries?.[doorType]?.find(s => s.id === seriesId)
     return series?.name || seriesId
@@ -2320,6 +2328,46 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, onNa
               className="mt-1 block w-full md:w-64 rounded-md border-gray-300 shadow-sm focus:border-odc-500 focus:ring-odc-500 sm:text-sm"
               placeholder="e.g., PO-12345"
             />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Delivery Method *
+            </label>
+            <div className="flex space-x-6">
+              <label className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-md border-2 transition-all ${
+                deliveryType === 'delivery' ? 'border-odc-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
+              }`}>
+                <input
+                  type="radio"
+                  name="deliveryType"
+                  value="delivery"
+                  checked={deliveryType === 'delivery'}
+                  onChange={(e) => onDeliveryTypeChange(e.target.value)}
+                  className="text-odc-600 focus:ring-odc-500"
+                />
+                <div>
+                  <span className="text-sm font-medium text-gray-900">Delivery</span>
+                  <p className="text-xs text-gray-500">Freight charges apply</p>
+                </div>
+              </label>
+              <label className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-md border-2 transition-all ${
+                deliveryType === 'pickup' ? 'border-odc-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
+              }`}>
+                <input
+                  type="radio"
+                  name="deliveryType"
+                  value="pickup"
+                  checked={deliveryType === 'pickup'}
+                  onChange={(e) => onDeliveryTypeChange(e.target.value)}
+                  className="text-odc-600 focus:ring-odc-500"
+                />
+                <div>
+                  <span className="text-sm font-medium text-gray-900">Pickup</span>
+                  <p className="text-xs text-gray-500">No freight charges</p>
+                </div>
+              </label>
+            </div>
+            {errors.delivery && <p className="mt-1 text-sm text-red-600">{errors.delivery}</p>}
           </div>
         </div>
       </div>

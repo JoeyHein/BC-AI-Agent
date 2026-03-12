@@ -66,6 +66,13 @@ function SavedQuotes() {
       return
     }
 
+    // Check if delivery type is set in config_data
+    const quote = quotes?.find(q => q.id === id)
+    if (quote && !quote.config_data?.deliveryType) {
+      alert('Please edit this quote and select a delivery method (Delivery or Pickup) before requesting pricing.')
+      return
+    }
+
     setPricingState(prev => ({
       ...prev,
       [id]: { loading: true, data: null, error: null }
@@ -279,6 +286,12 @@ function SavedQuotes() {
                             Priced
                             {quote.bc_quote_number && ` - ${quote.bc_quote_number}`}
                           </span>
+                          <Link
+                            to={`${quote.id}`}
+                            className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                          >
+                            Edit
+                          </Link>
                           <button
                             onClick={() => handleConfirm(quote.id, quote.name)}
                             disabled={confirmMutation.isPending}
@@ -321,6 +334,12 @@ function SavedQuotes() {
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
                             Draft
                           </span>
+                          <Link
+                            to={`${quote.id}`}
+                            className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                          >
+                            Edit
+                          </Link>
                           {isBCLinked && (
                             <button
                               onClick={() => handleGetPricing(quote.id)}
@@ -352,6 +371,21 @@ function SavedQuotes() {
                   {/* Config preview */}
                   {quote.config_data && (
                     <div className="mt-2 flex flex-wrap gap-2">
+                      {/* Delivery type badge */}
+                      {quote.config_data.deliveryType && (
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                          quote.config_data.deliveryType === 'pickup'
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-orange-100 text-orange-800'
+                        }`}>
+                          {quote.config_data.deliveryType === 'pickup' ? 'Pickup' : 'Delivery'}
+                        </span>
+                      )}
+                      {!quote.config_data.deliveryType && !quote.is_submitted && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                          No delivery method set
+                        </span>
+                      )}
                       {/* New multi-door format */}
                       {quote.config_data.doors ? (
                         <>
