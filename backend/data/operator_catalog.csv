@@ -1,0 +1,98 @@
+PartNumber,Brand,Type,DisplayName,UnitCost,Status,Replacement,Notes,Include
+OP19-01067-00,LiftMaster,Residential,81600 Contractor 12V DC Chain Drive WiFi,262.92,DISCONTINUED,2220L,Replaced by new Basic Series,N
+OP19-01068-00,LiftMaster,Residential,81650 Contractor 1/2HP AC Chain Drive WiFi,253.77,DISCONTINUED,2220L,Replaced by new Basic Series,N
+OP19-01099-00,LiftMaster,Residential,81550 WiFi 1/2HP AC Belt Drive,253.52,DISCONTINUED,6580L,Replaced by Plus Series,N
+OP19-01069-00,LiftMaster,Residential,83650-267 Premium 1/2HP AC Chain Drive WiFi,279.59,DISCONTINUED,4690L,Replaced by Premium Series,N
+OP19-01113-00,LiftMaster,Residential,83550,320.14,DISCONTINUED,6580L,Replaced by Plus Series,N
+OP19-01073-00,LiftMaster,Residential,84505R WiFi DC Belt Drive 1500LM LED,340.09,CURRENT,,WiFi DC Belt Drive with LED,Y
+OP19-01070-00,LiftMaster,Residential,87504-267 WiFi DC Belt Drive 2000LM LED BBU Camera,489.43,CURRENT,,Premium with camera and battery backup,Y
+OP19-01118-00,LiftMaster,Residential,2220L Basic 3/4HP DC Chain Drive Camera WiFi,270.55,CURRENT,,New Basic Series - chain drive with camera,Y
+OP19-01119-00,LiftMaster,Residential,2420L Basic 3/4HP DC Chain Drive Camera WiFi BBU,342,CURRENT,,New Basic Series - chain + battery backup,Y
+OP19-01120-00,LiftMaster,Residential,6580L Plus 1HP DC Belt Drive,368.18,CURRENT,,Plus Series - belt drive quiet,Y
+OP19-01121-00,LiftMaster,Residential,6690L Premium 1-1/4HP DC Belt Drive Camera,522.08,CURRENT,,Premium Series - belt + camera,Y
+OP19-01122-00,LiftMaster,Residential,4690L Premium 1-1/4HP DC Belt Drive Camera,527.83,CURRENT,,Premium Series - chain + camera,Y
+OP19-01050-00,LiftMaster,Residential,8500C Residential Jackshaft,557.87,DISCONTINUED,98022MC,Replaced by 98022 jackshaft,N
+OP19-01002-00,LiftMaster,Residential,8500CMC DC Battery Backup Wall Mount,505.62,DISCONTINUED,98022MC,Replaced by 98022 jackshaft,N
+OP19-01082-00,LiftMaster,Residential,LJ8900W Light-Duty Jackshaft DC WiFi,379,CURRENT,,Light-duty commercial/residential jackshaft,Y
+OP19-01085-00,LiftMaster,Residential,98022MC MD RJO DC BBU WiFi,748.55,CURRENT,,New jackshaft - replaces 8500 series,Y
+OP19-01040-00,LiftMaster,Commercial,MH5011UL 1/2HP 115V LH Medium Duty Hoist,682.5,CURRENT,,Medium-duty hoist left hand,Y
+OP19-01041-00,LiftMaster,Commercial,MH5011UR 1/2HP 115V RH Medium Duty Hoist,649,CURRENT,,Medium-duty hoist right hand,Y
+OP19-01044-00,LiftMaster,Commercial,H501L5R Hoist RH 1/2HP 115/230V Industrial,879.04,DISCONTINUED,JHDC,H series replaced by JHDC,N
+OP19-01071-00,LiftMaster,Commercial,RBH501L5R-MC Hoist 1/2HP 115/230V,1146,CURRENT,,Roller brake hoist 1/2HP,Y
+OP19-01048-00,LiftMaster,Commercial,RBH751L5R 3/4HP 115/230V Hoist,1158,CURRENT,,Roller brake hoist 3/4HP single phase,Y
+OP19-01078-00,LiftMaster,Commercial,RBH755L5R 3/4HP 575V 3PH Hoist,1259,CURRENT,,Roller brake hoist 3/4HP 575V,Y
+OP19-01072-00,LiftMaster,Commercial,RBH101L5R 1HP 115/230V Hoist,1259,CURRENT,,Roller brake hoist 1HP,Y
+OP19-01105-00,LiftMaster,Commercial,RBH103L5R-MC 1HP 208/230V/460V 3PH Hoist,1350,CURRENT,,Roller brake hoist 1HP 3PH,Y
+OP19-01056-00,LiftMaster,Commercial,CRBH751L5R 3/4HP 115/230V Carwash Hoist,1489.43,CURRENT,,Carwash roller brake hoist 3/4HP,Y
+OP19-01078-01,LiftMaster,Commercial,CRBH755L5R 3/4HP 575V 3PH Carwash Hoist,1757.16,CURRENT,,Carwash roller brake hoist 575V,Y
+OP19-01081-01,LiftMaster,Commercial,CRBH753L5R 3/4HP 208/230/460V 3PH Carwash,1579,CURRENT,,Carwash roller brake hoist 3PH,Y
+OP19-01105-01,LiftMaster,Commercial,CRBH103L5R-MC 1HP Carwash Hoist,1649,CURRENT,,Carwash roller brake hoist 1HP,Y
+OP19-01089-00,LiftMaster,Commercial,CRBH105L5L-MC 1HP 575V 3PH LH Carwash,1999.99,CURRENT,,Carwash hoist 1HP 575V left hand,Y
+OP19-01092-00,LiftMaster,Commercial,CRBH501L5L Hoist Roller Bearing LH,1532.12,CURRENT,,Carwash hoist 1/2HP left hand,Y
+OP19-01057-00,LiftMaster,Commercial,T501L5 Trolley 1/2HP 115/230V for 12ft,690,CURRENT,,Trolley operator for standard doors,Y
+OP19-01107-00,LiftMaster,Commercial,JHDC 700 LBS Jackshaft DC,903.6,CURRENT,,New MAXUM JHDC - up to 700 lbs,Y
+OP19-01108-00,LiftMaster,Commercial,JHDC 1200 LBS Jackshaft DC,1044.75,CURRENT,,New MAXUM JHDC - up to 1200 lbs,Y
+OP19-01106-00,LiftMaster,Commercial,JHDC12X1BMC Jackshaft 1200LB,1177.78,CURRENT,,JHDC variant with MC controller,Y
+OP19-01109-00,LiftMaster,Commercial,JHDC22X1BMC Jackshaft 1200LB,1372,CURRENT,,JHDC high-capacity variant,Y
+OP19-01080-00,LiftMaster,Accessory,Trolley Track for 12ft Door,96,CURRENT,,,Y
+OP19-01094-00,LiftMaster,Accessory,Trolley Track for 14ft Door,122.85,CURRENT,,,Y
+OP19-02001-00,LiftMaster,Accessory,7ft Belt Rail 2777BD,74.25,CURRENT,,,Y
+OP19-02002-00,LiftMaster,Accessory,8ft Belt Rail 2778BD,117.42,CURRENT,,,Y
+OP19-02003-00,LiftMaster,Accessory,10ft Belt Rail 2770BD,174.8,CURRENT,,,Y
+OP19-02004-00,LiftMaster,Accessory,7ft Full Chain Rail 1707LM,61.09,CURRENT,,,Y
+OP19-02005-00,LiftMaster,Accessory,8ft Full Chain Rail 1708LM,84.92,CURRENT,,,Y
+OP19-02006-00,LiftMaster,Accessory,10ft Full Chain Rail 1710LM,142.53,CURRENT,,,Y
+OP19-02020-00,LiftMaster,Accessory,828LM Internet Gateway,74.34,CURRENT,,,Y
+OP19-02025-00,LiftMaster,Accessory,893MAX 3-Button Remote Control,40.42,CURRENT,,,Y
+OP19-02027-00,LiftMaster,Accessory,850LM Receiver,67,CURRENT,,,Y
+OP19-02030-00,LiftMaster,Accessory,371LM 1-Button Remote Control,31.29,CURRENT,,,Y
+OP19-02038-00,LiftMaster,Accessory,880LMW Smart Control Panel,61.64,CURRENT,,,Y
+OP19-02053-00,LiftMaster,Accessory,86LM Remote Antenna Kit 15ft,46,CURRENT,,,Y
+OP19-02077-00,LiftMaster,Accessory,878MAX Wireless Keypad,51.49,CURRENT,,,Y
+OP19-02084-00,LiftMaster,Accessory,LC36M Light Curtain 36in,362.57,CURRENT,,,Y
+OP19-02085-00,LiftMaster,Accessory,KPR2000 Keypad/Reader,329.99,CURRENT,,,Y
+OP19-02096-00,LiftMaster,Accessory,myQ Smart Garage Camera,79,CURRENT,,,Y
+OP19-02097-00,LiftMaster,Accessory,CPS-RPEN4 Reflective Photo Eyes,96.16,CURRENT,,,Y
+OP19-02099-00,LiftMaster,Accessory,312HM Radio Receiver External Antenna,84.99,CURRENT,,,Y
+OP19-02110-00,LiftMaster,Accessory,CPS-U Commercial Logic Protector,85,CURRENT,,,Y
+OP19-02120-00,LiftMaster,Accessory,Sprocket 15-16 Tooth 1in Bore,13.23,CURRENT,,,Y
+OP19-02120-01,LiftMaster,Accessory,Sprocket 50B 22 Tooth 1in Bore,14.28,CURRENT,,,Y
+OP19-02120-02,LiftMaster,Accessory,Sprocket 50B 32 Tooth 1in Bore,39,CURRENT,,,Y
+OP19-02120-03,LiftMaster,Accessory,Sprocket 5-42 Tooth 1in Bore,42.32,CURRENT,,,Y
+OP19-02120-10,LiftMaster,Accessory,Sprocket 10-32 Tooth 1-1/4in Bore,26.92,CURRENT,,,Y
+OP19-02120-11,LiftMaster,Accessory,Sprocket 5-42 Tooth 1-1/4in Bore,42.32,CURRENT,,,Y
+OP19-02131-00,LiftMaster,Accessory,Residential Plate,9.25,CURRENT,,,Y
+OP19-K001D8395,LiftMaster,Accessory,Logic 5 Board Kit All Voltages,95,CURRENT,,,Y
+OP20-01001-00,Micanan,Commercial,PRO-LHE 5011 0.5HP 115V,569,CURRENT,,Light-duty 1/2HP single phase,Y
+OP20-01002-00,Micanan,Commercial,PRO-HE 5011 0.5HP 115V,741.21,CURRENT,,Heavy-duty 1/2HP single phase,Y
+OP20-01011-00,Micanan,Commercial,PRO HBE 0.75HP 208V 3PH Brake,987.25,CURRENT,,3/4HP three phase with brake,Y
+OP20-01025-00,Micanan,Commercial,PRO-TE 5053 0.5HP 575V 3PH,852.22,CURRENT,,1/2HP 575V three phase,Y
+OP20-01056-00,Micanan,Commercial,PRO-HBHE 7511 0.75HP 115V,832,CURRENT,,3/4HP single phase,Y
+OP20-01066-00,Micanan,Commercial,PRO-HBHE 5011 0.5HP 115V,798,CURRENT,,1/2HP single phase heavy duty,Y
+OP20-01074-00,Micanan,Commercial,PRO-HBHE 7583 0.75HP 208V 3PH,839,CURRENT,,3/4HP three phase,Y
+OP20-01077-00,Micanan,Commercial,PRO-HBHE 10011 1HP 110V,898,CURRENT,,1HP single phase,Y
+OP20-01080-00,Micanan,Commercial,PRO-HHDE 7511 NEMA4 0.75HP 115V,1282.17,CURRENT,,3/4HP NEMA 4 washdown rated,Y
+OP20-01086-00,Micanan,Commercial,PRO-APTB 7511 0.75HP 115V,867.12,CURRENT,,3/4HP single phase APT brake,Y
+OP20-01087-00,Micanan,Commercial,PRO-APTB 7583 0.75HP 208V 3PH,910,CURRENT,,3/4HP three phase APT brake,Y
+OP20-01088-00,Micanan,Commercial,PRO-APTB 7553 0.75HP 575V 3PH,935,CURRENT,,3/4HP 575V APT brake,Y
+OP20-01094-00,Micanan,Commercial,PRO-HBHW 0.75HP 575V 3PH NEMA4/12,1375,CURRENT,,3/4HP 575V NEMA 4/12 washdown,Y
+OP20-02051-00,Micanan,Commercial,PRO-HHDE 7553 3/4HP 575V 3PH,879,CURRENT,,3/4HP 575V three phase,Y
+OP20-02001-00,Micanan,Accessory,Spreader Bars 1in-1in,7.62,CURRENT,,,Y
+OP20-02002-00,Micanan,Accessory,Spreader Bars 1in-1.25in,19,CURRENT,,,Y
+OP20-02011-00,Micanan,Accessory,PBS Station O/C/S with Key Switch NEMA,175.35,CURRENT,,,Y
+OP20-02035-00,Micanan,Accessory,Loop Detector 24V,262.92,CURRENT,,,Y
+OP20-02039-00,Micanan,Accessory,Pneumatic Edge with Reelite,103.84,CURRENT,,,Y
+OP21-01000-00,iControls,Commercial,PULSE PDC-500 DC Direct Drive 1/2HP,1250,CURRENT,,Pulse 500 series,Y
+OP21-01001-00,iControls,Commercial,PULSE PDC-750 DC Direct Drive 3/4HP,1575,CURRENT,,Pulse 500 series 3/4HP,Y
+OP21-01003-00,iControls,Commercial,PULSE PDC-1000 DC Direct Drive 1HP,1950,CURRENT,,Pulse 500 series 1HP,Y
+OP21-01314-00,iControls,Commercial,PDC300-100 Waterproof 1HP,0,CURRENT,,May be newer 300 series - verify,
+OP21-01314-01,iControls,Commercial,PDC300-100 Waterproof 1HP Variant,0,CURRENT,,May be newer 300 series - verify,
+OP21-01324-00,iControls,Commercial,PDC300-075 Waterproof 3/4HP,0,CURRENT,,May be newer 300 series - verify,
+OP21-01324-01,iControls,Commercial,PDC300-075 Waterproof 3/4HP Variant,0,CURRENT,,May be newer 300 series - verify,
+OP21-02005-00,iControls,Accessory,Chain Hoist for Pulse Operators,350,CURRENT,,,Y
+OP21-02007-00,iControls,Accessory,Car Wash Photo Eyes for PCS500,140,CURRENT,,,Y
+OP21-02008-00,iControls,Accessory,RXTA-200 1-Channel Receiver 315MHz,37,CURRENT,,,Y
+OP21-02009-00,iControls,Accessory,TXTA-200 3-Button Transmitter 315MHz,26,CURRENT,,,Y
+OP21-02015-00,iControls,Accessory,PULSE 500 Control Board PC7.5,398,CURRENT,,,Y
+OP21-11000-00,iControls,Accessory,PULSE PDC-500 Control Panel Only,598,CURRENT,,,Y
+OP22-02001-00,MMTC,Accessory,PBS-3 Control Station,19,CURRENT,,,Y

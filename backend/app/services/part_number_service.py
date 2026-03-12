@@ -331,23 +331,7 @@ SEAL_RULES = {
     },
 }
 
-# Operator Part Numbers
-OPERATOR_RULES = {
-    "residential": {
-        "LIFTMASTER_BASIC": "OP-LM-BASIC",
-        "LIFTMASTER_MYQ": "OP-LM-MYQ",
-        "LIFTMASTER_BATTERY": "OP-LM-BATT",
-    },
-    "commercial": {
-        "PDC500": "OP-PDC-500",
-        "PDC750_100": "OP-PDC-750-100",
-        "PDC750_125": "OP-PDC-750-125",
-        "PDC1000": "OP-PDC-1000",
-        "PDC2000": "OP-PDC-2000",
-        "PA15": "OP-PA-15",
-        "PA17": "OP-PA-17",
-    },
-}
+# Operator part numbers now come from operator_service (CSV catalog with real BC part numbers)
 
 
 # ============================================================================
@@ -525,7 +509,6 @@ class PartNumberService:
         self.strut_rules = STRUT_RULES
         self.window_rules = WINDOW_RULES
         self.seal_rules = SEAL_RULES
-        self.operator_rules = OPERATOR_RULES
 
     def get_parts_for_configuration(self, config: DoorConfiguration) -> List[PartSelection]:
         """
@@ -2211,16 +2194,21 @@ class PartNumberService:
         )]
 
     def _get_operator_parts(self, config: DoorConfiguration) -> List[PartSelection]:
-        """Get operator part numbers"""
+        """Get operator part numbers using real BC part numbers from catalog."""
         if not config.operator or config.operator == "NONE":
             return []
 
-        op_type = "commercial" if config.door_type == "commercial" else "residential"
-        op_pn = self.operator_rules.get(op_type, {}).get(config.operator, f"OP-{config.operator}")
+        from app.services.operator_service import get_operator_part_number, get_operator_display_name
+
+        part_number = get_operator_part_number(config.operator)
+        if not part_number:
+            return []
+
+        display_name = get_operator_display_name(config.operator)
 
         return [PartSelection(
-            part_number=op_pn,
-            description=f"Door Operator - {config.operator}",
+            part_number=part_number,
+            description=display_name,
             quantity=1,
             category="operator"
         )]

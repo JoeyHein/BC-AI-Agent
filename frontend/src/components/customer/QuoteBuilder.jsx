@@ -1898,7 +1898,9 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
 }
 
 function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, onChange }) {
-  const operators = operatorOptions?.[door.doorType] || operatorOptions?.residential || []
+  const opData = operatorOptions?.[door.doorType] || operatorOptions?.residential || {}
+  const operatorBrands = opData.operators || {}
+  const accessoryBrands = opData.accessories || {}
 
   // Spring cycle options
   // Spring cycle options (must match MIP capacity data in spring calculator)
@@ -2227,36 +2229,42 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         <label className="block text-sm font-medium text-gray-700 mb-2">
           Door Operator (Optional)
         </label>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <button
-            onClick={() => onChange({ operator: 'NONE' })}
-            className={`p-4 rounded-lg border-2 text-left transition-all ${
-              door.operator === 'NONE'
-                ? 'border-odc-500 bg-blue-50'
-                : 'border-gray-200 hover:border-gray-300'
-            }`}
-          >
-            <h4 className="font-medium text-gray-900">No Operator</h4>
-            <p className="mt-1 text-xs text-gray-500">Manual operation only</p>
-          </button>
-          {operators.map((op) => (
-            <button
-              key={op.id}
-              onClick={() => onChange({ operator: op.id })}
-              className={`p-4 rounded-lg border-2 text-left transition-all ${
-                door.operator === op.id
-                  ? 'border-odc-500 bg-blue-50'
-                  : 'border-gray-200 hover:border-gray-300'
-              }`}
-            >
-              <h4 className="font-medium text-gray-900">{op.name}</h4>
-              {op.hp && <p className="mt-1 text-xs text-gray-500">{op.hp}</p>}
-              {op.features && (
-                <p className="mt-1 text-xs text-gray-400">{op.features.join(', ')}</p>
-              )}
-            </button>
-          ))}
-        </div>
+        {/* No Operator option */}
+        <button
+          onClick={() => onChange({ operator: 'NONE' })}
+          className={`mb-4 w-full p-3 rounded-lg border-2 text-left transition-all ${
+            door.operator === 'NONE' || !door.operator
+              ? 'border-odc-500 bg-blue-50'
+              : 'border-gray-200 hover:border-gray-300'
+          }`}
+        >
+          <h4 className="font-medium text-gray-900">No Operator</h4>
+          <p className="mt-1 text-xs text-gray-500">Manual operation only</p>
+        </button>
+
+        {/* Operators grouped by brand */}
+        {Object.entries(operatorBrands).map(([brand, items]) => (
+          <div key={brand} className="mb-4">
+            <h4 className="text-sm font-semibold text-gray-600 mb-2">{brand}</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {items.map((op) => (
+                <button
+                  key={op.id}
+                  onClick={() => onChange({ operator: op.id })}
+                  className={`p-3 rounded-lg border-2 text-left transition-all ${
+                    door.operator === op.id
+                      ? 'border-odc-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <h4 className="font-medium text-gray-900 text-sm">{op.name}</h4>
+                  {op.notes && <p className="mt-0.5 text-xs text-gray-400">{op.notes}</p>}
+                  <p className="mt-0.5 text-xs text-gray-300">{op.partNumber}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -2266,6 +2274,14 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
   function getSeriesName(doorType, seriesId) {
     const series = config?.doorSeries?.[doorType]?.find(s => s.id === seriesId)
     return series?.name || seriesId
+  }
+
+  function getOperatorName(doorType, operatorId) {
+    if (!operatorId || operatorId === 'NONE') return 'None'
+    const opData = config?.operatorOptions?.[doorType] || config?.operatorOptions?.residential || {}
+    const allOps = Object.values(opData.operators || {}).flat()
+    const op = allOps.find(o => o.id === operatorId)
+    return op ? `${op.brand} ${op.name}` : operatorId
   }
 
   function getColorName(seriesId, colorId) {
@@ -2490,7 +2506,7 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
                   </div>
                   <div>
                     <span className="text-gray-500">Operator:</span>
-                    <span className="ml-2 text-gray-900">{door.operator === 'NONE' ? 'None' : door.operator}</span>
+                    <span className="ml-2 text-gray-900">{getOperatorName(door.doorType, door.operator)}</span>
                   </div>
                 </div>
 

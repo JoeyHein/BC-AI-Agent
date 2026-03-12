@@ -394,24 +394,7 @@ HARDWARE_OPTIONS = [
     {"id": "shafts", "name": "Shafts", "description": "Torsion shaft", "default": True},
 ]
 
-OPERATOR_OPTIONS = {
-    "residential": [
-        {"id": "NONE", "name": "No Operator"},
-        {"id": "LIFTMASTER_BASIC", "name": "LiftMaster Basic", "features": ["Chain Drive"]},
-        {"id": "LIFTMASTER_MYQ", "name": "LiftMaster with myQ", "features": ["WiFi", "myQ App"]},
-        {"id": "LIFTMASTER_BATTERY", "name": "LiftMaster with Battery Backup", "features": ["myQ", "Battery Backup"]},
-    ],
-    "commercial": [
-        {"id": "NONE", "name": "No Operator"},
-        {"id": "PDC500", "name": "POWRDOR PDC500", "hp": "1/2 HP", "maxSize": 200},
-        {"id": "PDC750_100", "name": "POWRDOR PDC750-100", "hp": "3/4 HP", "maxSize": 350},
-        {"id": "PDC750_125", "name": "POWRDOR PDC750-125", "hp": "3/4 HP", "maxSize": 350},
-        {"id": "PDC1000", "name": "POWRDOR PDC1000", "hp": "1.0 HP", "maxSize": 500},
-        {"id": "PDC2000", "name": "POWRDOR PDC2000", "hp": "2.0 HP", "maxSize": 500},
-        {"id": "PA15", "name": "POWAIRDOR PA15 (Pneumatic)", "features": ["Car Wash", "45\"/sec"]},
-        {"id": "PA17", "name": "POWAIRDOR PA17 (Pneumatic)", "features": ["General", "45\"/sec"]},
-    ],
-}
+from app.services.operator_service import get_operator_options as _get_op_options, get_all_operator_options
 
 
 # ============================================================================
@@ -570,10 +553,9 @@ async def get_hardware_options():
 
 @router.get("/operator-options/{door_type}")
 async def get_operator_options(door_type: str):
-    """Get operator options for door type"""
+    """Get operator options for door type, grouped by brand"""
     op_type = "commercial" if door_type == "commercial" else "residential"
-    operators = OPERATOR_OPTIONS.get(op_type, OPERATOR_OPTIONS["residential"])
-    return {"success": True, "data": operators}
+    return {"success": True, "data": _get_op_options(op_type)}
 
 
 @router.get("/full-config")
@@ -593,7 +575,7 @@ async def get_full_configuration():
             "glazingOptions": GLAZING_OPTIONS,
             "trackOptions": TRACK_OPTIONS,
             "hardwareOptions": HARDWARE_OPTIONS,
-            "operatorOptions": OPERATOR_OPTIONS,
+            "operatorOptions": get_all_operator_options(),
         }
     }
 
