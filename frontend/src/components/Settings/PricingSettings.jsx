@@ -30,6 +30,9 @@ function PricingSettings() {
   const [groupMapping, setGroupMapping] = useState({})   // { "CONTRACTOR": "gold", ... }
   const [bcGroups, setBcGroups] = useState([])           // groups seen in synced customers
   const [newGroupCode, setNewGroupCode] = useState('')   // manual entry for unknown groups
+  const [freightConfig, setFreightConfig] = useState({ default_rate: 5, province_overrides: {}, freight_item_number: 'FREIGHT', fallback_to_comment: true })
+  const [newProvince, setNewProvince] = useState('')
+  const [newProvinceRate, setNewProvinceRate] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -45,13 +48,14 @@ function PricingSettings() {
       setLoading(true)
       setError(null)
 
-      const [tiersRes, adjRes, catRes, mappingRes, groupsRes, prefixRes] = await Promise.all([
+      const [tiersRes, adjRes, catRes, mappingRes, groupsRes, prefixRes, freightRes] = await Promise.all([
         settingsApi.getPricingTiers(),
         settingsApi.getPricingCostAdjustments(),
         settingsApi.getPricingCategories(),
         settingsApi.getBCGroupMapping(),
         settingsApi.getBCPriceGroups(),
         settingsApi.getPrefixMargins(),
+        settingsApi.getFreightConfig(),
       ])
 
       if (tiersRes.data.success) setMargins(tiersRes.data.data.margins)
@@ -60,6 +64,7 @@ function PricingSettings() {
       if (mappingRes.data.success) setGroupMapping(mappingRes.data.data.mapping || {})
       if (groupsRes.data.success) setBcGroups(groupsRes.data.data || [])
       if (prefixRes.data.success) setPrefixMargins(prefixRes.data.data.overrides || {})
+      if (freightRes.data.success) setFreightConfig(freightRes.data.data.config || { default_rate: 5, province_overrides: {}, freight_item_number: 'FREIGHT', fallback_to_comment: true })
     } catch (err) {
       console.error('Error loading pricing data:', err)
       setError('Failed to load pricing settings.')
@@ -163,6 +168,7 @@ function PricingSettings() {
         settingsApi.updatePricingCostAdjustments(adjustments),
         settingsApi.updateBCGroupMapping(groupMapping),
         settingsApi.updatePrefixMargins(prefixMargins),
+        settingsApi.updateFreightConfig(freightConfig),
       ])
 
       setSuccessMessage('Pricing settings saved successfully')
@@ -593,6 +599,145 @@ function PricingSettings() {
               </div>
             )
           })}
+        </div>
+      </div>
+
+      {/* Freight Settings */}
+      <div className="bg-white border border-gray-200 rounded-lg p-6">
+        <h3 className="text-md font-medium text-gray-900 mb-4">Freight Charges</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Percentage-based freight added to delivery orders. Pickup orders have no freight.
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Default Rate (%)</label>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.5"
+              value={freightConfig.default_rate}
+              onChange={e => {
+                setFreightConfig(prev => ({ ...prev, default_rate: parseFloat(e.target.value) || 0 }))
+                setHasChanges(true)
+                setSuccessMessage(null)
+              }}
+              className="w-32 border border-gray-300 rounded-md shadow-sm px-3 py-2 text-sm focus:ring-odc-500 focus:border-odc-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Freight Item Number (BC)</label>
+            <input
+              type="text"
+              value={freightConfig.freight_item_number || ''}
+              onChange={e => {
+                setFreightConfig(prev => ({ ...prev, freight_item_number: e.target.value }))
+                setHasChanges(true)
+                setSuccessMessage(null)
+              }}
+              className="w-40 border border-gray-300 rounded-md shadow-sm px-3 py-2 text-sm focus:ring-odc-500 focus:border-odc-500"
+            />
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <label className="flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={freightConfig.fallback_to_comment}
+              onChange={e => {
+                setFreightConfig(prev => ({ ...prev, fallback_to_comment: e.target.checked }))
+                setHasChanges(true)
+                setSuccessMessage(null)
+              }}
+              className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
+            />
+            <span className="ml-2 text-sm text-gray-700">Fall back to Comment line if freight item not found in BC</span>
+          </label>
+        </div>
+
+        {/* Province Overrides */}
+        <div>
+          <h4 className="text-sm font-medium text-gray-700 mb-2">Province Rate Overrides</h4>
+          <div className="space-y-2 mb-3">
+            {Object.entries(freightConfig.province_overrides || {}).map(([prov, rate]) => (
+              <div key={prov} className="flex items-center gap-3">
+                <span className="w-12 text-sm font-medium text-gray-700">{prov}</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.5"
+                  value={rate}
+                  onChange={e => {
+                    setFreightConfig(prev => ({
+                      ...prev,
+                      province_overrides: { ...prev.province_overrides, [prov]: parseFloat(e.target.value) || 0 }
+                    }))
+                    setHasChanges(true)
+                    setSuccessMessage(null)
+                  }}
+                  className="w-24 border border-gray-300 rounded-md shadow-sm px-2 py-1 text-sm focus:ring-odc-500 focus:border-odc-500"
+                />
+                <span className="text-xs text-gray-500">%</span>
+                <button
+                  onClick={() => {
+                    setFreightConfig(prev => {
+                      const next = { ...prev, province_overrides: { ...prev.province_overrides } }
+                      delete next.province_overrides[prov]
+                      return next
+                    })
+                    setHasChanges(true)
+                    setSuccessMessage(null)
+                  }}
+                  className="text-red-500 hover:text-red-700 text-sm"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              maxLength={2}
+              placeholder="AB"
+              value={newProvince}
+              onChange={e => setNewProvince(e.target.value.toUpperCase())}
+              className="w-16 border border-gray-300 rounded-md shadow-sm px-2 py-1 text-sm focus:ring-odc-500 focus:border-odc-500"
+            />
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.5"
+              placeholder="%"
+              value={newProvinceRate}
+              onChange={e => setNewProvinceRate(e.target.value)}
+              className="w-20 border border-gray-300 rounded-md shadow-sm px-2 py-1 text-sm focus:ring-odc-500 focus:border-odc-500"
+            />
+            <button
+              onClick={() => {
+                if (newProvince.trim() && newProvinceRate !== '') {
+                  setFreightConfig(prev => ({
+                    ...prev,
+                    province_overrides: {
+                      ...prev.province_overrides,
+                      [newProvince.trim()]: parseFloat(newProvinceRate) || 0,
+                    }
+                  }))
+                  setNewProvince('')
+                  setNewProvinceRate('')
+                  setHasChanges(true)
+                  setSuccessMessage(null)
+                }
+              }}
+              className="px-3 py-1 text-sm font-medium text-odc-600 bg-odc-50 hover:bg-odc-100 border border-odc-200 rounded-md"
+            >
+              Add
+            </button>
+          </div>
         </div>
       </div>
 

@@ -173,7 +173,13 @@ def warm_bc_cost_cache(part_numbers: List[str]) -> None:
         items = bc_client.get_items_by_numbers(unique_pns)
         _bc_cost_cache.update(items)
         _cache_expiry = time.time() + _CACHE_TTL
+        missing = [pn for pn in unique_pns if pn not in items]
         logger.info(f"Warmed BC cost cache with {len(items)} items (requested {len(unique_pns)})")
+        if missing:
+            logger.warning(f"BC cost cache MISSING items: {missing}")
+        # Log unitCost for each cached item
+        for pn, data in items.items():
+            logger.info(f"CACHE [{pn}]: unitCost={data.get('unitCost', 'N/A')}, postingGroup={data.get('generalProductPostingGroupCode', 'N/A')}")
     except Exception as e:
         logger.warning(f"Failed to warm BC cost cache: {e}")
 
@@ -248,10 +254,12 @@ def calculate_selling_price(
     """
     item = _get_live_item(part_number)
     if not item:
+        logger.warning(f"PRICING CALC [{part_number}]: _get_live_item returned None")
         return None
 
     unit_cost = item.get("unitCost", 0)
     if not unit_cost or unit_cost <= 0:
+        logger.warning(f"PRICING CALC [{part_number}]: unitCost={unit_cost} (zero/missing), skipping")
         return None
 
     # Get posting group for cost adjustment lookup

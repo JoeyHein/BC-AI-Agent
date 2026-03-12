@@ -24,6 +24,11 @@ from app.services.pricing_service import (
     POSTING_GROUP_LABELS,
 )
 from app.services.bc_part_number_mapper import get_bc_mapper
+from app.services.freight_service import (
+    FREIGHT_CONFIG_KEY,
+    get_default_freight_config,
+    get_freight_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +71,11 @@ class CostAdjustmentsUpdate(BaseModel):
 class BCGroupMappingUpdate(BaseModel):
     """Request model for updating BC price group → portal tier mapping"""
     mapping: Dict[str, str]  # { "RETAIL": "retail", "CONTRACTOR": "gold", ... }
+
+
+class FreightConfigUpdate(BaseModel):
+    """Request model for updating freight configuration"""
+    config: Dict[str, Any]  # { "default_rate": 5.0, "province_overrides": { "SK": 7.0, ... }, ... }
 
 
 class PrefixMarginsUpdate(BaseModel):
@@ -597,6 +607,105 @@ async def get_bc_price_groups(db: Session = Depends(get_db)):
     ).distinct().all()
     groups = sorted({r[0] for r in rows})
     return {"success": True, "data": groups}
+
+
+# ============================================================================
+# Freight Configuration Endpoints
+# ============================================================================
+
+@router.get("/freight-config/current")
+async def get_freight_config_endpoint(db: Session = Depends(get_db)):
+    """Get current freight configuration (or defaults if not yet saved)."""
+    setting = db.query(AppSettings).filter(
+        AppSettings.setting_key == FREIGHT_CONFIG_KEY
+    ).first()
+
+    if not setting:
+        return {
+            "success": True,
+            "data": {
+                "config": get_default_freight_config(),
+                "isDefault": True,
+            }
+        }
+
+    return {
+        "success": True,
+        "data": {
+            "config": setting.setting_value,
+            "isDefault": False,
+            "updatedAt": setting.updated_at.isoformat() if setting.updated_at else None,
+        }
+    }
+
+
+@router.put("/freight-config")
+async def update_freight_config(
+    update: FreightConfigUpdate,
+    db: Session = Depends(get_db),
+):
+    """Validate and save freight configuration."""
+    config = update.config
+
+    # Validate default_rate
+    default_rate = config.get("default_rate", 5.0)
+    if not (0 <= default_rate <= 100):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Default rate must be between 0% and 100% (got {default_rate}%)"
+        )
+
+    # Validate province overrides
+    province_overrides = config.get("province_overrides", {})
+    for prov, rate in province_overrides.items():
+        if not (0 <= float(rate) <= 100):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Rate for province '{prov}' must be between 0% and 100% (got {rate}%)"
+            )
+
+    # Normalize province keys to uppercase
+    normalized_overrides = {
+        k.upper().strip(): float(v)
+        for k, v in province_overrides.items()
+        if k.strip()
+    }
+
+    normalized_config = {
+        "default_rate": float(default_rate),
+        "province_overrides": normalized_overrides,
+        "freight_item_number": config.get("freight_item_number", "FREIGHT"),
+        "fallback_to_comment": config.get("fallback_to_comment", True),
+    }
+
+    setting = db.query(AppSettings).filter(
+        AppSettings.setting_key == FREIGHT_CONFIG_KEY
+    ).first()
+
+    if setting:
+        setting.setting_value = normalized_config
+        setting.updated_at = datetime.utcnow()
+    else:
+        setting = AppSettings(
+            setting_key=FREIGHT_CONFIG_KEY,
+            setting_value=normalized_config,
+            description="Freight charge configuration (rates, province overrides)",
+            updated_at=datetime.utcnow(),
+        )
+        db.add(setting)
+
+    db.commit()
+    db.refresh(setting)
+    logger.info(f"Freight config updated: {normalized_config}")
+
+    return {
+        "success": True,
+        "message": "Freight configuration updated successfully",
+        "data": {
+            "config": setting.setting_value,
+            "updatedAt": setting.updated_at.isoformat() if setting.updated_at else None,
+        }
+    }
 
 
 # ============================================================================

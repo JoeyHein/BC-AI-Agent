@@ -523,6 +523,13 @@ export const settingsApi = {
 
   getBCPriceGroups: () =>
     apiClient.get('/api/settings/bc-group-mapping/bc-groups'),
+
+  // Freight config
+  getFreightConfig: () =>
+    apiClient.get('/api/settings/freight-config/current'),
+
+  updateFreightConfig: (config) =>
+    apiClient.put('/api/settings/freight-config', { config }),
 };
 
 // Quote Review API (admin)

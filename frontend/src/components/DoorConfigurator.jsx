@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { doorConfigApi } from '../api/client'
+import { doorConfigApi, settingsApi } from '../api/client'
 import apiClient from '../api/client'
 import DoorDrawings from './DoorDrawings'
 import DoorPreview from './DoorPreview'
@@ -24,6 +24,7 @@ function DoorConfigurator() {
   const [quoteResult, setQuoteResult] = useState(null)
   const [selectedCustomer, setSelectedCustomer] = useState(null) // { bc_customer_id, company_name }
   const [poNumber, setPoNumber] = useState('')
+  const [deliveryType, setDeliveryType] = useState('delivery')
 
   // Fetch full configuration on mount
   const { data: config, isLoading: configLoading } = useQuery({
@@ -207,6 +208,7 @@ function DoorConfigurator() {
       tagName: `Configurator Quote - ${doors.length} door(s)`,
       customerId: selectedCustomer?.bc_customer_id || null,
       poNumber: poNumber || undefined,
+      deliveryType,
     }
     generateQuoteMutation.mutate(request)
   }
@@ -465,6 +467,8 @@ function DoorConfigurator() {
             poNumber={poNumber}
             onPoNumberChange={setPoNumber}
             onAddDoor={addDoor}
+            deliveryType={deliveryType}
+            onDeliveryTypeChange={setDeliveryType}
           />
         )}
       </div>
@@ -2191,7 +2195,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
   )
 }
 
-function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult, selectedCustomer, poNumber, onPoNumberChange, onAddDoor }) {
+function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult, selectedCustomer, poNumber, onPoNumberChange, onAddDoor, deliveryType, onDeliveryTypeChange }) {
   const [partsData, setPartsData] = useState(null)
   const [loadingParts, setLoadingParts] = useState(false)
   const [showParts, setShowParts] = useState(false)
@@ -2199,6 +2203,14 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
   const [loadingCalcs, setLoadingCalcs] = useState(false)
   const [showCalcs, setShowCalcs] = useState(true)
   const [showReviewPanel, setShowReviewPanel] = useState(false)
+  const [freightConfig, setFreightConfig] = useState(null)
+
+  // Fetch freight config on mount for rate display
+  useEffect(() => {
+    settingsApi.getFreightConfig()
+      .then(res => setFreightConfig(res.data?.data?.config || null))
+      .catch(() => {})
+  }, [])
 
   // Fetch part numbers and calculations when component mounts or doors change
   useEffect(() => {
@@ -2810,6 +2822,48 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
         />
       </div>
 
+      {/* Delivery Type */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Delivery Method
+        </label>
+        <div className="flex items-center space-x-6">
+          <label className="flex items-center cursor-pointer">
+            <input
+              type="radio"
+              name="deliveryType"
+              value="delivery"
+              checked={deliveryType === 'delivery'}
+              onChange={() => onDeliveryTypeChange('delivery')}
+              className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300"
+            />
+            <span className="ml-2 text-sm text-gray-700">Delivery</span>
+          </label>
+          <label className="flex items-center cursor-pointer">
+            <input
+              type="radio"
+              name="deliveryType"
+              value="pickup"
+              checked={deliveryType === 'pickup'}
+              onChange={() => onDeliveryTypeChange('pickup')}
+              className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300"
+            />
+            <span className="ml-2 text-sm text-gray-700">Pickup</span>
+          </label>
+        </div>
+        {deliveryType === 'delivery' && freightConfig && (
+          <p className="mt-1 text-xs text-gray-500">
+            Freight: {freightConfig.default_rate}% default
+            {freightConfig.province_overrides && Object.keys(freightConfig.province_overrides).length > 0 && (
+              <span> ({Object.entries(freightConfig.province_overrides).map(([prov, rate]) => `${prov}: ${rate}%`).join(', ')})</span>
+            )}
+          </p>
+        )}
+        {deliveryType === 'pickup' && (
+          <p className="mt-1 text-xs text-gray-500">No freight charges for pickup orders</p>
+        )}
+      </div>
+
       {/* Generate Quote Button */}
       <button
         onClick={onGenerateQuote}
@@ -2853,6 +2907,18 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <span className="text-green-600">Subtotal:</span>
                     <span className="text-right font-medium">${quoteResult.data.pricing.subtotal?.toLocaleString('en-CA', { minimumFractionDigits: 2 })}</span>
+                    {quoteResult.data.freight && !quoteResult.data.freight.skip && (
+                      <>
+                        <span className="text-green-600">{quoteResult.data.freight.description}:</span>
+                        <span className="text-right font-medium">${quoteResult.data.freight.amount?.toLocaleString('en-CA', { minimumFractionDigits: 2 })}</span>
+                      </>
+                    )}
+                    {quoteResult.data.freight?.skip && (
+                      <>
+                        <span className="text-green-600">Freight:</span>
+                        <span className="text-right font-medium text-green-500">Pickup - $0.00</span>
+                      </>
+                    )}
                     <span className="text-green-600">Tax (GST):</span>
                     <span className="text-right font-medium">${quoteResult.data.pricing.tax?.toLocaleString('en-CA', { minimumFractionDigits: 2 })}</span>
                     <span className="text-green-700 font-semibold">Total:</span>

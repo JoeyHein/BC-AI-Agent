@@ -20,6 +20,7 @@ from app.services.part_number_service import get_parts_for_door_config
 from app.services.pricing_service import calculate_selling_price, warm_bc_cost_cache
 from app.services.spring_data_service import get_bc_spring_inventory
 from app.services.quote_review_service import save_quote_snapshot
+from app.services.freight_service import calculate_freight, get_freight_config
 
 # Part number prefix → BC search keyword for AI substitute lookup
 _CATEGORY_SEARCH_TERMS = {
@@ -428,6 +429,7 @@ def _generate_bc_quote_with_items(
     pricing_tier: Optional[str] = None,
     db: Optional[Session] = None,
     po_number: Optional[str] = None,
+    delivery_type: str = "delivery",
 ) -> Dict[str, Any]:
     """
     Create a BC sales quote with real item lines for all doors.
@@ -752,6 +754,83 @@ def _generate_bc_quote_with_items(
     except Exception as pricing_error:
         logger.warning(f"Could not fetch pricing for quote {bc_quote_number}: {pricing_error}")
 
+    # Step 5: Add freight line if delivery
+    freight_info = None
+    if pricing and db:
+        try:
+            # Get customer province
+            customer_province = None
+            bc_cust = db.query(BCCustomer).filter(
+                BCCustomer.bc_customer_id == bc_customer_id
+            ).first()
+            if bc_cust and bc_cust.address:
+                customer_province = bc_cust.address.get("province")
+
+            freight = calculate_freight(
+                product_subtotal=pricing["subtotal"],
+                province=customer_province,
+                delivery_type=delivery_type,
+                db=db,
+            )
+            freight_info = freight
+
+            if not freight["skip"] and freight["amount"] > 0:
+                freight_config = get_freight_config(db)
+                freight_item = freight_config.get("freight_item_number", "FREIGHT")
+                freight_added = False
+
+                # Try adding as Item line
+                try:
+                    freight_line_data = {
+                        "lineType": "Item",
+                        "lineObjectNumber": freight_item,
+                        "description": freight["description"],
+                        "quantity": 1,
+                    }
+                    added_freight = bc_client.add_quote_line(bc_quote_id, freight_line_data)
+                    etag = added_freight.get("@odata.etag", "*")
+                    bc_client.update_quote_line(
+                        bc_quote_id,
+                        added_freight["id"],
+                        etag,
+                        {"unitPrice": freight["amount"]},
+                    )
+                    freight_added = True
+                    logger.info(f"Added freight line: ${freight['amount']:.2f} ({freight['description']})")
+                except Exception as freight_item_err:
+                    logger.warning(f"Could not add freight as Item '{freight_item}': {freight_item_err}")
+
+                    if freight_config.get("fallback_to_comment", True):
+                        try:
+                            comment_data = {
+                                "lineType": "Comment",
+                                "description": f"{freight['description']}: ${freight['amount']:.2f}",
+                            }
+                            bc_client.add_quote_line(bc_quote_id, comment_data)
+                            freight_added = True
+                            logger.info(f"Added freight as comment fallback: ${freight['amount']:.2f}")
+                        except Exception as comment_err:
+                            logger.warning(f"Could not add freight as comment: {comment_err}")
+
+                # Re-fetch totals if freight was added
+                if freight_added:
+                    try:
+                        updated_quote = bc_client.get_sales_quote(bc_quote_id)
+                        subtotal = updated_quote.get("totalAmountExcludingTax", 0)
+                        total_with_tax = updated_quote.get("totalAmountIncludingTax", 0)
+                        tax_amount = total_with_tax - subtotal
+                        pricing = {
+                            "subtotal": round(subtotal, 2),
+                            "tax": round(tax_amount, 2),
+                            "total": round(total_with_tax, 2),
+                            "currency": "CAD",
+                        }
+                    except Exception as refetch_err:
+                        logger.warning(f"Could not re-fetch totals after freight: {refetch_err}")
+
+        except Exception as freight_err:
+            logger.warning(f"Could not calculate/add freight: {freight_err}")
+
     # Save snapshot for quote review system
     try:
         door_configs_summary = [
@@ -794,6 +873,7 @@ def _generate_bc_quote_with_items(
         "pricing": pricing,
         "line_pricing": line_pricing if line_pricing else None,
         "door_results": door_results,
+        "freight": freight_info,
     }
 
 
@@ -814,6 +894,7 @@ def _estimate_pricing_locally(
     pricing_tier: str,
     config_id: int,
     db: Session,
+    delivery_type: str = "delivery",
 ) -> Dict[str, Any]:
     """
     Calculate pricing locally without creating a BC quote.
@@ -960,20 +1041,40 @@ def _estimate_pricing_locally(
 
     subtotal = round(subtotal, 2)
 
+    # Calculate freight for local estimate
+    freight_info = None
+    try:
+        freight = calculate_freight(
+            product_subtotal=subtotal,
+            province=None,  # No province for unlinked customers
+            delivery_type=delivery_type,
+            db=db,
+        )
+        freight_info = freight
+
+        if not freight["skip"] and freight["amount"] > 0:
+            subtotal_with_freight = round(subtotal + freight["amount"], 2)
+        else:
+            subtotal_with_freight = subtotal
+    except Exception as freight_err:
+        logger.warning(f"Could not calculate freight for local estimate: {freight_err}")
+        subtotal_with_freight = subtotal
+
     return {
         "bc_quote_id": None,
         "bc_quote_number": None,
         "lines_added": len([l for l in all_lines if l.get("lineType") != "Comment"]),
         "lines_failed": None,
         "pricing": {
-            "subtotal": subtotal,
+            "subtotal": subtotal_with_freight,
             "tax": 0,
-            "total": subtotal,
+            "total": subtotal_with_freight,
             "currency": "CAD",
             "is_estimate": True,
         },
         "line_pricing": line_pricing if line_pricing else None,
         "door_results": door_results,
+        "freight": freight_info,
     }
 
 
