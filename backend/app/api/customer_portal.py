@@ -597,20 +597,31 @@ def _generate_bc_quote_with_items(
             # BC's item price list overrides unitPrice on POST.
             # PATCH the line afterward to lock in the customer-tier price.
             if pricing_tier and db and line.get("lineType") != "Comment":
+                part_num = line["part_number"]
+                door_tp = line.get("door_type", "residential")
                 selling_price = calculate_selling_price(
-                    part_number=line["part_number"],
-                    door_type=line.get("door_type", "residential"),
+                    part_number=part_num,
+                    door_type=door_tp,
                     tier=pricing_tier,
                     db=db,
                 )
+                logger.info(f"PRICING DEBUG [{part_num}]: tier={pricing_tier}, door_type={door_tp}, selling_price={selling_price}")
                 if selling_price is not None:
                     etag = added_line.get("@odata.etag", "*")
-                    bc_client.update_quote_line(
-                        bc_quote_id,
-                        added_line["id"],
-                        etag,
-                        {"unitPrice": selling_price},
-                    )
+                    try:
+                        bc_client.update_quote_line(
+                            bc_quote_id,
+                            added_line["id"],
+                            etag,
+                            {"unitPrice": selling_price},
+                        )
+                        logger.info(f"PRICING DEBUG [{part_num}]: PATCH SUCCESS unitPrice={selling_price}")
+                    except Exception as patch_err:
+                        logger.error(f"PRICING DEBUG [{part_num}]: PATCH FAILED: {patch_err}")
+                else:
+                    logger.warning(f"PRICING DEBUG [{part_num}]: selling_price is None, SKIPPING PATCH")
+            elif line.get("lineType") != "Comment":
+                logger.info(f"PRICING DEBUG: skip PATCH - pricing_tier={pricing_tier}, db={db is not None}")
 
         except Exception as line_error:
             part_id = line.get("part_number", line.get("description", "unknown"))
