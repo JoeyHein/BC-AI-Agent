@@ -385,14 +385,15 @@ function FramingDrawing({
         />
 
         {/* ================================================================ */}
-        {/* HEADER                                                          */}
+        {/* HEADER (filled structural beam — hatched like the jambs)       */}
         {/* ================================================================ */}
         <rect
           x={ox - s(fw + 2)}
           y={oy - s(layout.topClearance - 2)}
           width={s(dw + fw * 2 + 4)}
           height={s(layout.headerHeight)}
-          fill="none" stroke="#000" strokeWidth="1.5"
+          fill={isSteel ? 'url(#fd-steelHatch)' : 'url(#fd-woodHatch)'}
+          stroke="#000" strokeWidth="1.5"
         />
 
         {/* ================================================================ */}
@@ -452,156 +453,177 @@ function FramingDrawing({
         )}
 
         {/* ================================================================ */}
-        {/* VERTICAL TRACKS (inside door opening, narrow black outlines)    */}
+        {/* VERTICAL TRACKS                                                */}
+        {/* Use minimum pixel widths so tracks are visible on all sizes    */}
         {/* ================================================================ */}
-        {/* Left vertical track */}
-        <rect
-          x={ox + s(1)} y={oy}
-          width={s(ts)} height={s(geo.verticalTrackLength)}
-          fill="none" stroke="#000" strokeWidth="0.8"
-        />
-        {/* Right vertical track */}
-        <rect
-          x={ox + s(dw - 1 - ts)} y={oy}
-          width={s(ts)} height={s(geo.verticalTrackLength)}
-          fill="none" stroke="#000" strokeWidth="0.8"
-        />
-
-        {/* Track mounting angle flags (triangular) */}
-        {flagPositions.map((yPos, i) => {
-          const flagH = s(2.5)
-          const flagW = s(2)
+        {(() => {
+          const trackW = Math.max(4, s(ts))
+          const trackInset = Math.max(3, s(1))
+          const trackH = s(geo.verticalTrackLength)
           return (
-            <g key={`flags-${i}`}>
-              {/* Left flag - triangle pointing left */}
-              <polygon
-                points={`${ox + s(1)},${oy + s(yPos)} ${ox + s(1) - flagW},${oy + s(yPos) + flagH / 2} ${ox + s(1)},${oy + s(yPos) + flagH}`}
-                fill="none" stroke="#000" strokeWidth="0.6"
-              />
-              {/* Right flag - triangle pointing right */}
-              <polygon
-                points={`${ox + s(dw - 1)},${oy + s(yPos)} ${ox + s(dw - 1) + flagW},${oy + s(yPos) + flagH / 2} ${ox + s(dw - 1)},${oy + s(yPos) + flagH}`}
-                fill="none" stroke="#000" strokeWidth="0.6"
-              />
+            <g className="vertical-tracks">
+              {/* Left track — two parallel lines (channel) */}
+              <rect x={ox + trackInset} y={oy} width={trackW} height={trackH}
+                fill="none" stroke="#000" strokeWidth="1.2" />
+              {/* Right track */}
+              <rect x={ox + s(dw) - trackInset - trackW} y={oy} width={trackW} height={trackH}
+                fill="none" stroke="#000" strokeWidth="1.2" />
+
+              {/* Track mounting angle flags — L-shaped brackets */}
+              {flagPositions.map((yPos, i) => {
+                const fy = oy + s(yPos)
+                const flagW = Math.max(8, s(4))
+                const flagH = Math.max(6, s(3))
+                return (
+                  <g key={`flags-${i}`}>
+                    {/* Left flag — L bracket pointing left */}
+                    <path
+                      d={`M ${ox + trackInset} ${fy}
+                          L ${ox + trackInset - flagW} ${fy}
+                          L ${ox + trackInset - flagW} ${fy + flagH}`}
+                      fill="none" stroke="#000" strokeWidth="1"
+                    />
+                    {/* Right flag — L bracket pointing right */}
+                    <path
+                      d={`M ${ox + s(dw) - trackInset} ${fy}
+                          L ${ox + s(dw) - trackInset + flagW} ${fy}
+                          L ${ox + s(dw) - trackInset + flagW} ${fy + flagH}`}
+                      fill="none" stroke="#000" strokeWidth="1"
+                    />
+                  </g>
+                )
+              })}
             </g>
           )
-        })}
+        })()}
 
         {/* ================================================================ */}
-        {/* TRACK CURVES (quarter-circle arcs)                              */}
+        {/* TRACK CURVES (quarter-circle arcs, two lines for track width)  */}
         {/* ================================================================ */}
-        {/* Left curve */}
-        <path
-          d={`M ${ox + s(1 + ts / 2)} ${oy}
-              A ${s(tr)} ${s(tr)} 0 0 1
-              ${ox + s(1 + ts / 2 + tr)} ${oy - s(tr)}`}
-          fill="none" stroke="#000" strokeWidth="1"
-        />
-        {/* Right curve */}
-        <path
-          d={`M ${ox + s(dw - 1 - ts / 2)} ${oy}
-              A ${s(tr)} ${s(tr)} 0 0 0
-              ${ox + s(dw - 1 - ts / 2 - tr)} ${oy - s(tr)}`}
-          fill="none" stroke="#000" strokeWidth="1"
-        />
+        {(() => {
+          const trackInset = Math.max(3, s(1))
+          const trackW = Math.max(4, s(ts))
+          const curveR = s(tr)
+          const innerR = Math.max(curveR - trackW, curveR * 0.7)
+          // Left curve center: at top of left track, curving right and up
+          const lcx = ox + trackInset + trackW / 2
+          // Right curve center
+          const rcx = ox + s(dw) - trackInset - trackW / 2
+          return (
+            <g className="track-curves">
+              {/* Left — outer and inner arc */}
+              <path d={`M ${lcx} ${oy} A ${curveR} ${curveR} 0 0 1 ${lcx + curveR} ${oy - curveR}`}
+                fill="none" stroke="#000" strokeWidth="1.2" />
+              <path d={`M ${lcx} ${oy} A ${innerR} ${innerR} 0 0 1 ${lcx + innerR} ${oy - innerR}`}
+                fill="none" stroke="#000" strokeWidth="0.6" opacity="0.5" />
+              {/* Right — outer and inner arc */}
+              <path d={`M ${rcx} ${oy} A ${curveR} ${curveR} 0 0 0 ${rcx - curveR} ${oy - curveR}`}
+                fill="none" stroke="#000" strokeWidth="1.2" />
+              <path d={`M ${rcx} ${oy} A ${innerR} ${innerR} 0 0 0 ${rcx - innerR} ${oy - innerR}`}
+                fill="none" stroke="#000" strokeWidth="0.6" opacity="0.5" />
+
+              {/* Horizontal tracks (dashed, receding into building) */}
+              <line x1={lcx + curveR} y1={oy - curveR}
+                x2={lcx + curveR + Math.max(40, s(30))} y2={oy - curveR}
+                stroke="#000" strokeWidth="1.2" strokeDasharray="8,4" />
+              <line x1={rcx - curveR} y1={oy - curveR}
+                x2={rcx - curveR - Math.max(40, s(30))} y2={oy - curveR}
+                stroke="#000" strokeWidth="1.2" strokeDasharray="8,4" />
+            </g>
+          )
+        })()}
 
         {/* ================================================================ */}
-        {/* HORIZONTAL TRACKS (dashed, receding into building)              */}
+        {/* SPRING ASSEMBLY                                                */}
+        {/* All sizes use minimum pixel values to stay visible             */}
         {/* ================================================================ */}
-        <line
-          x1={ox + s(1 + ts / 2 + tr)} y1={oy - s(tr)}
-          x2={ox + s(1 + ts / 2 + tr + 30)} y2={oy - s(tr)}
-          stroke="#000" strokeWidth="0.8" strokeDasharray="6,3"
-        />
-        <line
-          x1={ox + s(dw - 1 - ts / 2 - tr)} y1={oy - s(tr)}
-          x2={ox + s(dw - 1 - ts / 2 - tr - 30)} y2={oy - s(tr)}
-          stroke="#000" strokeWidth="0.8" strokeDasharray="6,3"
-        />
+        {(() => {
+          const doorPxW = s(dw)
+          const midX = ox + doorPxW / 2
+          // Drum radius: proportional but with minimum
+          const drumR = Math.max(8, s(4.5))
+          // Spring dimensions
+          const springW = Math.max(60, doorPxW * 0.18)
+          const springH = Math.max(12, s(5))
+          // Center bearing plate
+          const cbpW = Math.max(8, s(4))
+          const cbpH = Math.max(18, springH * 1.5)
+          // Drum positions: inset from track curves
+          const drumLX = ox + Math.max(20, s(8))
+          const drumRX = ox + doorPxW - Math.max(20, s(8))
+          // Spring positions: between drums and center
+          const springGap = cbpW / 2 + 2
+          const springLX = midX - springGap - springW
+          const springRX = midX + springGap
 
-        {/* ================================================================ */}
-        {/* SPRING ASSEMBLY (black line art, no colored fills)              */}
-        {/* ================================================================ */}
-        <g className="spring-assembly">
-          {/* Torsion shaft */}
-          <line
-            x1={ox + s(3)} y1={shaftYPx}
-            x2={ox + s(dw - 3)} y2={shaftYPx}
-            stroke="#000" strokeWidth="2"
-          />
+          return (
+            <g className="spring-assembly">
+              {/* Torsion shaft — bold line */}
+              <line
+                x1={drumLX - drumR - 4} y1={shaftYPx}
+                x2={drumRX + drumR + 4} y2={shaftYPx}
+                stroke="#000" strokeWidth="2.5"
+              />
 
-          {/* Left cable drum - circle with X cross */}
-          {(() => {
-            const cx = ox + s(5)
-            const cy = shaftYPx
-            const r = s(3)
-            return (
-              <g>
-                <circle cx={cx} cy={cy} r={r} fill="none" stroke="#000" strokeWidth="1" />
-                <line x1={cx - r * 0.707} y1={cy - r * 0.707} x2={cx + r * 0.707} y2={cy + r * 0.707} stroke="#000" strokeWidth="0.6" />
-                <line x1={cx - r * 0.707} y1={cy + r * 0.707} x2={cx + r * 0.707} y2={cy - r * 0.707} stroke="#000" strokeWidth="0.6" />
-              </g>
-            )
-          })()}
+              {/* Left cable drum — circle with X */}
+              <circle cx={drumLX} cy={shaftYPx} r={drumR}
+                fill="#fff" stroke="#000" strokeWidth="1.5" />
+              <line x1={drumLX - drumR * 0.65} y1={shaftYPx - drumR * 0.65}
+                x2={drumLX + drumR * 0.65} y2={shaftYPx + drumR * 0.65}
+                stroke="#000" strokeWidth="0.8" />
+              <line x1={drumLX - drumR * 0.65} y1={shaftYPx + drumR * 0.65}
+                x2={drumLX + drumR * 0.65} y2={shaftYPx - drumR * 0.65}
+                stroke="#000" strokeWidth="0.8" />
 
-          {/* Right cable drum - circle with X cross */}
-          {(() => {
-            const cx = ox + s(dw - 5)
-            const cy = shaftYPx
-            const r = s(3)
-            return (
-              <g>
-                <circle cx={cx} cy={cy} r={r} fill="none" stroke="#000" strokeWidth="1" />
-                <line x1={cx - r * 0.707} y1={cy - r * 0.707} x2={cx + r * 0.707} y2={cy + r * 0.707} stroke="#000" strokeWidth="0.6" />
-                <line x1={cx - r * 0.707} y1={cy + r * 0.707} x2={cx + r * 0.707} y2={cy - r * 0.707} stroke="#000" strokeWidth="0.6" />
-              </g>
-            )
-          })()}
+              {/* Right cable drum — circle with X */}
+              <circle cx={drumRX} cy={shaftYPx} r={drumR}
+                fill="#fff" stroke="#000" strokeWidth="1.5" />
+              <line x1={drumRX - drumR * 0.65} y1={shaftYPx - drumR * 0.65}
+                x2={drumRX + drumR * 0.65} y2={shaftYPx + drumR * 0.65}
+                stroke="#000" strokeWidth="0.8" />
+              <line x1={drumRX - drumR * 0.65} y1={shaftYPx + drumR * 0.65}
+                x2={drumRX + drumR * 0.65} y2={shaftYPx - drumR * 0.65}
+                stroke="#000" strokeWidth="0.8" />
 
-          {/* Springs - outlined rectangles with coil lines */}
-          {/* Left spring */}
-          <rect
-            x={ox + s(dw / 2 - 22)} y={shaftYPx - s(2)}
-            width={s(20)} height={s(4)}
-            fill="none" stroke="#000" strokeWidth="0.8"
-          />
-          {/* Left spring coil lines */}
-          {Array.from({ length: 10 }, (_, i) => (
-            <line key={`sc-l-${i}`}
-              x1={ox + s(dw / 2 - 21 + i * 2)} y1={shaftYPx - s(2)}
-              x2={ox + s(dw / 2 - 21 + i * 2)} y2={shaftYPx + s(2)}
-              stroke="#000" strokeWidth="0.3"
-            />
-          ))}
+              {/* Left spring — rectangle with coil lines */}
+              <rect x={springLX} y={shaftYPx - springH / 2}
+                width={springW} height={springH}
+                fill="none" stroke="#000" strokeWidth="1" />
+              {Array.from({ length: Math.max(6, Math.round(springW / 6)) }, (_, i) => {
+                const lx = springLX + (springW / (Math.max(6, Math.round(springW / 6)) + 1)) * (i + 1)
+                return (
+                  <line key={`scl-${i}`}
+                    x1={lx} y1={shaftYPx - springH / 2}
+                    x2={lx} y2={shaftYPx + springH / 2}
+                    stroke="#000" strokeWidth="0.4" />
+                )
+              })}
 
-          {/* Right spring */}
-          <rect
-            x={ox + s(dw / 2 + 2)} y={shaftYPx - s(2)}
-            width={s(20)} height={s(4)}
-            fill="none" stroke="#000" strokeWidth="0.8"
-          />
-          {/* Right spring coil lines */}
-          {Array.from({ length: 10 }, (_, i) => (
-            <line key={`sc-r-${i}`}
-              x1={ox + s(dw / 2 + 4 + i * 2)} y1={shaftYPx - s(2)}
-              x2={ox + s(dw / 2 + 4 + i * 2)} y2={shaftYPx + s(2)}
-              stroke="#000" strokeWidth="0.3"
-            />
-          ))}
+              {/* Right spring — rectangle with coil lines */}
+              <rect x={springRX} y={shaftYPx - springH / 2}
+                width={springW} height={springH}
+                fill="none" stroke="#000" strokeWidth="1" />
+              {Array.from({ length: Math.max(6, Math.round(springW / 6)) }, (_, i) => {
+                const lx = springRX + (springW / (Math.max(6, Math.round(springW / 6)) + 1)) * (i + 1)
+                return (
+                  <line key={`scr-${i}`}
+                    x1={lx} y1={shaftYPx - springH / 2}
+                    x2={lx} y2={shaftYPx + springH / 2}
+                    stroke="#000" strokeWidth="0.4" />
+                )
+              })}
 
-          {/* Center bearing plate */}
-          <rect
-            x={ox + s(dw / 2 - 2)} y={shaftYPx - s(3.5)}
-            width={s(4)} height={s(7)}
-            fill="none" stroke="#000" strokeWidth="1"
-          />
-          {/* Bearing plate mount line */}
-          <line
-            x1={ox + s(dw / 2 - 2)} y1={shaftYPx - s(3.5)}
-            x2={ox + s(dw / 2 + 2)} y2={shaftYPx - s(3.5)}
-            stroke="#000" strokeWidth="1.2"
-          />
-        </g>
+              {/* Center bearing plate — rectangle with mount bracket */}
+              <rect x={midX - cbpW / 2} y={shaftYPx - cbpH / 2}
+                width={cbpW} height={cbpH}
+                fill="#fff" stroke="#000" strokeWidth="1.2" />
+              {/* Mount angle at top of bearing plate */}
+              <line x1={midX - cbpW / 2 - 3} y1={shaftYPx - cbpH / 2}
+                x2={midX + cbpW / 2 + 3} y2={shaftYPx - cbpH / 2}
+                stroke="#000" strokeWidth="1.5" />
+            </g>
+          )
+        })()}
 
         {/* ================================================================ */}
         {/* CENTERLINE OF SHAFT label                                       */}
