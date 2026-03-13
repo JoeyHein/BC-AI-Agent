@@ -509,26 +509,29 @@ function FramingDrawing({
         })()}
 
         {/* ================================================================ */}
-        {/* TRACK CURVES + HORIZONTAL TRACKS                               */}
+        {/* TRACK CURVES — curve INWARD toward center (tracks go backward  */}
+        {/* into the building). From "inside looking out", the curves arch  */}
+        {/* up and toward center, forming a dome shape above the door.     */}
         {/* ================================================================ */}
         {(() => {
           const trackInset = Math.max(4, s(1.5))
           const trackW = Math.max(6, s(ts))
           const doorPxW = s(dw)
           const curveR = Math.max(15, s(tr))
-          // Left curve start: center of left track
+          // Left track center X
           const lcx = ox + trackInset + trackW / 2
+          // Right track center X
           const rcx = ox + doorPxW - trackInset - trackW / 2
           return (
             <g className="track-curves">
-              {/* Left — thick arc representing track curve */}
-              <path d={`M ${lcx} ${oy} A ${curveR} ${curveR} 0 0 1 ${lcx + curveR} ${oy - curveR}`}
+              {/* Left curve: starts at top of left track, arcs UP and to the RIGHT (inward) */}
+              <path d={`M ${lcx} ${oy} A ${curveR} ${curveR} 0 0 0 ${lcx + curveR} ${oy - curveR}`}
                 fill="none" stroke="#000" strokeWidth={Math.max(trackW * 0.8, 3)} />
-              {/* Right */}
-              <path d={`M ${rcx} ${oy} A ${curveR} ${curveR} 0 0 0 ${rcx - curveR} ${oy - curveR}`}
+              {/* Right curve: starts at top of right track, arcs UP and to the LEFT (inward) */}
+              <path d={`M ${rcx} ${oy} A ${curveR} ${curveR} 0 0 1 ${rcx - curveR} ${oy - curveR}`}
                 fill="none" stroke="#000" strokeWidth={Math.max(trackW * 0.8, 3)} />
 
-              {/* Horizontal tracks (dashed, receding into building) */}
+              {/* Horizontal tracks (dashed, extending INWARD from curve ends toward center) */}
               <line x1={lcx + curveR} y1={oy - curveR}
                 x2={lcx + curveR + Math.max(50, s(36))} y2={oy - curveR}
                 stroke="#000" strokeWidth="1.5" strokeDasharray="8,4" />
@@ -541,22 +544,31 @@ function FramingDrawing({
 
         {/* ================================================================ */}
         {/* SPRING ASSEMBLY                                                */}
-        {/* All sizes use minimum pixel values to stay visible             */}
+        {/* Drums sit at the top of vertical tracks (near jambs).          */}
+        {/* Shaft runs between drums. Springs flank center bearing plate.  */}
         {/* ================================================================ */}
         {(() => {
+          const trackInset = Math.max(4, s(1.5))
+          const trackW = Math.max(6, s(ts))
           const doorPxW = s(dw)
           const midX = ox + doorPxW / 2
-          // Drum radius: proportional but with minimum
-          const drumR = Math.max(8, s(4.5))
+
+          // Drum positions: at the top of each vertical track (near jambs)
+          const drumLX = ox + trackInset + trackW / 2
+          const drumRX = ox + doorPxW - trackInset - trackW / 2
+
+          // Drum size: ellipse (side view — wider along shaft)
+          const drumRx = Math.max(10, s(5))   // horizontal radius
+          const drumRy = Math.max(7, s(3.5))  // vertical radius
+
           // Spring dimensions
-          const springW = Math.max(60, doorPxW * 0.18)
+          const springW = Math.max(60, (drumRX - drumLX) * 0.22)
           const springH = Math.max(12, s(5))
+
           // Center bearing plate
           const cbpW = Math.max(8, s(4))
           const cbpH = Math.max(18, springH * 1.5)
-          // Drum positions: inset from track curves
-          const drumLX = ox + Math.max(20, s(8))
-          const drumRX = ox + doorPxW - Math.max(20, s(8))
+
           // Spring positions: between drums and center
           const springGap = cbpW / 2 + 2
           const springLX = midX - springGap - springW
@@ -564,48 +576,32 @@ function FramingDrawing({
 
           return (
             <g className="spring-assembly">
-              {/* Torsion shaft — bold line */}
+              {/* Torsion shaft — bold line from drum to drum */}
               <line
-                x1={drumLX - drumR - 4} y1={shaftYPx}
-                x2={drumRX + drumR + 4} y2={shaftYPx}
+                x1={drumLX - drumRx - 2} y1={shaftYPx}
+                x2={drumRX + drumRx + 2} y2={shaftYPx}
                 stroke="#000" strokeWidth="2.5"
               />
 
-              {/* Left cable drum — side-view ellipse (wider along shaft) with X */}
-              {(() => {
-                const rx = drumR * 1.4  // wider along shaft (horizontal)
-                const ry = drumR * 0.7  // narrower vertically (side view)
-                return (
-                  <g>
-                    <ellipse cx={drumLX} cy={shaftYPx} rx={rx} ry={ry}
-                      fill="#fff" stroke="#000" strokeWidth="1.5" />
-                    <line x1={drumLX - rx * 0.6} y1={shaftYPx - ry * 0.6}
-                      x2={drumLX + rx * 0.6} y2={shaftYPx + ry * 0.6}
-                      stroke="#000" strokeWidth="0.8" />
-                    <line x1={drumLX - rx * 0.6} y1={shaftYPx + ry * 0.6}
-                      x2={drumLX + rx * 0.6} y2={shaftYPx - ry * 0.6}
-                      stroke="#000" strokeWidth="0.8" />
-                  </g>
-                )
-              })()}
+              {/* Left cable drum — side-view ellipse at track position */}
+              <ellipse cx={drumLX} cy={shaftYPx} rx={drumRx} ry={drumRy}
+                fill="#fff" stroke="#000" strokeWidth="1.5" />
+              <line x1={drumLX - drumRx * 0.55} y1={shaftYPx - drumRy * 0.55}
+                x2={drumLX + drumRx * 0.55} y2={shaftYPx + drumRy * 0.55}
+                stroke="#000" strokeWidth="0.8" />
+              <line x1={drumLX - drumRx * 0.55} y1={shaftYPx + drumRy * 0.55}
+                x2={drumLX + drumRx * 0.55} y2={shaftYPx - drumRy * 0.55}
+                stroke="#000" strokeWidth="0.8" />
 
-              {/* Right cable drum — side-view ellipse with X */}
-              {(() => {
-                const rx = drumR * 1.4
-                const ry = drumR * 0.7
-                return (
-                  <g>
-                    <ellipse cx={drumRX} cy={shaftYPx} rx={rx} ry={ry}
-                      fill="#fff" stroke="#000" strokeWidth="1.5" />
-                    <line x1={drumRX - rx * 0.6} y1={shaftYPx - ry * 0.6}
-                      x2={drumRX + rx * 0.6} y2={shaftYPx + ry * 0.6}
-                      stroke="#000" strokeWidth="0.8" />
-                    <line x1={drumRX - rx * 0.6} y1={shaftYPx + ry * 0.6}
-                      x2={drumRX + rx * 0.6} y2={shaftYPx - ry * 0.6}
-                      stroke="#000" strokeWidth="0.8" />
-                  </g>
-                )
-              })()}
+              {/* Right cable drum — side-view ellipse at track position */}
+              <ellipse cx={drumRX} cy={shaftYPx} rx={drumRx} ry={drumRy}
+                fill="#fff" stroke="#000" strokeWidth="1.5" />
+              <line x1={drumRX - drumRx * 0.55} y1={shaftYPx - drumRy * 0.55}
+                x2={drumRX + drumRx * 0.55} y2={shaftYPx + drumRy * 0.55}
+                stroke="#000" strokeWidth="0.8" />
+              <line x1={drumRX - drumRx * 0.55} y1={shaftYPx + drumRy * 0.55}
+                x2={drumRX + drumRx * 0.55} y2={shaftYPx - drumRy * 0.55}
+                stroke="#000" strokeWidth="0.8" />
 
               {/* Left spring — rectangle with coil lines */}
               <rect x={springLX} y={shaftYPx - springH / 2}
