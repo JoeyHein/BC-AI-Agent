@@ -8,7 +8,7 @@ import { useState, useRef, useEffect } from 'react'
 import DoorPreview from './DoorPreview'
 import FramingDrawing from './FramingDrawing'
 import SideElevationDrawing from './SideElevationDrawing'
-import { exportAsSVG, exportAsPNG, printDrawing, exportDrawingPackage, getSvgFromRef } from '../utils/drawingExport'
+import { exportAsSVG, exportAsPNG, exportAsPDF, printDrawing, exportDrawingPackage, getSvgFromRef } from '../utils/drawingExport'
 import { doorConfigApi } from '../api/client'
 
 const TABS = [
@@ -23,7 +23,7 @@ function DoorDrawings({
   defaultTab = 'preview',
 }) {
   const [activeTab, setActiveTab] = useState(defaultTab)
-  const [exportFormat, setExportFormat] = useState('svg')
+  const [exportFormat, setExportFormat] = useState('pdf')
   const [geometry, setGeometry] = useState(null)
   const [geometryLoading, setGeometryLoading] = useState(false)
   const [geometryError, setGeometryError] = useState(null)
@@ -136,6 +136,9 @@ function DoorDrawings({
       case 'png':
         exportAsPNG(svg, `${filename}.png`, 2)
         break
+      case 'pdf':
+        exportAsPDF(svg, `${filename}.pdf`, `${doorSeries} ${Math.floor(widthInches / 12)}' x ${Math.floor(heightInches / 12)}'`)
+        break
       case 'print':
         printDrawing(svg, `Door Drawing - ${doorSeries}`)
         break
@@ -195,6 +198,7 @@ function DoorDrawings({
                 onChange={(e) => setExportFormat(e.target.value)}
                 className="text-sm border border-gray-300 rounded px-2 py-1"
               >
+                <option value="pdf">PDF</option>
                 <option value="svg">SVG</option>
                 <option value="png">PNG</option>
                 <option value="print">Print</option>

@@ -4,6 +4,10 @@
  * (inside looking out) for garage door installation.
  *
  * Receives a `geometry` prop from the backend with exact Thermalex dimensions.
+ *
+ * ALL visual sizes (fonts, ticks, margins, offsets) are proportional to the
+ * drawing size via a `baseUnit` derived from door dimensions and scale, so
+ * labels never overlap even on large doors (e.g. 16'x16').
  */
 
 import { useMemo } from 'react'
@@ -73,6 +77,34 @@ function FramingDrawing({
   }, [geometry, width, height, trackRadius, trackSize, liftType, frameType, mountType])
 
   // ---------------------------------------------------------------------------
+  // Proportional base unit and derived sizes
+  // ---------------------------------------------------------------------------
+  const ui = useMemo(() => {
+    const doorW = geo.doorWidth
+    const doorH = geo.doorHeight
+    const baseUnit = Math.max(5, Math.min(12, Math.sqrt(Math.max(doorW, doorH) * scale) * 0.8))
+
+    const fontSize = {
+      title: baseUnit * 1.8,
+      subtitle: baseUnit * 1.3,
+      label: baseUnit * 1.1,
+      small: baseUnit * 0.85,
+    }
+    const tickLen = baseUnit * 0.5
+    const dimLineSpacing = baseUnit * 3
+    const margin = {
+      top: Math.max(65, baseUnit * 8),
+      right: Math.max(70, baseUnit * 9),
+      bottom: Math.max(70, baseUnit * 10),
+      left: Math.max(70, baseUnit * 9),
+    }
+    const leaderLen = baseUnit * 2.5
+    const calloutScale = Math.max(1.5, baseUnit * 0.3)
+
+    return { baseUnit, fontSize, tickLen, dimLineSpacing, margin, leaderLen, calloutScale }
+  }, [geo.doorWidth, geo.doorHeight, scale])
+
+  // ---------------------------------------------------------------------------
   // Derived layout values
   // ---------------------------------------------------------------------------
   const layout = useMemo(() => {
@@ -85,27 +117,19 @@ function FramingDrawing({
     const ts = geo.trackSize
     const tr = geo.trackRadius
 
-    // Shaft centerline measured from top of door opening
-    const shaftY = clShaft // inches above top of opening
-
-    // Wall thickness for hatching (visual only)
+    const shaftY = clShaft
     const wallThickness = 8
-
-    // Header height (visual)
     const headerHeight = 6
-
-    // Total vertical extent above door: need room for header + shaft + labels
     const topClearance = Math.max(hrMin, shaftY) + headerHeight + 10
 
-    // Margins around drawing for dimensions/labels
-    const margin = { top: 70, right: 100, bottom: 80, left: 90 }
+    const { margin, dimLineSpacing } = ui
 
     // Content size in inches
     const contentW = dw + (fw + wallThickness + sr) * 2
-    const contentH = dh + topClearance + 12 // 12 below floor for dims
+    const contentH = dh + topClearance + 12
 
-    // SVG dimensions
-    const svgW = contentW * scale + margin.left + margin.right
+    // SVG dimensions (viewBox units)
+    const svgW = Math.max(500, contentW * scale + margin.left + margin.right)
     const svgH = contentH * scale + margin.top + margin.bottom
 
     // Origin = top-left corner of door opening in SVG coords
@@ -116,9 +140,9 @@ function FramingDrawing({
       dw, dh, fw, sr, hrMin, clShaft, ts, tr,
       shaftY, wallThickness, headerHeight, topClearance,
       margin, contentW, contentH, svgW, svgH,
-      originX, originY,
+      originX, originY, dimLineSpacing,
     }
-  }, [geo, scale])
+  }, [geo, scale, ui])
 
   // ---------------------------------------------------------------------------
   // Helpers
@@ -132,19 +156,17 @@ function FramingDrawing({
     const abs = Math.abs(inches)
     const ft = Math.floor(abs / 12)
     const rem = abs % 12
-    // Round to nearest 1/4
     const whole = Math.floor(rem)
     const frac = rem - whole
     let fracStr = ''
     if (frac >= 0.875) {
-      // round up
       return formatDim((negative ? -1 : 1) * ((ft * 12) + whole + 1))
     } else if (frac >= 0.625) {
-      fracStr = '\u00BE' // 3/4
+      fracStr = '\u00BE'
     } else if (frac >= 0.375) {
-      fracStr = '\u00BD' // 1/2
+      fracStr = '\u00BD'
     } else if (frac >= 0.125) {
-      fracStr = '\u00BC' // 1/4
+      fracStr = '\u00BC'
     }
 
     const sign = negative ? '-' : ''
@@ -161,6 +183,9 @@ function FramingDrawing({
   const jambLabel = isSteel ? 'STEEL JAMB' : 'WOOD JAMB'
   const applicationLabel = isSteel ? 'STEEL JAMB APPLICATION' : 'WOOD JAMB APPLICATION'
 
+  // Shorthand for proportional sizes
+  const { fontSize, tickLen, dimLineSpacing, leaderLen, calloutScale } = ui
+
   // Track flag positions (evenly along vertical track)
   const flagCount = 4
   const flagPositions = Array.from({ length: flagCount }, (_, i) =>
@@ -173,10 +198,12 @@ function FramingDrawing({
   return (
     <div className="framing-drawing bg-white border border-gray-300 rounded-lg overflow-hidden">
       <svg
-        width={layout.svgW}
-        height={layout.svgH}
         viewBox={`0 0 ${layout.svgW} ${layout.svgH}`}
-        style={{ fontFamily: "'Segoe UI', Arial, Helvetica, sans-serif" }}
+        style={{
+          fontFamily: "'Segoe UI', Arial, Helvetica, sans-serif",
+          width: '100%',
+          maxWidth: `${layout.svgW}px`,
+        }}
       >
         <defs>
           {/* Concrete / masonry hatch — diagonal lines */}
@@ -207,18 +234,22 @@ function FramingDrawing({
         {/* TITLE BLOCK                                                      */}
         {/* ================================================================ */}
         <g>
-          <text x={layout.svgW / 2} y="22" fontSize="15" fontWeight="bold"
+          <text x={layout.svgW / 2} y={fontSize.title + 4} fontSize={fontSize.title} fontWeight="bold"
             textAnchor="middle" fill="#111">
             {title}
           </text>
-          <text x={layout.svgW / 2} y="38" fontSize="10" textAnchor="middle" fill="#444">
+          <text x={layout.svgW / 2} y={fontSize.title + 4 + fontSize.subtitle * 1.5}
+            fontSize={fontSize.subtitle} textAnchor="middle" fill="#444">
             {applicationLabel}
           </text>
-          <text x={layout.svgW / 2} y="52" fontSize="9" textAnchor="middle" fill="#666">
+          <text x={layout.svgW / 2} y={fontSize.title + 4 + fontSize.subtitle * 1.5 + fontSize.label * 1.5}
+            fontSize={fontSize.label} textAnchor="middle" fill="#666">
             DOOR FACE: INSIDE LOOKING OUT
           </text>
           {doorSeries && (
-            <text x={layout.svgW / 2} y="64" fontSize="9" textAnchor="middle" fill="#666">
+            <text x={layout.svgW / 2}
+              y={fontSize.title + 4 + fontSize.subtitle * 1.5 + fontSize.label * 3}
+              fontSize={fontSize.label} textAnchor="middle" fill="#666">
               Series: {doorSeries}
             </text>
           )}
@@ -245,8 +276,8 @@ function FramingDrawing({
             )
           })}
         </g>
-        <text x={ox - s(fw + layout.wallThickness + 18)} y={oy + s(dh) + 4}
-          fontSize="8" fill="#666" textAnchor="end">
+        <text x={ox - s(fw + layout.wallThickness + 18)} y={oy + s(dh) + fontSize.small * 0.5}
+          fontSize={fontSize.small} fill="#666" textAnchor="end">
           FLOOR LINE
         </text>
 
@@ -295,7 +326,7 @@ function FramingDrawing({
         <text
           x={ox - s(fw / 2)}
           y={oy + s(dh / 2)}
-          fontSize="7" fill="#333" textAnchor="middle"
+          fontSize={fontSize.small} fill="#333" textAnchor="middle"
           transform={`rotate(-90, ${ox - s(fw / 2)}, ${oy + s(dh / 2)})`}
         >
           {jambLabel}
@@ -303,7 +334,7 @@ function FramingDrawing({
         <text
           x={ox + s(dw + fw / 2)}
           y={oy + s(dh / 2)}
-          fontSize="7" fill="#333" textAnchor="middle"
+          fontSize={fontSize.small} fill="#333" textAnchor="middle"
           transform={`rotate(-90, ${ox + s(dw + fw / 2)}, ${oy + s(dh / 2)})`}
         >
           {jambLabel}
@@ -311,18 +342,18 @@ function FramingDrawing({
 
         {/* Weather stripping labels */}
         <text
-          x={ox - s(fw) - 3}
+          x={ox - s(fw) - fontSize.small * 0.3}
           y={oy + s(dh * 0.7)}
-          fontSize="6" fill="#888" textAnchor="end"
-          transform={`rotate(-90, ${ox - s(fw) - 3}, ${oy + s(dh * 0.7)})`}
+          fontSize={fontSize.small * 0.7} fill="#888" textAnchor="end"
+          transform={`rotate(-90, ${ox - s(fw) - fontSize.small * 0.3}, ${oy + s(dh * 0.7)})`}
         >
           WEATHER STRIPPING
         </text>
         <text
-          x={ox + s(dw + fw) + 3}
+          x={ox + s(dw + fw) + fontSize.small * 0.3}
           y={oy + s(dh * 0.3)}
-          fontSize="6" fill="#888" textAnchor="start"
-          transform={`rotate(90, ${ox + s(dw + fw) + 3}, ${oy + s(dh * 0.3)})`}
+          fontSize={fontSize.small * 0.7} fill="#888" textAnchor="start"
+          transform={`rotate(90, ${ox + s(dw + fw) + fontSize.small * 0.3}, ${oy + s(dh * 0.3)})`}
         >
           WEATHER STRIPPING
         </text>
@@ -340,8 +371,8 @@ function FramingDrawing({
         />
         <text
           x={ox + s(dw / 2)}
-          y={oy - s(layout.topClearance - 4 - layout.headerHeight / 2) + 3}
-          fontSize="9" textAnchor="middle" fill="#333" fontWeight="bold"
+          y={oy - s(layout.topClearance - 4 - layout.headerHeight / 2) + fontSize.label * 0.35}
+          fontSize={fontSize.label} textAnchor="middle" fill="#333" fontWeight="bold"
         >
           HEADER
         </text>
@@ -355,8 +386,8 @@ function FramingDrawing({
           fill="none" stroke="#0055AA" strokeWidth="1.2" strokeDasharray="8,4"
         />
         <text
-          x={ox + s(dw / 2)} y={oy + s(dh / 2) + 3}
-          fontSize="9" textAnchor="middle" fill="#0055AA" opacity="0.6"
+          x={ox + s(dw / 2)} y={oy + s(dh / 2) + fontSize.label * 0.35}
+          fontSize={fontSize.label} textAnchor="middle" fill="#0055AA" opacity="0.6"
         >
           DOOR OPENING
         </text>
@@ -415,9 +446,9 @@ function FramingDrawing({
 
         {/* Radius label on left curve */}
         <text
-          x={ox + s(1 + ts / 2 + tr / 2) + 2}
-          y={oy - s(tr / 2) - 3}
-          fontSize="7" fill="#555"
+          x={ox + s(1 + ts / 2 + tr / 2) + fontSize.small * 0.3}
+          y={oy - s(tr / 2) - fontSize.small * 0.4}
+          fontSize={fontSize.small} fill="#555"
         >
           {geo.radiusLabel}
         </text>
@@ -442,8 +473,8 @@ function FramingDrawing({
 
         {/* Track type label */}
         <text
-          x={ox + s(dw / 2)} y={oy - s(tr) - 4}
-          fontSize="7" textAnchor="middle" fill="#555"
+          x={ox + s(dw / 2)} y={oy - s(tr) - fontSize.small * 0.5}
+          fontSize={fontSize.small} textAnchor="middle" fill="#555"
         >
           {geo.trackTypeLabel}
         </text>
@@ -464,16 +495,16 @@ function FramingDrawing({
             cx={ox + s(5)} cy={shaftYPx} r={s(3.5)}
             fill="#777" stroke="#333" strokeWidth="1"
           />
-          <text x={ox + s(5)} y={shaftYPx + s(3.5) + 8}
-            fontSize="6" textAnchor="middle" fill="#666">DRUM</text>
+          <text x={ox + s(5)} y={shaftYPx + s(3.5) + fontSize.small * 1.1}
+            fontSize={fontSize.small * 0.75} textAnchor="middle" fill="#666">DRUM</text>
 
           {/* Right cable drum */}
           <circle
             cx={ox + s(dw - 5)} cy={shaftYPx} r={s(3.5)}
             fill="#777" stroke="#333" strokeWidth="1"
           />
-          <text x={ox + s(dw - 5)} y={shaftYPx + s(3.5) + 8}
-            fontSize="6" textAnchor="middle" fill="#666">DRUM</text>
+          <text x={ox + s(dw - 5)} y={shaftYPx + s(3.5) + fontSize.small * 1.1}
+            fontSize={fontSize.small * 0.75} textAnchor="middle" fill="#666">DRUM</text>
 
           {/* Springs (red/maroon rectangles) */}
           <rect
@@ -508,12 +539,12 @@ function FramingDrawing({
             width={s(5)} height={s(8)}
             fill="#555" stroke="#333" strokeWidth="1"
           />
-          <text x={ox + s(dw / 2)} y={shaftYPx + s(4) + 8}
-            fontSize="6" textAnchor="middle" fill="#666">CENTER BEARING</text>
+          <text x={ox + s(dw / 2)} y={shaftYPx + s(4) + fontSize.small * 1.1}
+            fontSize={fontSize.small * 0.75} textAnchor="middle" fill="#666">CENTER BEARING</text>
 
           {/* SPRING ASSEMBLY label */}
           <text x={ox + s(dw / 2)} y={shaftYPx - s(6)}
-            fontSize="8" textAnchor="middle" fill="#444" fontWeight="bold">
+            fontSize={fontSize.label} textAnchor="middle" fill="#444" fontWeight="bold">
             SPRING ASSEMBLY
           </text>
         </g>
@@ -524,22 +555,22 @@ function FramingDrawing({
         <g>
           {/* Dashed centerline marker */}
           <line
-            x1={ox - s(fw) - 5} y1={shaftYPx}
+            x1={ox - s(fw) - leaderLen * 0.4} y1={shaftYPx}
             x2={ox + s(2)} y2={shaftYPx}
             stroke="#333" strokeWidth="0.5" strokeDasharray="4,2"
           />
           {/* Leader line from label */}
           <line
-            x1={ox - s(fw + layout.wallThickness) - 10} y1={shaftYPx - 12}
-            x2={ox - s(fw) - 5} y2={shaftYPx}
+            x1={ox - s(fw + layout.wallThickness) - leaderLen * 0.8} y1={shaftYPx - leaderLen}
+            x2={ox - s(fw) - leaderLen * 0.4} y2={shaftYPx}
             stroke="#333" strokeWidth="0.5"
           />
-          {/* Arrow at end */}
-          <circle cx={ox - s(fw) - 5} cy={shaftYPx} r="1.5" fill="#333" />
+          {/* Arrow dot at end */}
+          <circle cx={ox - s(fw) - leaderLen * 0.4} cy={shaftYPx} r="1.5" fill="#333" />
           <text
-            x={ox - s(fw + layout.wallThickness) - 12}
-            y={shaftYPx - 15}
-            fontSize="7" fill="#333" textAnchor="end" fontWeight="bold"
+            x={ox - s(fw + layout.wallThickness) - leaderLen * 0.8 - fontSize.small * 0.3}
+            y={shaftYPx - leaderLen - fontSize.small * 0.5}
+            fontSize={fontSize.small} fill="#333" textAnchor="end" fontWeight="bold"
           >
             CENTERLINE OF SHAFT
           </text>
@@ -551,31 +582,31 @@ function FramingDrawing({
 
         {/* --- Door Width (below floor line) --- */}
         {(() => {
-          const dimY = oy + s(dh) + 30
+          const dimY = oy + s(dh) + dimLineSpacing
           const x1 = ox
           const x2 = ox + s(dw)
           return (
             <g className="dim-door-width">
               {/* Extension lines */}
-              <line x1={x1} y1={oy + s(dh) + 3} x2={x1} y2={dimY + 3}
+              <line x1={x1} y1={oy + s(dh) + 3} x2={x1} y2={dimY + tickLen}
                 stroke="#333" strokeWidth="0.4" />
-              <line x1={x2} y1={oy + s(dh) + 3} x2={x2} y2={dimY + 3}
+              <line x1={x2} y1={oy + s(dh) + 3} x2={x2} y2={dimY + tickLen}
                 stroke="#333" strokeWidth="0.4" />
               {/* Dimension line */}
               <line x1={x1} y1={dimY} x2={x2} y2={dimY}
                 stroke="#333" strokeWidth="0.6" />
               {/* Tick marks */}
-              <line x1={x1} y1={dimY - 4} x2={x1} y2={dimY + 4}
+              <line x1={x1} y1={dimY - tickLen} x2={x1} y2={dimY + tickLen}
                 stroke="#333" strokeWidth="0.8" />
-              <line x1={x2} y1={dimY - 4} x2={x2} y2={dimY + 4}
+              <line x1={x2} y1={dimY - tickLen} x2={x2} y2={dimY + tickLen}
                 stroke="#333" strokeWidth="0.8" />
               {/* Label */}
-              <text x={(x1 + x2) / 2} y={dimY + 13}
-                fontSize="10" textAnchor="middle" fill="#111" fontWeight="bold">
+              <text x={(x1 + x2) / 2} y={dimY + tickLen + fontSize.label * 1.2}
+                fontSize={fontSize.label} textAnchor="middle" fill="#111" fontWeight="bold">
                 {formatDim(dw)}
               </text>
-              <text x={(x1 + x2) / 2} y={dimY + 23}
-                fontSize="7" textAnchor="middle" fill="#666">
+              <text x={(x1 + x2) / 2} y={dimY + tickLen + fontSize.label * 1.2 + fontSize.small * 1.3}
+                fontSize={fontSize.small} textAnchor="middle" fill="#666">
                 DOOR WIDTH
               </text>
             </g>
@@ -584,37 +615,38 @@ function FramingDrawing({
 
         {/* --- Door Height (right side) --- */}
         {(() => {
-          const dimX = ox + s(dw + fw + layout.wallThickness) + 25
+          const dimX = ox + s(dw + fw + layout.wallThickness) + dimLineSpacing
           const y1 = oy
           const y2 = oy + s(dh)
           return (
             <g className="dim-door-height">
               {/* Extension lines */}
-              <line x1={ox + s(dw) + 3} y1={y1} x2={dimX + 3} y2={y1}
+              <line x1={ox + s(dw) + 3} y1={y1} x2={dimX + tickLen} y2={y1}
                 stroke="#333" strokeWidth="0.4" />
-              <line x1={ox + s(dw) + 3} y1={y2} x2={dimX + 3} y2={y2}
+              <line x1={ox + s(dw) + 3} y1={y2} x2={dimX + tickLen} y2={y2}
                 stroke="#333" strokeWidth="0.4" />
               {/* Dimension line */}
               <line x1={dimX} y1={y1} x2={dimX} y2={y2}
                 stroke="#333" strokeWidth="0.6" />
               {/* Tick marks */}
-              <line x1={dimX - 4} y1={y1} x2={dimX + 4} y2={y1}
+              <line x1={dimX - tickLen} y1={y1} x2={dimX + tickLen} y2={y1}
                 stroke="#333" strokeWidth="0.8" />
-              <line x1={dimX - 4} y1={y2} x2={dimX + 4} y2={y2}
+              <line x1={dimX - tickLen} y1={y2} x2={dimX + tickLen} y2={y2}
                 stroke="#333" strokeWidth="0.8" />
               {/* Label */}
               <text
-                x={dimX + 8} y={(y1 + y2) / 2 + 3}
-                fontSize="10" fill="#111" fontWeight="bold"
-                transform={`rotate(-90, ${dimX + 8}, ${(y1 + y2) / 2})`}
+                x={dimX + tickLen + fontSize.label * 0.8} y={(y1 + y2) / 2 + fontSize.label * 0.35}
+                fontSize={fontSize.label} fill="#111" fontWeight="bold"
+                transform={`rotate(-90, ${dimX + tickLen + fontSize.label * 0.8}, ${(y1 + y2) / 2})`}
                 textAnchor="middle"
               >
                 {formatDim(dh)}
               </text>
               <text
-                x={dimX + 20} y={(y1 + y2) / 2 + 3}
-                fontSize="7" fill="#666"
-                transform={`rotate(-90, ${dimX + 20}, ${(y1 + y2) / 2})`}
+                x={dimX + tickLen + fontSize.label * 0.8 + fontSize.small * 1.5}
+                y={(y1 + y2) / 2 + fontSize.small * 0.35}
+                fontSize={fontSize.small} fill="#666"
+                transform={`rotate(-90, ${dimX + tickLen + fontSize.label * 0.8 + fontSize.small * 1.5}, ${(y1 + y2) / 2})`}
                 textAnchor="middle"
               >
                 DOOR HEIGHT
@@ -625,38 +657,39 @@ function FramingDrawing({
 
         {/* --- CL Shaft Height (left side, floor to shaft) --- */}
         {(() => {
-          const dimX = ox - s(fw + layout.wallThickness) - 30
+          const dimX = ox - s(fw + layout.wallThickness) - dimLineSpacing
           const y1 = shaftYPx
           const y2 = oy + s(dh)
           const clHeight = dh + geo.clShaft
           return (
             <g className="dim-cl-shaft">
               {/* Extension lines */}
-              <line x1={dimX - 3} y1={y1} x2={ox - s(fw)} y2={y1}
+              <line x1={dimX - tickLen} y1={y1} x2={ox - s(fw)} y2={y1}
                 stroke="#333" strokeWidth="0.4" />
-              <line x1={dimX - 3} y1={y2} x2={ox - s(fw + layout.wallThickness)} y2={y2}
+              <line x1={dimX - tickLen} y1={y2} x2={ox - s(fw + layout.wallThickness)} y2={y2}
                 stroke="#333" strokeWidth="0.4" />
               {/* Dimension line */}
               <line x1={dimX} y1={y1} x2={dimX} y2={y2}
                 stroke="#333" strokeWidth="0.6" />
               {/* Tick marks */}
-              <line x1={dimX - 4} y1={y1} x2={dimX + 4} y2={y1}
+              <line x1={dimX - tickLen} y1={y1} x2={dimX + tickLen} y2={y1}
                 stroke="#333" strokeWidth="0.8" />
-              <line x1={dimX - 4} y1={y2} x2={dimX + 4} y2={y2}
+              <line x1={dimX - tickLen} y1={y2} x2={dimX + tickLen} y2={y2}
                 stroke="#333" strokeWidth="0.8" />
               {/* Label */}
               <text
-                x={dimX - 8} y={(y1 + y2) / 2 + 3}
-                fontSize="9" fill="#111" fontWeight="bold"
-                transform={`rotate(-90, ${dimX - 8}, ${(y1 + y2) / 2})`}
+                x={dimX - tickLen - fontSize.label * 0.5} y={(y1 + y2) / 2 + fontSize.label * 0.35}
+                fontSize={fontSize.label} fill="#111" fontWeight="bold"
+                transform={`rotate(-90, ${dimX - tickLen - fontSize.label * 0.5}, ${(y1 + y2) / 2})`}
                 textAnchor="middle"
               >
                 {formatDim(clHeight)}
               </text>
               <text
-                x={dimX - 20} y={(y1 + y2) / 2 + 3}
-                fontSize="7" fill="#666"
-                transform={`rotate(-90, ${dimX - 20}, ${(y1 + y2) / 2})`}
+                x={dimX - tickLen - fontSize.label * 0.5 - fontSize.small * 1.5}
+                y={(y1 + y2) / 2 + fontSize.small * 0.35}
+                fontSize={fontSize.small} fill="#666"
+                transform={`rotate(-90, ${dimX - tickLen - fontSize.label * 0.5 - fontSize.small * 1.5}, ${(y1 + y2) / 2})`}
                 textAnchor="middle"
               >
                 CL SHAFT
@@ -665,9 +698,9 @@ function FramingDrawing({
           )
         })()}
 
-        {/* --- Sideroom dimensions (small, at top of jambs) --- */}
+        {/* --- Sideroom dimensions (small, above jambs) --- */}
         {(() => {
-          const dimY = oy - s(layout.topClearance - layout.headerHeight - 6) - 8
+          const dimY = oy - s(layout.topClearance - layout.headerHeight - 6) - fontSize.small
           // Left sideroom: from wall inner edge to door opening edge
           const lx1 = ox - s(fw)
           const lx2 = ox
@@ -679,30 +712,30 @@ function FramingDrawing({
               {/* Left */}
               <line x1={lx1} y1={dimY} x2={lx2} y2={dimY}
                 stroke="#333" strokeWidth="0.4" />
-              <line x1={lx1} y1={dimY - 3} x2={lx1} y2={dimY + 3}
+              <line x1={lx1} y1={dimY - tickLen} x2={lx1} y2={dimY + tickLen}
                 stroke="#333" strokeWidth="0.6" />
-              <line x1={lx2} y1={dimY - 3} x2={lx2} y2={dimY + 3}
+              <line x1={lx2} y1={dimY - tickLen} x2={lx2} y2={dimY + tickLen}
                 stroke="#333" strokeWidth="0.6" />
-              <text x={(lx1 + lx2) / 2} y={dimY - 4}
-                fontSize="7" textAnchor="middle" fill="#333">
+              <text x={(lx1 + lx2) / 2} y={dimY - tickLen - fontSize.small * 0.3}
+                fontSize={fontSize.small} textAnchor="middle" fill="#333">
                 {formatDim(fw)}
               </text>
 
               {/* Right */}
               <line x1={rx1} y1={dimY} x2={rx2} y2={dimY}
                 stroke="#333" strokeWidth="0.4" />
-              <line x1={rx1} y1={dimY - 3} x2={rx1} y2={dimY + 3}
+              <line x1={rx1} y1={dimY - tickLen} x2={rx1} y2={dimY + tickLen}
                 stroke="#333" strokeWidth="0.6" />
-              <line x1={rx2} y1={dimY - 3} x2={rx2} y2={dimY + 3}
+              <line x1={rx2} y1={dimY - tickLen} x2={rx2} y2={dimY + tickLen}
                 stroke="#333" strokeWidth="0.6" />
-              <text x={(rx1 + rx2) / 2} y={dimY - 4}
-                fontSize="7" textAnchor="middle" fill="#333">
+              <text x={(rx1 + rx2) / 2} y={dimY - tickLen - fontSize.small * 0.3}
+                fontSize={fontSize.small} textAnchor="middle" fill="#333">
                 {formatDim(fw)}
               </text>
 
               {/* Sideroom label (wider, includes wall) */}
-              <text x={ox - s(fw + layout.wallThickness / 2)} y={dimY - 14}
-                fontSize="7" textAnchor="middle" fill="#666">
+              <text x={ox - s(fw + layout.wallThickness / 2)} y={dimY - tickLen - fontSize.small * 1.6}
+                fontSize={fontSize.small} textAnchor="middle" fill="#666">
                 SIDEROOM: {formatDim(sr)} MIN
               </text>
             </g>
@@ -711,21 +744,22 @@ function FramingDrawing({
 
         {/* --- Headroom minimum label --- */}
         {(() => {
-          const hrLabelX = ox + s(dw) + 15
+          const hrLabelX = ox + s(dw) + dimLineSpacing * 0.5
           const hrTop = oy - s(geo.headroomMin)
           return (
             <g className="dim-headroom">
               {/* Small bracket */}
               <line x1={hrLabelX} y1={hrTop} x2={hrLabelX} y2={oy}
                 stroke="#666" strokeWidth="0.4" strokeDasharray="3,2" />
-              <line x1={hrLabelX - 3} y1={hrTop} x2={hrLabelX + 3} y2={hrTop}
+              <line x1={hrLabelX - tickLen} y1={hrTop} x2={hrLabelX + tickLen} y2={hrTop}
                 stroke="#666" strokeWidth="0.6" />
-              <line x1={hrLabelX - 3} y1={oy} x2={hrLabelX + 3} y2={oy}
+              <line x1={hrLabelX - tickLen} y1={oy} x2={hrLabelX + tickLen} y2={oy}
                 stroke="#666" strokeWidth="0.6" />
               <text
-                x={hrLabelX + 5} y={(hrTop + oy) / 2 + 3}
-                fontSize="7" fill="#666"
-                transform={`rotate(-90, ${hrLabelX + 5}, ${(hrTop + oy) / 2})`}
+                x={hrLabelX + tickLen + fontSize.small * 0.5}
+                y={(hrTop + oy) / 2 + fontSize.small * 0.35}
+                fontSize={fontSize.small} fill="#666"
+                transform={`rotate(-90, ${hrLabelX + tickLen + fontSize.small * 0.5}, ${(hrTop + oy) / 2})`}
                 textAnchor="middle"
               >
                 HEADROOM MIN: {formatDim(geo.headroomMin)}
@@ -738,12 +772,12 @@ function FramingDrawing({
         {/* JAMB DETAIL CALLOUT (bottom-left corner)                         */}
         {/* ================================================================ */}
         {(() => {
-          const detailX = 15
-          const detailY = layout.svgH - 85
-          const ds = 2.5 // detail scale
+          const detailX = fontSize.label * 1.5
+          const detailY = layout.svgH - ui.baseUnit * 10
+          const ds = calloutScale
           return (
             <g className="jamb-detail" transform={`translate(${detailX}, ${detailY})`}>
-              <text x="0" y="-5" fontSize="8" fontWeight="bold" fill="#333">
+              <text x="0" y={-fontSize.small * 0.5} fontSize={fontSize.label} fontWeight="bold" fill="#333">
                 JAMB DETAIL (SECTION)
               </text>
               <rect x="0" y="0" width={35 * ds} height={25 * ds}
@@ -761,26 +795,26 @@ function FramingDrawing({
               {/* Weather seal strip */}
               <rect x={(8 + fw) * ds} y={4 * ds} width={1.5 * ds} height={18 * ds}
                 fill="#444" stroke="#333" strokeWidth="0.3" />
-              <text x={(8 + fw + 1.5) * ds + 3} y={10 * ds}
-                fontSize="5" fill="#666">WEATHER SEAL</text>
+              <text x={(8 + fw + 1.5) * ds + fontSize.small * 0.4} y={10 * ds}
+                fontSize={fontSize.small * 0.65} fill="#666">WEATHER SEAL</text>
 
               {/* End cap */}
               <rect x={(8 + fw + 2) * ds} y={20 * ds} width={4 * ds} height={3 * ds}
                 fill="#999" stroke="#333" strokeWidth="0.3" />
               <text x={(8 + fw + 7) * ds} y={22 * ds}
-                fontSize="5" fill="#666">END CAP</text>
+                fontSize={fontSize.small * 0.65} fill="#666">END CAP</text>
 
               {/* Bottom bracket indicator */}
               <rect x={(8 + fw + 2) * ds} y={1 * ds} width={5 * ds} height={4 * ds}
                 fill="#888" stroke="#333" strokeWidth="0.3" />
               <text x={(8 + fw + 8) * ds} y={4 * ds}
-                fontSize="5" fill="#666">BOTTOM BRACKET</text>
+                fontSize={fontSize.small * 0.65} fill="#666">BOTTOM BRACKET</text>
 
               {/* Astragal */}
               <rect x={(8 + fw + 2) * ds} y={24 * ds} width={8 * ds} height={1 * ds}
                 fill="#666" stroke="#333" strokeWidth="0.3" />
               <text x={(8 + fw + 11) * ds} y={25 * ds}
-                fontSize="5" fill="#666">ASTRAGAL</text>
+                fontSize={fontSize.small * 0.65} fill="#666">ASTRAGAL</text>
             </g>
           )
         })()}
@@ -788,34 +822,51 @@ function FramingDrawing({
         {/* ================================================================ */}
         {/* LEGEND                                                           */}
         {/* ================================================================ */}
-        <g transform={`translate(${layout.svgW - 130}, ${layout.svgH - 80})`}>
-          <text fontSize="8" fontWeight="bold" fill="#333">LEGEND</text>
-          <g transform="translate(0, 10)">
-            <rect width="14" height="7" fill={isSteel ? 'url(#fd-steelJamb)' : 'url(#fd-woodGrain)'}
-              stroke="#333" strokeWidth="0.5" />
-            <text x="18" y="6" fontSize="7" fill="#444">
-              {isSteel ? 'Steel Framing' : 'Wood Framing'}
-            </text>
-          </g>
-          <g transform="translate(0, 22)">
-            <rect width="14" height="7" fill="url(#fd-concreteHatch)" stroke="#333" strokeWidth="0.5" />
-            <text x="18" y="6" fontSize="7" fill="#444">Masonry / Concrete</text>
-          </g>
-          <g transform="translate(0, 34)">
-            <rect width="14" height="7" fill="url(#fd-steelFill)" stroke="#333" strokeWidth="0.5" />
-            <text x="18" y="6" fontSize="7" fill="#444">Track / Steel</text>
-          </g>
-          <g transform="translate(0, 46)">
-            <rect width="14" height="7" fill="#8B1A1A" stroke="#333" strokeWidth="0.5" />
-            <text x="18" y="6" fontSize="7" fill="#444">Torsion Spring</text>
-          </g>
-        </g>
+        {(() => {
+          const legendX = layout.svgW - ui.baseUnit * 16
+          const legendY = layout.svgH - ui.baseUnit * 9
+          const swatchW = fontSize.label * 1.4
+          const swatchH = fontSize.small * 0.9
+          const rowH = fontSize.small * 1.6
+          return (
+            <g transform={`translate(${legendX}, ${legendY})`}>
+              <text fontSize={fontSize.label} fontWeight="bold" fill="#333">LEGEND</text>
+              <g transform={`translate(0, ${rowH * 0.7})`}>
+                <rect width={swatchW} height={swatchH}
+                  fill={isSteel ? 'url(#fd-steelJamb)' : 'url(#fd-woodGrain)'}
+                  stroke="#333" strokeWidth="0.5" />
+                <text x={swatchW + fontSize.small * 0.4} y={swatchH * 0.8}
+                  fontSize={fontSize.small} fill="#444">
+                  {isSteel ? 'Steel Framing' : 'Wood Framing'}
+                </text>
+              </g>
+              <g transform={`translate(0, ${rowH * 0.7 + rowH})`}>
+                <rect width={swatchW} height={swatchH} fill="url(#fd-concreteHatch)"
+                  stroke="#333" strokeWidth="0.5" />
+                <text x={swatchW + fontSize.small * 0.4} y={swatchH * 0.8}
+                  fontSize={fontSize.small} fill="#444">Masonry / Concrete</text>
+              </g>
+              <g transform={`translate(0, ${rowH * 0.7 + rowH * 2})`}>
+                <rect width={swatchW} height={swatchH} fill="url(#fd-steelFill)"
+                  stroke="#333" strokeWidth="0.5" />
+                <text x={swatchW + fontSize.small * 0.4} y={swatchH * 0.8}
+                  fontSize={fontSize.small} fill="#444">Track / Steel</text>
+              </g>
+              <g transform={`translate(0, ${rowH * 0.7 + rowH * 3})`}>
+                <rect width={swatchW} height={swatchH} fill="#8B1A1A"
+                  stroke="#333" strokeWidth="0.5" />
+                <text x={swatchW + fontSize.small * 0.4} y={swatchH * 0.8}
+                  fontSize={fontSize.small} fill="#444">Torsion Spring</text>
+              </g>
+            </g>
+          )
+        })()}
 
         {/* ================================================================ */}
         {/* NOTES                                                            */}
         {/* ================================================================ */}
-        <g transform={`translate(15, ${layout.svgH - 25})`}>
-          <text fontSize="7" fill="#888">
+        <g transform={`translate(${fontSize.label * 1.5}, ${layout.svgH - fontSize.small * 1.5})`}>
+          <text fontSize={fontSize.small} fill="#888">
             All dimensions in feet-inches. Verify rough opening before installation.
             Mount type: {geo.mountType}. Track: {geo.trackSize}".
           </text>
