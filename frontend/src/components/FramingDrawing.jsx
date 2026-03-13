@@ -343,7 +343,7 @@ function FramingDrawing({
         })}
 
         {/* ================================================================ */}
-        {/* WALL SECTIONS (hatched)                                         */}
+        {/* WALL SECTIONS (hatched) — extend from above everything to floor */}
         {/* ================================================================ */}
         {/* Left wall */}
         <rect
@@ -363,38 +363,44 @@ function FramingDrawing({
         />
 
         {/* ================================================================ */}
-        {/* JAMBS (outline with hatch - no colored fill)                    */}
+        {/* JAMBS — extend from header down to floor                       */}
         {/* ================================================================ */}
         {/* Left jamb */}
         <rect
           x={ox - s(fw)}
-          y={oy - s(layout.topClearance - layout.headerHeight - 2)}
+          y={oy - s(layout.headerHeight)}
           width={s(fw)}
-          height={s(dh + layout.topClearance - layout.headerHeight - 2)}
+          height={s(dh + layout.headerHeight)}
           fill={isSteel ? 'url(#fd-steelHatch)' : 'url(#fd-woodHatch)'}
           stroke="#000" strokeWidth="1"
         />
         {/* Right jamb */}
         <rect
           x={ox + s(dw)}
-          y={oy - s(layout.topClearance - layout.headerHeight - 2)}
+          y={oy - s(layout.headerHeight)}
           width={s(fw)}
-          height={s(dh + layout.topClearance - layout.headerHeight - 2)}
+          height={s(dh + layout.headerHeight)}
           fill={isSteel ? 'url(#fd-steelHatch)' : 'url(#fd-woodHatch)'}
           stroke="#000" strokeWidth="1"
         />
 
         {/* ================================================================ */}
-        {/* HEADER (filled structural beam — hatched like the jambs)       */}
+        {/* HEADER — structural beam just ABOVE the door opening           */}
+        {/* Springs/shaft sit ABOVE this header                            */}
         {/* ================================================================ */}
-        <rect
-          x={ox - s(fw + 2)}
-          y={oy - s(layout.topClearance - 2)}
-          width={s(dw + fw * 2 + 4)}
-          height={s(layout.headerHeight)}
-          fill={isSteel ? 'url(#fd-steelHatch)' : 'url(#fd-woodHatch)'}
-          stroke="#000" strokeWidth="1.5"
-        />
+        {(() => {
+          const headerH = Math.max(8, s(layout.headerHeight))
+          return (
+            <rect
+              x={ox - s(fw + 2)}
+              y={oy - headerH}
+              width={s(dw + fw * 2 + 4)}
+              height={headerH}
+              fill={isSteel ? 'url(#fd-steelHatch)' : 'url(#fd-woodHatch)'}
+              stroke="#000" strokeWidth="1.5"
+            />
+          )
+        })()}
 
         {/* ================================================================ */}
         {/* DOOR PANELS (visible inside opening)                            */}
@@ -405,75 +411,80 @@ function FramingDrawing({
           width={s(dw)} height={s(dh)}
           fill="none" stroke="#000" strokeWidth="1.5"
         />
-        {/* Panel divider lines */}
-        {Array.from({ length: panelCount - 1 }, (_, i) => {
-          const py = oy + s(panelHeight * (i + 1))
+        {(() => {
+          // Track inset in pixels — used to offset panel lines from tracks
+          const tInset = Math.max(8, s(ts + 3))
           return (
-            <line key={`panel-${i}`}
-              x1={ox + s(ts + 2)} y1={py}
-              x2={ox + s(dw - ts - 2)} y2={py}
-              stroke="#000" strokeWidth="0.6"
-            />
+            <g className="door-panels">
+              {/* Panel divider lines */}
+              {Array.from({ length: panelCount - 1 }, (_, i) => {
+                const py = oy + s(panelHeight * (i + 1))
+                return (
+                  <line key={`panel-${i}`}
+                    x1={ox + tInset} y1={py}
+                    x2={ox + s(dw) - tInset} y2={py}
+                    stroke="#000" strokeWidth="0.6"
+                  />
+                )
+              })}
+              {/* Panel ribbing/texture lines */}
+              {doorType === 'commercial' ? (
+                Array.from({ length: panelCount }, (_, pi) => {
+                  const ribCount = 3
+                  return Array.from({ length: ribCount }, (_, ri) => {
+                    const py = oy + s(panelHeight * pi + panelHeight * (ri + 1) / (ribCount + 1))
+                    return (
+                      <line key={`rib-${pi}-${ri}`}
+                        x1={ox + tInset + 2} y1={py}
+                        x2={ox + s(dw) - tInset - 2} y2={py}
+                        stroke="#000" strokeWidth="0.2" opacity="0.4"
+                      />
+                    )
+                  })
+                })
+              ) : (
+                Array.from({ length: panelCount }, (_, pi) => {
+                  const panelTop = oy + s(panelHeight * pi) + 3
+                  const panelBot = oy + s(panelHeight * (pi + 1)) - 3
+                  const panelLeft = ox + tInset + 3
+                  const panelRight = ox + s(dw) - tInset - 3
+                  const midX = ox + s(dw) / 2
+                  return (
+                    <g key={`rpanel-${pi}`}>
+                      <rect x={panelLeft} y={panelTop} width={midX - panelLeft - 2} height={panelBot - panelTop}
+                        fill="none" stroke="#000" strokeWidth="0.3" opacity="0.35" />
+                      <rect x={midX + 2} y={panelTop} width={panelRight - midX - 2} height={panelBot - panelTop}
+                        fill="none" stroke="#000" strokeWidth="0.3" opacity="0.35" />
+                    </g>
+                  )
+                })
+              )}
+            </g>
           )
-        })}
-        {/* Panel ribbing/texture lines (thin horizontal lines within each panel) */}
-        {doorType === 'commercial' ? (
-          // Commercial: evenly spaced ribs
-          Array.from({ length: panelCount }, (_, pi) => {
-            const ribCount = 3
-            return Array.from({ length: ribCount }, (_, ri) => {
-              const py = oy + s(panelHeight * pi + panelHeight * (ri + 1) / (ribCount + 1))
-              return (
-                <line key={`rib-${pi}-${ri}`}
-                  x1={ox + s(ts + 3)} y1={py}
-                  x2={ox + s(dw - ts - 3)} y2={py}
-                  stroke="#000" strokeWidth="0.2" opacity="0.4"
-                />
-              )
-            })
-          })
-        ) : (
-          // Residential: raised panel look with inset rectangles
-          Array.from({ length: panelCount }, (_, pi) => {
-            const panelTop = oy + s(panelHeight * pi + 2)
-            const panelBot = oy + s(panelHeight * (pi + 1) - 2)
-            const panelLeft = ox + s(ts + 4)
-            const panelRight = ox + s(dw - ts - 4)
-            const midX = ox + s(dw / 2)
-            return (
-              <g key={`rpanel-${pi}`}>
-                {/* Two raised panel sections side by side */}
-                <rect x={panelLeft} y={panelTop} width={midX - panelLeft - s(1)} height={panelBot - panelTop}
-                  fill="none" stroke="#000" strokeWidth="0.3" opacity="0.35" />
-                <rect x={midX + s(1)} y={panelTop} width={panelRight - midX - s(1)} height={panelBot - panelTop}
-                  fill="none" stroke="#000" strokeWidth="0.3" opacity="0.35" />
-              </g>
-            )
-          })
-        )}
+        })()}
 
         {/* ================================================================ */}
-        {/* VERTICAL TRACKS                                                */}
-        {/* Use minimum pixel widths so tracks are visible on all sizes    */}
+        {/* VERTICAL TRACKS — drawn AFTER panels so they render on top     */}
         {/* ================================================================ */}
         {(() => {
-          const trackW = Math.max(4, s(ts))
-          const trackInset = Math.max(3, s(1))
+          const trackW = Math.max(6, s(ts))
+          const trackInset = Math.max(4, s(1.5))
+          const doorPxW = s(dw)
           const trackH = s(geo.verticalTrackLength)
           return (
             <g className="vertical-tracks">
-              {/* Left track — two parallel lines (channel) */}
+              {/* Left track — filled white rect with black outline */}
               <rect x={ox + trackInset} y={oy} width={trackW} height={trackH}
-                fill="none" stroke="#000" strokeWidth="1.2" />
+                fill="#fff" stroke="#000" strokeWidth="1.5" />
               {/* Right track */}
-              <rect x={ox + s(dw) - trackInset - trackW} y={oy} width={trackW} height={trackH}
-                fill="none" stroke="#000" strokeWidth="1.2" />
+              <rect x={ox + doorPxW - trackInset - trackW} y={oy} width={trackW} height={trackH}
+                fill="#fff" stroke="#000" strokeWidth="1.5" />
 
               {/* Track mounting angle flags — L-shaped brackets */}
               {flagPositions.map((yPos, i) => {
                 const fy = oy + s(yPos)
-                const flagW = Math.max(8, s(4))
-                const flagH = Math.max(6, s(3))
+                const flagW = Math.max(10, s(5))
+                const flagH = Math.max(8, s(4))
                 return (
                   <g key={`flags-${i}`}>
                     {/* Left flag — L bracket pointing left */}
@@ -481,14 +492,14 @@ function FramingDrawing({
                       d={`M ${ox + trackInset} ${fy}
                           L ${ox + trackInset - flagW} ${fy}
                           L ${ox + trackInset - flagW} ${fy + flagH}`}
-                      fill="none" stroke="#000" strokeWidth="1"
+                      fill="none" stroke="#000" strokeWidth="1.2"
                     />
                     {/* Right flag — L bracket pointing right */}
                     <path
-                      d={`M ${ox + s(dw) - trackInset} ${fy}
-                          L ${ox + s(dw) - trackInset + flagW} ${fy}
-                          L ${ox + s(dw) - trackInset + flagW} ${fy + flagH}`}
-                      fill="none" stroke="#000" strokeWidth="1"
+                      d={`M ${ox + doorPxW - trackInset} ${fy}
+                          L ${ox + doorPxW - trackInset + flagW} ${fy}
+                          L ${ox + doorPxW - trackInset + flagW} ${fy + flagH}`}
+                      fill="none" stroke="#000" strokeWidth="1.2"
                     />
                   </g>
                 )
@@ -498,37 +509,32 @@ function FramingDrawing({
         })()}
 
         {/* ================================================================ */}
-        {/* TRACK CURVES (quarter-circle arcs, two lines for track width)  */}
+        {/* TRACK CURVES + HORIZONTAL TRACKS                               */}
         {/* ================================================================ */}
         {(() => {
-          const trackInset = Math.max(3, s(1))
-          const trackW = Math.max(4, s(ts))
-          const curveR = s(tr)
-          const innerR = Math.max(curveR - trackW, curveR * 0.7)
-          // Left curve center: at top of left track, curving right and up
+          const trackInset = Math.max(4, s(1.5))
+          const trackW = Math.max(6, s(ts))
+          const doorPxW = s(dw)
+          const curveR = Math.max(15, s(tr))
+          // Left curve start: center of left track
           const lcx = ox + trackInset + trackW / 2
-          // Right curve center
-          const rcx = ox + s(dw) - trackInset - trackW / 2
+          const rcx = ox + doorPxW - trackInset - trackW / 2
           return (
             <g className="track-curves">
-              {/* Left — outer and inner arc */}
+              {/* Left — thick arc representing track curve */}
               <path d={`M ${lcx} ${oy} A ${curveR} ${curveR} 0 0 1 ${lcx + curveR} ${oy - curveR}`}
-                fill="none" stroke="#000" strokeWidth="1.2" />
-              <path d={`M ${lcx} ${oy} A ${innerR} ${innerR} 0 0 1 ${lcx + innerR} ${oy - innerR}`}
-                fill="none" stroke="#000" strokeWidth="0.6" opacity="0.5" />
-              {/* Right — outer and inner arc */}
+                fill="none" stroke="#000" strokeWidth={Math.max(trackW * 0.8, 3)} />
+              {/* Right */}
               <path d={`M ${rcx} ${oy} A ${curveR} ${curveR} 0 0 0 ${rcx - curveR} ${oy - curveR}`}
-                fill="none" stroke="#000" strokeWidth="1.2" />
-              <path d={`M ${rcx} ${oy} A ${innerR} ${innerR} 0 0 0 ${rcx - innerR} ${oy - innerR}`}
-                fill="none" stroke="#000" strokeWidth="0.6" opacity="0.5" />
+                fill="none" stroke="#000" strokeWidth={Math.max(trackW * 0.8, 3)} />
 
               {/* Horizontal tracks (dashed, receding into building) */}
               <line x1={lcx + curveR} y1={oy - curveR}
-                x2={lcx + curveR + Math.max(40, s(30))} y2={oy - curveR}
-                stroke="#000" strokeWidth="1.2" strokeDasharray="8,4" />
+                x2={lcx + curveR + Math.max(50, s(36))} y2={oy - curveR}
+                stroke="#000" strokeWidth="1.5" strokeDasharray="8,4" />
               <line x1={rcx - curveR} y1={oy - curveR}
-                x2={rcx - curveR - Math.max(40, s(30))} y2={oy - curveR}
-                stroke="#000" strokeWidth="1.2" strokeDasharray="8,4" />
+                x2={rcx - curveR - Math.max(50, s(36))} y2={oy - curveR}
+                stroke="#000" strokeWidth="1.5" strokeDasharray="8,4" />
             </g>
           )
         })()}
@@ -565,25 +571,41 @@ function FramingDrawing({
                 stroke="#000" strokeWidth="2.5"
               />
 
-              {/* Left cable drum — circle with X */}
-              <circle cx={drumLX} cy={shaftYPx} r={drumR}
-                fill="#fff" stroke="#000" strokeWidth="1.5" />
-              <line x1={drumLX - drumR * 0.65} y1={shaftYPx - drumR * 0.65}
-                x2={drumLX + drumR * 0.65} y2={shaftYPx + drumR * 0.65}
-                stroke="#000" strokeWidth="0.8" />
-              <line x1={drumLX - drumR * 0.65} y1={shaftYPx + drumR * 0.65}
-                x2={drumLX + drumR * 0.65} y2={shaftYPx - drumR * 0.65}
-                stroke="#000" strokeWidth="0.8" />
+              {/* Left cable drum — side-view ellipse (wider along shaft) with X */}
+              {(() => {
+                const rx = drumR * 1.4  // wider along shaft (horizontal)
+                const ry = drumR * 0.7  // narrower vertically (side view)
+                return (
+                  <g>
+                    <ellipse cx={drumLX} cy={shaftYPx} rx={rx} ry={ry}
+                      fill="#fff" stroke="#000" strokeWidth="1.5" />
+                    <line x1={drumLX - rx * 0.6} y1={shaftYPx - ry * 0.6}
+                      x2={drumLX + rx * 0.6} y2={shaftYPx + ry * 0.6}
+                      stroke="#000" strokeWidth="0.8" />
+                    <line x1={drumLX - rx * 0.6} y1={shaftYPx + ry * 0.6}
+                      x2={drumLX + rx * 0.6} y2={shaftYPx - ry * 0.6}
+                      stroke="#000" strokeWidth="0.8" />
+                  </g>
+                )
+              })()}
 
-              {/* Right cable drum — circle with X */}
-              <circle cx={drumRX} cy={shaftYPx} r={drumR}
-                fill="#fff" stroke="#000" strokeWidth="1.5" />
-              <line x1={drumRX - drumR * 0.65} y1={shaftYPx - drumR * 0.65}
-                x2={drumRX + drumR * 0.65} y2={shaftYPx + drumR * 0.65}
-                stroke="#000" strokeWidth="0.8" />
-              <line x1={drumRX - drumR * 0.65} y1={shaftYPx + drumR * 0.65}
-                x2={drumRX + drumR * 0.65} y2={shaftYPx - drumR * 0.65}
-                stroke="#000" strokeWidth="0.8" />
+              {/* Right cable drum — side-view ellipse with X */}
+              {(() => {
+                const rx = drumR * 1.4
+                const ry = drumR * 0.7
+                return (
+                  <g>
+                    <ellipse cx={drumRX} cy={shaftYPx} rx={rx} ry={ry}
+                      fill="#fff" stroke="#000" strokeWidth="1.5" />
+                    <line x1={drumRX - rx * 0.6} y1={shaftYPx - ry * 0.6}
+                      x2={drumRX + rx * 0.6} y2={shaftYPx + ry * 0.6}
+                      stroke="#000" strokeWidth="0.8" />
+                    <line x1={drumRX - rx * 0.6} y1={shaftYPx + ry * 0.6}
+                      x2={drumRX + rx * 0.6} y2={shaftYPx - ry * 0.6}
+                      stroke="#000" strokeWidth="0.8" />
+                  </g>
+                )
+              })()}
 
               {/* Left spring — rectangle with coil lines */}
               <rect x={springLX} y={shaftYPx - springH / 2}
