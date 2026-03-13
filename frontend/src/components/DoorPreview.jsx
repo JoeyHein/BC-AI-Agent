@@ -479,13 +479,22 @@ function DoorPreview({
     }
     const glass = glassLookup[glassColor] || glassLookup['CLEAR']
 
+    const totalSections = sectionConfig.length
+    const isFirst = sectionIndex === 0
+    const isLast = sectionIndex === totalSections - 1
+
     const x = padding
     const y = sectionY
     const w = panelWidth
     const h = sectionHeight
     const frameW = 4          // aluminum frame width (sides)
     const mullionW = 3        // vertical mullion
-    const railH = padding + frameW  // top/bottom rail matches side border (padding + frame)
+    const outerRailH = padding + frameW  // top/bottom of door matches side border thickness
+    const innerRailH = 2      // thin rail between sections (joint line)
+
+    // Top/bottom inset depends on whether this is an outer edge or an inner joint
+    const topInset = isFirst ? outerRailH : innerRailH
+    const bottomInset = isLast ? outerRailH : innerRailH
 
     // Outer aluminum frame
     elements.push(
@@ -495,16 +504,18 @@ function DoorPreview({
     )
 
     // Frame highlight (top edge for 3D effect)
-    elements.push(
-      <line key={`al-highlight-${sectionIndex}`}
-        x1={x + 1} y1={y + 1} x2={x + w - 1} y2={y + 1}
-        stroke={frame.highlight} strokeWidth="0.5" opacity="0.6" />
-    )
+    if (isFirst) {
+      elements.push(
+        <line key={`al-highlight-${sectionIndex}`}
+          x1={x + 1} y1={y + 1} x2={x + w - 1} y2={y + 1}
+          stroke={frame.highlight} strokeWidth="0.5" opacity="0.6" />
+      )
+    }
 
     const innerX = x + frameW
-    const innerY = y + railH
+    const innerY = y + topInset
     const innerW = w - frameW * 2
-    const innerH = h - railH * 2
+    const innerH = h - topInset - bottomInset
 
     if (isPolycarbonate) {
       // Panorama/Solalite: single full-width polycarbonate panel per section (no vertical stiles)
