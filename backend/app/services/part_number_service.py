@@ -1666,6 +1666,26 @@ class PartNumberService:
             category="highlift_track"
         )]
 
+    def _consolidate_parts(self, parts: List[PartSelection]) -> List[PartSelection]:
+        """Merge parts with the same part_number into a single line with summed quantity.
+
+        Preserves order of first occurrence. Glazing/glass parts (sqft-based) are
+        already consolidated and left untouched.
+        """
+        seen: Dict[str, int] = {}  # part_number -> index in result
+        result: List[PartSelection] = []
+        for p in parts:
+            if not p.part_number:
+                # Comment lines — keep as-is
+                result.append(p)
+                continue
+            if p.part_number in seen:
+                result[seen[p.part_number]].quantity += p.quantity
+            else:
+                seen[p.part_number] = len(result)
+                result.append(p)
+        return result
+
     def _get_aluminum_section_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get aluminum door section parts (PN97, PN80, PN20) + glass for all panels.
 
@@ -1871,7 +1891,7 @@ class PartNumberService:
                 notes=f"Glass for {panel_count} sections ({glazing_sqft_per_section:.2f} sqft each)"
             ))
 
-        return parts
+        return self._consolidate_parts(parts)
 
     def _build_window_placement_note(self, config: DoorConfiguration) -> Optional[str]:
         """Build a human-readable note describing where windows should be placed."""
@@ -2111,7 +2131,7 @@ class PartNumberService:
             notes=f"Thermopane glass for {v130g_qty} V130G section(s) ({glass_sqft_per_section:.2f} sqft each)"
         ))
 
-        return parts
+        return self._consolidate_parts(parts)
 
     def _get_commercial_window_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get commercial thermopane window parts using GK16 part numbers.

@@ -499,12 +499,22 @@ def _generate_bc_quote_with_items(
             sorted_parts = _sort_parts_by_category(parts_list)
             part_door_type = config_dict.get("doorType", "residential")
 
+            # For aluminum doors, use commercial pricing on everything EXCEPT
+            # aluminum sections and glazing (which keep aluminium pricing)
+            aluminum_panel_categories = {
+                "aluminum_section", "aluminum_glazing", "aluminum_glass",
+                "v130g_section", "v130g_glass",
+            }
+
             # Track whether we've emitted window placement comment
             window_note_emitted = False
 
             for part in sorted_parts:
                 part["door_index"] = door_index
-                part["door_type"] = part_door_type
+                if part_door_type == "aluminium" and part.get("category") not in aluminum_panel_categories:
+                    part["door_type"] = "commercial"
+                else:
+                    part["door_type"] = part_door_type
 
                 # Spring info comment → BC Comment line (not an item)
                 if part.get("category") == "spring_comment":
@@ -972,12 +982,22 @@ def _estimate_pricing_locally(
             sorted_parts = _sort_parts_by_category(parts_list)
             part_door_type = config_dict.get("doorType", "residential")
 
+            # For aluminum doors, use commercial pricing on everything EXCEPT
+            # aluminum sections and glazing (which keep aluminium pricing)
+            aluminum_panel_categories = {
+                "aluminum_section", "aluminum_glazing", "aluminum_glass",
+                "v130g_section", "v130g_glass",
+            }
+
             # Track whether we've emitted window placement comment
             window_note_emitted = False
 
             for part in sorted_parts:
                 part["door_index"] = door_index
-                part["door_type"] = part_door_type
+                if part_door_type == "aluminium" and part.get("category") not in aluminum_panel_categories:
+                    part["door_type"] = "commercial"
+                else:
+                    part["door_type"] = part_door_type
 
                 # Spring info comment → BC Comment line (not an item)
                 if part.get("category") == "spring_comment":

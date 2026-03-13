@@ -835,10 +835,19 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
             sorted_parts = _sort_parts_by_category(parts_list)
 
             # Add door index and type to each part for tracking/pricing
+            # For aluminum doors, use commercial pricing on everything EXCEPT
+            # aluminum sections and glazing (which keep aluminium pricing)
+            aluminum_panel_categories = {
+                "aluminum_section", "aluminum_glazing", "aluminum_glass",
+                "v130g_section", "v130g_glass",
+            }
             window_note_emitted = False
             for part in sorted_parts:
                 part["door_index"] = door_index
-                part["door_type"] = door.doorType
+                if door.doorType == "aluminium" and part.get("category") not in aluminum_panel_categories:
+                    part["door_type"] = "commercial"
+                else:
+                    part["door_type"] = door.doorType
 
                 # Spring info comment → BC Comment line (not an item)
                 if part.get("category") == "spring_comment":
