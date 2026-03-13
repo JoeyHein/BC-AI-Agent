@@ -115,6 +115,7 @@ function QuoteBuilder() {
         shafts: true,
       },
       operator: 'NONE',
+      operatorAccessories: [],
       // Spring and shaft options
       targetCycles: 10000,
       shaftType: 'auto', // 'auto', 'single', 'split'
@@ -1901,8 +1902,20 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
   const opData = operatorOptions?.[door.doorType] || operatorOptions?.residential || {}
   const operatorBrands = opData.operators || {}
   const accessoryBrands = opData.accessories || {}
+  const [expandedBrands, setExpandedBrands] = useState({})
+  const [expandedAccBrands, setExpandedAccBrands] = useState({})
 
-  // Spring cycle options
+  const toggleBrand = (brand) => setExpandedBrands(prev => ({ ...prev, [brand]: !prev[brand] }))
+  const toggleAccBrand = (brand) => setExpandedAccBrands(prev => ({ ...prev, [brand]: !prev[brand] }))
+
+  const toggleAccessory = (partNumber) => {
+    const current = door.operatorAccessories || []
+    const updated = current.includes(partNumber)
+      ? current.filter(p => p !== partNumber)
+      : [...current, partNumber]
+    onChange({ operatorAccessories: updated })
+  }
+
   // Spring cycle options (must match MIP capacity data in spring calculator)
   const springCycleOptions = [
     { id: 10000, name: '10,000 cycles' },
@@ -2232,40 +2245,125 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         {/* No Operator option */}
         <button
           onClick={() => onChange({ operator: 'NONE' })}
-          className={`mb-4 w-full p-3 rounded-lg border-2 text-left transition-all ${
+          className={`mb-3 w-full p-3 rounded-lg border-2 text-left transition-all ${
             door.operator === 'NONE' || !door.operator
               ? 'border-odc-500 bg-blue-50'
               : 'border-gray-200 hover:border-gray-300'
           }`}
         >
           <h4 className="font-medium text-gray-900">No Operator</h4>
-          <p className="mt-1 text-xs text-gray-500">Manual operation only</p>
+          <p className="text-xs text-gray-500">Manual operation only</p>
         </button>
 
-        {/* Operators grouped by brand */}
-        {Object.entries(operatorBrands).map(([brand, items]) => (
-          <div key={brand} className="mb-4">
-            <h4 className="text-sm font-semibold text-gray-600 mb-2">{brand}</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {items.map((op) => (
+        {/* Operators grouped by brand - collapsible */}
+        {Object.entries(operatorBrands).map(([brand, items]) => {
+          const isExpanded = expandedBrands[brand]
+          const selectedInBrand = items.find(op => op.id === door.operator)
+          return (
+            <div key={brand} className="mb-2">
+              <button
+                onClick={() => toggleBrand(brand)}
+                className={`w-full p-3 rounded-lg border-2 text-left transition-all flex items-center justify-between ${
+                  selectedInBrand ? 'border-odc-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div>
+                  <h4 className="font-medium text-gray-900 text-sm">{brand}</h4>
+                  {selectedInBrand && (
+                    <p className="text-xs text-odc-600 mt-0.5">{selectedInBrand.name}</p>
+                  )}
+                  {!selectedInBrand && (
+                    <p className="text-xs text-gray-400">{items.length} operators</p>
+                  )}
+                </div>
+                <svg className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {isExpanded && (
+                <div className="mt-2 ml-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {items.map((op) => (
+                    <button
+                      key={op.id}
+                      onClick={() => onChange({ operator: op.id })}
+                      className={`p-3 rounded-lg border-2 text-left transition-all ${
+                        door.operator === op.id
+                          ? 'border-odc-500 bg-blue-50'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <h4 className="font-medium text-gray-900 text-sm">{op.name}</h4>
+                      {op.notes && <p className="mt-0.5 text-xs text-gray-400">{op.notes}</p>}
+                      <p className="mt-0.5 text-xs text-gray-300">{op.partNumber}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Operator Accessories */}
+      {Object.keys(accessoryBrands).length > 0 && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Operator Accessories
+          </label>
+          {Object.entries(accessoryBrands).map(([brand, items]) => {
+            const isExpanded = expandedAccBrands[brand]
+            const selectedCount = items.filter(a => (door.operatorAccessories || []).includes(a.id)).length
+            return (
+              <div key={brand} className="mb-2">
                 <button
-                  key={op.id}
-                  onClick={() => onChange({ operator: op.id })}
-                  className={`p-3 rounded-lg border-2 text-left transition-all ${
-                    door.operator === op.id
-                      ? 'border-odc-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
+                  onClick={() => toggleAccBrand(brand)}
+                  className={`w-full p-3 rounded-lg border-2 text-left transition-all flex items-center justify-between ${
+                    selectedCount > 0 ? 'border-odc-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
                   }`}
                 >
-                  <h4 className="font-medium text-gray-900 text-sm">{op.name}</h4>
-                  {op.notes && <p className="mt-0.5 text-xs text-gray-400">{op.notes}</p>}
-                  <p className="mt-0.5 text-xs text-gray-300">{op.partNumber}</p>
+                  <div>
+                    <h4 className="font-medium text-gray-900 text-sm">{brand}</h4>
+                    <p className="text-xs text-gray-400">
+                      {selectedCount > 0 ? `${selectedCount} selected` : `${items.length} accessories`}
+                    </p>
+                  </div>
+                  <svg className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
                 </button>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
+                {isExpanded && (
+                  <div className="mt-2 ml-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {items.map((acc) => {
+                      const isSelected = (door.operatorAccessories || []).includes(acc.id)
+                      return (
+                        <button
+                          key={acc.id}
+                          onClick={() => toggleAccessory(acc.id)}
+                          className={`p-3 rounded-lg border-2 text-left transition-all ${
+                            isSelected
+                              ? 'border-odc-500 bg-blue-50'
+                              : 'border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <h4 className="font-medium text-gray-900 text-sm">{acc.name}</h4>
+                            {isSelected && (
+                              <svg className="w-5 h-5 text-odc-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                            )}
+                          </div>
+                          <p className="mt-0.5 text-xs text-gray-300">{acc.partNumber}</p>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

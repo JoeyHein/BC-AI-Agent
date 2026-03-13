@@ -116,6 +116,7 @@ class DoorConfiguration:
     track_thickness: str = "2"
     hardware: Dict[str, bool] = None
     operator: Optional[str] = None
+    operator_accessories: Optional[List[str]] = None  # list of accessory part numbers
     door_weight: Optional[float] = None  # lbs - if not provided, will estimate
     target_cycles: int = 10000  # cycle life rating (10000, 15000, 25000, 50000, 100000)
     spring_quantity: int = 2  # number of springs (1 or 2)
@@ -2194,24 +2195,40 @@ class PartNumberService:
         )]
 
     def _get_operator_parts(self, config: DoorConfiguration) -> List[PartSelection]:
-        """Get operator part numbers using real BC part numbers from catalog."""
-        if not config.operator or config.operator == "NONE":
-            return []
+        """Get operator and accessory part numbers using real BC part numbers from catalog."""
+        parts = []
 
-        from app.services.operator_service import get_operator_part_number, get_operator_display_name
+        # Main operator
+        if config.operator and config.operator != "NONE":
+            from app.services.operator_service import get_operator_part_number, get_operator_display_name
 
-        part_number = get_operator_part_number(config.operator)
-        if not part_number:
-            return []
+            part_number = get_operator_part_number(config.operator)
+            if part_number:
+                display_name = get_operator_display_name(config.operator)
+                parts.append(PartSelection(
+                    part_number=part_number,
+                    description=display_name,
+                    quantity=1,
+                    category="operator"
+                ))
 
-        display_name = get_operator_display_name(config.operator)
+        # Operator accessories
+        accessories = getattr(config, 'operator_accessories', None) or []
+        if accessories:
+            from app.services.operator_service import get_operator_part_number, get_operator_display_name
 
-        return [PartSelection(
-            part_number=part_number,
-            description=display_name,
-            quantity=1,
-            category="operator"
-        )]
+            for acc_id in accessories:
+                acc_pn = get_operator_part_number(acc_id)
+                if acc_pn:
+                    acc_name = get_operator_display_name(acc_id)
+                    parts.append(PartSelection(
+                        part_number=acc_pn,
+                        description=acc_name,
+                        quantity=1,
+                        category="operator"
+                    ))
+
+        return parts
 
     def get_part_summary(self, parts: List[PartSelection]) -> Dict[str, Any]:
         """Get summary of parts by category"""
@@ -2304,6 +2321,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         end_cap_type=config_dict.get("endCapType", "auto"),
         hardware=config_dict.get("hardware", {}),
         operator=config_dict.get("operator"),
+        operator_accessories=config_dict.get("operatorAccessories", []),
         target_cycles=config_dict.get("targetCycles", config_dict.get("target_cycles", 10000)),
         shaft_preference=config_dict.get("shaftType", "auto"),
         window_size=config_dict.get("windowSize", "long"),

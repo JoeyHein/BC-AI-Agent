@@ -431,6 +431,7 @@ class DoorConfigRequest(BaseModel):
     highLiftInches: Optional[int] = None
     hardware: Dict[str, bool] = {}
     operator: Optional[str] = None
+    operatorAccessories: Optional[List[str]] = None
     notes: Optional[str] = None
     targetCycles: int = 10000
     shaftType: str = "auto"  # 'auto', 'single', 'split'
@@ -822,6 +823,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "highLiftInches": door.highLiftInches,
                 "hardware": door.hardware,
                 "operator": door.operator,
+                "operatorAccessories": door.operatorAccessories or [],
                 "targetCycles": door.targetCycles,
                 "shaftType": door.shaftType,
             }
@@ -1321,6 +1323,7 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "highLiftInches": door.highLiftInches,
                 "hardware": door.hardware,
                 "operator": door.operator,
+                "operatorAccessories": door.operatorAccessories or [],
                 "targetCycles": door.targetCycles,
                 "shaftType": door.shaftType,
             }
