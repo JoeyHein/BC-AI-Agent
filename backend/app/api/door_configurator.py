@@ -922,15 +922,19 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 added_line = bc_client.add_quote_line(bc_quote_id, line_data)
                 lines_added += 1
 
-                # Door description comments: set Output=True so BC
-                # shows them on printed quotes and subtotals items below them.
-                if line.get("is_door_desc") and added_line.get("sequence"):
+                # Set Output=True on door descriptions, operators, and accessories
+                # so BC shows them on printed quotes and subtotals correctly.
+                needs_output = (
+                    line.get("is_door_desc")
+                    or line.get("category") in ("operator",)
+                )
+                if needs_output and added_line.get("sequence"):
                     try:
                         bc_client.set_quote_line_output(
                             bc_quote_number, added_line["sequence"], output=True
                         )
                     except Exception as out_err:
-                        logger.warning(f"Failed to set Output flag on door desc line: {out_err}")
+                        logger.warning(f"Failed to set Output flag on line: {out_err}")
 
                 # BC's item price list overrides unitPrice on POST.
                 # PATCH the line afterward to lock in the customer-tier price.
