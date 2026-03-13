@@ -132,8 +132,42 @@ function SideElevationDrawing({
     }
   }, [width, height, trackRadius, trackSize, liftType, highLiftInches, geometry])
 
-  // --- Proportional base unit ---
-  const baseUnit = Math.max(5, Math.min(12, Math.sqrt(g.doorH * scale) * 0.8))
+  // ---------------------------------------------------------------------------
+  // Fixed page size: 11" x 8.5" landscape at 96 DPI = 1056 x 816
+  // ---------------------------------------------------------------------------
+  const PAGE_W = 1056
+  const PAGE_H = 816
+
+  // Auto-scale to fit content within the fixed page
+  const layout = useMemo(() => {
+    const aboveDoor = Math.max(g.headroomMin, g.clShaft + 8)
+    const WALL_THICKNESS = 8
+    const totalHorizontal = WALL_THICKNESS + g.backroom + 20
+    const totalVertical = aboveDoor + g.doorH + 20
+
+    // Compute scale to fit content in ~80% of page (leave room for dims, labels, title block)
+    const usableW = PAGE_W * 0.7
+    const usableH = PAGE_H * 0.75
+    const autoScale = Math.min(usableW / totalHorizontal, usableH / totalVertical)
+
+    const baseUnit = Math.max(5, Math.min(10, Math.sqrt(g.doorH * autoScale) * 0.7))
+
+    const MARGIN_LEFT = Math.max(80, baseUnit * 10)
+    const MARGIN_TOP = Math.max(55, baseUnit * 7)
+    const WALL_DRAW_W = 16
+
+    const minAbovePx = 100
+    const aboveDoorPx = Math.max(minAbovePx, aboveDoor * autoScale)
+
+    const originX = MARGIN_LEFT + WALL_DRAW_W
+    const originY = MARGIN_TOP + aboveDoorPx
+
+    return { originX, originY, aboveDoor, aboveDoorPx, autoScale, baseUnit, MARGIN_LEFT, MARGIN_TOP }
+  }, [g])
+
+  const { originX, originY } = layout
+  const autoScale = layout.autoScale
+  const baseUnit = layout.baseUnit
 
   // Font sizes — monospace technical drawing style
   const fontTitle = baseUnit * 1.6
@@ -143,41 +177,20 @@ function SideElevationDrawing({
   const fontTiny = baseUnit * 0.65
 
   // Dimension helpers
-  const tickLen = baseUnit * 0.6 // length of 45-degree tick slash
-
-  // Margins scale with content
-  const MARGIN_LEFT = Math.max(90, baseUnit * 11)
-  const MARGIN_RIGHT = Math.max(90, baseUnit * 11)
-  const MARGIN_TOP = Math.max(60, baseUnit * 8)
-  const MARGIN_BOTTOM = Math.max(110, baseUnit * 13)
+  const tickLen = baseUnit * 0.6
 
   const WALL_THICKNESS = 8
   const WALL_DRAW_W = 16
   const DOOR_THICKNESS = 4
-  const HEADER_DEPTH = 6 // inches for header beam thickness
+  const HEADER_DEPTH = 6
+  const MARGIN_RIGHT = Math.max(80, baseUnit * 10)
+  const MARGIN_BOTTOM = Math.max(90, baseUnit * 11)
 
-  // Scaling helper: inches to pixels
-  const s = (inches) => inches * scale
+  // Scaling helper: inches to pixels using auto-computed scale
+  const s = (inches) => inches * autoScale
 
-  // Compute drawing extents
-  const layout = useMemo(() => {
-    const aboveDoor = Math.max(g.headroomMin, g.clShaft + 8)
-    const minAbovePx = 140
-    const aboveDoorPx = Math.max(minAbovePx, s(aboveDoor))
-    const totalHorizontal = WALL_THICKNESS + g.backroom + 16
-
-    const contentW = s(totalHorizontal)
-    const rawW = MARGIN_LEFT + contentW + MARGIN_RIGHT
-    const svgW = Math.max(520, rawW)
-    const svgH = MARGIN_TOP + aboveDoorPx + s(g.doorH) + MARGIN_BOTTOM
-
-    const originX = MARGIN_LEFT + WALL_DRAW_W
-    const originY = MARGIN_TOP + aboveDoorPx
-
-    return { svgW, svgH, originX, originY, aboveDoor, aboveDoorPx, contentW }
-  }, [g, scale, MARGIN_LEFT, MARGIN_RIGHT, MARGIN_TOP, MARGIN_BOTTOM])
-
-  const { svgW, svgH, originX, originY } = layout
+  const svgW = PAGE_W
+  const svgH = PAGE_H
 
   const floorY = originY + s(g.doorH)
   const curveStartY = originY - (g.lift === 'high_lift' ? s(g.hl) : 0)
@@ -208,8 +221,8 @@ function SideElevationDrawing({
   return (
     <div className="side-elevation-drawing bg-white border border-gray-300 rounded-lg overflow-hidden">
       <svg
-        viewBox={`0 0 ${svgW} ${svgH}`}
-        style={{ fontFamily: "'Courier New', 'Lucida Console', monospace", maxWidth: `${svgW}px`, width: '100%' }}
+        viewBox={`0 0 ${PAGE_W} ${PAGE_H}`}
+        style={{ fontFamily: "'Courier New', 'Lucida Console', monospace", width: '100%', aspectRatio: '11 / 8.5' }}
       >
         <defs>
           {/* Cross-hatch pattern 1 (45 degrees) */}

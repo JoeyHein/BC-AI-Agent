@@ -69,12 +69,35 @@ function FramingDrawing({
   }, [geometry, width, height, trackRadius, trackSize, liftType, frameType, mountType])
 
   // ---------------------------------------------------------------------------
-  // Proportional base unit and derived sizes
+  // Fixed page size: 11" x 8.5" landscape at 96 DPI = 1056 x 816
+  // All content scales to fit within this page.
   // ---------------------------------------------------------------------------
+  const PAGE_W = 1056
+  const PAGE_H = 816
+
   const ui = useMemo(() => {
     const doorW = geo.doorWidth
     const doorH = geo.doorHeight
-    const baseUnit = Math.max(5, Math.min(12, Math.sqrt(Math.max(doorW, doorH) * scale) * 0.8))
+
+    // Compute scale to fit door + margins within the fixed page
+    const wallThickness = 6
+    const fw = geo.frameWidth
+    const sr = geo.sideroom
+    const clShaft = geo.clShaft
+    const hrMin = geo.headroomMin
+    const headerHeight = 4
+
+    // Content extents in inches
+    const contentWInches = doorW + (fw + wallThickness + sr) * 2 + 40 // extra for dims + right panel
+    const topClearanceInches = Math.max(hrMin, clShaft) + headerHeight + 10
+    const contentHInches = topClearanceInches + doorH + 30 // extra for bottom dims + jamb detail
+
+    // Auto-scale: fit content into ~85% of page (leave room for title block, extras)
+    const usableW = PAGE_W * 0.6  // left ~60% for the drawing
+    const usableH = PAGE_H * 0.85
+    const autoScale = Math.min(usableW / contentWInches, usableH / contentHInches)
+
+    const baseUnit = Math.max(5, Math.min(10, Math.sqrt(Math.max(doorW, doorH) * autoScale) * 0.7))
 
     const fontSize = {
       title: baseUnit * 1.6,
@@ -86,19 +109,19 @@ function FramingDrawing({
     const tickLen = baseUnit * 0.55
     const dimLineSpacing = baseUnit * 3
     const margin = {
-      top: Math.max(55, baseUnit * 7),
-      right: Math.max(180, baseUnit * 22),
-      bottom: Math.max(90, baseUnit * 12),
-      left: Math.max(80, baseUnit * 10),
+      top: Math.max(50, baseUnit * 6),
+      right: Math.max(200, baseUnit * 24),
+      bottom: Math.max(80, baseUnit * 10),
+      left: Math.max(70, baseUnit * 9),
     }
     const leaderLen = baseUnit * 2.5
     const calloutScale = Math.max(1.5, baseUnit * 0.3)
 
-    return { baseUnit, fontSize, tickLen, dimLineSpacing, margin, leaderLen, calloutScale }
-  }, [geo.doorWidth, geo.doorHeight, scale])
+    return { baseUnit, fontSize, tickLen, dimLineSpacing, margin, leaderLen, calloutScale, autoScale }
+  }, [geo])
 
   // ---------------------------------------------------------------------------
-  // Derived layout values
+  // Derived layout values — everything fits within the fixed PAGE_W x PAGE_H
   // ---------------------------------------------------------------------------
   const layout = useMemo(() => {
     const dw = geo.doorWidth
@@ -115,17 +138,17 @@ function FramingDrawing({
     const headerHeight = 4
     const topClearance = Math.max(hrMin, shaftY) + headerHeight + 8
 
-    const { margin, dimLineSpacing } = ui
+    const { margin, dimLineSpacing, autoScale } = ui
 
-    const minTopPx = 100
-    const topClearancePx = Math.max(minTopPx, topClearance * scale)
+    const minTopPx = 80
+    const topClearancePx = Math.max(minTopPx, topClearance * autoScale)
 
     const contentW = dw + (fw + wallThickness + sr) * 2
 
-    const svgW = Math.max(600, contentW * scale + margin.left + margin.right)
-    const svgH = topClearancePx + dh * scale + 12 * scale + margin.top + margin.bottom
+    const svgW = PAGE_W
+    const svgH = PAGE_H
 
-    const originX = margin.left + (fw + wallThickness + sr) * scale
+    const originX = margin.left + (fw + wallThickness + sr) * autoScale
     const originY = margin.top + topClearancePx
 
     return {
@@ -134,12 +157,12 @@ function FramingDrawing({
       margin, contentW, svgW, svgH,
       originX, originY, dimLineSpacing,
     }
-  }, [geo, scale, ui])
+  }, [geo, ui])
 
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
-  const s = (inches) => inches * scale
+  const s = (inches) => inches * ui.autoScale
 
   /** Format inches to feet-inches string */
   const formatDim = (inches) => {
@@ -227,11 +250,11 @@ function FramingDrawing({
   return (
     <div className="framing-drawing bg-white border border-gray-300 rounded-lg overflow-hidden">
       <svg
-        viewBox={`0 0 ${layout.svgW} ${layout.svgH}`}
+        viewBox={`0 0 ${PAGE_W} ${PAGE_H}`}
         style={{
           fontFamily: "'Courier New', Courier, monospace",
           width: '100%',
-          maxWidth: `${layout.svgW}px`,
+          aspectRatio: '11 / 8.5',
         }}
       >
         <defs>
@@ -609,7 +632,7 @@ function FramingDrawing({
         {/* DIMENSION LINES (with 45-degree diagonal tick marks)            */}
         {/* ================================================================ */}
 
-        {/* --- Door Width (below floor line) --- */}
+        {/* --- Door Width / Opening (below floor line) --- */}
         {(() => {
           const dimY = oy + s(dh) + dimLineSpacing * 0.8
           const x1 = ox
@@ -633,35 +656,15 @@ function FramingDrawing({
           )
         })()}
 
-        {/* --- Door Opening dimension (below door width) --- */}
-        {(() => {
-          const dimY = oy + s(dh) + dimLineSpacing * 1.8
-          const x1 = ox - s(fw)
-          const x2 = ox + s(dw + fw)
-          return (
-            <g className="dim-door-opening">
-              <line x1={x1} y1={oy + s(dh) + 2} x2={x1} y2={dimY + tickLen * 0.5} stroke="#000" strokeWidth="0.3" />
-              <line x1={x2} y1={oy + s(dh) + 2} x2={x2} y2={dimY + tickLen * 0.5} stroke="#000" strokeWidth="0.3" />
-              <line x1={x1} y1={dimY} x2={x2} y2={dimY} stroke="#000" strokeWidth="0.5" />
-              <DiagTick x={x1} y={dimY} />
-              <DiagTick x={x2} y={dimY} />
-              <text x={(x1 + x2) / 2} y={dimY - fontSize.label * 0.4}
-                fontSize={fontSize.label} textAnchor="middle" fill="#000" fontWeight="bold">
-                {formatDim(dw + fw * 2)}
-              </text>
-            </g>
-          )
-        })()}
-
         {/* --- REQ. SIDEROOM callouts below drawing --- */}
         {(() => {
-          const dimY = oy + s(dh) + dimLineSpacing * 2.6
-          // Left sideroom
-          const lx1 = ox - s(fw + sr)
-          const lx2 = ox - s(fw)
+          const dimY = oy + s(dh) + dimLineSpacing * 1.8
+          // Left sideroom: from sideroom extent to the door opening edge
+          const lx1 = ox - s(sr)
+          const lx2 = ox
           // Right sideroom
-          const rx1 = ox + s(dw + fw)
-          const rx2 = ox + s(dw + fw + sr)
+          const rx1 = ox + s(dw)
+          const rx2 = ox + s(dw + sr)
           return (
             <g className="dim-sideroom">
               {/* Left sideroom */}
@@ -679,7 +682,7 @@ function FramingDrawing({
                 {formatDim(sr)}
               </text>
 
-              {/* DOOR OPENING label in center */}
+              {/* DOOR OPENING label in center (door size = opening size) */}
               <line x1={lx2} y1={dimY} x2={rx1} y2={dimY} stroke="#000" strokeWidth="0.5" />
               <DiagTick x={lx2} y={dimY} />
               <DiagTick x={rx1} y={dimY} />
@@ -689,7 +692,7 @@ function FramingDrawing({
               </text>
               <text x={(lx2 + rx1) / 2} y={dimY + fontSize.small * 1.2}
                 fontSize={fontSize.small} textAnchor="middle" fill="#000" fontWeight="bold">
-                {formatDim(dw + fw * 2)}
+                {formatDim(dw)}
               </text>
 
               {/* Right sideroom */}
@@ -707,8 +710,24 @@ function FramingDrawing({
                 {formatDim(sr)}
               </text>
 
+              {/* Overall width below */}
+              {(() => {
+                const overallY = dimY + fontSize.small * 3
+                return (
+                  <g>
+                    <line x1={lx1} y1={overallY} x2={rx2} y2={overallY} stroke="#000" strokeWidth="0.5" />
+                    <DiagTick x={lx1} y={overallY} />
+                    <DiagTick x={rx2} y={overallY} />
+                    <text x={(lx1 + rx2) / 2} y={overallY + fontSize.small * 1.2}
+                      fontSize={fontSize.small} textAnchor="middle" fill="#000" fontWeight="bold">
+                      {formatDim(dw + sr * 2)}
+                    </text>
+                  </g>
+                )
+              })()}
+
               {/* Application label */}
-              <text x={(lx1 + rx2) / 2} y={dimY + fontSize.small * 2.8}
+              <text x={(lx1 + rx2) / 2} y={dimY + fontSize.small * 5.5}
                 fontSize={fontSize.small} textAnchor="middle" fill="#000" fontWeight="bold">
                 {applicationLabel}
               </text>
