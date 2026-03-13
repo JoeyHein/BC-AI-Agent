@@ -483,9 +483,9 @@ function DoorPreview({
     const y = sectionY
     const w = panelWidth
     const h = sectionHeight
-    const frameW = 4          // aluminum frame width (sides, top, bottom)
+    const frameW = 4          // aluminum frame width (sides)
     const mullionW = 3        // vertical mullion
-    const railH = 4           // horizontal rail between sections (match side frame)
+    const railH = padding + frameW  // top/bottom rail matches side border (padding + frame)
 
     // Outer aluminum frame
     elements.push(
