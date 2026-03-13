@@ -212,6 +212,10 @@ export const doorConfigApi = {
     apiClient.post('/api/door-config/calculate-spring', null, {
       params: { door_weight: doorWeight, door_height: doorHeight, drum_model: drumModel, target_cycles: targetCycles }
     }),
+
+  // Get shop drawing geometry (Thermalex formulas)
+  getShopDrawingGeometry: (params) =>
+    apiClient.get('/api/door-config/shop-drawing-geometry', { params }),
 };
 
 // Production API

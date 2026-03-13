@@ -4,16 +4,17 @@
  * Includes: Visual Preview, Framing Drawing, Side Elevation
  */
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import DoorPreview from './DoorPreview'
 import FramingDrawing from './FramingDrawing'
 import SideElevationDrawing from './SideElevationDrawing'
 import { exportAsSVG, exportAsPNG, printDrawing, exportDrawingPackage, getSvgFromRef } from '../utils/drawingExport'
+import { doorConfigApi } from '../api/client'
 
 const TABS = [
-  { id: 'preview', label: 'Door Preview', icon: '🚪' },
-  { id: 'framing', label: 'Framing Drawing', icon: '📐' },
-  { id: 'elevation', label: 'Side Elevation', icon: '📏' },
+  { id: 'preview', label: 'Door Preview', icon: '\u{1F6AA}' },
+  { id: 'framing', label: 'Framing Drawing', icon: '\u{1F4D0}' },
+  { id: 'elevation', label: 'Side Elevation', icon: '\u{1F4CF}' },
 ]
 
 function DoorDrawings({
@@ -23,6 +24,9 @@ function DoorDrawings({
 }) {
   const [activeTab, setActiveTab] = useState(defaultTab)
   const [exportFormat, setExportFormat] = useState('svg')
+  const [geometry, setGeometry] = useState(null)
+  const [geometryLoading, setGeometryLoading] = useState(false)
+  const [geometryError, setGeometryError] = useState(null)
 
   // Refs for each drawing
   const previewRef = useRef(null)
@@ -48,6 +52,7 @@ function DoorDrawings({
     trackThickness = '2',
     liftType: configLiftType = null,
     highLiftInches = null,
+    trackMount = 'bracket',
   } = doorConfig
 
   // Convert string values
@@ -58,6 +63,45 @@ function DoorDrawings({
 
   // Use config-provided lift type, or derive from track settings as fallback
   const liftType = configLiftType || (radius === 12 ? 'low_headroom' : 'standard')
+
+  // Derive frame type from door type
+  const frameType = doorType === 'residential' ? 'wood' : 'steel'
+
+  // Fetch geometry from backend when relevant config changes
+  useEffect(() => {
+    const fetchGeometry = async () => {
+      setGeometryLoading(true)
+      setGeometryError(null)
+      try {
+        const widthFeet = Math.floor(widthInches / 12)
+        const widthRemainder = widthInches % 12
+        const heightFeet = Math.floor(heightInches / 12)
+        const heightRemainder = heightInches % 12
+
+        const resp = await doorConfigApi.getShopDrawingGeometry({
+          widthFeet,
+          widthInches: widthRemainder,
+          heightFeet,
+          heightInches: heightRemainder,
+          trackSize,
+          trackRadius: radius,
+          liftType,
+          highLiftInches: liftType === 'high_lift' ? (highLiftInches || 0) : 0,
+          mountType: trackMount || 'bracket',
+          frameType,
+          doorType,
+        })
+        setGeometry(resp.data)
+      } catch (err) {
+        console.error('Failed to fetch shop drawing geometry:', err)
+        setGeometryError(err.message || 'Failed to load geometry')
+      } finally {
+        setGeometryLoading(false)
+      }
+    }
+
+    fetchGeometry()
+  }, [widthInches, heightInches, trackSize, radius, liftType, highLiftInches, trackMount, frameType, doorType])
 
   // Handle export
   const handleExport = () => {
@@ -220,15 +264,23 @@ function DoorDrawings({
         {/* Framing Drawing Tab */}
         <div ref={framingRef} className={activeTab === 'framing' ? 'block' : 'hidden'}>
           <div className="overflow-x-auto">
+            {geometryLoading && (
+              <div className="text-center py-8 text-gray-500">Loading geometry...</div>
+            )}
+            {geometryError && !geometry && (
+              <div className="text-center py-8 text-red-500">Error loading geometry: {geometryError}</div>
+            )}
             <FramingDrawing
               width={widthInches}
               height={heightInches}
               trackRadius={radius}
               trackSize={trackSize}
               liftType={liftType}
-              showSpringAssembly={true}
-              showHardwareLocations={true}
-              showDimensions={true}
+              geometry={geometry}
+              doorSeries={doorSeries}
+              doorType={doorType}
+              frameType={frameType}
+              mountType={trackMount || 'bracket'}
               scale={0.6}
               title={`FRAMING DRAWING - ${doorSeries}`}
             />
@@ -244,6 +296,12 @@ function DoorDrawings({
         {/* Side Elevation Tab */}
         <div ref={elevationRef} className={activeTab === 'elevation' ? 'block' : 'hidden'}>
           <div className="overflow-x-auto">
+            {geometryLoading && (
+              <div className="text-center py-8 text-gray-500">Loading geometry...</div>
+            )}
+            {geometryError && !geometry && (
+              <div className="text-center py-8 text-red-500">Error loading geometry: {geometryError}</div>
+            )}
             <SideElevationDrawing
               width={widthInches}
               height={heightInches}
@@ -251,6 +309,9 @@ function DoorDrawings({
               trackSize={trackSize}
               liftType={liftType}
               highLiftInches={highLiftInches}
+              geometry={geometry}
+              doorSeries={doorSeries}
+              doorType={doorType}
               scale={0.6}
               title={`SIDE ELEVATION - ${doorSeries}`}
             />

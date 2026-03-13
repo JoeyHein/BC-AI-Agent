@@ -11,6 +11,7 @@ import logging
 
 from app.services.part_number_service import get_parts_for_door_config, part_number_service, DoorConfiguration
 from app.services.door_calculator_service import door_calculator, calculate_door_from_config
+from app.services.shop_drawing_service import calculate_shop_drawing_geometry
 from app.services.spring_data_service import get_bc_spring_inventory
 from app.services.pricing_service import calculate_selling_price, warm_bc_cost_cache
 from app.services.quote_review_service import save_quote_snapshot
@@ -1675,4 +1676,47 @@ async def calculate_spring_only(
         raise
     except Exception as e:
         logger.error(f"Error calculating springs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# SHOP DRAWING GEOMETRY
+# ============================================================================
+
+@router.get("/shop-drawing-geometry")
+def get_shop_drawing_geometry(
+    widthFeet: int = 9,
+    widthInches: int = 0,
+    heightFeet: int = 8,
+    heightInches: int = 0,
+    trackSize: int = 2,
+    trackRadius: int = 15,
+    liftType: str = "standard",
+    highLiftInches: int = 0,
+    mountType: str = "bracket",
+    frameType: str = "steel",
+    doorType: str = "residential",
+):
+    """Calculate shop drawing geometry using Thermalex dimension formulas."""
+    door_width = widthFeet * 12 + widthInches
+    door_height = heightFeet * 12 + heightInches
+
+    if door_width <= 0 or door_height <= 0:
+        raise HTTPException(status_code=400, detail="Door dimensions must be positive")
+
+    try:
+        geometry = calculate_shop_drawing_geometry(
+            door_height=door_height,
+            door_width=door_width,
+            track_size=trackSize,
+            track_radius=trackRadius,
+            lift_type=liftType,
+            high_lift_inches=highLiftInches,
+            mount_type=mountType,
+            frame_type=frameType,
+            door_type=doorType,
+        )
+        return geometry
+    except Exception as e:
+        logger.error(f"Error calculating shop drawing geometry: {e}")
         raise HTTPException(status_code=500, detail=str(e))

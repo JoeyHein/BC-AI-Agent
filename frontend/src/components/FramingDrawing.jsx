@@ -1,590 +1,823 @@
 /**
  * FramingDrawing Component
- * Generates professional construction/framing drawings for architects and contractors
- * Shows header, jamb, track, spring assembly, and hardware placement
+ * Professional architectural/shop drawing showing front-face framing view
+ * (inside looking out) for garage door installation.
+ *
+ * Receives a `geometry` prop from the backend with exact Thermalex dimensions.
  */
 
 import { useMemo } from 'react'
 
 function FramingDrawing({
-  width = 96, // Door width in inches
-  height = 84, // Door height in inches
-  trackRadius = 15, // Track radius in inches
-  trackSize = 2, // Track width (2" or 3")
-  liftType = 'standard', // standard, low_headroom, high_lift, vertical
-  sideRoom = 4, // Minimum side room in inches
-  headRoom = null, // Head room (calculated if null)
-  backRoom = null, // Back room (calculated if null)
-  showSpringAssembly = true,
-  showHardwareLocations = true,
-  showDimensions = true,
-  scale = 0.5, // Drawing scale factor
+  width = 96,
+  height = 84,
+  trackRadius = 15,
+  trackSize = 2,
+  liftType = 'standard',
+  geometry = null,
+  doorSeries = '',
+  doorType = 'residential',
+  frameType = 'steel',
+  mountType = 'bracket',
+  scale = 0.5,
   title = 'FRAMING DRAWING',
 }) {
-  // Calculate dimensions
-  const calculations = useMemo(() => {
-    // Calculate head room based on lift type and track
-    let calculatedHeadRoom = headRoom
-    if (!calculatedHeadRoom) {
-      switch (liftType) {
-        case 'low_headroom':
-          calculatedHeadRoom = trackRadius === 12 ? 12 : 15
-          break
-        case 'high_lift':
-          calculatedHeadRoom = height + 24 // Extra for high lift
-          break
-        case 'vertical':
-          calculatedHeadRoom = height + 48
-          break
-        default:
-          calculatedHeadRoom = trackRadius + 3 // Standard: radius + 3"
-      }
-    }
-
-    // Calculate back room (horizontal track length)
-    let calculatedBackRoom = backRoom
-    if (!calculatedBackRoom) {
-      calculatedBackRoom = height + 18 // Door height + 18" typically
-    }
-
-    // Calculate rough opening
-    const roughOpeningWidth = width + 3 // Width + 1.5" each side
-    const roughOpeningHeight = height + 1.5 // Height + 1.5" header
-
-    // Jamb dimensions
-    const jambWidth = 2 // 2" jamb typically
-    const jambDepth = trackSize + 1 // Track size + 1"
-
-    // Header dimensions
-    const headerHeight = 6 // 6" header beam typically
-    const headerWidth = roughOpeningWidth + 12 // Extends 6" each side
-
-    // Track dimensions
-    const verticalTrackLength = height
-    const horizontalTrackLength = calculatedBackRoom - trackRadius
-    const curveLength = Math.PI * trackRadius / 2
-
-    // Spring assembly position
-    const springY = -calculatedHeadRoom + 6
-    const shaftLength = width + 12 // Door width + drum space
+  // ---------------------------------------------------------------------------
+  // Resolve geometry — use backend values when available, otherwise approximate
+  // ---------------------------------------------------------------------------
+  const geo = useMemo(() => {
+    const g = geometry || {}
+    const dw = g.door_width ?? width
+    const dh = g.door_height ?? height
+    const ft = g.frame_type ?? frameType
+    const fw = g.frame_width_inches ?? (ft === 'steel' ? 3 : 3.5)
+    const sr = g.sideroom ?? 4.25
+    const srAngle = g.sideroom_angle ?? 3.5
+    const srBracket = g.sideroom_bracket ?? sr
+    const cp = g.center_post ?? 8.5
+    const ust = g.ust ?? 7.5
+    const clShaft = g.cl_shaft ?? 14.5
+    const hrMin = g.headroom_min ?? (trackRadius + 3)
+    const br = g.backroom ?? (dh + 18)
+    const vtl = g.vertical_track_length ?? dh
+    const htl = g.horizontal_track_length ?? (br - trackRadius - 5)
+    const tr = g.track_radius ?? trackRadius
+    const ts = g.track_size ?? trackSize
+    const lt = g.lift_type ?? liftType
+    const mt = g.mount_type ?? mountType
+    const ttl = g.track_type_label ?? 'STANDARD LIFT TRACKS'
+    const rl = g.radius_label ?? `${tr}" RADIUS`
 
     return {
-      headRoom: calculatedHeadRoom,
-      backRoom: calculatedBackRoom,
-      roughOpeningWidth,
-      roughOpeningHeight,
-      jambWidth,
-      jambDepth,
-      headerHeight,
-      headerWidth,
-      verticalTrackLength,
-      horizontalTrackLength,
-      curveLength,
-      springY,
-      shaftLength,
-      sideRoom,
+      doorWidth: dw,
+      doorHeight: dh,
+      frameType: ft,
+      frameWidth: fw,
+      sideroom: sr,
+      sideroomAngle: srAngle,
+      sideroomBracket: srBracket,
+      centerPost: cp,
+      ust,
+      clShaft,
+      headroomMin: hrMin,
+      backroom: br,
+      verticalTrackLength: vtl,
+      horizontalTrackLength: htl,
+      trackRadius: tr,
+      trackSize: ts,
+      liftType: lt,
+      mountType: mt,
+      trackTypeLabel: ttl,
+      radiusLabel: rl,
     }
-  }, [width, height, trackRadius, trackSize, liftType, headRoom, backRoom, sideRoom])
+  }, [geometry, width, height, trackRadius, trackSize, liftType, frameType, mountType])
 
-  // Drawing dimensions
-  const margin = 80
-  const drawingWidth = (width + calculations.sideRoom * 2 + 40) * scale + margin * 2
-  const drawingHeight = (height + calculations.headRoom + 60) * scale + margin * 2
+  // ---------------------------------------------------------------------------
+  // Derived layout values
+  // ---------------------------------------------------------------------------
+  const layout = useMemo(() => {
+    const dw = geo.doorWidth
+    const dh = geo.doorHeight
+    const fw = geo.frameWidth
+    const sr = geo.sideroom
+    const hrMin = geo.headroomMin
+    const clShaft = geo.clShaft
+    const ts = geo.trackSize
+    const tr = geo.trackRadius
 
-  // Helper to convert inches to scaled pixels
+    // Shaft centerline measured from top of door opening
+    const shaftY = clShaft // inches above top of opening
+
+    // Wall thickness for hatching (visual only)
+    const wallThickness = 8
+
+    // Header height (visual)
+    const headerHeight = 6
+
+    // Total vertical extent above door: need room for header + shaft + labels
+    const topClearance = Math.max(hrMin, shaftY) + headerHeight + 10
+
+    // Margins around drawing for dimensions/labels
+    const margin = { top: 70, right: 100, bottom: 80, left: 90 }
+
+    // Content size in inches
+    const contentW = dw + (fw + wallThickness + sr) * 2
+    const contentH = dh + topClearance + 12 // 12 below floor for dims
+
+    // SVG dimensions
+    const svgW = contentW * scale + margin.left + margin.right
+    const svgH = contentH * scale + margin.top + margin.bottom
+
+    // Origin = top-left corner of door opening in SVG coords
+    const originX = margin.left + (fw + wallThickness + sr) * scale
+    const originY = margin.top + topClearance * scale
+
+    return {
+      dw, dh, fw, sr, hrMin, clShaft, ts, tr,
+      shaftY, wallThickness, headerHeight, topClearance,
+      margin, contentW, contentH, svgW, svgH,
+      originX, originY,
+    }
+  }, [geo, scale])
+
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
   const s = (inches) => inches * scale
-  const originX = margin + s(calculations.sideRoom + 20)
-  const originY = margin + s(calculations.headRoom + 20)
 
-  // Dimension line helper
-  const DimensionLine = ({ x1, y1, x2, y2, label, offset = 20, vertical = false }) => {
-    const midX = (x1 + x2) / 2
-    const midY = (y1 + y2) / 2
-
-    if (vertical) {
-      return (
-        <g className="dimension-line">
-          <line x1={x1 + offset} y1={y1} x2={x1 + offset} y2={y2} stroke="#333" strokeWidth="0.5" />
-          <line x1={x1 + offset - 4} y1={y1} x2={x1 + offset + 4} y2={y1} stroke="#333" strokeWidth="0.5" />
-          <line x1={x1 + offset - 4} y1={y2} x2={x1 + offset + 4} y2={y2} stroke="#333" strokeWidth="0.5" />
-          <text
-            x={x1 + offset + 5}
-            y={midY}
-            fontSize="10"
-            fontFamily="Arial"
-            transform={`rotate(-90, ${x1 + offset + 5}, ${midY})`}
-            textAnchor="middle"
-          >
-            {label}
-          </text>
-        </g>
-      )
+  /** Format inches to feet-inches string */
+  const formatDim = (inches) => {
+    if (inches == null) return ''
+    const negative = inches < 0
+    const abs = Math.abs(inches)
+    const ft = Math.floor(abs / 12)
+    const rem = abs % 12
+    // Round to nearest 1/4
+    const whole = Math.floor(rem)
+    const frac = rem - whole
+    let fracStr = ''
+    if (frac >= 0.875) {
+      // round up
+      return formatDim((negative ? -1 : 1) * ((ft * 12) + whole + 1))
+    } else if (frac >= 0.625) {
+      fracStr = '\u00BE' // 3/4
+    } else if (frac >= 0.375) {
+      fracStr = '\u00BD' // 1/2
+    } else if (frac >= 0.125) {
+      fracStr = '\u00BC' // 1/4
     }
 
-    return (
-      <g className="dimension-line">
-        <line x1={x1} y1={y1 + offset} x2={x2} y2={y1 + offset} stroke="#333" strokeWidth="0.5" />
-        <line x1={x1} y1={y1 + offset - 4} x2={x1} y2={y1 + offset + 4} stroke="#333" strokeWidth="0.5" />
-        <line x1={x2} y1={y1 + offset - 4} x2={x2} y2={y1 + offset + 4} stroke="#333" strokeWidth="0.5" />
-        <text x={midX} y={y1 + offset + 12} fontSize="10" fontFamily="Arial" textAnchor="middle">
-          {label}
-        </text>
-      </g>
-    )
+    const sign = negative ? '-' : ''
+    const inchVal = `${whole}${fracStr}"`
+    if (ft === 0) return `${sign}${inchVal}`
+    if (whole === 0 && !fracStr) return `${sign}${ft}'-0"`
+    return `${sign}${ft}'-${inchVal}`
   }
 
-  // Format dimension string
-  const formatDim = (inches) => {
-    const ft = Math.floor(inches / 12)
-    const inVal = inches % 12
-    if (ft === 0) return `${inVal}"`
-    if (inVal === 0) return `${ft}'-0"`
-    return `${ft}'-${inVal}"`
-  }
+  const { dw, dh, fw, sr, ts, tr } = layout
+  const ox = layout.originX
+  const oy = layout.originY
+  const isSteel = geo.frameType === 'steel'
+  const jambLabel = isSteel ? 'STEEL JAMB' : 'WOOD JAMB'
+  const applicationLabel = isSteel ? 'STEEL JAMB APPLICATION' : 'WOOD JAMB APPLICATION'
+
+  // Track flag positions (evenly along vertical track)
+  const flagCount = 4
+  const flagPositions = Array.from({ length: flagCount }, (_, i) =>
+    (i / (flagCount - 1)) * (dh - 8) + 2
+  )
+
+  // Shaft position
+  const shaftYPx = oy - s(layout.clShaft)
 
   return (
     <div className="framing-drawing bg-white border border-gray-300 rounded-lg overflow-hidden">
       <svg
-        width={drawingWidth}
-        height={drawingHeight + 60}
-        viewBox={`0 0 ${drawingWidth} ${drawingHeight + 60}`}
-        className="font-sans"
+        width={layout.svgW}
+        height={layout.svgH}
+        viewBox={`0 0 ${layout.svgW} ${layout.svgH}`}
+        style={{ fontFamily: "'Segoe UI', Arial, Helvetica, sans-serif" }}
       >
         <defs>
-          {/* Hatch pattern for concrete/masonry */}
-          <pattern id="concreteHatch" patternUnits="userSpaceOnUse" width="8" height="8">
-            <path d="M0,8 L8,0" stroke="#999" strokeWidth="0.5" />
+          {/* Concrete / masonry hatch — diagonal lines */}
+          <pattern id="fd-concreteHatch" patternUnits="userSpaceOnUse" width="6" height="6"
+            patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="6" stroke="#888" strokeWidth="0.5" />
           </pattern>
 
-          {/* Wood grain pattern */}
-          <pattern id="woodGrain" patternUnits="userSpaceOnUse" width="20" height="4">
-            <path d="M0,2 Q5,0 10,2 T20,2" stroke="#A0522D" strokeWidth="0.3" fill="none" />
+          {/* Wood grain — wavy horizontal lines */}
+          <pattern id="fd-woodGrain" patternUnits="userSpaceOnUse" width="24" height="6">
+            <path d="M0,3 Q6,1 12,3 T24,3" stroke="#8B6914" strokeWidth="0.4" fill="none" />
+            <path d="M0,5 Q6,3.5 12,5 T24,5" stroke="#A0782C" strokeWidth="0.3" fill="none" />
           </pattern>
 
-          {/* Steel fill */}
-          <pattern id="steelFill" patternUnits="userSpaceOnUse" width="4" height="4">
-            <rect width="4" height="4" fill="#B8B8B8" />
-            <circle cx="2" cy="2" r="0.5" fill="#999" />
+          {/* Steel fill — solid light gray */}
+          <pattern id="fd-steelFill" patternUnits="userSpaceOnUse" width="4" height="4">
+            <rect width="4" height="4" fill="#C0C0C0" />
+          </pattern>
+
+          {/* Steel jamb fill — slightly darker */}
+          <pattern id="fd-steelJamb" patternUnits="userSpaceOnUse" width="4" height="4">
+            <rect width="4" height="4" fill="#B0B0B0" />
+            <line x1="0" y1="0" x2="4" y2="4" stroke="#999" strokeWidth="0.3" />
           </pattern>
         </defs>
 
-        {/* Title block */}
-        <g transform={`translate(${drawingWidth / 2}, 25)`}>
-          <text fontSize="16" fontWeight="bold" textAnchor="middle" fill="#333">
+        {/* ================================================================ */}
+        {/* TITLE BLOCK                                                      */}
+        {/* ================================================================ */}
+        <g>
+          <text x={layout.svgW / 2} y="22" fontSize="15" fontWeight="bold"
+            textAnchor="middle" fill="#111">
             {title}
           </text>
-          <text fontSize="11" textAnchor="middle" y="18" fill="#666">
-            Door Size: {formatDim(width)} W x {formatDim(height)} H | Track: {trackSize}" | Radius: {trackRadius}"
+          <text x={layout.svgW / 2} y="38" fontSize="10" textAnchor="middle" fill="#444">
+            {applicationLabel}
+          </text>
+          <text x={layout.svgW / 2} y="52" fontSize="9" textAnchor="middle" fill="#666">
+            DOOR FACE: INSIDE LOOKING OUT
+          </text>
+          {doorSeries && (
+            <text x={layout.svgW / 2} y="64" fontSize="9" textAnchor="middle" fill="#666">
+              Series: {doorSeries}
+            </text>
+          )}
+        </g>
+
+        {/* ================================================================ */}
+        {/* FLOOR LINE                                                       */}
+        {/* ================================================================ */}
+        <line
+          x1={ox - s(fw + layout.wallThickness + 15)}
+          y1={oy + s(dh)}
+          x2={ox + s(dw + fw + layout.wallThickness + 15)}
+          y2={oy + s(dh)}
+          stroke="#111" strokeWidth="2.5"
+        />
+        {/* Floor hatch below line */}
+        <g>
+          {Array.from({ length: Math.ceil((dw + 2 * (fw + layout.wallThickness + 15)) / 4) }, (_, i) => {
+            const lx = ox - s(fw + layout.wallThickness + 15) + i * s(4)
+            const ly = oy + s(dh)
+            return (
+              <line key={`fh-${i}`} x1={lx} y1={ly + 1} x2={lx + s(3)} y2={ly + s(3)}
+                stroke="#888" strokeWidth="0.5" />
+            )
+          })}
+        </g>
+        <text x={ox - s(fw + layout.wallThickness + 18)} y={oy + s(dh) + 4}
+          fontSize="8" fill="#666" textAnchor="end">
+          FLOOR LINE
+        </text>
+
+        {/* ================================================================ */}
+        {/* WALL SECTIONS (hatched masonry)                                   */}
+        {/* ================================================================ */}
+        {/* Left wall */}
+        <rect
+          x={ox - s(fw + layout.wallThickness)}
+          y={oy - s(layout.topClearance - 4)}
+          width={s(layout.wallThickness)}
+          height={s(dh + layout.topClearance - 4 + 8)}
+          fill="url(#fd-concreteHatch)" stroke="#333" strokeWidth="1"
+        />
+        {/* Right wall */}
+        <rect
+          x={ox + s(dw + fw)}
+          y={oy - s(layout.topClearance - 4)}
+          width={s(layout.wallThickness)}
+          height={s(dh + layout.topClearance - 4 + 8)}
+          fill="url(#fd-concreteHatch)" stroke="#333" strokeWidth="1"
+        />
+
+        {/* ================================================================ */}
+        {/* JAMBS                                                            */}
+        {/* ================================================================ */}
+        {/* Left jamb */}
+        <rect
+          x={ox - s(fw)}
+          y={oy - s(layout.topClearance - layout.headerHeight - 4)}
+          width={s(fw)}
+          height={s(dh + layout.topClearance - layout.headerHeight - 4)}
+          fill={isSteel ? 'url(#fd-steelJamb)' : 'url(#fd-woodGrain)'}
+          stroke="#333" strokeWidth="1"
+        />
+        {/* Right jamb */}
+        <rect
+          x={ox + s(dw)}
+          y={oy - s(layout.topClearance - layout.headerHeight - 4)}
+          width={s(fw)}
+          height={s(dh + layout.topClearance - layout.headerHeight - 4)}
+          fill={isSteel ? 'url(#fd-steelJamb)' : 'url(#fd-woodGrain)'}
+          stroke="#333" strokeWidth="1"
+        />
+        {/* Jamb labels */}
+        <text
+          x={ox - s(fw / 2)}
+          y={oy + s(dh / 2)}
+          fontSize="7" fill="#333" textAnchor="middle"
+          transform={`rotate(-90, ${ox - s(fw / 2)}, ${oy + s(dh / 2)})`}
+        >
+          {jambLabel}
+        </text>
+        <text
+          x={ox + s(dw + fw / 2)}
+          y={oy + s(dh / 2)}
+          fontSize="7" fill="#333" textAnchor="middle"
+          transform={`rotate(-90, ${ox + s(dw + fw / 2)}, ${oy + s(dh / 2)})`}
+        >
+          {jambLabel}
+        </text>
+
+        {/* Weather stripping labels */}
+        <text
+          x={ox - s(fw) - 3}
+          y={oy + s(dh * 0.7)}
+          fontSize="6" fill="#888" textAnchor="end"
+          transform={`rotate(-90, ${ox - s(fw) - 3}, ${oy + s(dh * 0.7)})`}
+        >
+          WEATHER STRIPPING
+        </text>
+        <text
+          x={ox + s(dw + fw) + 3}
+          y={oy + s(dh * 0.3)}
+          fontSize="6" fill="#888" textAnchor="start"
+          transform={`rotate(90, ${ox + s(dw + fw) + 3}, ${oy + s(dh * 0.3)})`}
+        >
+          WEATHER STRIPPING
+        </text>
+
+        {/* ================================================================ */}
+        {/* HEADER                                                           */}
+        {/* ================================================================ */}
+        <rect
+          x={ox - s(fw + 4)}
+          y={oy - s(layout.topClearance - 4)}
+          width={s(dw + fw * 2 + 8)}
+          height={s(layout.headerHeight)}
+          fill={isSteel ? 'url(#fd-steelJamb)' : 'url(#fd-woodGrain)'}
+          stroke="#333" strokeWidth="1.5"
+        />
+        <text
+          x={ox + s(dw / 2)}
+          y={oy - s(layout.topClearance - 4 - layout.headerHeight / 2) + 3}
+          fontSize="9" textAnchor="middle" fill="#333" fontWeight="bold"
+        >
+          HEADER
+        </text>
+
+        {/* ================================================================ */}
+        {/* DOOR OPENING (dashed outline)                                    */}
+        {/* ================================================================ */}
+        <rect
+          x={ox} y={oy}
+          width={s(dw)} height={s(dh)}
+          fill="none" stroke="#0055AA" strokeWidth="1.2" strokeDasharray="8,4"
+        />
+        <text
+          x={ox + s(dw / 2)} y={oy + s(dh / 2) + 3}
+          fontSize="9" textAnchor="middle" fill="#0055AA" opacity="0.6"
+        >
+          DOOR OPENING
+        </text>
+
+        {/* ================================================================ */}
+        {/* VERTICAL TRACKS                                                  */}
+        {/* ================================================================ */}
+        {/* Left vertical track */}
+        <rect
+          x={ox + s(1)} y={oy}
+          width={s(ts)} height={s(geo.verticalTrackLength)}
+          fill="url(#fd-steelFill)" stroke="#333" strokeWidth="0.8"
+        />
+        {/* Right vertical track */}
+        <rect
+          x={ox + s(dw - 1 - ts)} y={oy}
+          width={s(ts)} height={s(geo.verticalTrackLength)}
+          fill="url(#fd-steelFill)" stroke="#333" strokeWidth="0.8"
+        />
+
+        {/* Track mounting flags */}
+        {flagPositions.map((yPos, i) => (
+          <g key={`flags-${i}`}>
+            {/* Left flag */}
+            <rect
+              x={ox - s(0.5)} y={oy + s(yPos)}
+              width={s(ts + 2)} height={s(3)}
+              fill="#888" stroke="#333" strokeWidth="0.5" rx="0.5"
+            />
+            {/* Right flag */}
+            <rect
+              x={ox + s(dw - ts - 1.5)} y={oy + s(yPos)}
+              width={s(ts + 2)} height={s(3)}
+              fill="#888" stroke="#333" strokeWidth="0.5" rx="0.5"
+            />
+          </g>
+        ))}
+
+        {/* ================================================================ */}
+        {/* TRACK CURVES (quarter-circle arcs)                               */}
+        {/* ================================================================ */}
+        {/* Left curve */}
+        <path
+          d={`M ${ox + s(1 + ts / 2)} ${oy}
+              A ${s(tr)} ${s(tr)} 0 0 1
+              ${ox + s(1 + ts / 2 + tr)} ${oy - s(tr)}`}
+          fill="none" stroke="#333" strokeWidth={s(ts) * 0.6} opacity="0.5"
+        />
+        {/* Right curve */}
+        <path
+          d={`M ${ox + s(dw - 1 - ts / 2)} ${oy}
+              A ${s(tr)} ${s(tr)} 0 0 0
+              ${ox + s(dw - 1 - ts / 2 - tr)} ${oy - s(tr)}`}
+          fill="none" stroke="#333" strokeWidth={s(ts) * 0.6} opacity="0.5"
+        />
+
+        {/* Radius label on left curve */}
+        <text
+          x={ox + s(1 + ts / 2 + tr / 2) + 2}
+          y={oy - s(tr / 2) - 3}
+          fontSize="7" fill="#555"
+        >
+          {geo.radiusLabel}
+        </text>
+
+        {/* ================================================================ */}
+        {/* HORIZONTAL TRACKS (dashed, receding into building)               */}
+        {/* ================================================================ */}
+        {/* Left horizontal */}
+        <line
+          x1={ox + s(1 + ts / 2 + tr)} y1={oy - s(tr)}
+          x2={ox + s(1 + ts / 2 + tr + 30)} y2={oy - s(tr)}
+          stroke="#333" strokeWidth={s(ts) * 0.5}
+          strokeDasharray="6,4" opacity="0.35"
+        />
+        {/* Right horizontal */}
+        <line
+          x1={ox + s(dw - 1 - ts / 2 - tr)} y1={oy - s(tr)}
+          x2={ox + s(dw - 1 - ts / 2 - tr - 30)} y2={oy - s(tr)}
+          stroke="#333" strokeWidth={s(ts) * 0.5}
+          strokeDasharray="6,4" opacity="0.35"
+        />
+
+        {/* Track type label */}
+        <text
+          x={ox + s(dw / 2)} y={oy - s(tr) - 4}
+          fontSize="7" textAnchor="middle" fill="#555"
+        >
+          {geo.trackTypeLabel}
+        </text>
+
+        {/* ================================================================ */}
+        {/* SPRING ASSEMBLY                                                  */}
+        {/* ================================================================ */}
+        <g className="spring-assembly">
+          {/* Torsion shaft (thick horizontal line) */}
+          <line
+            x1={ox + s(3)} y1={shaftYPx}
+            x2={ox + s(dw - 3)} y2={shaftYPx}
+            stroke="#222" strokeWidth="2.5"
+          />
+
+          {/* Left cable drum */}
+          <circle
+            cx={ox + s(5)} cy={shaftYPx} r={s(3.5)}
+            fill="#777" stroke="#333" strokeWidth="1"
+          />
+          <text x={ox + s(5)} y={shaftYPx + s(3.5) + 8}
+            fontSize="6" textAnchor="middle" fill="#666">DRUM</text>
+
+          {/* Right cable drum */}
+          <circle
+            cx={ox + s(dw - 5)} cy={shaftYPx} r={s(3.5)}
+            fill="#777" stroke="#333" strokeWidth="1"
+          />
+          <text x={ox + s(dw - 5)} y={shaftYPx + s(3.5) + 8}
+            fontSize="6" textAnchor="middle" fill="#666">DRUM</text>
+
+          {/* Springs (red/maroon rectangles) */}
+          <rect
+            x={ox + s(dw / 2 - 22)} y={shaftYPx - s(2)}
+            width={s(20)} height={s(4)}
+            fill="#8B1A1A" stroke="#333" strokeWidth="0.5" rx="1.5"
+          />
+          <rect
+            x={ox + s(dw / 2 + 2)} y={shaftYPx - s(2)}
+            width={s(20)} height={s(4)}
+            fill="#8B1A1A" stroke="#333" strokeWidth="0.5" rx="1.5"
+          />
+          {/* Spring coil indication lines */}
+          {Array.from({ length: 8 }, (_, i) => (
+            <line key={`sc-l-${i}`}
+              x1={ox + s(dw / 2 - 20 + i * 2.5)} y1={shaftYPx - s(2)}
+              x2={ox + s(dw / 2 - 20 + i * 2.5)} y2={shaftYPx + s(2)}
+              stroke="#B33" strokeWidth="0.3"
+            />
+          ))}
+          {Array.from({ length: 8 }, (_, i) => (
+            <line key={`sc-r-${i}`}
+              x1={ox + s(dw / 2 + 4 + i * 2.5)} y1={shaftYPx - s(2)}
+              x2={ox + s(dw / 2 + 4 + i * 2.5)} y2={shaftYPx + s(2)}
+              stroke="#B33" strokeWidth="0.3"
+            />
+          ))}
+
+          {/* Center bearing plate */}
+          <rect
+            x={ox + s(dw / 2 - 2.5)} y={shaftYPx - s(4)}
+            width={s(5)} height={s(8)}
+            fill="#555" stroke="#333" strokeWidth="1"
+          />
+          <text x={ox + s(dw / 2)} y={shaftYPx + s(4) + 8}
+            fontSize="6" textAnchor="middle" fill="#666">CENTER BEARING</text>
+
+          {/* SPRING ASSEMBLY label */}
+          <text x={ox + s(dw / 2)} y={shaftYPx - s(6)}
+            fontSize="8" textAnchor="middle" fill="#444" fontWeight="bold">
+            SPRING ASSEMBLY
           </text>
         </g>
 
-        {/* Main drawing group */}
-        <g transform={`translate(0, 40)`}>
-          {/* Floor line */}
+        {/* ================================================================ */}
+        {/* CENTERLINE OF SHAFT — label with leader line                     */}
+        {/* ================================================================ */}
+        <g>
+          {/* Dashed centerline marker */}
           <line
-            x1={originX - s(20)}
-            y1={originY + s(height)}
-            x2={originX + s(width + 20)}
-            y2={originY + s(height)}
-            stroke="#333"
-            strokeWidth="2"
+            x1={ox - s(fw) - 5} y1={shaftYPx}
+            x2={ox + s(2)} y2={shaftYPx}
+            stroke="#333" strokeWidth="0.5" strokeDasharray="4,2"
           />
+          {/* Leader line from label */}
+          <line
+            x1={ox - s(fw + layout.wallThickness) - 10} y1={shaftYPx - 12}
+            x2={ox - s(fw) - 5} y2={shaftYPx}
+            stroke="#333" strokeWidth="0.5"
+          />
+          {/* Arrow at end */}
+          <circle cx={ox - s(fw) - 5} cy={shaftYPx} r="1.5" fill="#333" />
           <text
-            x={originX - s(25)}
-            y={originY + s(height) + 4}
-            fontSize="9"
-            fill="#666"
+            x={ox - s(fw + layout.wallThickness) - 12}
+            y={shaftYPx - 15}
+            fontSize="7" fill="#333" textAnchor="end" fontWeight="bold"
           >
-            FLOOR
+            CENTERLINE OF SHAFT
           </text>
+        </g>
 
-          {/* Left wall/jamb */}
-          <g className="left-jamb">
-            <rect
-              x={originX - s(calculations.jambWidth)}
-              y={originY - s(calculations.headRoom)}
-              width={s(calculations.jambWidth)}
-              height={s(height + calculations.headRoom)}
-              fill="url(#woodGrain)"
-              stroke="#333"
-              strokeWidth="1"
-            />
-            <rect
-              x={originX - s(calculations.jambWidth + 8)}
-              y={originY - s(calculations.headRoom)}
-              width={s(8)}
-              height={s(height + calculations.headRoom + 12)}
-              fill="url(#concreteHatch)"
-              stroke="#333"
-              strokeWidth="1"
-            />
-          </g>
+        {/* ================================================================ */}
+        {/* DIMENSION LINES                                                  */}
+        {/* ================================================================ */}
 
-          {/* Right wall/jamb */}
-          <g className="right-jamb">
-            <rect
-              x={originX + s(width)}
-              y={originY - s(calculations.headRoom)}
-              width={s(calculations.jambWidth)}
-              height={s(height + calculations.headRoom)}
-              fill="url(#woodGrain)"
-              stroke="#333"
-              strokeWidth="1"
-            />
-            <rect
-              x={originX + s(width + calculations.jambWidth)}
-              y={originY - s(calculations.headRoom)}
-              width={s(8)}
-              height={s(height + calculations.headRoom + 12)}
-              fill="url(#concreteHatch)"
-              stroke="#333"
-              strokeWidth="1"
-            />
-          </g>
+        {/* --- Door Width (below floor line) --- */}
+        {(() => {
+          const dimY = oy + s(dh) + 30
+          const x1 = ox
+          const x2 = ox + s(dw)
+          return (
+            <g className="dim-door-width">
+              {/* Extension lines */}
+              <line x1={x1} y1={oy + s(dh) + 3} x2={x1} y2={dimY + 3}
+                stroke="#333" strokeWidth="0.4" />
+              <line x1={x2} y1={oy + s(dh) + 3} x2={x2} y2={dimY + 3}
+                stroke="#333" strokeWidth="0.4" />
+              {/* Dimension line */}
+              <line x1={x1} y1={dimY} x2={x2} y2={dimY}
+                stroke="#333" strokeWidth="0.6" />
+              {/* Tick marks */}
+              <line x1={x1} y1={dimY - 4} x2={x1} y2={dimY + 4}
+                stroke="#333" strokeWidth="0.8" />
+              <line x1={x2} y1={dimY - 4} x2={x2} y2={dimY + 4}
+                stroke="#333" strokeWidth="0.8" />
+              {/* Label */}
+              <text x={(x1 + x2) / 2} y={dimY + 13}
+                fontSize="10" textAnchor="middle" fill="#111" fontWeight="bold">
+                {formatDim(dw)}
+              </text>
+              <text x={(x1 + x2) / 2} y={dimY + 23}
+                fontSize="7" textAnchor="middle" fill="#666">
+                DOOR WIDTH
+              </text>
+            </g>
+          )
+        })()}
 
-          {/* Header */}
-          <g className="header">
-            <rect
-              x={originX - s(6)}
-              y={originY - s(calculations.headRoom + calculations.headerHeight)}
-              width={s(width + 12)}
-              height={s(calculations.headerHeight)}
-              fill="url(#woodGrain)"
-              stroke="#333"
-              strokeWidth="1.5"
-            />
-            <text
-              x={originX + s(width / 2)}
-              y={originY - s(calculations.headRoom + calculations.headerHeight / 2) + 4}
-              fontSize="10"
-              textAnchor="middle"
-              fill="#333"
-            >
-              HEADER
+        {/* --- Door Height (right side) --- */}
+        {(() => {
+          const dimX = ox + s(dw + fw + layout.wallThickness) + 25
+          const y1 = oy
+          const y2 = oy + s(dh)
+          return (
+            <g className="dim-door-height">
+              {/* Extension lines */}
+              <line x1={ox + s(dw) + 3} y1={y1} x2={dimX + 3} y2={y1}
+                stroke="#333" strokeWidth="0.4" />
+              <line x1={ox + s(dw) + 3} y1={y2} x2={dimX + 3} y2={y2}
+                stroke="#333" strokeWidth="0.4" />
+              {/* Dimension line */}
+              <line x1={dimX} y1={y1} x2={dimX} y2={y2}
+                stroke="#333" strokeWidth="0.6" />
+              {/* Tick marks */}
+              <line x1={dimX - 4} y1={y1} x2={dimX + 4} y2={y1}
+                stroke="#333" strokeWidth="0.8" />
+              <line x1={dimX - 4} y1={y2} x2={dimX + 4} y2={y2}
+                stroke="#333" strokeWidth="0.8" />
+              {/* Label */}
+              <text
+                x={dimX + 8} y={(y1 + y2) / 2 + 3}
+                fontSize="10" fill="#111" fontWeight="bold"
+                transform={`rotate(-90, ${dimX + 8}, ${(y1 + y2) / 2})`}
+                textAnchor="middle"
+              >
+                {formatDim(dh)}
+              </text>
+              <text
+                x={dimX + 20} y={(y1 + y2) / 2 + 3}
+                fontSize="7" fill="#666"
+                transform={`rotate(-90, ${dimX + 20}, ${(y1 + y2) / 2})`}
+                textAnchor="middle"
+              >
+                DOOR HEIGHT
+              </text>
+            </g>
+          )
+        })()}
+
+        {/* --- CL Shaft Height (left side, floor to shaft) --- */}
+        {(() => {
+          const dimX = ox - s(fw + layout.wallThickness) - 30
+          const y1 = shaftYPx
+          const y2 = oy + s(dh)
+          const clHeight = dh + geo.clShaft
+          return (
+            <g className="dim-cl-shaft">
+              {/* Extension lines */}
+              <line x1={dimX - 3} y1={y1} x2={ox - s(fw)} y2={y1}
+                stroke="#333" strokeWidth="0.4" />
+              <line x1={dimX - 3} y1={y2} x2={ox - s(fw + layout.wallThickness)} y2={y2}
+                stroke="#333" strokeWidth="0.4" />
+              {/* Dimension line */}
+              <line x1={dimX} y1={y1} x2={dimX} y2={y2}
+                stroke="#333" strokeWidth="0.6" />
+              {/* Tick marks */}
+              <line x1={dimX - 4} y1={y1} x2={dimX + 4} y2={y1}
+                stroke="#333" strokeWidth="0.8" />
+              <line x1={dimX - 4} y1={y2} x2={dimX + 4} y2={y2}
+                stroke="#333" strokeWidth="0.8" />
+              {/* Label */}
+              <text
+                x={dimX - 8} y={(y1 + y2) / 2 + 3}
+                fontSize="9" fill="#111" fontWeight="bold"
+                transform={`rotate(-90, ${dimX - 8}, ${(y1 + y2) / 2})`}
+                textAnchor="middle"
+              >
+                {formatDim(clHeight)}
+              </text>
+              <text
+                x={dimX - 20} y={(y1 + y2) / 2 + 3}
+                fontSize="7" fill="#666"
+                transform={`rotate(-90, ${dimX - 20}, ${(y1 + y2) / 2})`}
+                textAnchor="middle"
+              >
+                CL SHAFT
+              </text>
+            </g>
+          )
+        })()}
+
+        {/* --- Sideroom dimensions (small, at top of jambs) --- */}
+        {(() => {
+          const dimY = oy - s(layout.topClearance - layout.headerHeight - 6) - 8
+          // Left sideroom: from wall inner edge to door opening edge
+          const lx1 = ox - s(fw)
+          const lx2 = ox
+          // Right sideroom
+          const rx1 = ox + s(dw)
+          const rx2 = ox + s(dw + fw)
+          return (
+            <g className="dim-sideroom">
+              {/* Left */}
+              <line x1={lx1} y1={dimY} x2={lx2} y2={dimY}
+                stroke="#333" strokeWidth="0.4" />
+              <line x1={lx1} y1={dimY - 3} x2={lx1} y2={dimY + 3}
+                stroke="#333" strokeWidth="0.6" />
+              <line x1={lx2} y1={dimY - 3} x2={lx2} y2={dimY + 3}
+                stroke="#333" strokeWidth="0.6" />
+              <text x={(lx1 + lx2) / 2} y={dimY - 4}
+                fontSize="7" textAnchor="middle" fill="#333">
+                {formatDim(fw)}
+              </text>
+
+              {/* Right */}
+              <line x1={rx1} y1={dimY} x2={rx2} y2={dimY}
+                stroke="#333" strokeWidth="0.4" />
+              <line x1={rx1} y1={dimY - 3} x2={rx1} y2={dimY + 3}
+                stroke="#333" strokeWidth="0.6" />
+              <line x1={rx2} y1={dimY - 3} x2={rx2} y2={dimY + 3}
+                stroke="#333" strokeWidth="0.6" />
+              <text x={(rx1 + rx2) / 2} y={dimY - 4}
+                fontSize="7" textAnchor="middle" fill="#333">
+                {formatDim(fw)}
+              </text>
+
+              {/* Sideroom label (wider, includes wall) */}
+              <text x={ox - s(fw + layout.wallThickness / 2)} y={dimY - 14}
+                fontSize="7" textAnchor="middle" fill="#666">
+                SIDEROOM: {formatDim(sr)} MIN
+              </text>
+            </g>
+          )
+        })()}
+
+        {/* --- Headroom minimum label --- */}
+        {(() => {
+          const hrLabelX = ox + s(dw) + 15
+          const hrTop = oy - s(geo.headroomMin)
+          return (
+            <g className="dim-headroom">
+              {/* Small bracket */}
+              <line x1={hrLabelX} y1={hrTop} x2={hrLabelX} y2={oy}
+                stroke="#666" strokeWidth="0.4" strokeDasharray="3,2" />
+              <line x1={hrLabelX - 3} y1={hrTop} x2={hrLabelX + 3} y2={hrTop}
+                stroke="#666" strokeWidth="0.6" />
+              <line x1={hrLabelX - 3} y1={oy} x2={hrLabelX + 3} y2={oy}
+                stroke="#666" strokeWidth="0.6" />
+              <text
+                x={hrLabelX + 5} y={(hrTop + oy) / 2 + 3}
+                fontSize="7" fill="#666"
+                transform={`rotate(-90, ${hrLabelX + 5}, ${(hrTop + oy) / 2})`}
+                textAnchor="middle"
+              >
+                HEADROOM MIN: {formatDim(geo.headroomMin)}
+              </text>
+            </g>
+          )
+        })()}
+
+        {/* ================================================================ */}
+        {/* JAMB DETAIL CALLOUT (bottom-left corner)                         */}
+        {/* ================================================================ */}
+        {(() => {
+          const detailX = 15
+          const detailY = layout.svgH - 85
+          const ds = 2.5 // detail scale
+          return (
+            <g className="jamb-detail" transform={`translate(${detailX}, ${detailY})`}>
+              <text x="0" y="-5" fontSize="8" fontWeight="bold" fill="#333">
+                JAMB DETAIL (SECTION)
+              </text>
+              <rect x="0" y="0" width={35 * ds} height={25 * ds}
+                fill="none" stroke="#333" strokeWidth="0.8" />
+
+              {/* Wall section */}
+              <rect x={0} y={0} width={8 * ds} height={25 * ds}
+                fill="url(#fd-concreteHatch)" stroke="#333" strokeWidth="0.5" />
+
+              {/* Jamb section */}
+              <rect x={8 * ds} y={2 * ds} width={fw * ds} height={21 * ds}
+                fill={isSteel ? 'url(#fd-steelJamb)' : 'url(#fd-woodGrain)'}
+                stroke="#333" strokeWidth="0.5" />
+
+              {/* Weather seal strip */}
+              <rect x={(8 + fw) * ds} y={4 * ds} width={1.5 * ds} height={18 * ds}
+                fill="#444" stroke="#333" strokeWidth="0.3" />
+              <text x={(8 + fw + 1.5) * ds + 3} y={10 * ds}
+                fontSize="5" fill="#666">WEATHER SEAL</text>
+
+              {/* End cap */}
+              <rect x={(8 + fw + 2) * ds} y={20 * ds} width={4 * ds} height={3 * ds}
+                fill="#999" stroke="#333" strokeWidth="0.3" />
+              <text x={(8 + fw + 7) * ds} y={22 * ds}
+                fontSize="5" fill="#666">END CAP</text>
+
+              {/* Bottom bracket indicator */}
+              <rect x={(8 + fw + 2) * ds} y={1 * ds} width={5 * ds} height={4 * ds}
+                fill="#888" stroke="#333" strokeWidth="0.3" />
+              <text x={(8 + fw + 8) * ds} y={4 * ds}
+                fontSize="5" fill="#666">BOTTOM BRACKET</text>
+
+              {/* Astragal */}
+              <rect x={(8 + fw + 2) * ds} y={24 * ds} width={8 * ds} height={1 * ds}
+                fill="#666" stroke="#333" strokeWidth="0.3" />
+              <text x={(8 + fw + 11) * ds} y={25 * ds}
+                fontSize="5" fill="#666">ASTRAGAL</text>
+            </g>
+          )
+        })()}
+
+        {/* ================================================================ */}
+        {/* LEGEND                                                           */}
+        {/* ================================================================ */}
+        <g transform={`translate(${layout.svgW - 130}, ${layout.svgH - 80})`}>
+          <text fontSize="8" fontWeight="bold" fill="#333">LEGEND</text>
+          <g transform="translate(0, 10)">
+            <rect width="14" height="7" fill={isSteel ? 'url(#fd-steelJamb)' : 'url(#fd-woodGrain)'}
+              stroke="#333" strokeWidth="0.5" />
+            <text x="18" y="6" fontSize="7" fill="#444">
+              {isSteel ? 'Steel Framing' : 'Wood Framing'}
             </text>
           </g>
-
-          {/* Left vertical track */}
-          <g className="left-track">
-            <rect
-              x={originX + s(1)}
-              y={originY}
-              width={s(trackSize)}
-              height={s(height)}
-              fill="url(#steelFill)"
-              stroke="#333"
-              strokeWidth="1"
-            />
-            {/* Track mounting flags */}
-            {[0, height * 0.33, height * 0.66, height - 6].map((y, i) => (
-              <rect
-                key={`lf-${i}`}
-                x={originX - s(1)}
-                y={originY + s(y)}
-                width={s(trackSize + 3)}
-                height={s(4)}
-                fill="#666"
-                stroke="#333"
-                strokeWidth="0.5"
-              />
-            ))}
+          <g transform="translate(0, 22)">
+            <rect width="14" height="7" fill="url(#fd-concreteHatch)" stroke="#333" strokeWidth="0.5" />
+            <text x="18" y="6" fontSize="7" fill="#444">Masonry / Concrete</text>
           </g>
-
-          {/* Right vertical track */}
-          <g className="right-track">
-            <rect
-              x={originX + s(width - trackSize - 1)}
-              y={originY}
-              width={s(trackSize)}
-              height={s(height)}
-              fill="url(#steelFill)"
-              stroke="#333"
-              strokeWidth="1"
-            />
-            {/* Track mounting flags */}
-            {[0, height * 0.33, height * 0.66, height - 6].map((y, i) => (
-              <rect
-                key={`rf-${i}`}
-                x={originX + s(width - 2)}
-                y={originY + s(y)}
-                width={s(trackSize + 3)}
-                height={s(4)}
-                fill="#666"
-                stroke="#333"
-                strokeWidth="0.5"
-              />
-            ))}
+          <g transform="translate(0, 34)">
+            <rect width="14" height="7" fill="url(#fd-steelFill)" stroke="#333" strokeWidth="0.5" />
+            <text x="18" y="6" fontSize="7" fill="#444">Track / Steel</text>
           </g>
-
-          {/* Track curves (radius) */}
-          <g className="track-curves">
-            {/* Left curve */}
-            <path
-              d={`M ${originX + s(1 + trackSize / 2)} ${originY}
-                  A ${s(trackRadius)} ${s(trackRadius)} 0 0 1
-                  ${originX + s(1 + trackSize / 2 + trackRadius)} ${originY - s(trackRadius)}`}
-              fill="none"
-              stroke="#333"
-              strokeWidth={s(trackSize)}
-              opacity="0.3"
-            />
-            {/* Right curve */}
-            <path
-              d={`M ${originX + s(width - 1 - trackSize / 2)} ${originY}
-                  A ${s(trackRadius)} ${s(trackRadius)} 0 0 0
-                  ${originX + s(width - 1 - trackSize / 2 - trackRadius)} ${originY - s(trackRadius)}`}
-              fill="none"
-              stroke="#333"
-              strokeWidth={s(trackSize)}
-              opacity="0.3"
-            />
-          </g>
-
-          {/* Horizontal tracks (shown as dashed for depth indication) */}
-          <g className="horizontal-tracks">
-            <line
-              x1={originX + s(1 + trackSize / 2 + trackRadius)}
-              y1={originY - s(trackRadius)}
-              x2={originX + s(1 + trackSize / 2 + trackRadius) + s(calculations.backRoom - trackRadius - 20)}
-              y2={originY - s(trackRadius)}
-              stroke="#333"
-              strokeWidth={s(trackSize)}
-              strokeDasharray="10,5"
-              opacity="0.3"
-            />
-          </g>
-
-          {/* Spring assembly */}
-          {showSpringAssembly && (
-            <g className="spring-assembly">
-              {/* Torsion shaft */}
-              <line
-                x1={originX + s(2)}
-                y1={originY - s(calculations.headRoom - 8)}
-                x2={originX + s(width - 2)}
-                y2={originY - s(calculations.headRoom - 8)}
-                stroke="#333"
-                strokeWidth="3"
-              />
-
-              {/* Left drum */}
-              <circle
-                cx={originX + s(6)}
-                cy={originY - s(calculations.headRoom - 8)}
-                r={s(4)}
-                fill="#666"
-                stroke="#333"
-                strokeWidth="1"
-              />
-
-              {/* Right drum */}
-              <circle
-                cx={originX + s(width - 6)}
-                cy={originY - s(calculations.headRoom - 8)}
-                r={s(4)}
-                fill="#666"
-                stroke="#333"
-                strokeWidth="1"
-              />
-
-              {/* Springs (simplified as rectangles) */}
-              <rect
-                x={originX + s(width / 2 - 20)}
-                y={originY - s(calculations.headRoom - 6)}
-                width={s(18)}
-                height={s(4)}
-                fill="#C41E3A"
-                stroke="#333"
-                strokeWidth="0.5"
-                rx="2"
-              />
-              <rect
-                x={originX + s(width / 2 + 2)}
-                y={originY - s(calculations.headRoom - 6)}
-                width={s(18)}
-                height={s(4)}
-                fill="#C41E3A"
-                stroke="#333"
-                strokeWidth="0.5"
-                rx="2"
-              />
-
-              {/* Center bearing plate */}
-              <rect
-                x={originX + s(width / 2 - 3)}
-                y={originY - s(calculations.headRoom - 3)}
-                width={s(6)}
-                height={s(10)}
-                fill="#444"
-                stroke="#333"
-                strokeWidth="1"
-              />
-
-              <text
-                x={originX + s(width / 2)}
-                y={originY - s(calculations.headRoom - 18)}
-                fontSize="8"
-                textAnchor="middle"
-                fill="#666"
-              >
-                SPRING ASSEMBLY
-              </text>
-            </g>
-          )}
-
-          {/* Door outline (dashed to show opening) */}
-          <rect
-            x={originX}
-            y={originY}
-            width={s(width)}
-            height={s(height)}
-            fill="none"
-            stroke="#0066CC"
-            strokeWidth="1.5"
-            strokeDasharray="8,4"
-          />
-
-          {/* Hardware locations */}
-          {showHardwareLocations && (
-            <g className="hardware-locations">
-              {/* Bottom brackets */}
-              <rect
-                x={originX + s(3)}
-                y={originY + s(height - 8)}
-                width={s(8)}
-                height={s(6)}
-                fill="#FF6B35"
-                stroke="#333"
-                strokeWidth="0.5"
-              />
-              <rect
-                x={originX + s(width - 11)}
-                y={originY + s(height - 8)}
-                width={s(8)}
-                height={s(6)}
-                fill="#FF6B35"
-                stroke="#333"
-                strokeWidth="0.5"
-              />
-
-              {/* Top brackets */}
-              <rect
-                x={originX + s(3)}
-                y={originY + s(2)}
-                width={s(8)}
-                height={s(6)}
-                fill="#FF6B35"
-                stroke="#333"
-                strokeWidth="0.5"
-              />
-              <rect
-                x={originX + s(width - 11)}
-                y={originY + s(2)}
-                width={s(8)}
-                height={s(6)}
-                fill="#FF6B35"
-                stroke="#333"
-                strokeWidth="0.5"
-              />
-            </g>
-          )}
-
-          {/* Dimensions */}
-          {showDimensions && (
-            <g className="dimensions">
-              {/* Door width */}
-              <DimensionLine
-                x1={originX}
-                y1={originY + s(height)}
-                x2={originX + s(width)}
-                y2={originY + s(height)}
-                label={formatDim(width)}
-                offset={25}
-              />
-
-              {/* Door height */}
-              <DimensionLine
-                x1={originX + s(width)}
-                y1={originY}
-                x2={originX + s(width)}
-                y2={originY + s(height)}
-                label={formatDim(height)}
-                offset={s(calculations.sideRoom) + 15}
-                vertical
-              />
-
-              {/* Head room */}
-              <DimensionLine
-                x1={originX}
-                y1={originY - s(calculations.headRoom)}
-                x2={originX}
-                y2={originY}
-                label={`HEAD ROOM: ${formatDim(calculations.headRoom)}`}
-                offset={-40}
-                vertical
-              />
-
-              {/* Side room */}
-              <g>
-                <text
-                  x={originX - s(calculations.jambWidth + 4)}
-                  y={originY + s(height / 2)}
-                  fontSize="9"
-                  fill="#666"
-                  textAnchor="end"
-                  transform={`rotate(-90, ${originX - s(calculations.jambWidth + 4)}, ${originY + s(height / 2)})`}
-                >
-                  SIDE ROOM: {formatDim(calculations.sideRoom)} MIN
-                </text>
-              </g>
-
-              {/* Rough opening */}
-              <text
-                x={originX + s(width / 2)}
-                y={originY - s(calculations.headRoom + calculations.headerHeight + 8)}
-                fontSize="10"
-                fontWeight="bold"
-                textAnchor="middle"
-                fill="#333"
-              >
-                R.O. {formatDim(calculations.roughOpeningWidth)} x {formatDim(calculations.roughOpeningHeight)}
-              </text>
-            </g>
-          )}
-        </g>
-
-        {/* Legend */}
-        <g transform={`translate(${drawingWidth - 140}, ${drawingHeight - 20})`}>
-          <text fontSize="9" fontWeight="bold" fill="#333">LEGEND:</text>
-          <g transform="translate(0, 12)">
-            <rect width="15" height="8" fill="url(#woodGrain)" stroke="#333" strokeWidth="0.5" />
-            <text x="20" y="7" fontSize="8">Wood Framing</text>
-          </g>
-          <g transform="translate(0, 24)">
-            <rect width="15" height="8" fill="url(#concreteHatch)" stroke="#333" strokeWidth="0.5" />
-            <text x="20" y="7" fontSize="8">Masonry/Concrete</text>
-          </g>
-          <g transform="translate(0, 36)">
-            <rect width="15" height="8" fill="url(#steelFill)" stroke="#333" strokeWidth="0.5" />
-            <text x="20" y="7" fontSize="8">Track/Steel</text>
-          </g>
-          <g transform="translate(0, 48)">
-            <rect width="15" height="8" fill="#FF6B35" stroke="#333" strokeWidth="0.5" />
-            <text x="20" y="7" fontSize="8">Hardware</text>
+          <g transform="translate(0, 46)">
+            <rect width="14" height="7" fill="#8B1A1A" stroke="#333" strokeWidth="0.5" />
+            <text x="18" y="6" fontSize="7" fill="#444">Torsion Spring</text>
           </g>
         </g>
 
-        {/* Notes section */}
-        <g transform={`translate(20, ${drawingHeight + 5})`}>
-          <text fontSize="9" fontWeight="bold" fill="#333">NOTES:</text>
-          <text fontSize="8" y="12" fill="#666">
-            1. All dimensions in feet-inches unless noted otherwise.
-          </text>
-          <text fontSize="8" y="22" fill="#666">
-            2. Verify rough opening dimensions before installation.
-          </text>
-          <text fontSize="8" y="32" fill="#666">
-            3. Header must support door weight plus spring tension.
+        {/* ================================================================ */}
+        {/* NOTES                                                            */}
+        {/* ================================================================ */}
+        <g transform={`translate(15, ${layout.svgH - 25})`}>
+          <text fontSize="7" fill="#888">
+            All dimensions in feet-inches. Verify rough opening before installation.
+            Mount type: {geo.mountType}. Track: {geo.trackSize}".
           </text>
         </g>
       </svg>
