@@ -161,23 +161,23 @@ function SideElevationDrawing({
   // Compute drawing extents
   const layout = useMemo(() => {
     const aboveDoor = Math.max(g.headroomMin, g.clShaft + 6)
-    const totalVertical = g.doorH + aboveDoor
+    // Ensure enough pixel space above the door for labels even on large doors
+    const minAbovePx = 130
+    const aboveDoorPx = Math.max(minAbovePx, s(aboveDoor))
     const totalHorizontal = WALL_THICKNESS + g.backroom + 12
 
     const contentW = s(totalHorizontal)
-    const contentH = s(totalVertical)
 
     const rawW = MARGIN_LEFT + contentW + MARGIN_RIGHT
-    const rawH = MARGIN_TOP + contentH + MARGIN_BOTTOM
 
     // Enforce minimum SVG width of 500
     const svgW = Math.max(500, rawW)
-    const svgH = rawH
+    const svgH = MARGIN_TOP + aboveDoorPx + s(g.doorH) + MARGIN_BOTTOM
 
     const originX = MARGIN_LEFT + WALL_DRAW_W
-    const originY = MARGIN_TOP + s(aboveDoor)
+    const originY = MARGIN_TOP + aboveDoorPx
 
-    return { svgW, svgH, originX, originY, aboveDoor, contentW, contentH }
+    return { svgW, svgH, originX, originY, aboveDoor, aboveDoorPx, contentW }
   }, [g, scale, MARGIN_LEFT, MARGIN_RIGHT, MARGIN_TOP, MARGIN_BOTTOM])
 
   const { svgW, svgH, originX, originY } = layout
@@ -310,14 +310,7 @@ function SideElevationDrawing({
           strokeWidth="0.75"
           strokeDasharray="8,4"
         />
-        <text
-          x={originX + s(g.backroom) + 22}
-          y={originY - s(g.headroomMin) + fontSmall * 0.4}
-          fontSize={fontSmall}
-          fill="#555"
-        >
-          CEILING
-        </text>
+        {/* CEILING label removed to avoid overlap in tight headroom zones */}
 
         {/* ===== DOOR IN CLOSED POSITION (solid) ===== */}
         <rect
@@ -636,10 +629,11 @@ function SideElevationDrawing({
         />
         <text
           x={originX + s(DOOR_THICKNESS + 1 + g.radius + g.doorH / 2)}
-          y={trackCenterY - s(DOOR_THICKNESS / 2) - baseUnit * 0.4}
+          y={trackCenterY}
           fontSize={fontSmall}
           fill="#555"
           textAnchor="middle"
+          dominantBaseline="middle"
         >
           DOOR (OPEN)
         </text>
@@ -732,25 +726,7 @@ function SideElevationDrawing({
           stroke="#000"
           strokeWidth="0.5"
         />
-        {/* Labels */}
-        <text
-          x={originX + s(12)}
-          y={shaftY - baseUnit * 0.8}
-          fontSize={fontSmall}
-          fill="#555"
-          textAnchor="middle"
-        >
-          TORSION SPRING &amp; SHAFT
-        </text>
-        <text
-          x={originX + s(6)}
-          y={shaftY + drumR + baseUnit * 1.2}
-          fontSize={fontSmall}
-          fill="#555"
-          textAnchor="middle"
-        >
-          DRUM
-        </text>
+        {/* Labels removed to avoid overlap in tight headroom zones */}
       </g>
     )
   }
@@ -764,7 +740,7 @@ function SideElevationDrawing({
     const lift = g.lift
 
     // Spacing between staggered right-side dimension lines
-    const dimStagger = baseUnit * 3
+    const dimStagger = baseUnit * 4
 
     /**
      * Draw a dimension line between two points with tick marks and a label.
@@ -869,54 +845,7 @@ function SideElevationDrawing({
       `MIN. HEADROOM: ${formatDim(g.headroomMin)}`, '#C00', 20 + stIdx * dimStagger)
     stIdx++
 
-    // 3. UST (skip for LHR)
-    if (lift !== 'lhr_front' && lift !== 'lhr_rear') {
-      dimLine('dim-ust', dimBaseX, originY - s(g.ust), dimBaseX, originY,
-        `U.S.T.: ${formatDim(g.ust)}`, '#555', 20 + stIdx * dimStagger)
-      stIdx++
-    }
-
-    // 4. CL Shaft (skip for LHR)
-    if (lift !== 'lhr_front' && lift !== 'lhr_rear') {
-      const clOffset = 20 + stIdx * dimStagger
-      const clX = dimBaseX + clOffset
-      elements.push(
-        <g key="cl-shaft">
-          {/* Dashed reference line at shaft height */}
-          <line
-            x1={originX - 4}
-            y1={shaftY}
-            x2={originX + s(20) + 5}
-            y2={shaftY}
-            stroke="#555"
-            strokeWidth="0.3"
-            strokeDasharray="4,3"
-          />
-          {/* Dimension line */}
-          <line x1={clX} y1={originY} x2={clX} y2={shaftY} stroke="#555" strokeWidth="0.5" />
-          {/* Ticks */}
-          <line x1={clX - tickLen} y1={originY} x2={clX + tickLen} y2={originY} stroke="#555" strokeWidth="0.5" />
-          <line x1={clX - tickLen} y1={shaftY} x2={clX + tickLen} y2={shaftY} stroke="#555" strokeWidth="0.5" />
-          {/* Extension lines */}
-          <line x1={dimBaseX} y1={originY} x2={clX - extGap} y2={originY}
-            stroke="#555" strokeWidth="0.3" strokeDasharray="2,2" />
-          <line x1={dimBaseX} y1={shaftY} x2={clX - extGap} y2={shaftY}
-            stroke="#555" strokeWidth="0.3" strokeDasharray="2,2" />
-          {/* Label */}
-          <text
-            x={clX + baseUnit * 1}
-            y={originY - s(g.clShaft / 2)}
-            fontSize={fontSmall}
-            fill="#555"
-            textAnchor="middle"
-            transform={`rotate(-90, ${clX + baseUnit * 1}, ${originY - s(g.clShaft / 2)})`}
-          >
-            CL SHAFT: {formatDim(g.clShaft)}
-          </text>
-        </g>
-      )
-      stIdx++
-    }
+    // UST and CL Shaft dimensions moved to requirements box to avoid overlap
 
     // High lift extra dimension (inline, not staggered on the right)
     if (lift === 'high_lift' && g.hl > 0) {
@@ -927,7 +856,7 @@ function SideElevationDrawing({
 
     // Backroom dimension (horizontal, above ceiling)
     dimLine('dim-backroom', originX, originY - s(g.headroomMin), originX + s(g.backroom), originY - s(g.headroomMin),
-      `MIN. BACKROOM: ${formatDim(g.backroom)}`, '#000', -(baseUnit * 2))
+      `MIN. BACKROOM: ${formatDim(g.backroom)}`, '#000', -(baseUnit * 3.5))
 
     return <g className="dimensions">{elements}</g>
   }
@@ -939,7 +868,7 @@ function SideElevationDrawing({
     const boxW = baseUnit * 12
     const boxH = baseUnit * 7
     const boxX = svgW - MARGIN_RIGHT - boxW - baseUnit
-    const boxY = MARGIN_TOP
+    const boxY = svgH - MARGIN_BOTTOM + baseUnit
 
     return (
       <g className="panel-callout">
@@ -977,7 +906,8 @@ function SideElevationDrawing({
   function renderRequirementsBox() {
     const lineH = baseUnit * 1.6
     const boxW = baseUnit * 24
-    const boxH = lineH * 4.5
+    const showUstCl = g.lift !== 'lhr_front' && g.lift !== 'lhr_rear'
+    const boxH = lineH * (showUstCl ? 6.5 : 4.5)
     const boxX = baseUnit * 1.5
     const boxY = svgH - MARGIN_BOTTOM + baseUnit
 
@@ -1009,7 +939,23 @@ function SideElevationDrawing({
         <text x={boxX + boxW - baseUnit} y={boxY + lineH * 3.4} fontSize={fontLabel} fill="#000" textAnchor="end" fontWeight="bold">
           {formatDim(g.sideroom)}
         </text>
-        <text x={boxX + boxW / 2} y={boxY + lineH * 4.2} fontSize={fontSmall} textAnchor="middle" fill="#888">
+        {showUstCl && (
+          <>
+            <text x={boxX + baseUnit} y={boxY + lineH * 4.2} fontSize={fontLabel} fill="#000">
+              U.S.T.:
+            </text>
+            <text x={boxX + boxW - baseUnit} y={boxY + lineH * 4.2} fontSize={fontLabel} fill="#000" textAnchor="end" fontWeight="bold">
+              {formatDim(g.ust)}
+            </text>
+            <text x={boxX + baseUnit} y={boxY + lineH * 5.0} fontSize={fontLabel} fill="#000">
+              CL Shaft:
+            </text>
+            <text x={boxX + boxW - baseUnit} y={boxY + lineH * 5.0} fontSize={fontLabel} fill="#000" textAnchor="end" fontWeight="bold">
+              {formatDim(g.clShaft)}
+            </text>
+          </>
+        )}
+        <text x={boxX + boxW / 2} y={boxY + lineH * (showUstCl ? 6.2 : 4.2)} fontSize={fontSmall} textAnchor="middle" fill="#888">
           {g.liftLabel} LIFT | {g.radiusLabel}
         </text>
       </g>

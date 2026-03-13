@@ -124,22 +124,25 @@ function FramingDrawing({
 
     const { margin, dimLineSpacing } = ui
 
+    // Ensure enough pixel space above the door for labels even on large doors
+    const minTopPx = 130  // minimum pixels between title area and door opening top
+    const topClearancePx = Math.max(minTopPx, topClearance * scale)
+
     // Content size in inches
     const contentW = dw + (fw + wallThickness + sr) * 2
-    const contentH = dh + topClearance + 12
 
     // SVG dimensions (viewBox units)
     const svgW = Math.max(500, contentW * scale + margin.left + margin.right)
-    const svgH = contentH * scale + margin.top + margin.bottom
+    const svgH = topClearancePx + dh * scale + 12 * scale + margin.top + margin.bottom
 
     // Origin = top-left corner of door opening in SVG coords
     const originX = margin.left + (fw + wallThickness + sr) * scale
-    const originY = margin.top + topClearance * scale
+    const originY = margin.top + topClearancePx
 
     return {
       dw, dh, fw, sr, hrMin, clShaft, ts, tr,
-      shaftY, wallThickness, headerHeight, topClearance,
-      margin, contentW, contentH, svgW, svgH,
+      shaftY, wallThickness, headerHeight, topClearance, topClearancePx,
+      margin, contentW, svgW, svgH,
       originX, originY, dimLineSpacing,
     }
   }, [geo, scale, ui])
@@ -253,6 +256,11 @@ function FramingDrawing({
               Series: {doorSeries}
             </text>
           )}
+          <text x={layout.svgW / 2}
+            y={fontSize.title + 4 + fontSize.subtitle * 1.5 + fontSize.label * 4.5}
+            fontSize={fontSize.small} textAnchor="middle" fill="#888">
+            {geo.trackTypeLabel} | {geo.radiusLabel}
+          </text>
         </g>
 
         {/* ================================================================ */}
@@ -340,23 +348,6 @@ function FramingDrawing({
           {jambLabel}
         </text>
 
-        {/* Weather stripping labels */}
-        <text
-          x={ox - s(fw) - fontSize.small * 0.3}
-          y={oy + s(dh * 0.7)}
-          fontSize={fontSize.small * 0.7} fill="#888" textAnchor="end"
-          transform={`rotate(-90, ${ox - s(fw) - fontSize.small * 0.3}, ${oy + s(dh * 0.7)})`}
-        >
-          WEATHER STRIPPING
-        </text>
-        <text
-          x={ox + s(dw + fw) + fontSize.small * 0.3}
-          y={oy + s(dh * 0.3)}
-          fontSize={fontSize.small * 0.7} fill="#888" textAnchor="start"
-          transform={`rotate(90, ${ox + s(dw + fw) + fontSize.small * 0.3}, ${oy + s(dh * 0.3)})`}
-        >
-          WEATHER STRIPPING
-        </text>
 
         {/* ================================================================ */}
         {/* HEADER                                                           */}
@@ -444,14 +435,6 @@ function FramingDrawing({
           fill="none" stroke="#333" strokeWidth={s(ts) * 0.6} opacity="0.5"
         />
 
-        {/* Radius label on left curve */}
-        <text
-          x={ox + s(1 + ts / 2 + tr / 2) + fontSize.small * 0.3}
-          y={oy - s(tr / 2) - fontSize.small * 0.4}
-          fontSize={fontSize.small} fill="#555"
-        >
-          {geo.radiusLabel}
-        </text>
 
         {/* ================================================================ */}
         {/* HORIZONTAL TRACKS (dashed, receding into building)               */}
@@ -471,13 +454,6 @@ function FramingDrawing({
           strokeDasharray="6,4" opacity="0.35"
         />
 
-        {/* Track type label */}
-        <text
-          x={ox + s(dw / 2)} y={oy - s(tr) - fontSize.small * 0.5}
-          fontSize={fontSize.small} textAnchor="middle" fill="#555"
-        >
-          {geo.trackTypeLabel}
-        </text>
 
         {/* ================================================================ */}
         {/* SPRING ASSEMBLY                                                  */}
@@ -495,16 +471,12 @@ function FramingDrawing({
             cx={ox + s(5)} cy={shaftYPx} r={s(3.5)}
             fill="#777" stroke="#333" strokeWidth="1"
           />
-          <text x={ox + s(5)} y={shaftYPx + s(3.5) + fontSize.small * 1.1}
-            fontSize={fontSize.small * 0.75} textAnchor="middle" fill="#666">DRUM</text>
 
           {/* Right cable drum */}
           <circle
             cx={ox + s(dw - 5)} cy={shaftYPx} r={s(3.5)}
             fill="#777" stroke="#333" strokeWidth="1"
           />
-          <text x={ox + s(dw - 5)} y={shaftYPx + s(3.5) + fontSize.small * 1.1}
-            fontSize={fontSize.small * 0.75} textAnchor="middle" fill="#666">DRUM</text>
 
           {/* Springs (red/maroon rectangles) */}
           <rect
@@ -539,40 +511,25 @@ function FramingDrawing({
             width={s(5)} height={s(8)}
             fill="#555" stroke="#333" strokeWidth="1"
           />
-          <text x={ox + s(dw / 2)} y={shaftYPx + s(4) + fontSize.small * 1.1}
-            fontSize={fontSize.small * 0.75} textAnchor="middle" fill="#666">CENTER BEARING</text>
-
-          {/* SPRING ASSEMBLY label */}
-          <text x={ox + s(dw / 2)} y={shaftYPx - s(6)}
-            fontSize={fontSize.label} textAnchor="middle" fill="#444" fontWeight="bold">
-            SPRING ASSEMBLY
-          </text>
         </g>
 
         {/* ================================================================ */}
-        {/* CENTERLINE OF SHAFT — label with leader line                     */}
+        {/* CENTERLINE OF SHAFT — dashed line with left-margin label         */}
         {/* ================================================================ */}
         <g>
-          {/* Dashed centerline marker */}
+          {/* Thin dashed horizontal line across from left margin past shaft */}
           <line
-            x1={ox - s(fw) - leaderLen * 0.4} y1={shaftYPx}
-            x2={ox + s(2)} y2={shaftYPx}
+            x1={layout.margin.left * 0.15} y1={shaftYPx}
+            x2={ox + s(8)} y2={shaftYPx}
             stroke="#333" strokeWidth="0.5" strokeDasharray="4,2"
           />
-          {/* Leader line from label */}
-          <line
-            x1={ox - s(fw + layout.wallThickness) - leaderLen * 0.8} y1={shaftYPx - leaderLen}
-            x2={ox - s(fw) - leaderLen * 0.4} y2={shaftYPx}
-            stroke="#333" strokeWidth="0.5"
-          />
-          {/* Arrow dot at end */}
-          <circle cx={ox - s(fw) - leaderLen * 0.4} cy={shaftYPx} r="1.5" fill="#333" />
+          {/* Label in the left margin, right-aligned before the wall */}
           <text
-            x={ox - s(fw + layout.wallThickness) - leaderLen * 0.8 - fontSize.small * 0.3}
-            y={shaftYPx - leaderLen - fontSize.small * 0.5}
-            fontSize={fontSize.small} fill="#333" textAnchor="end" fontWeight="bold"
+            x={layout.margin.left * 0.12}
+            y={shaftYPx - fontSize.small * 0.4}
+            fontSize={fontSize.small} fill="#333" textAnchor="start" fontWeight="bold"
           >
-            CENTERLINE OF SHAFT
+            CL SHAFT
           </text>
         </g>
 
@@ -698,9 +655,9 @@ function FramingDrawing({
           )
         })()}
 
-        {/* --- Sideroom dimensions (small, above jambs) --- */}
+        {/* --- Sideroom dimensions (near bottom of jambs) --- */}
         {(() => {
-          const dimY = oy - s(layout.topClearance - layout.headerHeight - 6) - fontSize.small
+          const dimY = oy + s(dh) - fontSize.small * 2
           // Left sideroom: from wall inner edge to door opening edge
           const lx1 = ox - s(fw)
           const lx2 = ox
@@ -733,10 +690,10 @@ function FramingDrawing({
                 {formatDim(fw)}
               </text>
 
-              {/* Sideroom label (wider, includes wall) */}
-              <text x={ox - s(fw + layout.wallThickness / 2)} y={dimY - tickLen - fontSize.small * 1.6}
-                fontSize={fontSize.small} textAnchor="middle" fill="#666">
-                SIDEROOM: {formatDim(sr)} MIN
+              {/* Sideroom label below left jamb dimension */}
+              <text x={(lx1 + lx2) / 2} y={dimY + tickLen + fontSize.small * 1.2}
+                fontSize={fontSize.small * 0.8} textAnchor="middle" fill="#666">
+                SR: {formatDim(sr)} MIN
               </text>
             </g>
           )
