@@ -509,35 +509,94 @@ function FramingDrawing({
         })()}
 
         {/* ================================================================ */}
-        {/* TRACK CURVES — curve INWARD toward center (tracks go backward  */}
-        {/* into the building). From "inside looking out", the curves arch  */}
-        {/* up and toward center, forming a dome shape above the door.     */}
+        {/* TRACK CURVES — from front view, curves go BACKWARD (into the   */}
+        {/* building) so we only see a small upward arc at the top of each */}
+        {/* track, then dashed lines going inward representing the         */}
+        {/* horizontal tracks receding into the ceiling overhead.           */}
         {/* ================================================================ */}
         {(() => {
           const trackInset = Math.max(4, s(1.5))
           const trackW = Math.max(6, s(ts))
           const doorPxW = s(dw)
-          const curveR = Math.max(15, s(tr))
+          // Small visible arc height — the curve mostly goes into depth,
+          // so from the front we just see a small upward transition
+          const arcHeight = Math.max(8, s(tr * 0.4))
           // Left track center X
           const lcx = ox + trackInset + trackW / 2
           // Right track center X
           const rcx = ox + doorPxW - trackInset - trackW / 2
           return (
             <g className="track-curves">
-              {/* Left curve: starts at top of left track, arcs UP and to the RIGHT (inward) */}
-              <path d={`M ${lcx} ${oy} A ${curveR} ${curveR} 0 0 0 ${lcx + curveR} ${oy - curveR}`}
-                fill="none" stroke="#000" strokeWidth={Math.max(trackW * 0.8, 3)} />
-              {/* Right curve: starts at top of right track, arcs UP and to the LEFT (inward) */}
-              <path d={`M ${rcx} ${oy} A ${curveR} ${curveR} 0 0 1 ${rcx - curveR} ${oy - curveR}`}
-                fill="none" stroke="#000" strokeWidth={Math.max(trackW * 0.8, 3)} />
+              {/* Left track top: small upward curve then dashed line going inward */}
+              <path d={`M ${lcx} ${oy} Q ${lcx} ${oy - arcHeight} ${lcx + arcHeight * 0.8} ${oy - arcHeight}`}
+                fill="none" stroke="#000" strokeWidth={Math.max(trackW * 0.6, 2)} />
+              <line x1={lcx + arcHeight * 0.8} y1={oy - arcHeight}
+                x2={ox + doorPxW * 0.4} y2={oy - arcHeight}
+                stroke="#000" strokeWidth="1.5" strokeDasharray="6,3" />
 
-              {/* Horizontal tracks (dashed, extending INWARD from curve ends toward center) */}
-              <line x1={lcx + curveR} y1={oy - curveR}
-                x2={lcx + curveR + Math.max(50, s(36))} y2={oy - curveR}
-                stroke="#000" strokeWidth="1.5" strokeDasharray="8,4" />
-              <line x1={rcx - curveR} y1={oy - curveR}
-                x2={rcx - curveR - Math.max(50, s(36))} y2={oy - curveR}
-                stroke="#000" strokeWidth="1.5" strokeDasharray="8,4" />
+              {/* Right track top: small upward curve then dashed line going inward */}
+              <path d={`M ${rcx} ${oy} Q ${rcx} ${oy - arcHeight} ${rcx - arcHeight * 0.8} ${oy - arcHeight}`}
+                fill="none" stroke="#000" strokeWidth={Math.max(trackW * 0.6, 2)} />
+              <line x1={rcx - arcHeight * 0.8} y1={oy - arcHeight}
+                x2={ox + doorPxW * 0.6} y2={oy - arcHeight}
+                stroke="#000" strokeWidth="1.5" strokeDasharray="6,3" />
+            </g>
+          )
+        })()}
+
+        {/* ================================================================ */}
+        {/* HINGES + ROLLERS at each panel joint                           */}
+        {/* ================================================================ */}
+        {(() => {
+          const trackInset = Math.max(4, s(1.5))
+          const trackW = Math.max(6, s(ts))
+          const doorPxW = s(dw)
+          const rollerR = Math.max(3, trackW * 0.4)
+          // Left track center X for roller position
+          const ltcx = ox + trackInset + trackW / 2
+          // Right track center X
+          const rtcx = ox + doorPxW - trackInset - trackW / 2
+
+          return (
+            <g className="hinges-rollers">
+              {Array.from({ length: panelCount - 1 }, (_, i) => {
+                const jointY = oy + s(panelHeight * (i + 1))
+                const hingeW = Math.max(16, s(8))
+                const hingeH = Math.max(4, s(1.5))
+                return (
+                  <g key={`hinge-${i}`}>
+                    {/* Hinge bracket spanning the joint — centered on joint line */}
+                    {/* Left side hinge */}
+                    <rect
+                      x={ltcx + trackW / 2 + 2} y={jointY - hingeH / 2}
+                      width={hingeW} height={hingeH}
+                      fill="none" stroke="#000" strokeWidth="0.8"
+                    />
+                    {/* Right side hinge */}
+                    <rect
+                      x={rtcx - trackW / 2 - 2 - hingeW} y={jointY - hingeH / 2}
+                      width={hingeW} height={hingeH}
+                      fill="none" stroke="#000" strokeWidth="0.8"
+                    />
+                    {/* Left roller — small circle in the track */}
+                    <circle cx={ltcx} cy={jointY} r={rollerR}
+                      fill="#fff" stroke="#000" strokeWidth="0.8" />
+                    {/* Right roller */}
+                    <circle cx={rtcx} cy={jointY} r={rollerR}
+                      fill="#fff" stroke="#000" strokeWidth="0.8" />
+                  </g>
+                )
+              })}
+              {/* Bottom bracket rollers (at floor level) */}
+              <circle cx={ltcx} cy={oy + s(dh) - Math.max(4, s(2))} r={rollerR}
+                fill="#fff" stroke="#000" strokeWidth="0.8" />
+              <circle cx={rtcx} cy={oy + s(dh) - Math.max(4, s(2))} r={rollerR}
+                fill="#fff" stroke="#000" strokeWidth="0.8" />
+              {/* Top rollers (at top of door) */}
+              <circle cx={ltcx} cy={oy + Math.max(4, s(2))} r={rollerR}
+                fill="#fff" stroke="#000" strokeWidth="0.8" />
+              <circle cx={rtcx} cy={oy + Math.max(4, s(2))} r={rollerR}
+                fill="#fff" stroke="#000" strokeWidth="0.8" />
             </g>
           )
         })()}
