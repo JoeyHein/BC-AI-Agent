@@ -904,13 +904,12 @@ class ProjectLot(Base):
     bc_order_number = Column(String(100), nullable=True)
     bc_invoice_id = Column(String(100), nullable=True)
     bc_invoice_number = Column(String(100), nullable=True)
-    install_referral_id = Column(String(36), ForeignKey("install_referrals.id"), nullable=True)
+    install_referral_id = Column(String(36), nullable=True)  # FK to install_referrals.id (not enforced in model to avoid circular)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, onupdate=datetime.utcnow)
 
     # Relationships
     project = relationship("Project", back_populates="lots")
-    install_referral = relationship("InstallReferral", back_populates="project_lot", foreign_keys=[install_referral_id])
 
     def __repr__(self):
         return f"<ProjectLot(id={self.id}, lot={self.lot_number}, status={self.lot_status})>"
@@ -938,7 +937,7 @@ class InstallReferral(Base):
 
     # Relationships
     customer = relationship("User", back_populates="install_referrals")
-    project_lot = relationship("ProjectLot", back_populates="install_referral", foreign_keys=[project_lot_id])
+    project_lot = relationship("ProjectLot", foreign_keys=[project_lot_id])
 
     def __repr__(self):
         return f"<InstallReferral(id={self.id}, status={self.status})>"
