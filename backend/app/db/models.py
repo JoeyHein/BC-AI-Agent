@@ -6,7 +6,7 @@ SQLAlchemy models for PostgreSQL database
 from datetime import datetime
 from typing import Optional
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, Boolean, Float,
+    Column, Integer, String, Text, DateTime, Date, Boolean, Float,
     ForeignKey, JSON, Enum as SQLEnum, ARRAY, Numeric
 )
 from sqlalchemy.ext.declarative import declarative_base
@@ -45,6 +45,19 @@ class UserType(enum.Enum):
     CUSTOMER = "customer"    # External customer users (customer portal)
 
 
+class AccountType(enum.Enum):
+    """Account types for customer users"""
+    DEALER = "dealer"              # Dealer / installer
+    HOME_BUILDER = "home_builder"  # Home builder
+
+
+class AccountStatus(enum.Enum):
+    """Account approval status"""
+    PENDING = "pending"
+    ACTIVE = "active"
+    DECLINED = "declined"
+
+
 class User(Base):
     """Users - for authentication and permissions"""
     __tablename__ = "users"
@@ -69,10 +82,21 @@ class User(Base):
     password_reset_token = Column(String(255), nullable=True)
     password_reset_expires = Column(DateTime, nullable=True)
 
+    # Home builder / dealer account fields
+    account_type = Column(String(20), default='dealer', nullable=True)  # 'dealer' or 'home_builder'
+    account_status = Column(String(20), default='active', nullable=True)  # 'pending', 'active', 'declined'
+    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    company_name = Column(String(255), nullable=True)
+    phone = Column(String(50), nullable=True)
+
     # Relationships
     email_connections = relationship("EmailConnection", back_populates="user", cascade="all, delete-orphan")
     bc_customer = relationship("BCCustomer", foreign_keys=[bc_customer_id], primaryjoin="User.bc_customer_id == BCCustomer.bc_customer_id")
     saved_quote_configs = relationship("SavedQuoteConfig", back_populates="user", cascade="all, delete-orphan")
+    projects = relationship("Project", back_populates="customer", cascade="all, delete-orphan")
+    install_referrals = relationship("InstallReferral", back_populates="customer", cascade="all, delete-orphan")
+    approver = relationship("User", remote_side=[id], foreign_keys=[approved_by])
 
     def __repr__(self):
         return f"<User(id={self.id}, email={self.email}, role={self.role.value}, type={self.user_type})>"
@@ -835,6 +859,89 @@ class SavedQuoteConfig(Base):
 
     def __repr__(self):
         return f"<SavedQuoteConfig(id={self.id}, name={self.name}, submitted={self.is_submitted})>"
+
+
+# ============================================================================
+# HOME BUILDER / PROJECT MODELS
+# ============================================================================
+
+class Project(Base):
+    """Projects - home builder multi-lot project management"""
+    __tablename__ = "projects"
+
+    id = Column(String(36), primary_key=True)  # UUID
+    customer_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    status = Column(String(20), nullable=False, default='active')  # active, complete, cancelled
+    billing_mode = Column(String(20), nullable=False, default='full')  # full, staged
+    bc_quote_id = Column(String(100), nullable=True)
+    bc_quote_number = Column(String(100), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+
+    # Relationships
+    customer = relationship("User", back_populates="projects")
+    lots = relationship("ProjectLot", back_populates="project", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<Project(id={self.id}, name={self.name}, status={self.status})>"
+
+
+class ProjectLot(Base):
+    """Project lots - individual lots within a home builder project"""
+    __tablename__ = "project_lots"
+
+    id = Column(String(36), primary_key=True)  # UUID
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=False, index=True)
+    lot_number = Column(String(100), nullable=False)
+    address = Column(Text, nullable=True)
+    door_config_id = Column(Integer, nullable=True)  # Optional link to SavedQuoteConfig
+    door_spec = Column(JSON, nullable=True)
+    stage = Column(Integer, nullable=True, index=True)  # null = full release
+    lot_status = Column(String(20), nullable=False, default='quoted')  # quoted, released, ordered, shipped, complete
+    bc_order_id = Column(String(100), nullable=True)
+    bc_order_number = Column(String(100), nullable=True)
+    bc_invoice_id = Column(String(100), nullable=True)
+    bc_invoice_number = Column(String(100), nullable=True)
+    install_referral_id = Column(String(36), ForeignKey("install_referrals.id"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+
+    # Relationships
+    project = relationship("Project", back_populates="lots")
+    install_referral = relationship("InstallReferral", back_populates="project_lot", foreign_keys=[install_referral_id])
+
+    def __repr__(self):
+        return f"<ProjectLot(id={self.id}, lot={self.lot_number}, status={self.lot_status})>"
+
+
+class InstallReferral(Base):
+    """Install referrals - home builder install requests routed to subcontractors"""
+    __tablename__ = "install_referrals"
+
+    id = Column(String(36), primary_key=True)  # UUID
+    customer_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    order_reference = Column(String(100), nullable=True)
+    project_lot_id = Column(String(36), ForeignKey("project_lots.id"), nullable=True, index=True)
+    site_address = Column(Text, nullable=False)
+    site_contact_name = Column(String(255), nullable=False)
+    site_contact_phone = Column(String(50), nullable=False)
+    requested_date = Column(Date, nullable=True)
+    access_notes = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default='new')  # new, scheduled, complete
+    assigned_sub = Column(String(255), nullable=True)
+    scheduled_date = Column(Date, nullable=True)
+    internal_notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+
+    # Relationships
+    customer = relationship("User", back_populates="install_referrals")
+    project_lot = relationship("ProjectLot", back_populates="install_referral", foreign_keys=[project_lot_id])
+
+    def __repr__(self):
+        return f"<InstallReferral(id={self.id}, status={self.status})>"
 
 
 # ============================================================================

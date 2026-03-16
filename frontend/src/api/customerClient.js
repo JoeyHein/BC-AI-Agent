@@ -229,6 +229,60 @@ export const cartApi = {
     customerApiClient.post('/api/customer/portal/cart/place-order', { bc_quote_id: bcQuoteId }),
 };
 
+// Projects API (Home Builder)
+export const projectsApi = {
+  // List all projects with lot counts
+  list: () =>
+    customerApiClient.get('/api/customer/portal/projects'),
+
+  // Get project detail + lots
+  get: (id) =>
+    customerApiClient.get(`/api/customer/portal/projects/${id}`),
+
+  // Create new project
+  create: (data) =>
+    customerApiClient.post('/api/customer/portal/projects', data),
+
+  // Update project
+  update: (id, data) =>
+    customerApiClient.patch(`/api/customer/portal/projects/${id}`, data),
+
+  // Add lot(s) to project
+  addLots: (id, lots) =>
+    customerApiClient.post(`/api/customer/portal/projects/${id}/lots`, lots),
+
+  // Update a lot
+  updateLot: (projectId, lotId, data) =>
+    customerApiClient.patch(`/api/customer/portal/projects/${projectId}/lots/${lotId}`, data),
+
+  // Delete a lot
+  deleteLot: (projectId, lotId) =>
+    customerApiClient.delete(`/api/customer/portal/projects/${projectId}/lots/${lotId}`),
+
+  // Release lots
+  release: (id, data) =>
+    customerApiClient.post(`/api/customer/portal/projects/${id}/release`, data),
+
+  // Get invoice summary
+  getInvoiceSummary: (id) =>
+    customerApiClient.get(`/api/customer/portal/projects/${id}/invoice-summary`),
+};
+
+// Install Referrals API (Customer)
+export const installReferralsApi = {
+  // Create a new install referral
+  create: (data) =>
+    customerApiClient.post('/api/customer/portal/install-referrals', data),
+
+  // List customer's install referrals
+  list: () =>
+    customerApiClient.get('/api/customer/portal/install-referrals'),
+
+  // Get a specific install referral
+  get: (id) =>
+    customerApiClient.get(`/api/customer/portal/install-referrals/${id}`),
+};
+
 // Combined customer API export
 export const customerApi = {
   auth: customerAuthApi,
@@ -240,6 +294,8 @@ export const customerApi = {
   catalog: catalogApi,
   springBuilder: springBuilderApi,
   cart: cartApi,
+  projects: projectsApi,
+  installReferrals: installReferralsApi,
 };
 
 export default customerApiClient;

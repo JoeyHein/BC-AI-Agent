@@ -86,6 +86,44 @@ function PricingTierBadge({ tier }) {
   )
 }
 
+// Account Type Badge
+const ACCOUNT_TYPE_LABELS = {
+  dealer: 'Dealer / Installer',
+  home_builder: 'Home Builder',
+}
+
+const ACCOUNT_TYPE_STYLES = {
+  dealer: 'bg-indigo-100 text-indigo-800',
+  home_builder: 'bg-teal-100 text-teal-800',
+}
+
+function AccountTypeBadge({ type }) {
+  if (!type || !ACCOUNT_TYPE_LABELS[type]) {
+    return <span className="text-xs text-gray-400">Not set</span>
+  }
+  return (
+    <span className={`inline-flex px-2 text-xs leading-5 font-semibold rounded-full ${ACCOUNT_TYPE_STYLES[type]}`}>
+      {ACCOUNT_TYPE_LABELS[type]}
+    </span>
+  )
+}
+
+// Account Status Badge
+const ACCOUNT_STATUS_STYLES = {
+  pending: 'bg-yellow-100 text-yellow-800',
+  approved: 'bg-green-100 text-green-800',
+  declined: 'bg-red-100 text-red-800',
+}
+
+function AccountStatusBadge({ status }) {
+  if (!status) return null
+  return (
+    <span className={`inline-flex px-2 text-xs leading-5 font-semibold rounded-full capitalize ${ACCOUNT_STATUS_STYLES[status] || 'bg-gray-100 text-gray-800'}`}>
+      {status}
+    </span>
+  )
+}
+
 // Customer List Component
 function CustomerList({ customers, onSelect, selectedId }) {
   return (
@@ -98,6 +136,9 @@ function CustomerList({ customers, onSelect, selectedId }) {
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
               BC Account
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Type
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
               Pricing Tier
@@ -148,6 +189,9 @@ function CustomerList({ customers, onSelect, selectedId }) {
                 ) : (
                   <span className="text-sm text-gray-400">Not linked</span>
                 )}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap">
+                <AccountTypeBadge type={customer.account_type} />
               </td>
               <td className="px-6 py-4 whitespace-nowrap">
                 <PricingTierBadge tier={customer.pricing_tier} />
@@ -352,7 +396,7 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
             </div>
             <div>
               <dt className="text-sm font-medium text-gray-500">Status</dt>
-              <dd className="mt-1">
+              <dd className="mt-1 flex items-center gap-2">
                 <span
                   className={`inline-flex px-2 text-xs leading-5 font-semibold rounded-full ${
                     customer.is_active
@@ -362,7 +406,42 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
                 >
                   {customer.is_active ? 'Active' : 'Inactive'}
                 </span>
+                {customer.account_status && <AccountStatusBadge status={customer.account_status} />}
               </dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium text-gray-500">Account Type</dt>
+              <dd className="mt-1">
+                <div className="flex items-center gap-2">
+                  <AccountTypeBadge type={customer.account_type} />
+                  <select
+                    value={customer.account_type || ''}
+                    onChange={async (e) => {
+                      const newType = e.target.value || null
+                      try {
+                        await customersApi.changeAccountType(customer.id, newType)
+                        onRefresh()
+                      } catch (err) {
+                        console.error('Failed to change account type:', err)
+                        alert(err.response?.data?.detail || 'Failed to change account type')
+                      }
+                    }}
+                    className="border border-gray-300 rounded-md shadow-sm py-0.5 px-1.5 text-xs focus:outline-none focus:ring-odc-500 focus:border-odc-500"
+                  >
+                    <option value="">Not set</option>
+                    <option value="dealer">Dealer / Installer</option>
+                    <option value="home_builder">Home Builder</option>
+                  </select>
+                </div>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium text-gray-500">Company</dt>
+              <dd className="mt-1 text-sm text-gray-900">{customer.company_name || '-'}</dd>
+            </div>
+            <div>
+              <dt className="text-sm font-medium text-gray-500">Phone</dt>
+              <dd className="mt-1 text-sm text-gray-900">{customer.phone || '-'}</dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-gray-500">Email Verified</dt>
@@ -909,6 +988,175 @@ function CreateCustomerModal({ onClose, onSuccess }) {
   )
 }
 
+// Pending Registrations Component
+function PendingRegistrations({ onRefreshCustomers }) {
+  const queryClient = useQueryClient()
+  const [approveModal, setApproveModal] = useState(null) // { id, name, email, account_type }
+  const [approveAccountType, setApproveAccountType] = useState('dealer')
+
+  const { data: pendingRegistrations, isLoading } = useQuery({
+    queryKey: ['pending-registrations'],
+    queryFn: async () => {
+      const response = await customersApi.getPendingRegistrations()
+      return response.data
+    },
+    refetchInterval: 30000, // poll every 30s
+  })
+
+  const approveMutation = useMutation({
+    mutationFn: ({ customerId, accountType }) =>
+      customersApi.approveRegistration(customerId, accountType),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['pending-registrations'])
+      queryClient.invalidateQueries(['customers'])
+      setApproveModal(null)
+      onRefreshCustomers?.()
+    },
+    onError: (err) => {
+      alert(err.response?.data?.detail || 'Failed to approve registration')
+    }
+  })
+
+  const declineMutation = useMutation({
+    mutationFn: (customerId) => customersApi.declineRegistration(customerId),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['pending-registrations'])
+      queryClient.invalidateQueries(['customers'])
+      onRefreshCustomers?.()
+    },
+    onError: (err) => {
+      alert(err.response?.data?.detail || 'Failed to decline registration')
+    }
+  })
+
+  const handleDecline = (customer) => {
+    if (window.confirm(`Decline registration for ${customer.name || customer.email}? They will not be able to log in.`)) {
+      declineMutation.mutate(customer.id)
+    }
+  }
+
+  const handleOpenApprove = (customer) => {
+    setApproveAccountType(customer.account_type || 'dealer')
+    setApproveModal(customer)
+  }
+
+  const pending = pendingRegistrations || []
+
+  if (isLoading) return null
+  if (pending.length === 0) return null
+
+  return (
+    <div className="mb-6">
+      <div className="bg-yellow-50 border border-yellow-200 rounded-lg overflow-hidden">
+        <div className="px-6 py-4 border-b border-yellow-200 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-medium text-yellow-900">Pending Registrations</h2>
+            <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-yellow-400 text-yellow-900">
+              {pending.length}
+            </span>
+          </div>
+        </div>
+        <table className="min-w-full divide-y divide-yellow-200">
+          <thead className="bg-yellow-50">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-yellow-700 uppercase tracking-wider">Name</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-yellow-700 uppercase tracking-wider">Email</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-yellow-700 uppercase tracking-wider">Company</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-yellow-700 uppercase tracking-wider">Phone</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-yellow-700 uppercase tracking-wider">Type</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-yellow-700 uppercase tracking-wider">Registered</th>
+              <th className="px-6 py-3 text-right text-xs font-medium text-yellow-700 uppercase tracking-wider">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-yellow-100">
+            {pending.map((reg) => (
+              <tr key={reg.id} className="hover:bg-yellow-50">
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                  {reg.name || '-'}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  {reg.email}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                  {reg.company_name || '-'}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  {reg.phone || '-'}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <AccountTypeBadge type={reg.account_type} />
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  {reg.created_at ? new Date(reg.created_at).toLocaleDateString() : '-'}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      onClick={() => handleOpenApprove(reg)}
+                      disabled={approveMutation.isPending}
+                      className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      onClick={() => handleDecline(reg)}
+                      disabled={declineMutation.isPending}
+                      className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50"
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Approve Modal */}
+      {approveModal && (
+        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-sm w-full mx-4 p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Approve Registration</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Approve <span className="font-medium">{approveModal.name || approveModal.email}</span>?
+              {approveModal.company_name && (
+                <span className="block text-gray-500 mt-1">Company: {approveModal.company_name}</span>
+              )}
+            </p>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Account Type</label>
+              <select
+                value={approveAccountType}
+                onChange={(e) => setApproveAccountType(e.target.value)}
+                className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-odc-500 focus:border-odc-500 sm:text-sm"
+              >
+                <option value="dealer">Dealer / Installer</option>
+                <option value="home_builder">Home Builder</option>
+              </select>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setApproveModal(null)}
+                className="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => approveMutation.mutate({ customerId: approveModal.id, accountType: approveAccountType })}
+                disabled={approveMutation.isPending}
+                className="px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50"
+              >
+                {approveMutation.isPending ? 'Approving...' : 'Approve'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Main Component
 function CustomerManagement() {
   const [selectedCustomer, setSelectedCustomer] = useState(null)
@@ -1044,6 +1292,8 @@ function CustomerManagement() {
           </button>
         </div>
       </div>
+
+      <PendingRegistrations onRefreshCustomers={refetch} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className={selectedCustomer ? 'lg:col-span-2' : 'lg:col-span-3'}>

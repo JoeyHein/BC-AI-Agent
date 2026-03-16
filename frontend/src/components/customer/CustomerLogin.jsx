@@ -8,10 +8,13 @@ function CustomerLogin() {
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
   const [companyName, setCompanyName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [accountType, setAccountType] = useState('dealer')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [showForgotPassword, setShowForgotPassword] = useState(false)
   const [resetEmailSent, setResetEmailSent] = useState(false)
+  const [registrationSubmitted, setRegistrationSubmitted] = useState(false)
 
   const { login, register, forgotPassword } = useCustomerAuth()
   const navigate = useNavigate()
@@ -26,11 +29,15 @@ function CustomerLogin() {
       if (isLogin) {
         result = await login(email, password)
       } else {
-        result = await register(email, password, name, companyName)
+        result = await register(email, password, name, companyName, phone, accountType)
       }
 
       if (result.success) {
-        navigate('/')
+        if (result.pending) {
+          setRegistrationSubmitted(true)
+        } else {
+          navigate('/')
+        }
       } else {
         setError(result.error)
       }
@@ -58,6 +65,38 @@ function CustomerLogin() {
     } finally {
       setLoading(false)
     }
+  }
+
+  // Registration submitted / pending approval screen
+  if (registrationSubmitted) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-md w-full">
+          <div className="bg-white shadow rounded-lg p-8 text-center">
+            <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-green-100 mb-6">
+              <svg className="h-8 w-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Registration Submitted</h2>
+            <p className="text-sm text-gray-600 mb-6">
+              Your account is pending approval. We'll review your registration and send you an email once your account has been approved. This usually takes less than one business day.
+            </p>
+            <button
+              onClick={() => {
+                setRegistrationSubmitted(false)
+                setIsLogin(true)
+                setError('')
+                setPassword('')
+              }}
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-odc-600 hover:bg-odc-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-odc-500"
+            >
+              Back to login
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   if (showForgotPassword) {
@@ -172,6 +211,35 @@ function CustomerLogin() {
             {!isLogin && (
               <>
                 <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    I am a...
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setAccountType('dealer')}
+                      className={`relative flex items-center justify-center px-4 py-3 border rounded-md text-sm font-medium transition-colors ${
+                        accountType === 'dealer'
+                          ? 'border-odc-500 bg-odc-50 text-odc-700 ring-2 ring-odc-500'
+                          : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      Dealer / Installer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAccountType('home_builder')}
+                      className={`relative flex items-center justify-center px-4 py-3 border rounded-md text-sm font-medium transition-colors ${
+                        accountType === 'home_builder'
+                          ? 'border-odc-500 bg-odc-50 text-odc-700 ring-2 ring-odc-500'
+                          : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      Home Builder
+                    </button>
+                  </div>
+                </div>
+                <div>
                   <label htmlFor="name" className="block text-sm font-medium text-gray-700">
                     Full Name
                   </label>
@@ -188,16 +256,31 @@ function CustomerLogin() {
                 </div>
                 <div>
                   <label htmlFor="companyName" className="block text-sm font-medium text-gray-700">
-                    Company Name (optional)
+                    Company Name
                   </label>
                   <input
                     id="companyName"
                     name="companyName"
                     type="text"
+                    required={!isLogin}
                     value={companyName}
                     onChange={(e) => setCompanyName(e.target.value)}
                     className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-odc-500 focus:border-odc-500 sm:text-sm"
                     placeholder="Acme Doors Inc."
+                  />
+                </div>
+                <div>
+                  <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
+                    Phone <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    id="phone"
+                    name="phone"
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="mt-1 appearance-none relative block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-odc-500 focus:border-odc-500 sm:text-sm"
+                    placeholder="(604) 555-1234"
                   />
                 </div>
               </>
@@ -273,7 +356,7 @@ function CustomerLogin() {
           {!isLogin && (
             <p className="text-xs text-center text-gray-500">
               By registering, you agree to our Terms of Service and Privacy Policy.
-              Your account will be matched to your company records if your email is on file.
+              Your account will be reviewed and approved by our team.
             </p>
           )}
         </form>

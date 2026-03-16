@@ -13,6 +13,7 @@ import ProductionCalendar from './components/ProductionCalendar'
 import OrderManagement from './components/OrderManagement'
 import ChatBox from './components/Chat/ChatBox'
 import SettingsPage from './components/Settings/SettingsPage'
+import InstallReferralQueue from './components/InstallReferralQueue'
 
 function Navigation() {
   const { user, logout, isAuthenticated } = useAuth()
@@ -40,6 +41,7 @@ function Navigation() {
     { path: '/door-configurator', label: 'Configurator' },
     { path: '/customers', label: 'Customers' },
     { path: '/orders', label: 'Orders' },
+    { path: '/install-referrals', label: 'Installs' },
     { path: '/production', label: 'Production' },
     { path: '/settings', label: 'Settings' },
   ]
@@ -156,6 +158,12 @@ function AppContent() {
           <Route path="/orders" element={
             <ProtectedRoute>
               <OrderManagement />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/install-referrals" element={
+            <ProtectedRoute>
+              <InstallReferralQueue />
             </ProtectedRoute>
           } />
 

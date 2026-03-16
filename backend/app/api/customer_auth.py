@@ -89,6 +89,12 @@ def get_current_customer(
             detail="User is inactive",
         )
 
+    if user.account_status and user.account_status != 'active':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is not active",
+        )
+
     if user.user_type != 'CUSTOMER':
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -107,6 +113,7 @@ class CustomerRegisterRequest(BaseModel):
     email: EmailStr
     password: str
     name: str
+    account_type: Optional[str] = 'dealer'  # 'dealer' or 'home_builder'
     company_name: Optional[str] = None
     phone: Optional[str] = None
 
@@ -148,6 +155,10 @@ class CustomerResponse(BaseModel):
     name: Optional[str]
     is_active: bool
     email_verified: bool
+    account_type: Optional[str] = None
+    account_status: Optional[str] = None
+    company_name: Optional[str] = None
+    phone: Optional[str] = None
     bc_customer_id: Optional[str]
     bc_company_name: Optional[str] = None
     created_at: datetime
@@ -189,7 +200,15 @@ def register_customer(
     bc_customer = db.query(BCCustomer).filter(BCCustomer.email == register_data.email).first()
     bc_customer_id = bc_customer.bc_customer_id if bc_customer else None
 
-    # Create customer user
+    # Validate account_type
+    account_type = register_data.account_type or 'dealer'
+    if account_type not in ('dealer', 'home_builder'):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid account type. Must be 'dealer' or 'home_builder'"
+        )
+
+    # Create customer user — account_status starts as 'pending' (admin must approve)
     user = User(
         email=register_data.email,
         password_hash=password_hash,
@@ -197,6 +216,10 @@ def register_customer(
         role=UserRole.VIEWER,  # Customers get viewer role
         user_type='CUSTOMER',
         is_active=True,
+        account_type=account_type,
+        account_status='pending',
+        company_name=register_data.company_name,
+        phone=register_data.phone,
         email_verified=False,
         email_verification_token=verification_token,
         email_verification_expires=verification_expires,
@@ -209,19 +232,8 @@ def register_customer(
 
     logger.info(f"Customer registered: {register_data.email}, BC match: {bc_customer_id is not None}")
 
-    # Send email notifications (async in background - don't block registration)
+    # Send admin notification (don't send welcome email yet — account is pending approval)
     try:
-        # Build verification link
-        verification_link = f"{settings.CUSTOMER_PORTAL_URL}#/verify-email/{verification_token}"
-
-        # Send welcome email with verification link
-        notification_service.send_customer_welcome_email(
-            customer_email=register_data.email,
-            customer_name=register_data.name,
-            verification_link=verification_link
-        )
-
-        # Notify admins about new registration
         notification_service.notify_admins_new_customer(
             customer_email=register_data.email,
             customer_name=register_data.name,
@@ -238,6 +250,10 @@ def register_customer(
         name=user.name,
         is_active=user.is_active,
         email_verified=user.email_verified,
+        account_type=user.account_type,
+        account_status=user.account_status,
+        company_name=user.company_name,
+        phone=user.phone,
         bc_customer_id=user.bc_customer_id,
         bc_company_name=bc_customer.company_name if bc_customer else None,
         created_at=user.created_at,
@@ -275,6 +291,19 @@ def login_customer(
             detail="Account is inactive"
         )
 
+    # Check account approval status
+    if user.account_status == 'pending':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account is pending approval. You'll receive an email once approved."
+        )
+
+    if user.account_status == 'declined':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account application was not approved. Please contact support."
+        )
+
     # Verify password
     if not auth_service.verify_password(login_data.password, user.password_hash):
         raise HTTPException(
@@ -300,7 +329,8 @@ def login_customer(
     access_token = auth_service.create_access_token(
         data={
             "sub": str(user.id),
-            "user_type": "customer"
+            "user_type": "customer",
+            "account_type": user.account_type or "dealer"
         }
     )
 
@@ -314,6 +344,10 @@ def login_customer(
             "email": user.email,
             "name": user.name,
             "email_verified": user.email_verified,
+            "account_type": user.account_type,
+            "account_status": user.account_status,
+            "company_name": user.company_name,
+            "phone": user.phone,
             "bc_customer_id": user.bc_customer_id,
             "bc_company_name": bc_company_name
         }
@@ -447,6 +481,10 @@ def get_current_customer_info(
         name=current_user.name,
         is_active=current_user.is_active,
         email_verified=current_user.email_verified,
+        account_type=current_user.account_type,
+        account_status=current_user.account_status,
+        company_name=current_user.company_name,
+        phone=current_user.phone,
         bc_customer_id=current_user.bc_customer_id,
         bc_company_name=bc_company_name,
         created_at=current_user.created_at,
@@ -463,6 +501,8 @@ def update_customer_profile(
     """Update current customer profile"""
     if profile_data.name is not None:
         current_user.name = profile_data.name
+    if profile_data.phone is not None:
+        current_user.phone = profile_data.phone
 
     db.commit()
     db.refresh(current_user)
@@ -484,6 +524,10 @@ def update_customer_profile(
         name=current_user.name,
         is_active=current_user.is_active,
         email_verified=current_user.email_verified,
+        account_type=current_user.account_type,
+        account_status=current_user.account_status,
+        company_name=current_user.company_name,
+        phone=current_user.phone,
         bc_customer_id=current_user.bc_customer_id,
         bc_company_name=bc_company_name,
         created_at=current_user.created_at,

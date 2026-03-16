@@ -63,25 +63,37 @@ export const CustomerAuthProvider = ({ children }) => {
       return { success: true }
     } catch (error) {
       console.error('Customer login error:', error)
+      const status = error.response?.status
+      const detail = error.response?.data?.detail || 'Login failed'
+
+      // Handle 403 for pending/declined accounts - show error but don't set user
+      if (status === 403) {
+        return {
+          success: false,
+          error: detail
+        }
+      }
+
       return {
         success: false,
-        error: error.response?.data?.detail || 'Login failed'
+        error: detail
       }
     }
   }
 
-  const register = async (email, password, name, companyName = null, phone = null) => {
+  const register = async (email, password, name, companyName = null, phone = null, accountType = 'dealer') => {
     try {
       await customerAxios.post('/api/customer/register', {
         email,
         password,
         name,
         company_name: companyName,
-        phone
+        phone,
+        account_type: accountType
       })
 
-      // After registration, log in
-      return await login(email, password)
+      // Registration successful - account is pending approval, don't auto-login
+      return { success: true, pending: true }
     } catch (error) {
       console.error('Customer registration error:', error)
       return {
@@ -151,7 +163,13 @@ export const CustomerAuthProvider = ({ children }) => {
     updateProfile,
     isAuthenticated: !!user,
     isBCLinked: !!user?.bc_customer_id,
-    isEmailVerified: user?.email_verified ?? false
+    isEmailVerified: user?.email_verified ?? false,
+    isDealer: user?.account_type === 'dealer',
+    isHomeBuilder: user?.account_type === 'home_builder',
+    accountType: user?.account_type || null,
+    accountStatus: user?.account_status || null,
+    companyName: user?.company_name || null,
+    phone: user?.phone || null
   }
 
   return (

@@ -20,6 +20,7 @@ import PartsCatalog from './components/customer/PartsCatalog'
 import SpringBuilder from './components/customer/SpringBuilder'
 import SpecialOrders from './components/customer/SpecialOrders'
 import PartsCart from './components/customer/PartsCart'
+import ProjectManager from './components/customer/ProjectManager'
 import { CartProvider } from './contexts/CartContext'
 
 // Create React Query client
@@ -70,6 +71,25 @@ function NotFoundRoute() {
   return <NotFound />
 }
 
+// Account-type gated route — redirects to dashboard if account type is not allowed
+function AccountGatedRoute({ allowed, children }) {
+  const { accountType, loading } = useCustomerAuth()
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-odc-600"></div>
+      </div>
+    )
+  }
+
+  if (!allowed.includes(accountType)) {
+    return <Navigate to="/" replace />
+  }
+
+  return children
+}
+
 // Public route - redirect to dashboard if already authenticated
 function CustomerPublicRoute({ children }) {
   const { isAuthenticated, loading } = useCustomerAuth()
@@ -111,10 +131,12 @@ function CustomerAppContent() {
         <Route path="saved-quotes" element={<SavedQuotes />} />
         <Route path="saved-quotes/new" element={<QuoteBuilder />} />
         <Route path="saved-quotes/:id" element={<QuoteBuilder />} />
-        <Route path="catalog" element={<PartsCatalog />} />
-        <Route path="spring-builder" element={<SpringBuilder />} />
-        <Route path="cart" element={<PartsCart />} />
-        <Route path="special-orders" element={<SpecialOrders />} />
+        <Route path="catalog" element={<AccountGatedRoute allowed={['dealer']}><PartsCatalog /></AccountGatedRoute>} />
+        <Route path="spring-builder" element={<AccountGatedRoute allowed={['dealer']}><SpringBuilder /></AccountGatedRoute>} />
+        <Route path="cart" element={<AccountGatedRoute allowed={['dealer']}><PartsCart /></AccountGatedRoute>} />
+        <Route path="special-orders" element={<AccountGatedRoute allowed={['dealer']}><SpecialOrders /></AccountGatedRoute>} />
+        <Route path="projects" element={<AccountGatedRoute allowed={['home_builder']}><ProjectManager /></AccountGatedRoute>} />
+        <Route path="projects/:id" element={<AccountGatedRoute allowed={['home_builder']}><ProjectManager /></AccountGatedRoute>} />
         <Route path="orders" element={<MyOrders />} />
         <Route path="orders/:id" element={<OrderDetail />} />
         <Route path="orders/:id/tracking" element={<OrderTracking />} />

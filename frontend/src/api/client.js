@@ -560,6 +560,23 @@ export const customersApi = {
     apiClient.patch(`/api/admin/customers/${customerId}/pricing-tier`, {
       pricing_tier: pricingTier,
     }),
+
+  // Pending registrations
+  getPendingRegistrations: () =>
+    apiClient.get('/api/admin/customers/pending'),
+
+  approveRegistration: (customerId, accountType) =>
+    apiClient.post(`/api/admin/customers/${customerId}/approve`, {
+      account_type: accountType,
+    }),
+
+  declineRegistration: (customerId) =>
+    apiClient.post(`/api/admin/customers/${customerId}/decline`),
+
+  changeAccountType: (customerId, accountType) =>
+    apiClient.patch(`/api/admin/customers/${customerId}/account-type`, {
+      account_type: accountType,
+    }),
 };
 
 // Catalog Builder API (Admin)
@@ -594,6 +611,17 @@ export const poAgentApi = {
   approveDraft: (draftId) => apiClient.post(`/api/admin/po-agent/drafts/${draftId}/approve`),
   rejectDraft: (draftId, data) => apiClient.post(`/api/admin/po-agent/drafts/${draftId}/reject`, data),
   getStats: () => apiClient.get('/api/admin/po-agent/stats'),
+};
+
+// Install Referrals API (Admin)
+export const installReferralsAdminApi = {
+  // List all install referrals (filterable by status)
+  list: (params = {}) =>
+    apiClient.get('/api/admin/install-referrals', { params }),
+
+  // Update an install referral
+  update: (id, data) =>
+    apiClient.patch(`/api/admin/install-referrals/${id}`, data),
 };
 
 export default apiClient;

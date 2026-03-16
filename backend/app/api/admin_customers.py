@@ -17,6 +17,7 @@ from app.db.models import User, UserRole, BCCustomer, SavedQuoteConfig, SalesOrd
 from app.services.auth_service import auth_service
 from app.services.bc_sync_service import bc_sync_service
 from app.integrations.bc.client import bc_client
+from app.services.notification_service import notification_service
 from app.config import settings
 
 router = APIRouter(prefix="/api/admin/customers", tags=["admin-customers"])
@@ -169,6 +170,27 @@ class BCCustomerSearchResponse(BaseModel):
     email: Optional[str]
     phone: Optional[str]
     already_linked: bool
+
+
+class PendingCustomerResponse(BaseModel):
+    id: int
+    email: str
+    name: Optional[str]
+    company_name: Optional[str]
+    phone: Optional[str]
+    account_type: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ApproveCustomerRequest(BaseModel):
+    account_type: str  # 'dealer' or 'home_builder'
+
+
+class UpdateAccountTypeRequest(BaseModel):
+    account_type: str  # 'dealer' or 'home_builder'
 
 
 # ============================================================================
@@ -384,6 +406,203 @@ def bulk_create_from_bc(
         "skipped_amazon": skipped_amazon,
         "created_customers": created_customers,
         "errors": errors
+    }
+
+
+@router.get("/pending", response_model=List[PendingCustomerResponse])
+def list_pending_customers(
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """List all customers with pending account status"""
+    pending = db.query(User).filter(
+        User.user_type == 'CUSTOMER',
+        User.account_status == 'pending'
+    ).order_by(User.created_at.desc()).all()
+
+    return [
+        PendingCustomerResponse(
+            id=c.id,
+            email=c.email,
+            name=c.name,
+            company_name=c.company_name,
+            phone=c.phone,
+            account_type=c.account_type,
+            created_at=c.created_at
+        )
+        for c in pending
+    ]
+
+
+@router.post("/{customer_id}/approve")
+def approve_customer(
+    customer_id: int,
+    approve_data: ApproveCustomerRequest,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Approve a pending customer registration"""
+    customer = db.query(User).filter(
+        User.id == customer_id,
+        User.user_type == 'CUSTOMER'
+    ).first()
+
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+
+    if customer.account_status != 'pending':
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Customer account is already '{customer.account_status}', not pending"
+        )
+
+    # Validate account_type
+    if approve_data.account_type not in ('dealer', 'home_builder'):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid account type. Must be 'dealer' or 'home_builder'"
+        )
+
+    customer.account_status = 'active'
+    customer.account_type = approve_data.account_type
+    customer.approved_by = current_admin.id
+    customer.approved_at = datetime.utcnow()
+    db.commit()
+    db.refresh(customer)
+
+    logger.info(f"Admin {current_admin.email} approved customer {customer.email} as {approve_data.account_type}")
+
+    # Send welcome email to customer
+    try:
+        verification_link = None
+        if not customer.email_verified and customer.email_verification_token:
+            verification_link = f"{settings.CUSTOMER_PORTAL_URL}#/verify-email/{customer.email_verification_token}"
+
+        notification_service.send_customer_welcome_email(
+            customer_email=customer.email,
+            customer_name=customer.name or "Customer",
+            verification_link=verification_link
+        )
+    except Exception as e:
+        logger.error(f"Failed to send welcome email to {customer.email}: {e}")
+
+    return {
+        "message": f"Customer {customer.email} approved successfully",
+        "customer_id": customer.id,
+        "account_type": customer.account_type,
+        "account_status": customer.account_status
+    }
+
+
+@router.post("/{customer_id}/decline")
+def decline_customer(
+    customer_id: int,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Decline a pending customer registration"""
+    customer = db.query(User).filter(
+        User.id == customer_id,
+        User.user_type == 'CUSTOMER'
+    ).first()
+
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+
+    if customer.account_status != 'pending':
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Customer account is already '{customer.account_status}', not pending"
+        )
+
+    customer.account_status = 'declined'
+    db.commit()
+    db.refresh(customer)
+
+    logger.info(f"Admin {current_admin.email} declined customer {customer.email}")
+
+    # Optionally send decline notification
+    try:
+        notification_service.send_email(
+            to_emails=[customer.email],
+            subject="OPENDC Portal - Account Application Update",
+            body=f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; max-width: 600px; margin: 0 auto;">
+                <div style="background-color: #2563eb; color: white; padding: 20px; text-align: center;">
+                    <h1 style="margin: 0;">OPENDC</h1>
+                    <p style="margin: 5px 0 0 0;">Customer Portal</p>
+                </div>
+                <div style="padding: 30px;">
+                    <h2 style="color: #1f2937;">Account Application Update</h2>
+                    <p>Hi {customer.name or 'Customer'},</p>
+                    <p>Thank you for your interest in the OPENDC Customer Portal. Unfortunately, we are unable to approve your account at this time.</p>
+                    <p>If you believe this is an error or would like more information, please contact us at support@opendc.com.</p>
+                    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
+                    <p style="color: #6b7280; font-size: 14px;">
+                        If you have any questions, please contact us at support@opendc.com
+                    </p>
+                </div>
+            </body>
+            </html>
+            """
+        )
+    except Exception as e:
+        logger.error(f"Failed to send decline notification to {customer.email}: {e}")
+
+    return {
+        "message": f"Customer {customer.email} declined",
+        "customer_id": customer.id,
+        "account_status": customer.account_status
+    }
+
+
+@router.patch("/{customer_id}/account-type")
+def update_customer_account_type(
+    customer_id: int,
+    update_data: UpdateAccountTypeRequest,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Update the account type for a customer (admin only)"""
+    customer = db.query(User).filter(
+        User.id == customer_id,
+        User.user_type == 'CUSTOMER'
+    ).first()
+
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+
+    # Validate account_type
+    if update_data.account_type not in ('dealer', 'home_builder'):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid account type. Must be 'dealer' or 'home_builder'"
+        )
+
+    old_type = customer.account_type
+    customer.account_type = update_data.account_type
+    db.commit()
+    db.refresh(customer)
+
+    logger.info(
+        f"Admin {current_admin.email} changed account type for "
+        f"{customer.email} from '{old_type}' to '{update_data.account_type}'"
+    )
+
+    return {
+        "message": f"Account type updated to '{update_data.account_type}'",
+        "customer_id": customer.id,
+        "account_type": customer.account_type
     }
 
 

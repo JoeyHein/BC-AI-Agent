@@ -3,7 +3,7 @@ import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
 import { useCart } from '../../contexts/CartContext'
 
 function CustomerLayout() {
-  const { user, logout, isBCLinked } = useCustomerAuth()
+  const { user, logout, isBCLinked, isDealer, isHomeBuilder } = useCustomerAuth()
   const { itemCount } = useCart()
   const navigate = useNavigate()
   const location = useLocation()
@@ -20,15 +20,22 @@ function CustomerLayout() {
     return location.pathname.startsWith('/' + path)
   }
 
-  const navItems = [
+  const allNavItems = [
     { path: '', label: 'Dashboard', icon: HomeIcon },
     { path: 'saved-quotes', label: 'My Quotes', icon: DocumentIcon },
-    { path: 'catalog', label: 'Catalog', icon: CatalogIcon },
-    { path: 'spring-builder', label: 'Spring Builder', icon: SpringIcon },
-    { path: 'cart', label: 'Cart', icon: ShoppingBagIcon, badge: true },
+    { path: 'catalog', label: 'Catalog', icon: CatalogIcon, dealerOnly: true },
+    { path: 'spring-builder', label: 'Spring Builder', icon: SpringIcon, dealerOnly: true },
+    { path: 'cart', label: 'Cart', icon: ShoppingBagIcon, badge: true, dealerOnly: true },
+    { path: 'projects', label: 'Projects', icon: ProjectIcon, homeBuilderOnly: true },
     { path: 'orders', label: 'Orders', icon: ShoppingCartIcon },
     { path: 'account', label: 'Account', icon: UserIcon },
   ]
+
+  const navItems = allNavItems.filter(item => {
+    if (item.dealerOnly && !isDealer) return false
+    if (item.homeBuilderOnly && !isHomeBuilder) return false
+    return true
+  })
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -149,6 +156,14 @@ function CatalogIcon({ className }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+    </svg>
+  )
+}
+
+function ProjectIcon({ className }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
     </svg>
   )
 }

@@ -2,9 +2,10 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
 import { savedQuotesApi, ordersApi, historyApi } from '../../api/customerClient'
+import { InstallReferralList } from './InstallReferralStatus'
 
 function CustomerDashboard() {
-  const { user, isBCLinked } = useCustomerAuth()
+  const { user, isBCLinked, isDealer, isHomeBuilder } = useCustomerAuth()
 
   // Fetch saved quotes
   const { data: savedQuotes, isLoading: quotesLoading } = useQuery({
@@ -61,38 +62,77 @@ function CustomerDashboard() {
 
       {/* Quick actions */}
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        <Link
-          to="saved-quotes/new"
-          className="bg-odc-600 hover:bg-odc-700 text-white rounded-lg p-6 shadow flex items-center justify-between"
-        >
-          <div>
-            <h3 className="text-lg font-semibold">Create New Quote</h3>
-            <p className="text-blue-100 text-sm mt-1">Configure a new door</p>
-          </div>
-          <PlusIcon className="h-8 w-8" />
-        </Link>
+        {isHomeBuilder ? (
+          <>
+            <Link
+              to="projects"
+              className="bg-odc-600 hover:bg-odc-700 text-white rounded-lg p-6 shadow flex items-center justify-between"
+            >
+              <div>
+                <h3 className="text-lg font-semibold">My Projects</h3>
+                <p className="text-blue-100 text-sm mt-1">Manage your builds</p>
+              </div>
+              <ProjectIcon className="h-8 w-8" />
+            </Link>
 
-        <Link
-          to="saved-quotes"
-          className="bg-white hover:bg-gray-50 text-gray-900 rounded-lg p-6 shadow border flex items-center justify-between"
-        >
-          <div>
-            <h3 className="text-lg font-semibold">My Quotes</h3>
-            <p className="text-gray-500 text-sm mt-1">{draftQuotes.length} drafts, {submittedQuotes.length} submitted</p>
-          </div>
-          <DocumentIcon className="h-8 w-8 text-gray-400" />
-        </Link>
+            <Link
+              to="saved-quotes/new"
+              className="bg-white hover:bg-gray-50 text-gray-900 rounded-lg p-6 shadow border flex items-center justify-between"
+            >
+              <div>
+                <h3 className="text-lg font-semibold">Create New Quote</h3>
+                <p className="text-gray-500 text-sm mt-1">Configure a new door</p>
+              </div>
+              <PlusIcon className="h-8 w-8 text-gray-400" />
+            </Link>
 
-        <Link
-          to="orders"
-          className="bg-white hover:bg-gray-50 text-gray-900 rounded-lg p-6 shadow border flex items-center justify-between"
-        >
-          <div>
-            <h3 className="text-lg font-semibold">Track Orders</h3>
-            <p className="text-gray-500 text-sm mt-1">{activeOrders.length} active orders</p>
-          </div>
-          <TruckIcon className="h-8 w-8 text-gray-400" />
-        </Link>
+            <Link
+              to="orders"
+              className="bg-white hover:bg-gray-50 text-gray-900 rounded-lg p-6 shadow border flex items-center justify-between"
+            >
+              <div>
+                <h3 className="text-lg font-semibold">Track Orders</h3>
+                <p className="text-gray-500 text-sm mt-1">{activeOrders.length} active orders</p>
+              </div>
+              <TruckIcon className="h-8 w-8 text-gray-400" />
+            </Link>
+          </>
+        ) : (
+          <>
+            <Link
+              to="saved-quotes/new"
+              className="bg-odc-600 hover:bg-odc-700 text-white rounded-lg p-6 shadow flex items-center justify-between"
+            >
+              <div>
+                <h3 className="text-lg font-semibold">Create New Quote</h3>
+                <p className="text-blue-100 text-sm mt-1">Configure a new door</p>
+              </div>
+              <PlusIcon className="h-8 w-8" />
+            </Link>
+
+            <Link
+              to="saved-quotes"
+              className="bg-white hover:bg-gray-50 text-gray-900 rounded-lg p-6 shadow border flex items-center justify-between"
+            >
+              <div>
+                <h3 className="text-lg font-semibold">My Quotes</h3>
+                <p className="text-gray-500 text-sm mt-1">{draftQuotes.length} drafts, {submittedQuotes.length} submitted</p>
+              </div>
+              <DocumentIcon className="h-8 w-8 text-gray-400" />
+            </Link>
+
+            <Link
+              to="orders"
+              className="bg-white hover:bg-gray-50 text-gray-900 rounded-lg p-6 shadow border flex items-center justify-between"
+            >
+              <div>
+                <h3 className="text-lg font-semibold">Track Orders</h3>
+                <p className="text-gray-500 text-sm mt-1">{activeOrders.length} active orders</p>
+              </div>
+              <TruckIcon className="h-8 w-8 text-gray-400" />
+            </Link>
+          </>
+        )}
       </div>
 
       {/* Stats cards */}
@@ -199,6 +239,9 @@ function CustomerDashboard() {
             )}
           </div>
         </div>
+
+        {/* Install referrals - home builders only */}
+        {isHomeBuilder && <InstallReferralList />}
       </div>
     </div>
   )
@@ -247,6 +290,14 @@ function DocumentIcon({ className }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
+  )
+}
+
+function ProjectIcon({ className }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
     </svg>
   )
 }
