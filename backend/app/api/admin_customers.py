@@ -109,6 +109,8 @@ class CustomerListResponse(BaseModel):
     name: Optional[str]
     is_active: bool
     email_verified: bool
+    account_type: Optional[str] = None
+    account_status: Optional[str] = None
     bc_customer_id: Optional[str]
     bc_company_name: Optional[str]
     bc_price_multiplier: Optional[float]
@@ -127,6 +129,10 @@ class CustomerDetailResponse(BaseModel):
     name: Optional[str]
     is_active: bool
     email_verified: bool
+    account_type: Optional[str] = None
+    account_status: Optional[str] = None
+    company_name: Optional[str] = None
+    phone: Optional[str] = None
     bc_customer_id: Optional[str]
     bc_company_name: Optional[str]
     bc_price_multiplier: Optional[float]
@@ -232,6 +238,8 @@ def list_customers(
             name=customer.name,
             is_active=customer.is_active,
             email_verified=customer.email_verified or False,
+            account_type=getattr(customer, 'account_type', None) or 'dealer',
+            account_status=getattr(customer, 'account_status', None) or 'active',
             bc_customer_id=customer.bc_customer_id,
             bc_company_name=bc_company_name,
             bc_price_multiplier=bc_price_multiplier,
@@ -693,6 +701,10 @@ def get_customer(
         name=customer.name,
         is_active=customer.is_active,
         email_verified=customer.email_verified or False,
+        account_type=getattr(customer, 'account_type', None) or 'dealer',
+        account_status=getattr(customer, 'account_status', None) or 'active',
+        company_name=getattr(customer, 'company_name', None),
+        phone=getattr(customer, 'phone', None),
         bc_customer_id=customer.bc_customer_id,
         bc_company_name=bc_company_name,
         bc_price_multiplier=bc_price_multiplier,
