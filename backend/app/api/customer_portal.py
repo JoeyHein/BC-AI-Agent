@@ -951,7 +951,7 @@ def _generate_bc_quote_with_items(
                         try:
                             added_install = bc_client.add_quote_line(bc_quote_id, {
                                 "lineType": "Item",
-                                "lineObjectNumber": "INSTALL",
+                                "lineObjectNumber": "INSTALLATION",
                                 "description": f"Installation - Door {i+1} ({tier})",
                                 "quantity": door_count,
                             })
@@ -998,7 +998,7 @@ def _generate_bc_quote_with_items(
                         try:
                             added_travel = bc_client.add_quote_line(bc_quote_id, {
                                 "lineType": "Item",
-                                "lineObjectNumber": "INSTALL",
+                                "lineObjectNumber": "INSTALLATION",
                                 "description": f"Travel - {install_town} (round trip)",
                                 "quantity": 1,
                             })
