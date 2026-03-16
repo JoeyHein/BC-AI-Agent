@@ -10,10 +10,10 @@ function InstallPricingPanel({ customerId }) {
     residential_small: '',
     residential_medium: '',
     residential_large: '',
-    commercial_base: '',
-    commercial_per_sqft: '',
+    commercial_base_rate: '',
+    commercial_sqft_rate: '',
     travel_rate_per_km: '',
-    max_auto_quote_height: 168,
+    max_auto_height: 168,
   })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -30,22 +30,21 @@ function InstallPricingPanel({ customerId }) {
     setError(null)
     try {
       const response = await customersApi.getInstallPricing(customerId)
-      const data = response.data
-      if (data && (data.residential_small !== undefined || data.residential_small !== null)) {
+      const data = response.data?.install_pricing
+      if (data) {
         setPricing({
           residential_small: data.residential_small ?? '',
           residential_medium: data.residential_medium ?? '',
           residential_large: data.residential_large ?? '',
-          commercial_base: data.commercial_base ?? '',
-          commercial_per_sqft: data.commercial_per_sqft ?? '',
+          commercial_base_rate: data.commercial_base_rate ?? '',
+          commercial_sqft_rate: data.commercial_sqft_rate ?? '',
           travel_rate_per_km: data.travel_rate_per_km ?? '',
-          max_auto_quote_height: data.max_auto_quote_height ?? 168,
+          max_auto_height: data.max_auto_height ?? 168,
         })
         setHasData(true)
       }
     } catch (err) {
       if (err.response?.status === 404) {
-        // No pricing set yet, that's fine
         setHasData(false)
       } else {
         setError('Failed to load install pricing')
@@ -73,10 +72,10 @@ function InstallPricingPanel({ customerId }) {
         residential_small: pricing.residential_small === '' ? null : pricing.residential_small,
         residential_medium: pricing.residential_medium === '' ? null : pricing.residential_medium,
         residential_large: pricing.residential_large === '' ? null : pricing.residential_large,
-        commercial_base: pricing.commercial_base === '' ? null : pricing.commercial_base,
-        commercial_per_sqft: pricing.commercial_per_sqft === '' ? null : pricing.commercial_per_sqft,
+        commercial_base_rate: pricing.commercial_base_rate === '' ? null : pricing.commercial_base_rate,
+        commercial_sqft_rate: pricing.commercial_sqft_rate === '' ? null : pricing.commercial_sqft_rate,
         travel_rate_per_km: pricing.travel_rate_per_km === '' ? null : pricing.travel_rate_per_km,
-        max_auto_quote_height: pricing.max_auto_quote_height || 168,
+        max_auto_height: pricing.max_auto_height || 168,
       })
       setSuccess('Install pricing saved')
       setHasData(true)
@@ -130,9 +129,7 @@ function InstallPricingPanel({ customerId }) {
             <div className="flex items-center">
               <span className="text-xs text-gray-400 mr-1">$</span>
               <input
-                type="number"
-                min="0"
-                step="0.01"
+                type="number" min="0" step="0.01"
                 value={pricing.residential_small}
                 onChange={(e) => handleChange('residential_small', e.target.value)}
                 placeholder="0.00"
@@ -145,9 +142,7 @@ function InstallPricingPanel({ customerId }) {
             <div className="flex items-center">
               <span className="text-xs text-gray-400 mr-1">$</span>
               <input
-                type="number"
-                min="0"
-                step="0.01"
+                type="number" min="0" step="0.01"
                 value={pricing.residential_medium}
                 onChange={(e) => handleChange('residential_medium', e.target.value)}
                 placeholder="0.00"
@@ -160,9 +155,7 @@ function InstallPricingPanel({ customerId }) {
             <div className="flex items-center">
               <span className="text-xs text-gray-400 mr-1">$</span>
               <input
-                type="number"
-                min="0"
-                step="0.01"
+                type="number" min="0" step="0.01"
                 value={pricing.residential_large}
                 onChange={(e) => handleChange('residential_large', e.target.value)}
                 placeholder="0.00"
@@ -182,11 +175,9 @@ function InstallPricingPanel({ customerId }) {
             <div className="flex items-center">
               <span className="text-xs text-gray-400 mr-1">$</span>
               <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={pricing.commercial_base}
-                onChange={(e) => handleChange('commercial_base', e.target.value)}
+                type="number" min="0" step="0.01"
+                value={pricing.commercial_base_rate}
+                onChange={(e) => handleChange('commercial_base_rate', e.target.value)}
                 placeholder="0.00"
                 className="w-full border border-gray-300 rounded-md shadow-sm py-1 px-2 text-sm focus:outline-none focus:ring-odc-500 focus:border-odc-500"
               />
@@ -197,11 +188,9 @@ function InstallPricingPanel({ customerId }) {
             <div className="flex items-center">
               <span className="text-xs text-gray-400 mr-1">$</span>
               <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={pricing.commercial_per_sqft}
-                onChange={(e) => handleChange('commercial_per_sqft', e.target.value)}
+                type="number" min="0" step="0.01"
+                value={pricing.commercial_sqft_rate}
+                onChange={(e) => handleChange('commercial_sqft_rate', e.target.value)}
                 placeholder="0.00"
                 className="w-full border border-gray-300 rounded-md shadow-sm py-1 px-2 text-sm focus:outline-none focus:ring-odc-500 focus:border-odc-500"
               />
@@ -219,9 +208,7 @@ function InstallPricingPanel({ customerId }) {
             <div className="flex items-center">
               <span className="text-xs text-gray-400 mr-1">$</span>
               <input
-                type="number"
-                min="0"
-                step="0.01"
+                type="number" min="0" step="0.01"
                 value={pricing.travel_rate_per_km}
                 onChange={(e) => handleChange('travel_rate_per_km', e.target.value)}
                 placeholder="0.00"
@@ -232,11 +219,9 @@ function InstallPricingPanel({ customerId }) {
           <div>
             <label className="block text-xs text-gray-500 mb-0.5">Max auto-quote height (inches)</label>
             <input
-              type="number"
-              min="0"
-              step="1"
-              value={pricing.max_auto_quote_height}
-              onChange={(e) => handleChange('max_auto_quote_height', e.target.value)}
+              type="number" min="0" step="1"
+              value={pricing.max_auto_height}
+              onChange={(e) => handleChange('max_auto_height', e.target.value)}
               placeholder="168"
               className="w-full border border-gray-300 rounded-md shadow-sm py-1 px-2 text-sm focus:outline-none focus:ring-odc-500 focus:border-odc-500"
             />
