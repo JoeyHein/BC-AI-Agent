@@ -1357,6 +1357,7 @@ def get_pricing_for_saved_quote(
                 db=db,
                 po_number=(config.config_data or {}).get("poNumber"),
                 delivery_type=delivery_type,
+                customer_user_id=current_user.id,
             )
 
             # Store BC quote reference (but NOT submitted)
@@ -1503,6 +1504,7 @@ def refresh_pricing_for_saved_quote(
                 db=db,
                 po_number=(config.config_data or {}).get("poNumber"),
                 delivery_type=delivery_type,
+                customer_user_id=current_user.id,
             )
 
             config.bc_quote_id = result["bc_quote_id"]
