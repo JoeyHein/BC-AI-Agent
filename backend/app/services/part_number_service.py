@@ -2325,9 +2325,9 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         door_count=config_dict.get("doorCount", 1),
         panel_color=config_dict.get("panelColor", "WHITE"),
         panel_design=config_dict.get("panelDesign", "SHXL"),
-        window_insert=config_dict.get("windowInsert"),
+        window_insert=config_dict.get("windowInsert") if config_dict.get("hasWindows", True) else None,
         window_section=config_dict.get("windowSection"),
-        window_qty=config_dict.get("windowQty", 0),
+        window_qty=config_dict.get("windowQty", 0) if config_dict.get("hasWindows", True) else 0,
         window_panels=_parse_window_panels(config_dict.get("windowPanels")),
         window_frame_color=config_dict.get("windowFrameColor", "BLACK"),
         glazing_type=config_dict.get("glazingType"),
@@ -2345,7 +2345,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         target_cycles=config_dict.get("targetCycles", config_dict.get("target_cycles", 10000)),
         shaft_preference=config_dict.get("shaftType", "auto"),
         window_size=config_dict.get("windowSize", "long"),
-        window_count=len(config_dict.get("windowPositions", [])) or config_dict.get("windowCount", 0),
+        window_count=(len(config_dict.get("windowPositions", [])) or config_dict.get("windowCount", 0)) if config_dict.get("hasWindows", True) else 0,
         spring_inventory=spring_inventory,
     )
 
