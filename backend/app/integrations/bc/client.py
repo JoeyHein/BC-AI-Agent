@@ -918,7 +918,7 @@ class BusinessCentralClient:
         cid = company_id or self.company_id
         result = self._make_request(
             "GET",
-            f"companies({cid})/salesQuotes?$filter=customerId eq '{bc_customer_id}'&$top={top}&$orderby=documentDate desc"
+            f"companies({cid})/salesQuotes?$filter=customerId eq {bc_customer_id}&$top={top}&$orderby=documentDate desc"
         )
         return result.get("value", [])
 
@@ -937,7 +937,7 @@ class BusinessCentralClient:
         cid = company_id or self.company_id
         result = self._make_request(
             "GET",
-            f"companies({cid})/salesOrders?$filter=customerId eq '{bc_customer_id}'&$top={top}&$orderby=orderDate desc"
+            f"companies({cid})/salesOrders?$filter=customerId eq {bc_customer_id}&$top={top}&$orderby=orderDate desc"
         )
         return result.get("value", [])
 
@@ -956,7 +956,7 @@ class BusinessCentralClient:
         cid = company_id or self.company_id
         result = self._make_request(
             "GET",
-            f"companies({cid})/salesInvoices?$filter=customerId eq '{bc_customer_id}'&$top={top}&$orderby=invoiceDate desc"
+            f"companies({cid})/salesInvoices?$filter=customerId eq {bc_customer_id}&$top={top}&$orderby=invoiceDate desc"
         )
         return result.get("value", [])
 
@@ -977,7 +977,7 @@ class BusinessCentralClient:
         # This filters by sellToCustomerNumber if available
         result = self._make_request(
             "GET",
-            f"companies({cid})/salesShipments?$filter=customerId eq '{bc_customer_id}'&$top={top}&$orderby=shipmentDate desc"
+            f"companies({cid})/salesShipments?$filter=customerId eq {bc_customer_id}&$top={top}&$orderby=shipmentDate desc"
         )
         return result.get("value", [])
 
