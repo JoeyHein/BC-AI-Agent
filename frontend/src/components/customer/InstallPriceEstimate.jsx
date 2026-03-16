@@ -10,8 +10,8 @@ import { installPricingApi } from '../../api/customerClient'
  *   doorHeightInches - door height in inches
  *   doorType         - 'residential' or 'commercial'
  */
-function InstallPriceEstimate({ doorWidthInches, doorHeightInches, doorType }) {
-  const [town, setTown] = useState('')
+function InstallPriceEstimate({ doorWidthInches, doorHeightInches, doorType, town: externalTown, onTownChange }) {
+  const [town, setTown] = useState(externalTown || '')
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -85,7 +85,7 @@ function InstallPriceEstimate({ doorWidthInches, doorHeightInches, doorType }) {
         <input
           type="text"
           value={town}
-          onChange={(e) => setTown(e.target.value)}
+          onChange={(e) => { setTown(e.target.value); onTownChange?.(e.target.value); }}
           placeholder="e.g., Calgary, Lethbridge, Brooks..."
           className="block w-full md:w-64 border border-gray-300 rounded-md shadow-sm py-1.5 px-3 text-sm focus:outline-none focus:ring-odc-500 focus:border-odc-500"
         />
