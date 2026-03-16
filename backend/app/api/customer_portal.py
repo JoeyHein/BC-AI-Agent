@@ -2286,6 +2286,16 @@ class SpringLookupRequest(BaseModel):
     spring_length: Optional[float] = None
 
 
+class SpringConversionRequest(BaseModel):
+    current_wire: float
+    current_coil: float
+    current_length: float
+    current_spring_qty: int = 1
+    replacement_spring_qty: int = 1
+    replacement_coil: Optional[float] = None
+    replacement_wire: Optional[float] = None
+
+
 class SpecialOrderSubmit(BaseModel):
     wire_diameter: float
     coil_diameter: float
@@ -2360,6 +2370,27 @@ def get_available_drums(
     from app.services.spring_builder_service import spring_builder_service
 
     return spring_builder_service.get_drum_list(lift_type)
+
+
+@router.post("/spring-builder/convert")
+def spring_builder_convert(
+    body: SpringConversionRequest,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db),
+):
+    """Convert current spring specs to replacement spring specs."""
+    from app.services.spring_builder_service import spring_builder_service
+
+    return spring_builder_service.convert_spring(
+        db=db,
+        current_wire=body.current_wire,
+        current_coil=body.current_coil,
+        current_length=body.current_length,
+        current_spring_qty=body.current_spring_qty,
+        replacement_spring_qty=body.replacement_spring_qty,
+        replacement_coil=body.replacement_coil,
+        replacement_wire=body.replacement_wire,
+    )
 
 
 @router.post("/spring-builder/lookup")

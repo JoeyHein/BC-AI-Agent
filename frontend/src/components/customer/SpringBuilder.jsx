@@ -50,6 +50,7 @@ const CYCLE_OPTIONS = [
 
 const TABS = [
   { id: 'engineering', label: 'Spring Engineering' },
+  { id: 'conversion', label: 'Conversion' },
   { id: 'direct', label: 'Buy by Spring Size' },
 ];
 
@@ -182,6 +183,18 @@ export default function SpringBuilder() {
     quantity: 2,
   });
 
+  // Conversion form state
+  const [convForm, setConvForm] = useState({
+    current_wire: 0.2180,
+    current_coil: 2.0,
+    current_length: '',
+    current_spring_qty: 1,
+    replacement_spring_qty: 1,
+    replacement_coil: '',
+    replacement_wire: '',
+  });
+  const [convResult, setConvResult] = useState(null);
+
   // Shared state
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -225,6 +238,45 @@ export default function SpringBuilder() {
   function handleDirectChange(e) {
     const { name, value } = e.target;
     setDirectForm(prev => ({ ...prev, [name]: value }));
+  }
+
+  function handleConvChange(e) {
+    const { name, value } = e.target;
+    setConvForm(prev => ({ ...prev, [name]: value }));
+  }
+
+  async function handleConvert(e) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setConvResult(null);
+    setResult(null);
+    setOrderSuccess(null);
+    setSelectedSprings({ lh: true, rh: true });
+    setCartAdded(false);
+    try {
+      const payload = {
+        current_wire: parseFloat(convForm.current_wire),
+        current_coil: parseFloat(convForm.current_coil),
+        current_length: parseFloat(convForm.current_length),
+        current_spring_qty: parseInt(convForm.current_spring_qty),
+        replacement_spring_qty: parseInt(convForm.replacement_spring_qty),
+      };
+      if (convForm.replacement_coil) payload.replacement_coil = parseFloat(convForm.replacement_coil);
+      if (convForm.replacement_wire) payload.replacement_wire = parseFloat(convForm.replacement_wire);
+
+      const res = await springBuilderApi.convert(payload);
+      setConvResult(res.data);
+      if (res.data.springs) {
+        setResult(res.data); // for catalog match display
+      }
+      if (!res.data.success) {
+        setError(res.data.error);
+      }
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Conversion failed');
+    }
+    setLoading(false);
   }
 
   async function handleCalculate(e) {
@@ -336,6 +388,7 @@ export default function SpringBuilder() {
 
   function handleClear() {
     setResult(null);
+    setConvResult(null);
     setError(null);
     setOrderSuccess(null);
     setCartAdded(false);
@@ -350,7 +403,7 @@ export default function SpringBuilder() {
   const calc = result?.calculation;
   const specs = result?.specs;
   const hasResult = result?.success;
-  const springLen = calc?.length || specs?.length || parseFloat(directForm.spring_length) || null;
+  const springLen = calc?.length || result?.replacement?.length || specs?.length || parseFloat(directForm.spring_length) || null;
   const canAddToCart = hasResult && (
     (selectedSprings.lh && result?.springs?.lh?.matched) ||
     (selectedSprings.rh && result?.springs?.rh?.matched)
@@ -546,6 +599,7 @@ export default function SpringBuilder() {
                     <div className="bg-gray-50 rounded-lg p-3">
                       <ResultRow label="Turns" value={calc.turns} />
                       <ResultRow label="TIPPT" value={calc.ippt} />
+                      <ResultRow label="Multiplier" value={calc.multiplier} />
                       <ResultRow label="MIP/Spring" value={calc.mip_per_spring} />
                       <ResultRow label="Cycles" value={calc.cycle_life?.toLocaleString()} />
                       <ResultRow label="Drum" value={calc.drum_model} />
@@ -559,12 +613,161 @@ export default function SpringBuilder() {
                       <ResultRow label="Wire" value={formatWire(calc.wire_diameter)} unit='"' />
                       <ResultRow label="I.D." value={coilLabel(calc.coil_diameter)} unit='"' />
                       <ResultRow label="Length" value={calc.length} unit='"' />
+                      <ResultRow label="Weight" value={calc.weight} unit=' lbs' />
                       <ResultRow label="Qty" value={calc.spring_quantity} />
                       {calc.cable_length && <ResultRow label="Cable Length" value={calc.cable_length} unit='"' />}
                     </div>
                   </div>
                 </div>
               )}
+            </Panel>
+          </div>
+        </form>
+      )}
+
+      {/* ================================================================== */}
+      {/* TAB: Conversion */}
+      {/* ================================================================== */}
+      {activeTab === 'conversion' && (
+        <form onSubmit={handleConvert}>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+            {/* Current Spring */}
+            <Panel title="Current Spring" className="lg:col-span-1">
+              <div className="space-y-3">
+                <FieldGroup label="Number of springs">
+                  <select name="current_spring_qty" value={convForm.current_spring_qty} onChange={handleConvChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                  </select>
+                </FieldGroup>
+
+                <FieldGroup label="I.D. (Coil Diameter)">
+                  <select name="current_coil" value={convForm.current_coil} onChange={handleConvChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    {COIL_SIZES.map(s => (
+                      <option key={s.value} value={s.value}>{s.label}</option>
+                    ))}
+                  </select>
+                </FieldGroup>
+
+                <FieldGroup label="Wire Size">
+                  <select name="current_wire" value={convForm.current_wire} onChange={handleConvChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    {WIRE_SIZES.map(s => (
+                      <option key={s.value} value={s.value}>{s.label}</option>
+                    ))}
+                  </select>
+                </FieldGroup>
+
+                <FieldGroup label="Length (inches)">
+                  <input type="number" name="current_length" value={convForm.current_length} onChange={handleConvChange}
+                    required min="1" step="0.25" placeholder="e.g. 24"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                </FieldGroup>
+
+                {/* Show computed values if we have a result */}
+                {convResult?.success && convResult.current && (
+                  <div className="mt-2 bg-gray-50 rounded-lg p-3">
+                    <ResultRow label="Active Coils" value={convResult.current.active_coils} />
+                    <ResultRow label="IPPT" value={convResult.current.ippt} />
+                    {convResult.current.max_turns && <ResultRow label="Max Turns" value={convResult.current.max_turns} />}
+                    {convResult.current.mip_capacity?.['10k'] && <ResultRow label="MIP (10K)" value={convResult.current.mip_capacity['10k']} />}
+                    {convResult.current.weight > 0 && <ResultRow label="Weight" value={convResult.current.weight} unit=" lbs" />}
+                  </div>
+                )}
+              </div>
+            </Panel>
+
+            {/* Replacement Spring */}
+            <Panel title="Replacement Spring" className="lg:col-span-1">
+              <div className="space-y-3">
+                <FieldGroup label="Number of springs">
+                  <select name="replacement_spring_qty" value={convForm.replacement_spring_qty} onChange={handleConvChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                  </select>
+                </FieldGroup>
+
+                <FieldGroup label="I.D. (Coil Diameter)">
+                  <select name="replacement_coil" value={convForm.replacement_coil} onChange={handleConvChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">Same as current</option>
+                    {COIL_SIZES.map(s => (
+                      <option key={s.value} value={s.value}>{s.label}</option>
+                    ))}
+                  </select>
+                </FieldGroup>
+
+                <FieldGroup label="Wire Size">
+                  <select name="replacement_wire" value={convForm.replacement_wire} onChange={handleConvChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">Auto (closest match)</option>
+                    {WIRE_SIZES.map(s => (
+                      <option key={s.value} value={s.value}>{s.label}</option>
+                    ))}
+                  </select>
+                </FieldGroup>
+
+                {/* Show computed replacement values */}
+                {convResult?.success && convResult.replacement && (
+                  <div className="mt-2 space-y-2">
+                    <div className="bg-blue-50 rounded-lg p-3">
+                      <ResultRow label="Wire" value={formatWire(convResult.replacement.wire_diameter)} unit='"' />
+                      <ResultRow label="I.D." value={coilLabel(convResult.replacement.coil_diameter)} unit='"' />
+                      <ResultRow label="Length" value={convResult.replacement.length} unit='"' />
+                      <ResultRow label="Active Coils" value={convResult.replacement.active_coils} />
+                      <ResultRow label="IPPT" value={convResult.replacement.ippt} />
+                      {convResult.replacement.max_turns && <ResultRow label="Max Turns" value={convResult.replacement.max_turns} />}
+                      {convResult.replacement.mip_capacity?.['10k'] && <ResultRow label="MIP (10K)" value={convResult.replacement.mip_capacity['10k']} />}
+                      {convResult.replacement.weight > 0 && <ResultRow label="Weight" value={convResult.replacement.weight} unit=" lbs" />}
+                    </div>
+                  </div>
+                )}
+
+                {/* Calculate / Clear buttons */}
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="submit"
+                    disabled={loading || !convForm.current_length}
+                    className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-semibold text-sm transition-colors"
+                  >
+                    {loading ? 'Converting...' : 'Convert'}
+                  </button>
+                  <button type="button" onClick={handleClear}
+                    className="px-4 py-2.5 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 text-sm font-medium transition-colors">
+                    Clear
+                  </button>
+                </div>
+              </div>
+            </Panel>
+
+            {/* Verify Door Width */}
+            <Panel title="Verify Door Width" className="lg:col-span-1">
+              {!convResult?.success ? (
+                <div className="text-center py-8 text-gray-400 text-sm">
+                  Enter current spring specs and click Convert
+                </div>
+              ) : convResult.min_door_widths ? (
+                <div className="space-y-1">
+                  <p className="text-xs text-gray-500 mb-3">Minimum door width for replacement spring at each quantity:</p>
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    {Object.entries(convResult.min_door_widths).map(([qty, width]) => (
+                      <ResultRow key={qty} label={`${qty} spring${qty > 1 ? 's' : ''}`} value={`${width}"`} />
+                    ))}
+                  </div>
+                  <div className="mt-3 p-3 bg-blue-50 rounded-lg text-xs text-blue-700">
+                    <strong>Note:</strong> These are estimates based on typical component widths.
+                    Always verify against actual shaft layout.
+                  </div>
+                </div>
+              ) : null}
             </Panel>
           </div>
         </form>

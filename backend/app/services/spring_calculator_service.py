@@ -51,6 +51,31 @@ def get_data_path() -> Path:
 
 
 # ============================================================================
+# SPRING WEIGHT TABLE (Appendix 4)
+# Weight per inch by wire diameter and coil diameter
+# ============================================================================
+
+def _load_spring_weights() -> Dict[float, Dict[float, float]]:
+    """Load spring weight (lb/inch) from JSON file."""
+    for base in [BUNDLED_DATA, LOCAL_DATA, SPRING_CALC_DATA]:
+        path = base / "reference" / "spring-weights.json"
+        if path.exists():
+            with open(path) as f:
+                raw = json.load(f)
+            table = {}
+            for entry in raw.get("entries", []):
+                wire = entry["wireDiameter"]
+                table[wire] = {}
+                for coil_str, weight in entry.get("weightByCoilDiameter", {}).items():
+                    table[wire][float(coil_str)] = weight
+            return table
+    logger.warning("Spring weights data not found")
+    return {}
+
+SPRING_WEIGHTS = _load_spring_weights()
+
+
+# ============================================================================
 # CANIMEX APPENDIX 2 - DIVIDER AND DEAD COIL FACTOR TABLE
 # Exact values from Page 96 of Canimex Cable Drum Catalog
 # ============================================================================
@@ -321,12 +346,15 @@ class SpringResult:
     cycle_life: int
     drum_model: str
     multiplier: float
+    weight: float = 0.0
     part_number: str = ""
 
     def __post_init__(self):
-        """Generate part number after initialization."""
+        """Generate part number and calculate weight after initialization."""
         if not self.part_number:
             self.part_number = self._generate_part_number()
+        if self.weight == 0.0:
+            self.weight = calculate_spring_weight(self.wire_diameter, self.coil_diameter, self.length)
 
     def _generate_part_number(self) -> str:
         """Generate BC part number for spring."""
@@ -335,6 +363,38 @@ class SpringResult:
         coil_code = f"{int(self.coil_diameter)}"
         length_code = f"{int(self.length)}"
         return f"SP-{wire_code}-{coil_code}-{length_code}"
+
+
+def calculate_spring_weight(wire_diameter: float, coil_diameter: float, length: float) -> float:
+    """
+    Calculate spring weight in lbs from material properties.
+
+    Uses the physics formula matching SSC Spring Engineering:
+    - Total coils = length / wire_diameter
+    - Weight per coil = wire_cross_section × coil_circumference × steel_density
+    - Total weight = total_coils × weight_per_coil
+
+    Simplified: weight = length × π² × wire_diameter × (coil_ID + wire_diameter) × steel_density / 4
+
+    Steel density: 0.2836 lb/in³ (music wire / oil-tempered spring wire)
+    """
+    import math
+
+    if length <= 0 or wire_diameter <= 0 or coil_diameter <= 0:
+        return 0.0
+
+    STEEL_DENSITY = 0.2836  # lb/in³
+
+    mean_coil_diameter = coil_diameter + wire_diameter  # ID + wire = mean diameter
+    weight = (
+        length
+        * math.pi ** 2
+        * wire_diameter
+        * mean_coil_diameter
+        * STEEL_DENSITY
+        / 4.0
+    )
+    return round(weight, 2)
 
 
 @dataclass
@@ -770,6 +830,171 @@ class SpringCalculatorService:
         return None
 
 
+    def calculate_conversion(
+        self,
+        current_wire: float,
+        current_coil: float,
+        current_length: float,
+        current_spring_qty: int = 1,
+        replacement_spring_qty: int = 1,
+        replacement_coil: float = None,
+        replacement_wire: float = None,
+    ) -> Dict[str, Any]:
+        """
+        Convert current spring specs to replacement spring specs.
+
+        Given an existing spring (wire, coil, length), reverse-engineers the IPPT
+        then calculates what a replacement spring would look like with potentially
+        different quantity, coil size, or wire size.
+
+        Returns both current and replacement spring analysis.
+        """
+        # Normalize wire to closest Canimex value
+        norm_wire = normalize_wire_diameter(current_wire)
+
+        # Get divider for current spring
+        divider = self.get_divider(norm_wire, current_coil)
+        if divider is None:
+            return {"success": False, "error": f"No data for {current_wire}\" wire at {current_coil}\" coil"}
+
+        # Get dead coil factor for current spring
+        dcf = self.get_dead_coil_factor(norm_wire, current_coil)
+
+        # Reverse-calculate active coils from length
+        active_coils = current_length - dcf
+        if active_coils <= 0:
+            return {"success": False, "error": "Spring length is too short for this wire/coil combination"}
+
+        # Reverse-calculate IPPT: active_coils = (qty × divider) / IPPT  =>  IPPT = (qty × divider) / active_coils
+        ippt = (current_spring_qty * divider) / active_coils
+
+        # Get MIP and max turns for current spring from MIP table
+        current_mip_10k = self.get_mip_capacity(norm_wire, 10000)
+        current_mip_15k = self.get_mip_capacity(norm_wire, 15000)
+        current_mip_25k = self.get_mip_capacity(norm_wire, 25000)
+
+        # Estimate max turns: MIP = (IPPT × Turns) / qty  =>  Turns = (MIP × qty) / IPPT
+        current_max_turns = None
+        if current_mip_10k and ippt > 0:
+            current_max_turns = round((current_mip_10k * current_spring_qty) / ippt, 1)
+
+        # Current spring weight
+        current_weight = calculate_spring_weight(norm_wire, current_coil, current_length)
+
+        # Build current spring analysis
+        current_analysis = {
+            "wire_diameter": norm_wire,
+            "coil_diameter": current_coil,
+            "length": current_length,
+            "active_coils": round(active_coils, 2),
+            "ippt": round(ippt, 2),
+            "spring_quantity": current_spring_qty,
+            "max_turns": current_max_turns,
+            "weight": current_weight,
+            "mip_capacity": {
+                "10k": current_mip_10k,
+                "15k": current_mip_15k,
+                "25k": current_mip_25k,
+            },
+        }
+
+        # Calculate replacement spring
+        repl_coil = replacement_coil if replacement_coil else current_coil
+        replacement = None
+
+        if replacement_wire:
+            # Specific wire requested - calculate length for that wire
+            norm_repl_wire = normalize_wire_diameter(replacement_wire)
+            repl_divider = self.get_divider(norm_repl_wire, repl_coil)
+            if repl_divider:
+                repl_active = (replacement_spring_qty * repl_divider) / ippt
+                repl_dcf = self.get_dead_coil_factor(norm_repl_wire, repl_coil)
+                repl_length = repl_active + repl_dcf
+                repl_weight = calculate_spring_weight(norm_repl_wire, repl_coil, repl_length)
+                repl_mip_10k = self.get_mip_capacity(norm_repl_wire, 10000)
+                repl_mip_15k = self.get_mip_capacity(norm_repl_wire, 15000)
+                repl_mip_25k = self.get_mip_capacity(norm_repl_wire, 25000)
+                repl_max_turns = None
+                if repl_mip_10k and ippt > 0:
+                    repl_max_turns = round((repl_mip_10k * replacement_spring_qty) / ippt, 1)
+
+                replacement = {
+                    "wire_diameter": norm_repl_wire,
+                    "coil_diameter": repl_coil,
+                    "length": round(repl_length, 2),
+                    "active_coils": round(repl_active, 2),
+                    "ippt": round(ippt, 2),
+                    "spring_quantity": replacement_spring_qty,
+                    "max_turns": repl_max_turns,
+                    "weight": repl_weight,
+                    "mip_capacity": {
+                        "10k": repl_mip_10k,
+                        "15k": repl_mip_15k,
+                        "25k": repl_mip_25k,
+                    },
+                }
+        else:
+            # Auto-select: find all viable wire sizes for the replacement coil
+            # Return the one closest in length to the current spring
+            candidates = []
+            for wire_diam in sorted(self.dividers.keys()):
+                if repl_coil not in self.dividers.get(wire_diam, {}):
+                    continue
+                repl_divider = self.dividers[wire_diam][repl_coil]
+                repl_active = (replacement_spring_qty * repl_divider) / ippt
+                repl_dcf = self.get_dead_coil_factor(wire_diam, repl_coil)
+                repl_length = repl_active + repl_dcf
+                repl_weight = calculate_spring_weight(wire_diam, repl_coil, repl_length)
+                repl_mip_10k = self.get_mip_capacity(wire_diam, 10000)
+                repl_mip_15k = self.get_mip_capacity(wire_diam, 15000)
+                repl_mip_25k = self.get_mip_capacity(wire_diam, 25000)
+                repl_max_turns = None
+                if repl_mip_10k and ippt > 0:
+                    repl_max_turns = round((repl_mip_10k * replacement_spring_qty) / ippt, 1)
+
+                candidates.append({
+                    "wire_diameter": wire_diam,
+                    "coil_diameter": repl_coil,
+                    "length": round(repl_length, 2),
+                    "active_coils": round(repl_active, 2),
+                    "ippt": round(ippt, 2),
+                    "spring_quantity": replacement_spring_qty,
+                    "max_turns": repl_max_turns,
+                    "weight": repl_weight,
+                    "mip_capacity": {
+                        "10k": repl_mip_10k,
+                        "15k": repl_mip_15k,
+                        "25k": repl_mip_25k,
+                    },
+                })
+
+            if candidates:
+                # Pick closest in length to current
+                replacement = min(candidates, key=lambda c: abs(c["length"] - current_length))
+
+        # Calculate minimum door widths for different spring quantities
+        min_door_widths = {}
+        for qty in [1, 2, 3, 4]:
+            # Rough estimate: 2 drums (10") + 2 end plates (5") + qty springs + qty winders + gaps
+            repl = replacement or current_analysis
+            spring_len = repl["length"]
+            drum_total = 10.0
+            end_plates = 5.0
+            winder_per = 3.0
+            gap = 0.25 * (4 + qty * 2)
+            min_width = drum_total + end_plates + (qty * spring_len) + (qty * winder_per) + gap
+            min_door_widths[qty] = round(min_width, 1)
+
+        return {
+            "success": True,
+            "current": current_analysis,
+            "replacement": replacement,
+            "all_candidates": candidates if not replacement_wire else None,
+            "min_door_widths": min_door_widths,
+            "ippt": round(ippt, 2),
+        }
+
+
 # Global instance
 spring_calculator = SpringCalculatorService()
 
@@ -832,6 +1057,7 @@ def calculate_spring_for_door(
         "cycle_life": result.cycle_life,
         "drum_model": result.drum_model,
         "multiplier": result.multiplier,
+        "weight": result.weight,
         "part_number": result.part_number
     }
 

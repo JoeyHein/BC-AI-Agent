@@ -11,7 +11,7 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 
 from app.db.models import Part, SpecialOrderRequest, User
-from app.services.spring_calculator_service import SpringCalculatorService, SpringResult
+from app.services.spring_calculator_service import SpringCalculatorService, SpringResult, calculate_spring_weight
 from app.services.bc_part_number_mapper import BCPartNumberMapper
 
 logger = logging.getLogger(__name__)
@@ -217,6 +217,8 @@ class SpringBuilderService:
             "spring_quantity": result.spring_quantity,
             "cycle_life": result.cycle_life,
             "drum_model": result.drum_model,
+            "multiplier": result.multiplier,
+            "weight": result.weight,
             "pitch": round(result.wire_diameter, 4),
             "cable_length": cable_length,
         }
@@ -438,6 +440,73 @@ class SpringBuilderService:
                     })
 
         return alternatives[:limit]
+
+    def convert_spring(
+        self,
+        db: Session,
+        current_wire: float,
+        current_coil: float,
+        current_length: float,
+        current_spring_qty: int = 1,
+        replacement_spring_qty: int = 1,
+        replacement_coil: float = None,
+        replacement_wire: float = None,
+    ) -> dict:
+        """
+        Convert current spring specs to replacement spring specs,
+        with catalog matching for the replacement.
+        """
+        result = calculator.calculate_conversion(
+            current_wire=current_wire,
+            current_coil=current_coil,
+            current_length=current_length,
+            current_spring_qty=current_spring_qty,
+            replacement_spring_qty=replacement_spring_qty,
+            replacement_coil=replacement_coil,
+            replacement_wire=replacement_wire,
+        )
+
+        if not result.get("success"):
+            return result
+
+        # Match replacement to catalog if we have a replacement
+        repl = result.get("replacement")
+        if repl:
+            lh_part = mapper.get_spring_part_number(repl["wire_diameter"], repl["coil_diameter"], "LH")
+            rh_part = mapper.get_spring_part_number(repl["wire_diameter"], repl["coil_diameter"], "RH")
+
+            lh_match = self._match_sku(db, lh_part.part_number)
+            rh_match = self._match_sku(db, rh_part.part_number)
+
+            if not lh_match:
+                lh_match, stepped_pn = self._try_step_up_wire(db, repl["wire_diameter"], repl["coil_diameter"], "LH")
+                if stepped_pn:
+                    lh_part.part_number = stepped_pn
+            if not rh_match:
+                rh_match, stepped_pn = self._try_step_up_wire(db, repl["wire_diameter"], repl["coil_diameter"], "RH")
+                if stepped_pn:
+                    rh_part.part_number = stepped_pn
+
+            result["springs"] = {
+                "lh": {
+                    "part_number": lh_part.part_number,
+                    "description": lh_part.description,
+                    "matched": lh_match is not None,
+                    "catalog_id": lh_match.id if lh_match else None,
+                    "price": float(lh_match.retail_price) if lh_match and lh_match.retail_price else None,
+                },
+                "rh": {
+                    "part_number": rh_part.part_number,
+                    "description": rh_part.description,
+                    "matched": rh_match is not None,
+                    "catalog_id": rh_match.id if rh_match else None,
+                    "price": float(rh_match.retail_price) if rh_match and rh_match.retail_price else None,
+                },
+            }
+            result["cone_sets"] = self._resolve_cone_sets(repl["coil_diameter"])
+            result["special_order_needed"] = not lh_match and not rh_match
+
+        return result
 
     def get_drum_list(self, lift_type: str) -> list:
         """Return available drum models for a given lift type."""
