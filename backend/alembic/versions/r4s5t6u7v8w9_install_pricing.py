@@ -34,6 +34,10 @@ def _table_exists(table_name):
 
 def upgrade() -> None:
     if not _table_exists('customer_install_pricing'):
+        # Drop orphaned sequence from any previous failed migration attempt (PostgreSQL only)
+        bind = op.get_bind()
+        if bind.dialect.name != 'sqlite':
+            bind.execute(sa.text("DROP SEQUENCE IF EXISTS customer_install_pricing_id_seq CASCADE"))
         op.create_table(
             'customer_install_pricing',
             sa.Column('id', sa.Integer(), nullable=False, autoincrement=True),
