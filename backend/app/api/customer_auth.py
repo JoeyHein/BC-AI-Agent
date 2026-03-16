@@ -89,7 +89,8 @@ def get_current_customer(
             detail="User is inactive",
         )
 
-    if user.account_status and user.account_status != 'active':
+    acct_status = getattr(user, 'account_status', None)
+    if acct_status and acct_status not in ('active', None):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is not active",
@@ -291,14 +292,15 @@ def login_customer(
             detail="Account is inactive"
         )
 
-    # Check account approval status
-    if user.account_status == 'pending':
+    # Check account approval status (None/NULL and 'active' both pass through)
+    acct_status = getattr(user, 'account_status', None)
+    if acct_status == 'pending':
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Your account is pending approval. You'll receive an email once approved."
         )
 
-    if user.account_status == 'declined':
+    if acct_status == 'declined':
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Your account application was not approved. Please contact support."
@@ -330,7 +332,7 @@ def login_customer(
         data={
             "sub": str(user.id),
             "user_type": "customer",
-            "account_type": user.account_type or "dealer"
+            "account_type": getattr(user, 'account_type', 'dealer') or "dealer"
         }
     )
 
@@ -344,10 +346,10 @@ def login_customer(
             "email": user.email,
             "name": user.name,
             "email_verified": user.email_verified,
-            "account_type": user.account_type,
-            "account_status": user.account_status,
-            "company_name": user.company_name,
-            "phone": user.phone,
+            "account_type": getattr(user, 'account_type', 'dealer') or 'dealer',
+            "account_status": getattr(user, 'account_status', 'active') or 'active',
+            "company_name": getattr(user, 'company_name', None),
+            "phone": getattr(user, 'phone', None),
             "bc_customer_id": user.bc_customer_id,
             "bc_company_name": bc_company_name
         }
@@ -481,10 +483,10 @@ def get_current_customer_info(
         name=current_user.name,
         is_active=current_user.is_active,
         email_verified=current_user.email_verified,
-        account_type=current_user.account_type,
-        account_status=current_user.account_status,
-        company_name=current_user.company_name,
-        phone=current_user.phone,
+        account_type=getattr(current_user, 'account_type', 'dealer') or 'dealer',
+        account_status=getattr(current_user, 'account_status', 'active') or 'active',
+        company_name=getattr(current_user, 'company_name', None),
+        phone=getattr(current_user, 'phone', None),
         bc_customer_id=current_user.bc_customer_id,
         bc_company_name=bc_company_name,
         created_at=current_user.created_at,
@@ -501,7 +503,7 @@ def update_customer_profile(
     """Update current customer profile"""
     if profile_data.name is not None:
         current_user.name = profile_data.name
-    if profile_data.phone is not None:
+    if hasattr(current_user, 'phone') and profile_data.phone is not None:
         current_user.phone = profile_data.phone
 
     db.commit()
@@ -524,10 +526,10 @@ def update_customer_profile(
         name=current_user.name,
         is_active=current_user.is_active,
         email_verified=current_user.email_verified,
-        account_type=current_user.account_type,
-        account_status=current_user.account_status,
-        company_name=current_user.company_name,
-        phone=current_user.phone,
+        account_type=getattr(current_user, 'account_type', 'dealer') or 'dealer',
+        account_status=getattr(current_user, 'account_status', 'active') or 'active',
+        company_name=getattr(current_user, 'company_name', None),
+        phone=getattr(current_user, 'phone', None),
         bc_customer_id=current_user.bc_customer_id,
         bc_company_name=bc_company_name,
         created_at=current_user.created_at,
