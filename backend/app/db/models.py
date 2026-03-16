@@ -943,6 +943,39 @@ class InstallReferral(Base):
         return f"<InstallReferral(id={self.id}, status={self.status})>"
 
 
+class CustomerInstallPricing(Base):
+    """Per-customer installation pricing configuration"""
+    __tablename__ = "customer_install_pricing"
+
+    id = Column(Integer, primary_key=True, index=True)
+    customer_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
+
+    # Residential flat rates by door area
+    residential_small = Column(Numeric(10, 2), nullable=True)    # up to 90 sqft
+    residential_medium = Column(Numeric(10, 2), nullable=True)   # 91-130 sqft
+    residential_large = Column(Numeric(10, 2), nullable=True)    # 131-150 sqft
+
+    # Commercial rates
+    commercial_base_rate = Column(Numeric(10, 2), nullable=True)   # base rate up to 100 sqft
+    commercial_sqft_rate = Column(Numeric(10, 2), nullable=True)   # per sqft above 100
+
+    # Height limit for auto-quoting (doors taller than this require custom quote)
+    max_auto_height = Column(Integer, nullable=False, default=168)  # 14' = 168"
+
+    # Travel
+    travel_rate_per_km = Column(Numeric(10, 2), nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+
+    # Relationships
+    customer = relationship("User", foreign_keys=[customer_id])
+
+    def __repr__(self):
+        return f"<CustomerInstallPricing(id={self.id}, customer_id={self.customer_id})>"
+
+
 # ============================================================================
 # PRODUCTION TASK COMPLETION MODELS
 # ============================================================================

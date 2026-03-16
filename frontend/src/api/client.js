@@ -577,6 +577,20 @@ export const customersApi = {
     apiClient.patch(`/api/admin/customers/${customerId}/account-type`, {
       account_type: accountType,
     }),
+
+  // Install pricing
+  getInstallPricing: (customerId) =>
+    apiClient.get(`/api/admin/customers/${customerId}/install-pricing`),
+
+  setInstallPricing: (customerId, data) =>
+    apiClient.put(`/api/admin/customers/${customerId}/install-pricing`, data),
+
+  // Travel distances
+  getTravelDistances: () =>
+    apiClient.get('/api/admin/install-travel-distances'),
+
+  setTravelDistances: (data) =>
+    apiClient.put('/api/admin/install-travel-distances', data),
 };
 
 // Catalog Builder API (Admin)

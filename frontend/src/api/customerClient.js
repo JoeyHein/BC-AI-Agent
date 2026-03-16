@@ -268,6 +268,13 @@ export const projectsApi = {
     customerApiClient.get(`/api/customer/portal/projects/${id}/invoice-summary`),
 };
 
+// Install Pricing API (Customer)
+export const installPricingApi = {
+  // Calculate install price for a door
+  calculate: (data) =>
+    customerApiClient.post('/api/customer/portal/install-pricing/calculate', data),
+};
+
 // Install Referrals API (Customer)
 export const installReferralsApi = {
   // Create a new install referral
@@ -296,6 +303,7 @@ export const customerApi = {
   cart: cartApi,
   projects: projectsApi,
   installReferrals: installReferralsApi,
+  installPricing: installPricingApi,
 };
 
 export default customerApiClient;

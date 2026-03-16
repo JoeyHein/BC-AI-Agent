@@ -6,6 +6,7 @@ import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
 import DoorPreview from '../DoorPreview'
 import DoorDrawings from '../DoorDrawings'
 import QuotePricingDisplay from './QuotePricingDisplay'
+import InstallPriceEstimate from './InstallPriceEstimate'
 
 const STEPS = [
   { id: 'type', title: 'Door Type', description: 'Select door category' },
@@ -36,7 +37,7 @@ function QuoteBuilder() {
   const [pricingData, setPricingData] = useState(null)
   const [pricingLoading, setPricingLoading] = useState(false)
   const [savedQuoteId, setSavedQuoteId] = useState(id ? parseInt(id) : null)
-  const { isBCLinked } = useCustomerAuth()
+  const { isBCLinked, isHomeBuilder } = useCustomerAuth()
 
   // Fetch existing quote if editing
   const { data: existingQuote, isLoading: loadingQuote } = useQuery({
@@ -599,6 +600,7 @@ function QuoteBuilder() {
             isSaving={saving}
             errors={errors}
             isBCLinked={isBCLinked}
+            isHomeBuilder={isHomeBuilder}
             pricingData={pricingData}
             pricingLoading={pricingLoading}
             onGetPricing={handleGetPricing}
@@ -2368,7 +2370,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
   )
 }
 
-function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deliveryType, onNameChange, onDescriptionChange, onPoNumberChange, onDeliveryTypeChange, onSave, isSaving, errors, isBCLinked, pricingData, pricingLoading, onGetPricing, onConfirmSubmit }) {
+function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deliveryType, onNameChange, onDescriptionChange, onPoNumberChange, onDeliveryTypeChange, onSave, isSaving, errors, isBCLinked, isHomeBuilder, pricingData, pricingLoading, onGetPricing, onConfirmSubmit }) {
   function getSeriesName(doorType, seriesId) {
     const series = config?.doorSeries?.[doorType]?.find(s => s.id === seriesId)
     return series?.name || seriesId
@@ -2623,6 +2625,26 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
           </div>
         ))}
       </div>
+
+      {/* Installation Estimates (Home Builders only) */}
+      {isHomeBuilder && doors.length > 0 && (
+        <div className="space-y-4">
+          {doors.map((door, index) => (
+            <div key={`install-${index}`}>
+              {doors.length > 1 && (
+                <p className="text-xs font-medium text-gray-500 mb-1">
+                  Door {index + 1} Installation
+                </p>
+              )}
+              <InstallPriceEstimate
+                doorWidthInches={door.doorWidth}
+                doorHeightInches={door.doorHeight}
+                doorType={door.doorType}
+              />
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Error Messages */}
       {errors.pricing && (

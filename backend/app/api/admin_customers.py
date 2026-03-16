@@ -13,11 +13,12 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 
 from app.db.database import SessionLocal
-from app.db.models import User, UserRole, BCCustomer, SavedQuoteConfig, SalesOrder
+from app.db.models import User, UserRole, BCCustomer, SavedQuoteConfig, SalesOrder, CustomerInstallPricing
 from app.services.auth_service import auth_service
 from app.services.bc_sync_service import bc_sync_service
 from app.integrations.bc.client import bc_client
 from app.services.notification_service import notification_service
+from app.services.install_pricing_service import install_pricing_service
 from app.config import settings
 
 router = APIRouter(prefix="/api/admin/customers", tags=["admin-customers"])
@@ -432,6 +433,38 @@ def list_pending_customers(
         )
         for c in pending
     ]
+
+
+@router.get("/install-travel-distances", name="get_install_travel_distances")
+def get_install_travel_distances(
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Get the town distance lookup table for install travel pricing"""
+    distances = install_pricing_service.get_travel_distances(db)
+    return {"distances": distances}
+
+
+@router.put("/install-travel-distances", name="put_install_travel_distances")
+def set_install_travel_distances(
+    data: dict,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Update the town distance lookup table for install travel pricing"""
+    distances = data.get("distances", data)
+    # If the payload is wrapped in {"distances": {...}}, unwrap it
+    if isinstance(distances, dict) and "distances" in distances:
+        distances = distances["distances"]
+
+    saved = install_pricing_service.set_travel_distances(
+        db=db,
+        distances=distances,
+        updated_by=current_admin.id,
+    )
+
+    logger.info(f"Admin {current_admin.email} updated install travel distances ({len(saved)} towns)")
+    return {"distances": saved}
 
 
 @router.post("/{customer_id}/approve")
@@ -934,6 +967,106 @@ def set_customer_password(
     logger.info(f"Admin {current_admin.email} set password for customer {customer.email}")
 
     return {"message": "Password updated successfully"}
+
+
+# ============================================================================
+# INSTALL PRICING ENDPOINTS
+# ============================================================================
+
+class InstallPricingRequest(BaseModel):
+    residential_small: Optional[float] = None
+    residential_medium: Optional[float] = None
+    residential_large: Optional[float] = None
+    commercial_base_rate: Optional[float] = None
+    commercial_sqft_rate: Optional[float] = None
+    max_auto_height: Optional[int] = 168
+    travel_rate_per_km: Optional[float] = None
+
+
+class InstallPricingResponse(BaseModel):
+    id: int
+    customer_id: int
+    residential_small: Optional[float] = None
+    residential_medium: Optional[float] = None
+    residential_large: Optional[float] = None
+    commercial_base_rate: Optional[float] = None
+    commercial_sqft_rate: Optional[float] = None
+    max_auto_height: int
+    travel_rate_per_km: Optional[float] = None
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/{customer_id}/install-pricing")
+def get_customer_install_pricing(
+    customer_id: int,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Get a customer's install pricing configuration"""
+    customer = db.query(User).filter(
+        User.id == customer_id,
+        User.user_type == 'CUSTOMER'
+    ).first()
+    if not customer:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+
+    pricing = install_pricing_service.get_customer_pricing(customer_id, db)
+    if not pricing:
+        return {"install_pricing": None}
+
+    return {
+        "install_pricing": {
+            "id": pricing.id,
+            "customer_id": pricing.customer_id,
+            "residential_small": float(pricing.residential_small) if pricing.residential_small is not None else None,
+            "residential_medium": float(pricing.residential_medium) if pricing.residential_medium is not None else None,
+            "residential_large": float(pricing.residential_large) if pricing.residential_large is not None else None,
+            "commercial_base_rate": float(pricing.commercial_base_rate) if pricing.commercial_base_rate is not None else None,
+            "commercial_sqft_rate": float(pricing.commercial_sqft_rate) if pricing.commercial_sqft_rate is not None else None,
+            "max_auto_height": pricing.max_auto_height,
+            "travel_rate_per_km": float(pricing.travel_rate_per_km) if pricing.travel_rate_per_km is not None else None,
+        }
+    }
+
+
+@router.put("/{customer_id}/install-pricing")
+def set_customer_install_pricing(
+    customer_id: int,
+    data: InstallPricingRequest,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Set/update a customer's install pricing configuration (upsert)"""
+    customer = db.query(User).filter(
+        User.id == customer_id,
+        User.user_type == 'CUSTOMER'
+    ).first()
+    if not customer:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+
+    pricing = install_pricing_service.upsert_customer_pricing(
+        customer_id=customer_id,
+        data=data.model_dump(exclude_none=False),
+        db=db,
+    )
+
+    logger.info(f"Admin {current_admin.email} updated install pricing for customer {customer.email}")
+
+    return {
+        "install_pricing": {
+            "id": pricing.id,
+            "customer_id": pricing.customer_id,
+            "residential_small": float(pricing.residential_small) if pricing.residential_small is not None else None,
+            "residential_medium": float(pricing.residential_medium) if pricing.residential_medium is not None else None,
+            "residential_large": float(pricing.residential_large) if pricing.residential_large is not None else None,
+            "commercial_base_rate": float(pricing.commercial_base_rate) if pricing.commercial_base_rate is not None else None,
+            "commercial_sqft_rate": float(pricing.commercial_sqft_rate) if pricing.commercial_sqft_rate is not None else None,
+            "max_auto_height": pricing.max_auto_height,
+            "travel_rate_per_km": float(pricing.travel_rate_per_km) if pricing.travel_rate_per_km is not None else None,
+        }
+    }
 
 
 @router.delete("/{customer_id}")

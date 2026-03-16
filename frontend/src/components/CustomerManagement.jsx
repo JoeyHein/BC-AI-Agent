@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import apiClient, { customersApi } from '../api/client'
+import InstallPricingPanel from './InstallPricingPanel'
 
 // API functions
 const fetchCustomers = async () => {
@@ -586,6 +587,9 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
               )}
             </div>
           )}
+
+          {/* Installation Pricing (for home builders or any customer) */}
+          <InstallPricingPanel customerId={customer.id} />
 
           <div className="flex flex-wrap gap-2 pt-4 border-t border-gray-200">
             <button

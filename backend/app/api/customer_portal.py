@@ -21,6 +21,7 @@ from app.services.pricing_service import calculate_selling_price, warm_bc_cost_c
 from app.services.spring_data_service import get_bc_spring_inventory
 from app.services.quote_review_service import save_quote_snapshot
 from app.services.freight_service import calculate_freight, get_freight_config
+from app.services.install_pricing_service import install_pricing_service
 
 # Part number prefix → BC search keyword for AI substitute lookup
 _CATEGORY_SEARCH_TERMS = {
@@ -167,6 +168,35 @@ class OrderTrackingResponse(BaseModel):
     current_status: str
     timeline: List[TrackingEvent]
     shipments: List[ShipmentResponse] = []
+
+
+# ============================================================================
+# INSTALL PRICING ENDPOINTS
+# ============================================================================
+
+class InstallPriceCalculateRequest(BaseModel):
+    door_width_inches: float
+    door_height_inches: float
+    door_type: str  # 'residential' or 'commercial'
+    town: Optional[str] = None  # for travel calc
+
+
+@router.post("/install-pricing/calculate")
+def calculate_install_price(
+    data: InstallPriceCalculateRequest,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db)
+):
+    """Calculate installation price for a door based on the current customer's rates"""
+    result = install_pricing_service.calculate_install_price(
+        customer_id=current_user.id,
+        door_width_inches=data.door_width_inches,
+        door_height_inches=data.door_height_inches,
+        door_type=data.door_type,
+        db=db,
+        town=data.town,
+    )
+    return result
 
 
 # ============================================================================
