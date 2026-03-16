@@ -3,6 +3,7 @@ import SpringInventorySettings from './SpringInventorySettings'
 import GeneralSettings from './GeneralSettings'
 import PricingSettings from './PricingSettings'
 import TravelDistanceSettings from './TravelDistanceSettings'
+import InstallPricingSettings from './InstallPricingSettings'
 import CatalogBuilder from './CatalogBuilder'
 import InventoryDashboard from '../InventoryAgent/InventoryDashboard'
 import POAgentDashboard from '../POAgent/POAgentDashboard'
@@ -13,6 +14,7 @@ function SettingsPage() {
   const tabs = [
     { id: 'springs', name: 'Spring Inventory', icon: 'cog' },
     { id: 'pricing', name: 'Pricing', icon: 'currency' },
+    { id: 'install-pricing', name: 'Install Pricing', icon: 'currency' },
     { id: 'travel', name: 'Travel Distances', icon: 'currency' },
     { id: 'catalog', name: 'Catalog Builder', icon: 'cog' },
     { id: 'inventory', name: 'Inventory Agent', icon: 'adjustments' },
@@ -90,6 +92,7 @@ function SettingsPage() {
         <div className="p-6">
           {activeTab === 'springs' && <SpringInventorySettings />}
           {activeTab === 'pricing' && <PricingSettings />}
+          {activeTab === 'install-pricing' && <InstallPricingSettings />}
           {activeTab === 'travel' && <TravelDistanceSettings />}
           {activeTab === 'catalog' && <CatalogBuilder />}
           {activeTab === 'inventory' && <InventoryDashboard />}
