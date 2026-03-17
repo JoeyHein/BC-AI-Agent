@@ -1854,8 +1854,27 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
 
 function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, onChange }) {
   const opData = operatorOptions[door.doorType] || operatorOptions.residential || {}
-  const operatorBrands = opData.operators || {}
-  const accessoryBrands = opData.accessories || {}
+  const doorWidthInches = door.doorWidth || 0
+  const isOverTenFeet = doorWidthInches > 120
+
+  // Filter out chain/belt rail operators for doors over 10'
+  const operatorBrands = Object.fromEntries(
+    Object.entries(opData.operators || {}).map(([brand, items]) => [
+      brand,
+      items.map(op => ({
+        ...op,
+        disabled: isOverTenFeet && /chain|belt/i.test(op.name),
+      }))
+    ])
+  )
+
+  // Filter out chain rail, belt rail, and sprocket accessories (part of operator package)
+  const accessoryBrands = Object.fromEntries(
+    Object.entries(opData.accessories || {}).map(([brand, items]) => [
+      brand,
+      items.filter(acc => !/chain rail|belt rail|sprocket/i.test(acc.name))
+    ]).filter(([, items]) => items.length > 0)
+  )
   const [expandedBrands, setExpandedBrands] = useState({})
   const [expandedAccBrands, setExpandedAccBrands] = useState({})
 
@@ -2188,6 +2207,9 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         <label className="block text-sm font-medium text-gray-700 mb-2">
           Door Operator
         </label>
+        {isOverTenFeet && (
+          <p className="text-xs text-amber-600 mb-2">Chain/belt rail operators are not available for doors over 10' wide.</p>
+        )}
         {/* No Operator option */}
         <button
           onClick={() => onChange({ operator: 'NONE' })}
@@ -2231,15 +2253,19 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
                   {items.map((op) => (
                     <button
                       key={op.id}
-                      onClick={() => onChange({ operator: op.id })}
+                      onClick={() => !op.disabled && onChange({ operator: op.id })}
+                      disabled={op.disabled}
                       className={`p-3 rounded-lg border-2 text-left transition-all ${
-                        door.operator === op.id
-                          ? 'border-odc-500 bg-odc-50'
-                          : 'border-gray-200 hover:border-gray-300'
+                        op.disabled
+                          ? 'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed'
+                          : door.operator === op.id
+                            ? 'border-odc-500 bg-odc-50'
+                            : 'border-gray-200 hover:border-gray-300'
                       }`}
                     >
                       <h4 className="font-medium text-gray-900 text-sm">{op.name}</h4>
-                      {op.notes && <p className="mt-0.5 text-xs text-gray-400">{op.notes}</p>}
+                      {op.disabled && <p className="mt-0.5 text-xs text-red-500">Not available for doors over 10' wide</p>}
+                      {op.notes && !op.disabled && <p className="mt-0.5 text-xs text-gray-400">{op.notes}</p>}
                       <p className="mt-0.5 text-xs text-gray-300">{op.partNumber}</p>
                     </button>
                   ))}
@@ -3039,6 +3065,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
                       <>
                         <span className="text-green-600">{quoteResult.data.freight.description}:</span>
                         <span className="text-right font-medium">${quoteResult.data.freight.amount?.toLocaleString('en-CA', { minimumFractionDigits: 2 })}</span>
+                        <span className="col-span-2 text-xs text-gray-400 italic">Freight is estimated. Actual shipping costs may vary based on order volume and destination.</span>
                       </>
                     )}
                     {quoteResult.data.freight?.skip && (

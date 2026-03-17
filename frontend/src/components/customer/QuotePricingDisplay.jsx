@@ -197,6 +197,9 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
             <span>{formatCurrency(pricing.total)}</span>
           </div>
         </div>
+        <p className="mt-2 text-xs text-gray-400 italic">
+          Freight is estimated. Actual shipping costs may vary based on order volume and destination.
+        </p>
       </div>
 
       {/* Door generation results (if any had errors) */}

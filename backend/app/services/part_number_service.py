@@ -852,18 +852,22 @@ class PartNumberService:
         commercial = config.door_type in ("commercial",)
         hardware_weight = _get_hk_weight(config.door_width, config.door_height, commercial)
 
-        total_weight = panel_weight + end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight + hardware_weight
+        # 8. Top seal weight (rubber seal across full door width)
+        TOP_SEAL_LBS_PER_INCH = 0.025  # 0.3 lbs per linear foot
+        top_seal_weight = config.door_width * TOP_SEAL_LBS_PER_INCH
+
+        total_weight = panel_weight + end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight + hardware_weight + top_seal_weight
 
         breakdown_str = " + ".join(
             f"{breakdown[h]}x{h}\"" for h in ["24", "21"] if breakdown[h] > 0
         )
-        extras = end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight + hardware_weight
+        extras = end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight + hardware_weight + top_seal_weight
         logger.info(
             f"Door weight: {series} {door_width_ft:.1f}'x{door_height_in}\" "
             f"= [{breakdown_str}] panels={panel_weight:.1f} + extras={extras:.1f} "
             f"(endcaps={end_cap_weight:.1f}, retainer={retainer_weight:.1f}, "
             f"astragal={astragal_weight:.1f}, struts={strut_weight:.1f}, "
-            f"hardware={hardware_weight:.1f}) = {total_weight:.1f} lbs"
+            f"hardware={hardware_weight:.1f}, top_seal={top_seal_weight:.1f}) = {total_weight:.1f} lbs"
         )
 
         return total_weight
@@ -1610,9 +1614,7 @@ class PartNumberService:
 
         Uses a distinct top seal rubber part (PL10-00127-00), NOT the same as weather strip.
         """
-        # Top seal on all commercial and aluminium doors
-        if config.door_type not in ("commercial", "aluminium"):
-            return []
+        # Top seal on all door types (residential, commercial, aluminium)
 
         mapper = get_bc_mapper()
         top_seal = mapper.get_top_seal()
