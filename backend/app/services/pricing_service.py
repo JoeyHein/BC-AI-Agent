@@ -301,7 +301,7 @@ def calculate_selling_price(
 
     # GK17 glazing and PN10 V130G frames ALWAYS use AL976/glazing margins
     # regardless of what door type they're on
-    if posting_group == "GLAZ" or (posting_group == "ALUM" and pn_upper.startswith("PN10")):
+    if posting_group == "GLAZ" or (posting_group == "ALUM" and (pn_upper.startswith("PN10") or pn_upper.startswith("PN12"))):
         effective_door_type = "glazing"
     elif door_type_lower == "aluminium":
         if posting_group == "ALUM":

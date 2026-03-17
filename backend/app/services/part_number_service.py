@@ -735,7 +735,7 @@ class PartNumberService:
 
         # V130G replaces insulated sections — subtract from 24" first, then 21"
         v130g_reduction = 0
-        if config.window_insert == "V130G" and config.window_qty > 0:
+        if config.window_insert in ("V130G", "V230G") and config.window_qty > 0:
             v130g_reduction = config.window_qty
 
         # Build part selections for each height (24" first since they're top sections)
@@ -1914,8 +1914,8 @@ class PartNumberService:
           LONG windows (GK15-11xxx): fit one long stamp on SHXL/BCXL, or span 2
             short stamps on SH/BC.  Decorative GL18 frame inserts are available.
         """
-        # V130G: full-view aluminum section + glass (separate line items)
-        if config.window_insert == "V130G":
+        # V130G/V230G: full-view aluminum section + glass (separate line items)
+        if config.window_insert in ("V130G", "V230G"):
             return self._get_v130g_parts(config)
 
         # Commercial thermopane windows (24x12, 34x16, 18x8)
@@ -2009,19 +2009,27 @@ class PartNumberService:
 
     def _get_v130g_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """
-        Get V130G full-view section parts using real BC PN10 part numbers.
+        Get V130G/V230G full-view section parts using real BC part numbers.
 
-        BC part number format: PN10-{hh}{w}{fff}{pp}-{wwww}
+        V130G (TX450/TX450-20): PN10 prefix
+        V230G (TX500/TX500-20): PN12 prefix
+
+        BC part number format: PN{xx}-{hh}{w}{fff}{pp}-{wwww}
           hh  = section height (21 or 24)
           w   = width group (2=8', 3=10', 4=12'-14', 5=16', 6=18'+)
           fff = finish (000=Clear Ano, 001=Mill, 003=White, 008=Black)
           pp  = position (SEF: 10=TOP, 20=INT, 30=BOT | DEF: 45=TOP, 52=INT, 61=BOT)
           wwww = section width (0802=8'2", 1602=16'2", 2200=22'0", etc.)
 
-        Glass is separate: GL20-xxxxx-xx
+        Glass is separate: GK17-xxxxx-xx
         """
         parts = []
         v130g_qty = config.window_qty or 1
+
+        # Determine prefix and model name based on window_insert or door series
+        is_v230 = config.window_insert == "V230G"
+        pn_prefix = "PN12" if is_v230 else "PN10"
+        model_name = "V230G" if is_v230 else "V130G"
 
         # Section height: 21" for residential/7' doors, 24" for commercial/8'+ doors
         section_height = 21 if config.door_type == "residential" or config.door_height <= 84 else 24
@@ -2090,11 +2098,11 @@ class PartNumberService:
                 position = "INT"
 
             pp = pos_codes[position]
-            pn = f"PN10-{hh}{w}{fff}{pp}-{wwww}"
+            pn = f"{pn_prefix}-{hh}{w}{fff}{pp}-{wwww}"
 
             parts.append(PartSelection(
                 part_number=pn,
-                description=f"V130G FULL VIEW SECTION, {section_height}\" x {width_ft}'{width_extra}\", {position} {end_cap_label}, {finish_name}",
+                description=f"{model_name} FULL VIEW SECTION, {section_height}\" x {width_ft}'{width_extra}\", {position} {end_cap_label}, {finish_name}",
                 quantity=1,
                 category="v130g_section",
                 notes=f"Full view aluminum section - replaces insulated panel at section {section_num}"
@@ -2126,7 +2134,7 @@ class PartNumberService:
             description=glass_desc,
             quantity=total_glass_sqft,
             category="v130g_glass",
-            notes=f"Thermopane glass for {v130g_qty} V130G section(s) ({glass_sqft_per_section:.2f} sqft each)"
+            notes=f"Thermopane glass for {v130g_qty} {model_name} section(s) ({glass_sqft_per_section:.2f} sqft each)"
         ))
 
         return self._consolidate_parts(parts)

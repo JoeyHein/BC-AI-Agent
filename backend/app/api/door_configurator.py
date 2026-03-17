@@ -324,7 +324,8 @@ COMMERCIAL_WINDOW_TYPES = {
         {"id": "18X8_THERMOPANE", "name": "18\" x 8\" Thermopane", "width": 18, "height": 8, "sectionType": "21\" or 24\" section", "glassOptions": ["thermal"]},
     ],
     "FULL VIEW": [
-        {"id": "V130G", "name": "V130G Full View Section", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glassOptions": ["single", "thermal"], "glassColors": ["CLEAR", "ETCHED", "SUPER_GREY"], "material": "AL976", "note": "Full aluminum/glass section"},
+        {"id": "V130G", "name": "V130G Full View Section", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glassOptions": ["single", "thermal"], "glassColors": ["CLEAR", "ETCHED", "SUPER_GREY"], "material": "AL976", "note": "Full aluminum/glass section", "series": ["TX450", "TX450-20"]},
+        {"id": "V230G", "name": "V230G Full View Section", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glassOptions": ["single", "thermal"], "glassColors": ["CLEAR", "ETCHED", "SUPER_GREY"], "material": "AL976", "note": "Full aluminum/glass section (TX500)", "series": ["TX500", "TX500-20"]},
     ],
 }
 
@@ -1494,7 +1495,8 @@ async def get_commercial_window_types():
         {"id": "24X12_THERMOPANE", "name": "24\" x 12\" Thermopane", "width": 24, "height": 12, "section": "24\" only", "glassOptions": ["thermal"]},
         {"id": "34X16_THERMOPANE", "name": "34\" x 16\" Thermopane", "width": 34, "height": 16, "section": "24\" only", "glassOptions": ["thermal"]},
         {"id": "18X8_THERMOPANE", "name": "18\" x 8\" Thermopane", "width": 18, "height": 8, "section": "21\" or 24\"", "glassOptions": ["thermal"]},
-        {"id": "V130G", "name": "V130G Full View Section", "width": "full", "height": "full", "section": "Replaces insulated section", "glassOptions": ["single", "thermal"], "material": "AL976"},
+        {"id": "V130G", "name": "V130G Full View Section", "width": "full", "height": "full", "section": "Replaces insulated section", "glassOptions": ["single", "thermal"], "material": "AL976", "series": ["TX450", "TX450-20"]},
+        {"id": "V230G", "name": "V230G Full View Section", "width": "full", "height": "full", "section": "Replaces insulated section", "glassOptions": ["single", "thermal"], "material": "AL976", "series": ["TX500", "TX500-20"]},
     ]
     return {"success": True, "data": window_types}
 

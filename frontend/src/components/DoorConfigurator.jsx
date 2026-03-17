@@ -1572,15 +1572,18 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
               Window Size
             </label>
             <div className="space-y-4">
-              {config?.commercialWindowTypes && Object.entries(config.commercialWindowTypes).map(([category, types]) => (
+              {config?.commercialWindowTypes && Object.entries(config.commercialWindowTypes).map(([category, types]) => {
+                const filteredTypes = types.filter(t => !t.series || t.series.includes(door.doorSeries))
+                if (filteredTypes.length === 0) return null
+                return (
                 <div key={category}>
                   <h4 className="text-sm font-medium text-gray-600 mb-2">{category}</h4>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                    {types.map((wt) => (
+                    {filteredTypes.map((wt) => (
                       <button
                         key={wt.id}
                         onClick={() => {
-                          if (wt.id === 'V130G') {
+                          if (wt.id === 'V130G' || wt.id === 'V230G') {
                             onChange({ windowInsert: wt.id, windowQty: 1, windowSection: 1, windowPanels: { 1: { qty: 1 } }, glassPaneType: 'INSULATED', glassColor: 'CLEAR' })
                           } else {
                             const windowSize = config?.commercialWindowSizes?.[wt.id]
@@ -1607,15 +1610,16 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
                     ))}
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
           </div>
 
-          {/* V130G options */}
-          {door.windowInsert === 'V130G' && (
+          {/* V130G/V230G full view options */}
+          {(door.windowInsert === 'V130G' || door.windowInsert === 'V230G') && (
             <div className="bg-odc-50 rounded-lg p-4">
               <p className="text-sm text-odc-700">
-                <strong>V130G Full View</strong> — replaces an insulated section with a full aluminum/glass panel (AL976 material).
+                <strong>{door.windowInsert} Full View</strong> — replaces an insulated section with a full aluminum/glass panel (AL976 material).
               </p>
               <div className="mt-3">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Glass Type</label>
@@ -1677,7 +1681,7 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
           )}
 
           {/* Window Quantity (non-V130G) */}
-          {door.windowInsert && door.windowInsert !== 'NONE' && door.windowInsert !== 'V130G' && (() => {
+          {door.windowInsert && door.windowInsert !== 'NONE' && door.windowInsert !== 'V130G' && door.windowInsert !== 'V230G' && (() => {
             const windowSize = config?.commercialWindowSizes?.[door.windowInsert]
             const windowWidth = windowSize?.width || 24
             const panelWidth = door.doorWidth
@@ -1731,7 +1735,7 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
           {/* Window Panel Selection (multi-panel toggle) */}
           {door.windowInsert && door.windowInsert !== 'NONE' && (() => {
             const windowPanels = door.windowPanels || {}
-            const isV130G = door.windowInsert === 'V130G'
+            const isV130G = door.windowInsert === 'V130G' || door.windowInsert === 'V230G'
             const windowSize = config?.commercialWindowSizes?.[door.windowInsert]
             const windowWidth = windowSize?.width || 24
             const maxQtyPerPanel = isV130G ? 1 : Math.max(1, Math.floor((door.doorWidth - 10) / (windowWidth + 10)))

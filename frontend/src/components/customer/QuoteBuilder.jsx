@@ -1243,12 +1243,19 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
     { id: 'SINGLE', name: 'Single Pane', description: 'Standard single glass' },
   ]
 
-  // Commercial window types (sizes) — no decorative inserts on commercial
-  const commercialWindows = commercialWindowTypes
+  // Commercial window types — filter full-view options by door series
+  // TX380: no full view, TX450/TX450-20: V130G only, TX500/TX500-20: V230G only
+  const commercialWindows = commercialWindowTypes ? Object.fromEntries(
+    Object.entries(commercialWindowTypes).map(([style, inserts]) => [
+      style,
+      inserts.filter(insert => !insert.series || insert.series.includes(door.doorSeries))
+    ]).filter(([, inserts]) => inserts.length > 0)
+  ) : null
 
   // Commercial-specific helpers — matches COMMERCIAL WINDOW SPACING CALCULATOR spreadsheet
   // Panel width = full door width, Spaces = Qty + 1, Spacing = (PanelWidth - TotalWindowWidth) / Spaces
-  const isV130G = door.windowInsert === 'V130G'
+  const isFullView = door.windowInsert === 'V130G' || door.windowInsert === 'V230G'
+  const isV130G = isFullView  // Keep variable name for backwards compat in template
 
   const calculateRecommendedWindows = () => {
     if (!isCommercial || !door.windowInsert || door.windowInsert === 'NONE' || isV130G) return 0
@@ -1277,8 +1284,8 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
   const spacing = calculateSpacing()
 
   const handleCommercialWindowChange = (windowType) => {
-    if (windowType === 'V130G') {
-      // V130G replaces entire section — no quantity needed
+    if (windowType === 'V130G' || windowType === 'V230G') {
+      // Full view section replaces entire section — no quantity needed
       onChange({ windowInsert: windowType, windowQty: 1, windowSection: 1 })
       return
     }
@@ -1725,11 +1732,11 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
             </div>
           </div>
 
-          {/* V130G: full view section info */}
-          {isV130G && (
+          {/* V130G/V230G: full view section info */}
+          {isFullView && (
             <div className="bg-blue-50 rounded-lg p-4">
               <p className="text-sm text-odc-700">
-                <strong>V130G Full View</strong> — replaces an insulated section with a full aluminum/glass panel (AL976 material).
+                <strong>{door.windowInsert} Full View</strong> — replaces an insulated section with a full aluminum/glass panel (AL976 material).
               </p>
               <div className="mt-3">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Glass Type</label>
