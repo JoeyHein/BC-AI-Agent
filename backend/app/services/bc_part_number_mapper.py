@@ -839,8 +839,27 @@ class BCPartNumberMapper:
         # Height code
         height_code = f"{height_inches:02d}"
 
-        # Stamp code (4 = UDC, 0 = standard)
-        stamp_code = "4" if stamp.upper() == "UDC" else "0"
+        # Stamp code — varies by series
+        # Residential Kanata (PN65): 0=FLUSH, 1=SH, 2=BC, 3=TRAF, 4=SHXL, 5=BCXL
+        # Commercial (PN45/PN30/etc.): 4=UDC, 0=standard
+        KANATA_STAMP_CODES = {
+            "FLUSH": "0",
+            "SH": "1",
+            "BC": "2", "SHCH": "2",
+            "TRAF": "3", "TRAFALGAR": "3", "RIB": "3",
+            "SHXL": "4",
+            "BCXL": "5", "LNCH": "5", "LNXL": "5",
+        }
+        COMMERCIAL_STAMP_CODES = {
+            "UDC": "4",
+            "FLUSH": "0",
+        }
+        is_residential = prefix.startswith("PN65") or prefix.startswith("PN95")
+        stamp_upper = stamp.upper()
+        if is_residential:
+            stamp_code = KANATA_STAMP_CODES.get(stamp_upper, "0")
+        else:
+            stamp_code = COMMERCIAL_STAMP_CODES.get(stamp_upper, "0")
 
         # Color code
         color_code = self.COLOR_CODES.get(color.upper(), "00")
