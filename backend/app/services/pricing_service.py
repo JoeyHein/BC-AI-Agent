@@ -60,6 +60,14 @@ def get_default_tier_margins() -> dict:
             "bronze": 55,
             "retail": 65,
         },
+        "glazing": {
+            "platinum": 60,
+            "unlisted": 55,
+            "gold": 62,
+            "silver": 64,
+            "bronze": 66,
+            "retail": 73,
+        },
     }
 
 
@@ -107,13 +115,17 @@ def get_default_cost_adjustments() -> dict:
 # ============================================================================
 
 def _load_tier_margins(db: Session) -> dict:
-    """Load tier margins from AppSettings or return defaults."""
+    """Load tier margins from AppSettings, merged with defaults for any missing categories."""
+    defaults = get_default_tier_margins()
     setting = db.query(AppSettings).filter(
         AppSettings.setting_key == TIER_MARGINS_KEY
     ).first()
     if setting and setting.setting_value:
-        return setting.setting_value
-    return get_default_tier_margins()
+        # Merge: saved settings override defaults, but new categories (e.g. glazing) get defaults
+        merged = dict(defaults)
+        merged.update(setting.setting_value)
+        return merged
+    return defaults
 
 
 def _load_cost_adjustments(db: Session) -> dict:
@@ -237,7 +249,7 @@ def resolve_tier(customer_tier: Optional[str], door_type: str, db: Session) -> T
     door_type_lower = (door_type or "residential").lower()
 
     # Normalize door type
-    if door_type_lower not in ("residential", "commercial", "aluminium"):
+    if door_type_lower not in ("residential", "commercial", "aluminium", "glazing"):
         door_type_lower = "residential"
 
     type_margins = margins.get(door_type_lower, {})
@@ -282,13 +294,24 @@ def calculate_selling_price(
     adj_entry = adjustments.get(posting_group, {})
     cost_adj_pct = adj_entry.get("adjustment", 0) if isinstance(adj_entry, dict) else 0
 
-    # Resolve margin
-    _tier_name, margin_pct = resolve_tier(tier, door_type, db)
+    # Determine effective door type for margin lookup
+    effective_door_type = door_type
+    door_type_lower = (door_type or "").lower()
 
-    # Special case: aluminium doors — hardware uses 30% GM regardless of tier
-    # (only panels get the aluminium-specific margin)
-    if (door_type or "").lower() == "aluminium" and posting_group in ("HARD", "TRAC", "SPRI", "OPER", "PLAS", "ACS"):
-        margin_pct = 30
+    if door_type_lower == "aluminium":
+        if posting_group == "GLAZ":
+            # Glazing kits (GK17) on aluminium doors use glazing-specific margins
+            effective_door_type = "glazing"
+        elif posting_group in ("HARD", "TRAC", "SPRI", "OPER", "PLAS", "ACS"):
+            # Hardware/non-panel items on aluminium doors use 30% GM regardless of tier
+            effective_door_type = None  # will be overridden below
+
+    # Resolve margin
+    if effective_door_type is None:
+        margin_pct = 30  # fixed for aluminium hardware
+        _tier_name = tier
+    else:
+        _tier_name, margin_pct = resolve_tier(tier, effective_door_type, db)
 
     # Check for part-number prefix override (longest prefix wins)
     prefix_overrides = _load_prefix_margins(db)

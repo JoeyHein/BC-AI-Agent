@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { settingsApi } from '../../api/client'
 
 const TIER_ORDER = ['platinum', 'unlisted', 'gold', 'silver', 'bronze', 'retail']
-const DOOR_TYPES = ['residential', 'commercial', 'aluminium']
+const DOOR_TYPES = ['residential', 'commercial', 'aluminium', 'glazing']
 
 const TIER_COLORS = {
   platinum: 'bg-violet-100 text-violet-800',
