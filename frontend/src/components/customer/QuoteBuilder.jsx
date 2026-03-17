@@ -2637,9 +2637,6 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
                 </p>
               )}
               <InstallPriceEstimate
-                doorWidthInches={door.doorWidth}
-                doorHeightInches={door.doorHeight}
-                doorType={door.doorType}
                 town={door.installTown || ''}
                 onTownChange={(town) => updateCurrentDoor({ installTown: town })}
               />
