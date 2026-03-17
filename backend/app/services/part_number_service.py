@@ -947,10 +947,6 @@ class PartNumberService:
         lift_type = lift_type_map.get(config.lift_type, LiftType.STANDARD)
         mount_type = TrackMount.ANGLE if config.track_mount == 'angle' else TrackMount.BRACKET
 
-        # Doors 16' (192") or taller require continuous angle track
-        if config.door_height >= 192:
-            mount_type = TrackMount.ANGLE
-
         # Resolve actual part: find the smallest available height >= requested
         mount_code = "BM" if mount_type == TrackMount.BRACKET else "AM"
         available = self.TRACK_AVAILABILITY.get((track_size, mount_code), [])
