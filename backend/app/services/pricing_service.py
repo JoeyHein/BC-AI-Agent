@@ -331,6 +331,12 @@ def calculate_selling_price(
             if override_margin is not None:
                 margin_pct = float(override_margin)
 
+    # Spring waste factor: 15% added to cost on all door types (residential/commercial/aluminium)
+    # Springs are sold by the inch and cut-to-length; waste is inherent in production
+    SPRING_WASTE_FACTOR = 0.15
+    if posting_group == "SPRI" or pn_upper.startswith("SP11"):
+        unit_cost = unit_cost * (1 + SPRING_WASTE_FACTOR)
+
     # Apply formula: selling_price = (unitCost * (1 + adj%/100)) / (1 - margin%/100)
     adjusted_cost = unit_cost * (1 + cost_adj_pct / 100)
     if margin_pct >= 100:
