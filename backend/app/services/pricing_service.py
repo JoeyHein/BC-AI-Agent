@@ -297,13 +297,14 @@ def calculate_selling_price(
     # Determine effective door type for margin lookup
     effective_door_type = door_type
     door_type_lower = (door_type or "").lower()
-
     pn_upper = part_number.upper()
-    if door_type_lower == "aluminium":
-        if posting_group == "GLAZ" or (posting_group == "ALUM" and pn_upper.startswith("PN10")):
-            # Glazing kits (GK17) and AL976/V130G frames (PN10) use AL976 pricing margins
-            effective_door_type = "glazing"
-        elif posting_group == "ALUM":
+
+    # GK17 glazing and PN10 V130G frames ALWAYS use AL976/glazing margins
+    # regardless of what door type they're on
+    if posting_group == "GLAZ" or (posting_group == "ALUM" and pn_upper.startswith("PN10")):
+        effective_door_type = "glazing"
+    elif door_type_lower == "aluminium":
+        if posting_group == "ALUM":
             # Other aluminium panels/sections keep standard aluminium margins
             pass
         elif posting_group in ("HARD", "TRAC", "SPRI", "OPER", "PLAS", "ACS"):
