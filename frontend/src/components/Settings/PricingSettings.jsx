@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
 import { settingsApi } from '../../api/client'
 
-const TIER_ORDER = ['gold', 'silver', 'bronze', 'retail']
-const DOOR_TYPES = ['residential', 'commercial']
+const TIER_ORDER = ['platinum', 'unlisted', 'gold', 'silver', 'bronze', 'retail']
+const DOOR_TYPES = ['residential', 'commercial', 'aluminium']
 
 const TIER_COLORS = {
+  platinum: 'bg-violet-100 text-violet-800',
+  unlisted: 'bg-teal-100 text-teal-800',
   gold: 'bg-amber-100 text-amber-800',
   silver: 'bg-gray-200 text-gray-700',
   bronze: 'bg-orange-100 text-orange-800',
@@ -13,6 +15,8 @@ const TIER_COLORS = {
 
 const TIER_OPTIONS = [
   { value: '', label: '— Unmapped —' },
+  { value: 'platinum', label: 'Platinum' },
+  { value: 'unlisted', label: 'Unlisted' },
   { value: 'gold', label: 'Gold' },
   { value: 'silver', label: 'Silver' },
   { value: 'bronze', label: 'Bronze' },
@@ -749,6 +753,9 @@ function PricingSettings() {
         </code>
         <p className="mt-2 text-xs text-gray-500">
           Example: unitCost $100, +5% cost adjustment, 30% margin = $100 × 1.05 / 0.70 = $150.00
+        </p>
+        <p className="mt-1 text-xs text-gray-500">
+          <strong>Note:</strong> Aluminium margins apply to panels only. Hardware, tracks, springs, operators, and accessories on aluminium doors use 30% GM regardless of tier.
         </p>
       </div>
     </div>

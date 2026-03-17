@@ -314,7 +314,7 @@ async def update_pricing_tiers(
     """Validate and save tier margin percentages"""
     # Validate all margins are 0-99%
     for door_type, tiers in update.margins.items():
-        if door_type not in ("residential", "commercial"):
+        if door_type not in ("residential", "commercial", "aluminium"):
             raise HTTPException(status_code=400, detail=f"Invalid door type: {door_type}")
         for tier_name, margin in tiers.items():
             if not (0 <= margin <= 99):

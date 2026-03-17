@@ -27,7 +27,7 @@ COST_ADJUSTMENTS_KEY = "pricing_cost_adjustments"
 BC_GROUP_MAPPING_KEY = "bc_group_tier_mapping"
 PREFIX_MARGINS_KEY = "pricing_prefix_margins"
 
-VALID_TIERS = {"gold", "silver", "bronze", "retail"}
+VALID_TIERS = {"platinum", "unlisted", "gold", "silver", "bronze", "retail"}
 
 # ============================================================================
 # Hardcoded defaults (used when no AppSettings saved yet)
@@ -37,16 +37,28 @@ def get_default_tier_margins() -> dict:
     """Default margin percentages by door_type and tier."""
     return {
         "residential": {
+            "platinum": 25,
+            "unlisted": 20,
             "gold": 30,
             "silver": 35,
             "bronze": 40,
             "retail": 50,
         },
         "commercial": {
+            "platinum": 27,
+            "unlisted": 24,
             "gold": 30,
             "silver": 33,
             "bronze": 36,
             "retail": 42,
+        },
+        "aluminium": {
+            "platinum": 45,
+            "unlisted": 40,
+            "gold": 30,
+            "silver": 35,
+            "bronze": 40,
+            "retail": 50,
         },
     }
 
@@ -225,7 +237,7 @@ def resolve_tier(customer_tier: Optional[str], door_type: str, db: Session) -> T
     door_type_lower = (door_type or "residential").lower()
 
     # Normalize door type
-    if door_type_lower not in ("residential", "commercial"):
+    if door_type_lower not in ("residential", "commercial", "aluminium"):
         door_type_lower = "residential"
 
     type_margins = margins.get(door_type_lower, {})
@@ -272,6 +284,11 @@ def calculate_selling_price(
 
     # Resolve margin
     _tier_name, margin_pct = resolve_tier(tier, door_type, db)
+
+    # Special case: aluminium doors — hardware uses 30% GM regardless of tier
+    # (only panels get the aluminium-specific margin)
+    if (door_type or "").lower() == "aluminium" and posting_group in ("HARD", "TRAC", "SPRI", "OPER", "PLAS", "ACS"):
+        margin_pct = 30
 
     # Check for part-number prefix override (longest prefix wins)
     prefix_overrides = _load_prefix_margins(db)

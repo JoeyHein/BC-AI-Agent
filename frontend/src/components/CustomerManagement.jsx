@@ -70,6 +70,8 @@ const setCustomerPassword = async ({ id, newPassword }) => {
 
 // Pricing Tier Badge
 const TIER_STYLES = {
+  platinum: 'bg-violet-100 text-violet-800',
+  unlisted: 'bg-teal-100 text-teal-800',
   gold: 'bg-amber-100 text-amber-800',
   silver: 'bg-gray-200 text-gray-700',
   bronze: 'bg-orange-100 text-orange-800',
