@@ -608,7 +608,13 @@ def _generate_bc_quote_with_items(
 
             for part in sorted_parts:
                 part["door_index"] = door_index
-                if part_door_type == "aluminium" and part.get("category") not in aluminum_panel_categories:
+                cat = part.get("category", "")
+
+                if cat in aluminum_panel_categories:
+                    # V130G/AL976 frames and glazing ALWAYS use aluminium pricing
+                    part["door_type"] = "aluminium"
+                elif part_door_type == "aluminium" and cat not in aluminum_panel_categories:
+                    # Non-panel parts on aluminium doors use commercial pricing
                     part["door_type"] = "commercial"
                 else:
                     part["door_type"] = part_door_type
@@ -1253,7 +1259,13 @@ def _estimate_pricing_locally(
 
             for part in sorted_parts:
                 part["door_index"] = door_index
-                if part_door_type == "aluminium" and part.get("category") not in aluminum_panel_categories:
+                cat = part.get("category", "")
+
+                if cat in aluminum_panel_categories:
+                    # V130G/AL976 frames and glazing ALWAYS use aluminium pricing
+                    part["door_type"] = "aluminium"
+                elif part_door_type == "aluminium" and cat not in aluminum_panel_categories:
+                    # Non-panel parts on aluminium doors use commercial pricing
                     part["door_type"] = "commercial"
                 else:
                     part["door_type"] = part_door_type
