@@ -55,10 +55,10 @@ def get_default_tier_margins() -> dict:
         "aluminium": {
             "platinum": 45,
             "unlisted": 40,
-            "gold": 30,
-            "silver": 35,
-            "bronze": 40,
-            "retail": 50,
+            "gold": 49,
+            "silver": 51,
+            "bronze": 55,
+            "retail": 65,
         },
     }
 
