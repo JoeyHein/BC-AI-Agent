@@ -1559,6 +1559,25 @@ class DemandSignal(Base):
         return f"<DemandSignal(item={self.bc_item_number}, type={self.signal_type}, severity={self.severity})>"
 
 
+class PublicQuoteRequest(Base):
+    """Public quote requests from the embeddable door designer widget"""
+    __tablename__ = "public_quote_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=False, index=True)
+    phone = Column(String(50), nullable=True)
+    postal_code = Column(String(20), nullable=True)
+    notes = Column(Text, nullable=True)
+    door_config = Column(JSON, nullable=False)  # Full door configuration
+    source = Column(String(50), default='widget')  # 'widget', 'website', etc.
+    status = Column(String(20), default='new')  # new, contacted, converted, archived
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<PublicQuoteRequest(id={self.id}, name={self.name}, email={self.email}, status={self.status})>"
+
+
 class POAgentLog(Base):
     """PO tracking — drafts, approvals, rejections for learning"""
     __tablename__ = "po_agent_log"

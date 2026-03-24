@@ -3,9 +3,10 @@ BC AI Agent - Main FastAPI Application
 Phase 1: Email-based quote request parsing + Quote generation
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from starlette.middleware.base import BaseHTTPMiddleware
 import logging
 from contextlib import asynccontextmanager
 
@@ -17,6 +18,7 @@ from app.api import settings as settings_api
 from app.api import catalog
 from app.api import inventory_agent
 from app.api import po_agent
+from app.api import public
 
 # Import services
 from app.services.scheduler_service import get_scheduler
@@ -80,6 +82,31 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan
 )
+
+# Public-path CORS middleware — allow any origin for /api/public/* (widget embeds)
+class PublicCORSMiddleware(BaseHTTPMiddleware):
+    """Open CORS for /api/public/ so the widget works from any embedding site."""
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path.startswith("/api/public/"):
+            origin = request.headers.get("origin", "*")
+            if request.method == "OPTIONS":
+                return Response(
+                    status_code=200,
+                    headers={
+                        "Access-Control-Allow-Origin": origin,
+                        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                        "Access-Control-Allow-Headers": "Content-Type",
+                        "Access-Control-Max-Age": "86400",
+                    },
+                )
+            response = await call_next(request)
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+            return response
+        return await call_next(request)
+
+app.add_middleware(PublicCORSMiddleware)
 
 # CORS middleware — origins come from ALLOWED_ORIGINS env var
 app.add_middleware(
@@ -164,6 +191,12 @@ logger.info(f"Including install_referrals customer router: {install_referrals.cu
 app.include_router(install_referrals.customer_router)
 logger.info(f"Including install_referrals admin router: {install_referrals.admin_router.prefix}")
 app.include_router(install_referrals.admin_router)
+
+# Public endpoints (no auth — widget quote requests)
+logger.info(f"Including public router: {public.public_router.prefix}")
+app.include_router(public.public_router)
+logger.info(f"Including admin_leads router: {public.admin_leads_router.prefix}")
+app.include_router(public.admin_leads_router)
 
 logger.info(f"Total routes after including routers: {len(app.routes)}")
 
