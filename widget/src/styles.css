@@ -6,29 +6,29 @@
 
 /* CSS Custom Properties */
 .odc-widget {
-  --odc-bg: #071629;
-  --odc-surface: #142d4c;
-  --odc-surface-hover: #1e3a5f;
-  --odc-surface-active: rgba(46, 163, 242, 0.1);
-  --odc-border: #1e3a5f;
-  --odc-border-light: #1e3a5f;
-  --odc-text: #f0f4f8;
-  --odc-text-secondary: #8dabc9;
+  --odc-bg: #ffffff;
+  --odc-surface: #f0f4f8;
+  --odc-surface-hover: #e2e8f0;
+  --odc-surface-active: rgba(46, 163, 242, 0.08);
+  --odc-border: #d9e4ef;
+  --odc-border-light: #e2e8f0;
+  --odc-text: #0C2340;
+  --odc-text-secondary: #40739e;
   --odc-text-muted: #668fb4;
   --odc-accent: #2ea3f2;
-  --odc-accent-hover: #45b4f7;
+  --odc-accent-hover: #1a8fd8;
   --odc-accent-dark: #2f5782;
-  --odc-accent-glow: rgba(46, 163, 242, 0.15);
-  --odc-success: #4ade80;
+  --odc-accent-glow: rgba(46, 163, 242, 0.1);
+  --odc-success: #16a34a;
   --odc-radius: 12px;
   --odc-radius-sm: 8px;
   --odc-radius-lg: 16px;
   --odc-transition: 0.2s ease;
-  --odc-shadow: 0 4px 24px rgba(0,0,0,0.4);
-  --odc-shadow-lg: 0 8px 40px rgba(0,0,0,0.6);
+  --odc-shadow: 0 2px 12px rgba(12, 35, 64, 0.08);
+  --odc-shadow-lg: 0 4px 24px rgba(12, 35, 64, 0.12);
 
   font-family: 'Open Sans', system-ui, -apple-system, sans-serif;
-  background: linear-gradient(135deg, #071629 0%, #0C2340 100%);
+  background: #ffffff;
   color: var(--odc-text);
   box-sizing: border-box;
   max-width: 1100px;
@@ -589,7 +589,7 @@
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(7, 22, 41, 0.85);
+  background: rgba(12, 35, 64, 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1132,11 +1132,11 @@
   color: #ffffff;
 }
 .odc-pattern-clear {
-  border-color: #668fb4;
-  color: #8dabc9;
+  border-color: var(--odc-border);
+  color: var(--odc-text-secondary);
 }
 .odc-pattern-clear:hover {
-  background: #668fb4;
+  background: var(--odc-text-secondary);
   color: #ffffff;
 }
 .odc-grid-info {
