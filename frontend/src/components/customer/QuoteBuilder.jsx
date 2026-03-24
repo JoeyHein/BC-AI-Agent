@@ -1772,6 +1772,23 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                   >+</button>
                 </div>
               </div>
+              <div className="mt-3">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Glass Pockets per Section
+                </label>
+                <div className="flex items-center space-x-4">
+                  <button
+                    onClick={() => onChange({ glassPocketsPerSection: Math.max(2, (door.glassPocketsPerSection || 5) - 1) })}
+                    className="w-10 h-10 rounded-md border border-gray-300 bg-white hover:bg-gray-50 text-xl font-bold"
+                  >-</button>
+                  <span className="text-lg font-medium w-10 text-center">{door.glassPocketsPerSection || 5}</span>
+                  <button
+                    onClick={() => onChange({ glassPocketsPerSection: Math.min(8, (door.glassPocketsPerSection || 5) + 1) })}
+                    className="w-10 h-10 rounded-md border border-gray-300 bg-white hover:bg-gray-50 text-xl font-bold"
+                  >+</button>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Number of glass panels within each aluminum section frame</p>
+              </div>
             </div>
           )}
 

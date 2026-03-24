@@ -1127,25 +1127,21 @@ class DoorCalculatorService:
 
         def candidate_sort_key(c):
             is_reasonable = c.length <= MAX_PRACTICAL_LENGTH
-            # Single spring too long? Treat like 2-spring for sorting purposes
-            effective_qty = c.quantity
-            if c.quantity == 1 and c.length > MAX_SINGLE_SPRING_LENGTH:
-                effective_qty = 2  # Penalize long single springs
 
-            # Total spring count is the PRIMARY sort factor:
-            # 2-spring solution always beats 4-spring (duplex) if both work.
-            # For narrow/tall doors, relax this by not penalizing duplex.
-            if is_narrow_tall:
-                spring_count_rank = 0  # Don't penalize duplex for narrow/tall
-            else:
-                spring_count_rank = effective_qty  # Fewer springs = better
+            # Estimate total material cost: wire_volume ∝ wire_diameter² × length × quantity
+            # For duplex, add inner spring material too
+            outer_material = (c.wire_diameter ** 2) * c.length * c.quantity
+            inner_material = 0
+            if c.is_duplex and c.inner_wire_diameter and c.inner_length:
+                inner_material = (c.inner_wire_diameter ** 2) * c.inner_length * c.quantity
+            total_material = outer_material + inner_material
 
             if is_reasonable:
-                # Reasonable length: fewer springs first, then smaller coil, then shorter
-                return (0, spring_count_rank, c.coil_diameter, c.length)
+                # Best price = least material, then smaller coil, then shorter
+                return (0, total_material, c.coil_diameter, c.length)
             else:
-                # Overlong: fewer springs first, then shorter springs, then smaller coil
-                return (1, spring_count_rank, c.length, c.coil_diameter)
+                # Overlong: penalize, then least material
+                return (1, total_material, c.length, c.coil_diameter)
 
         best = min(all_candidates, key=candidate_sort_key)
 

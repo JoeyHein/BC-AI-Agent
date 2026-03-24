@@ -2170,16 +2170,16 @@ class PartNumberService:
         )
 
         # Calculate glass square footage per section, then multiply by number of sections
-        # and glass pockets per section (default 1)
+        # Glass pockets affect frame layout (mullions), not total glass area
         glass_sqft_per_section = (config.door_width * section_height) / 144
-        total_glass_sqft = round(glass_sqft_per_section * v130g_qty * config.glass_pockets_per_section, 2)
+        total_glass_sqft = round(glass_sqft_per_section * v130g_qty, 2)
 
         parts.append(PartSelection(
             part_number=glass_pn,
             description=glass_desc,
             quantity=total_glass_sqft,
             category="v130g_glass",
-            notes=f"Thermopane glass for {v130g_qty} {model_name} section(s) ({glass_sqft_per_section:.2f} sqft each)"
+            notes=f"Thermopane glass for {v130g_qty} {model_name} section(s), {config.glass_pockets_per_section} pockets per section ({glass_sqft_per_section:.2f} sqft each)"
         ))
 
         return self._consolidate_parts(parts)
@@ -2346,6 +2346,26 @@ def _parse_window_panels(raw) -> Optional[Dict[int, dict]]:
     return {int(k): v for k, v in raw.items()}
 
 
+def _default_glass_pockets(door_width_inches: int) -> int:
+    """Default glass pockets per AL976/V130G section based on door width.
+
+    16' (192") = 5 pockets, scales by ~38" per pocket.
+    """
+    door_width_feet = door_width_inches / 12
+    if door_width_feet <= 8:
+        return 2
+    elif door_width_feet <= 10:
+        return 3
+    elif door_width_feet <= 12:
+        return 4
+    elif door_width_feet <= 18:
+        return 5
+    elif door_width_feet <= 22:
+        return 6
+    else:
+        return 7
+
+
 def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Optional[Dict[str, list]] = None) -> Dict[str, Any]:
     """
     Convenience function to get parts from a dictionary configuration.
@@ -2396,7 +2416,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         target_cycles=config_dict.get("targetCycles", config_dict.get("target_cycles", 10000)),
         shaft_preference=config_dict.get("shaftType", "auto"),
         window_size=config_dict.get("windowSize", "long"),
-        glass_pockets_per_section=config_dict.get("glassPocketsPerSection", 1),
+        glass_pockets_per_section=config_dict.get("glassPocketsPerSection") or _default_glass_pockets(config_dict.get("doorWidth", 96)),
         window_count=(len(config_dict.get("windowPositions", [])) or config_dict.get("windowCount", 0)) if config_dict.get("hasWindows", True) else 0,
         spring_inventory=spring_inventory,
     )

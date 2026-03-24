@@ -555,23 +555,23 @@ class BCPartNumberMapper:
 
     def get_astragal(self, door_width_feet: float, door_height_inches: int = 0, door_type: str = "residential") -> BCPartNumber:
         """
-        Get astragal (bottom rubber) part number based on door width, height, and type.
+        Get astragal (bottom rubber) part number based on door width and type.
 
         Args:
             door_width_feet: Door width in feet
-            door_height_inches: Door height in inches (for commercial 10'+ rule)
-            door_type: "residential" or "commercial"
+            door_height_inches: Door height in inches (unused, kept for compat)
+            door_type: "residential", "commercial", or "aluminium"
 
         Returns:
             BCPartNumber for astragal
         """
-        # Commercial doors 10' or taller (>= 120") always get 4" astragal
-        if door_type == "commercial" and door_height_inches >= 120:
+        # Commercial doors 12' or wider get 4" astragal
+        if door_type in ("commercial", "aluminium") and door_width_feet >= 12:
             size = 4
-        elif door_width_feet <= 16:
-            size = 3
+        elif door_width_feet > 16:
+            size = 4
         else:
-            size = 4
+            size = 3
 
         part_number = self.ASTRAGAL_PARTS.get(size, self.ASTRAGAL_PARTS[3])
 
