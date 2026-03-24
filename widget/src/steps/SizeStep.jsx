@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react'
 
 export default function SizeStep({ options, family, config, onSelect }) {
+  // Use family-specific sizes if available (e.g. "craft"), then door type, then residential fallback
+  const familyId = family?.id || ''
   const doorType = family?.type === 'commercial' ? 'commercial' : 'residential'
-  const sizeConfig = options.sizes[doorType] || options.sizes.residential
+  const sizeConfig = options.sizes[familyId] || options.sizes[doorType] || options.sizes.residential
+  const allowCustom = sizeConfig.customSizeAllowed !== false
 
   // Convert inches to feet + inches for display
   const toFeetInches = (inches) => {
@@ -78,14 +81,16 @@ export default function SizeStep({ options, family, config, onSelect }) {
               {ft}'
             </button>
           ))}
-          <button
-            className={`odc-size-btn odc-size-custom-toggle ${customWidth ? 'odc-selected' : ''}`}
-            onClick={() => setCustomWidth(true)}
-          >
-            Custom
-          </button>
+          {allowCustom && (
+            <button
+              className={`odc-size-btn odc-size-custom-toggle ${customWidth ? 'odc-selected' : ''}`}
+              onClick={() => setCustomWidth(true)}
+            >
+              Custom
+            </button>
+          )}
         </div>
-        {customWidth && (
+        {allowCustom && customWidth && (
           <div className="odc-size-custom-input">
             <div className="odc-size-field-group">
               <input
@@ -128,14 +133,16 @@ export default function SizeStep({ options, family, config, onSelect }) {
               {ft}'
             </button>
           ))}
-          <button
-            className={`odc-size-btn odc-size-custom-toggle ${customHeight ? 'odc-selected' : ''}`}
-            onClick={() => setCustomHeight(true)}
-          >
-            Custom
-          </button>
+          {allowCustom && (
+            <button
+              className={`odc-size-btn odc-size-custom-toggle ${customHeight ? 'odc-selected' : ''}`}
+              onClick={() => setCustomHeight(true)}
+            >
+              Custom
+            </button>
+          )}
         </div>
-        {customHeight && (
+        {allowCustom && customHeight && (
           <div className="odc-size-custom-input">
             <div className="odc-size-field-group">
               <input

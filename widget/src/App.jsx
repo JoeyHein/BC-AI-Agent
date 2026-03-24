@@ -42,8 +42,8 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
 
   const handleFamilySelect = useCallback((f) => {
     setFamily(f)
-    // Determine default size based on door type
-    const sizeConfig = options.sizes[f.type === 'commercial' ? 'commercial' : 'residential'] || options.sizes.residential
+    // Determine default size — use family-specific sizes if available (e.g. craft)
+    const sizeConfig = options.sizes[f.id] || options.sizes[f.type === 'commercial' ? 'commercial' : 'residential'] || options.sizes.residential
     const defaultWidth = (sizeConfig.defaultWidth || 16) * 12
     const defaultHeight = (sizeConfig.defaultHeight || 8) * 12
     const newConfig = {

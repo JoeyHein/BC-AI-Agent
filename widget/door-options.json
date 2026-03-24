@@ -128,6 +128,13 @@
       "defaultWidth": 16,
       "defaultHeight": 8
     },
+    "craft": {
+      "widths": [8, 9, 12, 16],
+      "heights": [7, 8],
+      "defaultWidth": 16,
+      "defaultHeight": 8,
+      "customSizeAllowed": false
+    },
     "commercial": {
       "widths": [8, 10, 12, 14, 16, 18, 20, 22, 24],
       "heights": [8, 10, 12, 14, 16],
