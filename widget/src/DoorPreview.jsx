@@ -137,11 +137,11 @@ function DoorPreview({
     if (windowPositions && windowPositions.length > 0) {
       return windowPositions.some(pos => pos.section === section && pos.col === col)
     }
-    return windowInsert && windowInsert !== 'NONE' && section === windowSection
+    return false
   }
 
   const hasAnyWindows = windowInsert && windowInsert !== 'NONE' && (
-    (windowPositions && windowPositions.length > 0) || windowSection
+    windowPositions && windowPositions.length > 0
   )
 
   const isCraft = doorSeries === 'CRAFT'
