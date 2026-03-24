@@ -31,6 +31,7 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
     glassPaneType: null,
     glassColor: 'CLEAR',
     windowSection: 1,
+    windowFrameColor: 'MATCH',
     width: 192, // 16' in inches
     height: 96, // 8' in inches
   })
@@ -81,7 +82,7 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
     }
   }, [])
 
-  const handleWindowSelect = useCallback((windowId, qty, glassType, section) => {
+  const handleWindowSelect = useCallback((windowId, qty, glassColor, section, glassPaneType, windowFrameColor) => {
     setConfig(c => {
       const updates = {}
       if (windowId !== undefined) {
@@ -101,9 +102,14 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
       if (qty !== undefined) {
         updates.windowQty = qty
       }
-      if (glassType !== undefined) {
-        updates.glassPaneType = glassType
-        updates.glassColor = glassType
+      if (glassColor !== undefined && glassColor !== null) {
+        updates.glassColor = glassColor
+      }
+      if (glassPaneType !== undefined) {
+        updates.glassPaneType = glassPaneType
+      }
+      if (windowFrameColor !== undefined) {
+        updates.windowFrameColor = windowFrameColor
       }
       if (section !== undefined) {
         updates.windowSection = section
@@ -219,6 +225,7 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
                 windowQty={config.windowQty || 0}
                 hasInserts={true}
                 glassColor={config.glassColor || 'CLEAR'}
+                windowFrameColor={config.windowFrameColor || 'MATCH'}
                 showDimensions={true}
                 maxWidth={340}
               />

@@ -1020,3 +1020,208 @@
     gap: 8px;
   }
 }
+
+/* ---- Window Placement UI ---- */
+.odc-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  color: var(--odc-text);
+  margin-bottom: 20px;
+  cursor: pointer;
+}
+.odc-checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--odc-accent);
+  cursor: pointer;
+}
+.odc-step-hint {
+  font-size: 13px;
+  color: var(--odc-text-secondary);
+  margin-bottom: 12px;
+}
+.odc-window-placement-layout {
+  display: flex;
+  gap: 32px;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+.odc-window-placement-preview {
+  flex-shrink: 0;
+  text-align: center;
+}
+.odc-placement-hint {
+  font-size: 12px;
+  color: var(--odc-text-secondary);
+  margin-top: 8px;
+}
+.odc-window-placement-controls {
+  flex: 1;
+  min-width: 0;
+}
+.odc-quick-patterns {
+  margin-bottom: 16px;
+}
+.odc-quick-patterns strong {
+  display: block;
+  font-size: 14px;
+  color: var(--odc-text);
+  margin-bottom: 8px;
+}
+.odc-pattern-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.odc-pattern-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid var(--odc-accent);
+  color: var(--odc-accent);
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.odc-pattern-btn:hover {
+  background: var(--odc-accent);
+  color: var(--odc-bg);
+}
+.odc-pattern-clear {
+  border-color: #666;
+  color: #999;
+}
+.odc-pattern-clear:hover {
+  background: #666;
+  color: #fff;
+}
+.odc-grid-info {
+  font-size: 13px;
+  color: var(--odc-text-secondary);
+  background: var(--odc-surface);
+  border: 1px solid var(--odc-border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  line-height: 1.6;
+}
+.odc-grid-info strong {
+  color: var(--odc-text);
+}
+.odc-click-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.odc-click-grid-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.odc-grid-cell {
+  width: 40px;
+  height: 32px;
+  border: 1px solid #444;
+  border-radius: 3px;
+  background: var(--odc-surface);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.odc-grid-cell:hover {
+  border-color: var(--odc-accent);
+  background: rgba(201, 169, 110, 0.15);
+}
+.odc-grid-cell-active {
+  background: rgba(135, 206, 235, 0.35) !important;
+  border-color: #87CEEB !important;
+}
+.odc-grid-label {
+  font-size: 11px;
+  color: var(--odc-text-secondary);
+  width: 24px;
+  text-align: center;
+}
+.odc-insert-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.odc-insert-btn {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--odc-border);
+  background: var(--odc-surface);
+  color: var(--odc-text);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.odc-insert-btn:hover {
+  border-color: var(--odc-accent);
+}
+.odc-insert-btn.odc-selected {
+  border-color: var(--odc-accent);
+  background: rgba(201, 169, 110, 0.15);
+  color: var(--odc-accent);
+}
+.odc-option-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.odc-option-card {
+  padding: 16px;
+  border: 1px solid var(--odc-border);
+  background: var(--odc-surface);
+  color: var(--odc-text);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+}
+.odc-option-card:hover {
+  border-color: var(--odc-accent);
+}
+.odc-option-card.odc-selected {
+  border-color: var(--odc-accent);
+  background: rgba(201, 169, 110, 0.1);
+}
+.odc-option-card strong {
+  display: block;
+  font-size: 15px;
+  margin-bottom: 4px;
+}
+.odc-option-desc {
+  font-size: 13px;
+  color: var(--odc-text-secondary);
+}
+.odc-select {
+  padding: 10px 14px;
+  font-size: 14px;
+  background: var(--odc-surface);
+  color: var(--odc-text);
+  border: 1px solid var(--odc-border);
+  border-radius: 6px;
+  min-width: 260px;
+  cursor: pointer;
+}
+.odc-select:focus {
+  outline: none;
+  border-color: var(--odc-accent);
+}
+
+@media (max-width: 700px) {
+  .odc-window-placement-layout {
+    flex-direction: column;
+  }
+  .odc-grid-cell {
+    width: 32px;
+    height: 26px;
+  }
+}
