@@ -116,9 +116,8 @@ export default function WindowStep({ options, family, config, onSelect, onWindow
       onSelect('NONE', 0, null, 1)
       onWindowPositionsChange?.([])
     } else {
-      // Set a default insert
-      const defaultInsert = windowInserts[0] || 'STOCKTON_STANDARD'
-      onSelect(defaultInsert, 0, config.glassColor || 'CLEAR', 1)
+      // Default to plain windows (no decorative insert)
+      onSelect('PLAIN_LONG', 0, config.glassColor || 'CLEAR', 1)
     }
   }
 
@@ -350,6 +349,11 @@ export default function WindowStep({ options, family, config, onSelect, onWindow
           {/* 2. Window Insert Style */}
           <h3 className="odc-subsection-title">2. Window Insert Style</h3>
           <div className="odc-insert-options">
+            <button
+              className={`odc-insert-btn ${!config.windowInsert || config.windowInsert === 'PLAIN_LONG' ? 'odc-selected' : ''}`}
+              onClick={() => handleInsertChange('PLAIN_LONG')}>
+              No Insert
+            </button>
             {windowInserts.map((insertId) => {
               const info = options.windowData?.[insertId]
               if (!info) return null
