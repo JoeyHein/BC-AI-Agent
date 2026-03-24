@@ -553,18 +553,22 @@ class BCPartNumberMapper:
             category="WEATHER_STRIPPING"
         )
 
-    def get_astragal(self, door_width_feet: float) -> BCPartNumber:
+    def get_astragal(self, door_width_feet: float, door_height_inches: int = 0, door_type: str = "residential") -> BCPartNumber:
         """
-        Get astragal (bottom rubber) part number based on door width.
+        Get astragal (bottom rubber) part number based on door width, height, and type.
 
         Args:
             door_width_feet: Door width in feet
+            door_height_inches: Door height in inches (for commercial 10'+ rule)
+            door_type: "residential" or "commercial"
 
         Returns:
             BCPartNumber for astragal
         """
-        # Default rules: 3" for <=16', 4" for >16'
-        if door_width_feet <= 16:
+        # Commercial doors 10' or taller (>= 120") always get 4" astragal
+        if door_type == "commercial" and door_height_inches >= 120:
+            size = 4
+        elif door_width_feet <= 16:
             size = 3
         else:
             size = 4
@@ -934,7 +938,7 @@ class BCPartNumberMapper:
         door_height_feet: int,
         num_sections: int = 4,
         commercial: bool = False,
-        lift_type: str = "standard",  # "standard" or "high"
+        lift_type: str = "standard",  # "standard", "high", or "vertical"
         high_lift_inches: int = 0  # Additional high lift in inches (for high lift only)
     ) -> BCPartNumber:
         """

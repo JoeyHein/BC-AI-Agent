@@ -653,6 +653,16 @@ def _generate_bc_quote_with_items(
                 "error": str(e),
             })
 
+        # Blank separator between doors (not after the last door)
+        if door_index < len(doors):
+            all_lines.append({
+                "lineType": "Comment",
+                "description": "",
+                "category": "COMMENT",
+                "door_index": door_index,
+                "is_separator": True,
+            })
+
     # Step 2: Create BC Quote
     # Note: requestedDeliveryDate is not available on the v2.0 salesQuotes entity.
     # It gets set during order creation in convert_quote_to_order (6 weeks out).
@@ -1302,6 +1312,16 @@ def _estimate_pricing_locally(
                 "parts_count": 0,
                 "success": False,
                 "error": str(e),
+            })
+
+        # Blank separator between doors (not after the last door)
+        if door_index < len(doors):
+            all_lines.append({
+                "lineType": "Comment",
+                "description": "",
+                "category": "COMMENT",
+                "door_index": door_index,
+                "is_separator": True,
             })
 
     # Warm the BC cost cache so pricing uses live production costs

@@ -126,6 +126,7 @@ class DoorConfiguration:
     high_lift_inches: Optional[int] = None
     end_cap_type: str = 'auto'  # 'auto', 'SEC', 'DEC'
     window_size: str = 'long'  # 'short' (GK15-10xxx) or 'long' (GK15-11xxx)
+    glass_pockets_per_section: int = 1  # Number of glass pockets per V130G/V230G section
     spring_inventory: Optional[Dict[str, list]] = None  # stocked coil/wire combos from settings
 
 
@@ -556,13 +557,13 @@ class PartNumberService:
         ))
 
         # 2. PANELS (and aluminum sections/glass — treated as panels for aluminum doors)
-        if hardware.get("panels", True):
-            panel_parts = self._get_panel_parts(config)
-            parts.extend(panel_parts)
-
         if config.door_type == "aluminium":
+            # Aluminum doors use aluminum sections instead of regular panels
             aluminum_parts = self._get_aluminum_section_parts(config)
             parts.extend(aluminum_parts)
+        elif hardware.get("panels", True):
+            panel_parts = self._get_panel_parts(config)
+            parts.extend(panel_parts)
 
         # 3. RETAINER (from bottom retainer parts - just retainer, not astragal)
         if hardware.get("bottomRetainer", True):
@@ -995,10 +996,15 @@ class PartNumberService:
             'vertical': 'VERTICAL LIFT',
         }
         lift_label = lift_label_map.get(config.lift_type, 'STANDARD LIFT')
-        track_desc = (
-            f"{track_size}\" {lift_label} {mount_label}; {height_display} High,"
-            f"{radius_inches}\"Radius"
-        )
+        if config.lift_type == 'vertical':
+            track_desc = (
+                f"{track_size}\" {lift_label} {mount_label}; {height_display} High"
+            )
+        else:
+            track_desc = (
+                f"{track_size}\" {lift_label} {mount_label}; {height_display} High,"
+                f"{radius_inches}\"Radius"
+            )
 
         return [PartSelection(
             part_number=track.part_number,
@@ -1153,9 +1159,44 @@ class PartNumberService:
                         break
 
         # Spring detail comment: wire, ID, length, qty per hand
+        if is_duplex and spring_result:
+            inner_wire_c = spring_result.inner_wire_diameter
+            inner_coil_c = spring_result.inner_coil_diameter
+            inner_length_c = math.ceil(spring_result.inner_length)
+            duplex_pairs_c = spring_result.duplex_pairs
+            # Show both outer and inner spring specs for duplex
+            total_lh = pairs * config.door_count
+            total_rh = pairs * config.door_count
+            total_springs = spring_qty * config.door_count
+            if config.door_count > 1:
+                spring_detail_desc = (
+                    f"Springs: Outer {wire_size}\" wire x {coil_id}\" ID x {spring_length}\""
+                    f" | Inner {inner_wire_c}\" wire x {inner_coil_c}\" ID x {inner_length_c}\""
+                    f" | {total_lh} LH + {total_rh} RH ({total_springs} total)"
+                )
+            else:
+                spring_detail_desc = (
+                    f"Springs: Outer {wire_size}\" wire x {coil_id}\" ID x {spring_length}\""
+                    f" | Inner {inner_wire_c}\" wire x {inner_coil_c}\" ID x {inner_length_c}\""
+                    f" | {pairs} LH + {pairs} RH ({spring_qty} total)"
+                )
+        else:
+            if config.door_count > 1:
+                total_lh = pairs * config.door_count
+                total_rh = pairs * config.door_count
+                total_springs = spring_qty * config.door_count
+                spring_detail_desc = (
+                    f"Springs: {wire_size}\" wire x {coil_id}\" ID x {spring_length}\" long"
+                    f" | {total_lh} LH + {total_rh} RH ({total_springs} total)"
+                )
+            else:
+                spring_detail_desc = (
+                    f"Springs: {wire_size}\" wire x {coil_id}\" ID x {spring_length}\" long"
+                    f" | {pairs} LH + {pairs} RH ({spring_qty} total)"
+                )
         parts.append(PartSelection(
             part_number="",
-            description=f"Springs: {wire_size}\" wire x {coil_id}\" ID x {spring_length}\" long | {pairs} LH + {pairs} RH ({spring_qty} total)",
+            description=spring_detail_desc,
             quantity=0,
             category="spring_comment",
             notes="spring_detail_comment",
@@ -1282,7 +1323,7 @@ class PartNumberService:
             shaft = mapper.get_shaft(door_width_feet=door_width_feet, shaft_type="tube")
             return [PartSelection(
                 part_number=shaft.part_number,
-                description=f"1\" Tube Shaft {width_display} door width",
+                description=shaft.description,
                 quantity=1,
                 category="shaft"
             )]
@@ -1332,7 +1373,7 @@ class PartNumberService:
 
             return [PartSelection(
                 part_number=shaft.part_number,
-                description=f"1\" Solid Shaft Keyed {width_display} door width",
+                description=shaft.description,
                 quantity=1,
                 category="shaft"
             )]
@@ -1375,14 +1416,14 @@ class PartNumberService:
             if N - 1 > 0:
                 parts.append(PartSelection(
                     part_number=shaft_std.part_number,
-                    description=f"1\" Solid Shaft Keyed {width_display} door width (standard side)",
+                    description=shaft_std.description,
                     quantity=N - 1,
                     category="shaft"
                 ))
             # 1 operator shaft
             parts.append(PartSelection(
                 part_number=shaft_op.part_number,
-                description=f"1\" Solid Shaft Keyed {width_display} door width (operator side)",
+                description=shaft_op.description,
                 quantity=1,
                 category="shaft"
             ))
@@ -1451,7 +1492,7 @@ class PartNumberService:
             door_height_feet=door_height_feet,
             num_sections=num_sections,
             commercial=is_commercial,
-            lift_type='high' if config.lift_type == 'high_lift' else 'standard',
+            lift_type='high' if config.lift_type == 'high_lift' else ('vertical' if config.lift_type == 'vertical' else 'standard'),
             high_lift_inches=config.high_lift_inches or 0
         )
 
@@ -1558,6 +1599,9 @@ class PartNumberService:
 
     def _get_retainer_only_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get retainer part numbers only (without astragal)"""
+        if config.door_type == "aluminium":
+            return []  # Aluminum doors don't use retainers
+
         parts = []
         mapper = get_bc_mapper()
         is_residential = config.door_type == "residential"
@@ -1597,7 +1641,7 @@ class PartNumberService:
         mapper = get_bc_mapper()
         door_width_feet = config.door_width / 12
 
-        astragal = mapper.get_astragal(door_width_feet)
+        astragal = mapper.get_astragal(door_width_feet, door_height_inches=config.door_height, door_type=config.door_type)
         return [PartSelection(
             part_number=astragal.part_number,
             description=astragal.description,
@@ -2126,8 +2170,9 @@ class PartNumberService:
         )
 
         # Calculate glass square footage per section, then multiply by number of sections
+        # and glass pockets per section (default 1)
         glass_sqft_per_section = (config.door_width * section_height) / 144
-        total_glass_sqft = round(glass_sqft_per_section * v130g_qty, 2)
+        total_glass_sqft = round(glass_sqft_per_section * v130g_qty * config.glass_pockets_per_section, 2)
 
         parts.append(PartSelection(
             part_number=glass_pn,
@@ -2351,6 +2396,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         target_cycles=config_dict.get("targetCycles", config_dict.get("target_cycles", 10000)),
         shaft_preference=config_dict.get("shaftType", "auto"),
         window_size=config_dict.get("windowSize", "long"),
+        glass_pockets_per_section=config_dict.get("glassPocketsPerSection", 1),
         window_count=(len(config_dict.get("windowPositions", [])) or config_dict.get("windowCount", 0)) if config_dict.get("hasWindows", True) else 0,
         spring_inventory=spring_inventory,
     )

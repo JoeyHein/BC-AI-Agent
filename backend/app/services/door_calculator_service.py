@@ -1132,19 +1132,20 @@ class DoorCalculatorService:
             if c.quantity == 1 and c.length > MAX_SINGLE_SPRING_LENGTH:
                 effective_qty = 2  # Penalize long single springs
 
-            # For narrow/tall doors prefer duplex; otherwise prefer regular
-            duplex_pref = 0
+            # Total spring count is the PRIMARY sort factor:
+            # 2-spring solution always beats 4-spring (duplex) if both work.
+            # For narrow/tall doors, relax this by not penalizing duplex.
             if is_narrow_tall:
-                duplex_pref = 0 if c.is_duplex else 1
+                spring_count_rank = 0  # Don't penalize duplex for narrow/tall
             else:
-                duplex_pref = 1 if c.is_duplex else 0
+                spring_count_rank = effective_qty  # Fewer springs = better
 
             if is_reasonable:
-                # Reasonable length: prefer regular over duplex, then fewer springs, then smaller coil, then shorter
-                return (0, duplex_pref, effective_qty, c.coil_diameter, c.length)
+                # Reasonable length: fewer springs first, then smaller coil, then shorter
+                return (0, spring_count_rank, c.coil_diameter, c.length)
             else:
-                # Overlong: prefer regular over duplex, then shorter springs, then fewer
-                return (1, duplex_pref, c.length, effective_qty, c.coil_diameter)
+                # Overlong: fewer springs first, then shorter springs, then smaller coil
+                return (1, spring_count_rank, c.length, c.coil_diameter)
 
         best = min(all_candidates, key=candidate_sort_key)
 
