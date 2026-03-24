@@ -10,7 +10,15 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
   const designInfo = options.designData[config.panelDesign]
   const colorInfo = options.colorData[config.color]
   const windowInfo = config.windowInsert ? options.windowData[config.windowInsert] : null
+  const commercialWindowInfo = config.windowInsert ? options.commercialWindowData?.[config.windowInsert] : null
   const glassInfo = config.glassColor ? options.glassData?.[config.glassColor] : null
+
+  // Format size display
+  const formatSize = (inches) => {
+    const ft = Math.floor(inches / 12)
+    const inc = inches % 12
+    return inc > 0 ? `${ft}'-${inc}"` : `${ft}'-0"`
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -21,12 +29,16 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
         configuration: {
           family: family?.name,
           familyId: family?.id,
+          size: `${formatSize(config.width)} x ${formatSize(config.height)}`,
+          widthInches: config.width,
+          heightInches: config.height,
           design: designInfo?.name || 'N/A',
           designId: config.panelDesign,
           color: colorInfo?.name,
           colorId: config.color,
-          windows: windowInfo?.name || 'None',
+          windows: commercialWindowInfo?.name || windowInfo?.name || 'None',
           windowId: config.windowInsert || 'NONE',
+          windowQty: config.windowQty || 0,
           glassType: glassInfo?.name || null,
           glassId: config.glassColor || null,
         },
@@ -81,7 +93,8 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
             doorType={config.doorType}
             doorSeries={config.doorSeries}
             windowInsert={config.windowInsert}
-            windowSection={1}
+            windowSection={config.windowSection || 1}
+            windowQty={config.windowQty || 0}
             hasInserts={true}
             glassColor={config.glassColor || 'CLEAR'}
             showDimensions={true}
@@ -93,6 +106,10 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
           <div className="odc-detail-row">
             <span className="odc-detail-label">Collection</span>
             <span className="odc-detail-value">{family?.name}</span>
+          </div>
+          <div className="odc-detail-row">
+            <span className="odc-detail-label">Size</span>
+            <span className="odc-detail-value">{formatSize(config.width)} x {formatSize(config.height)}</span>
           </div>
           {designInfo && (
             <div className="odc-detail-row">
@@ -107,13 +124,22 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
               {colorInfo?.name}
             </span>
           </div>
-          {windowInfo && config.windowInsert !== 'NONE' && (
+          {commercialWindowInfo && config.windowInsert !== 'NONE' && (
+            <div className="odc-detail-row">
+              <span className="odc-detail-label">Windows</span>
+              <span className="odc-detail-value">
+                {commercialWindowInfo.name}
+                {config.windowQty > 0 && ` (x${config.windowQty})`}
+              </span>
+            </div>
+          )}
+          {windowInfo && !commercialWindowInfo && config.windowInsert !== 'NONE' && (
             <div className="odc-detail-row">
               <span className="odc-detail-label">Windows</span>
               <span className="odc-detail-value">{windowInfo.name}</span>
             </div>
           )}
-          {glassInfo && (
+          {glassInfo && config.glassColor && (
             <div className="odc-detail-row">
               <span className="odc-detail-label">Glass</span>
               <span className="odc-detail-value">{glassInfo.name}</span>

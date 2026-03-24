@@ -27,6 +27,34 @@
       "defaultColor": "WALNUT"
     },
     {
+      "id": "tx450",
+      "name": "TX450",
+      "tagline": "Premium commercial insulated",
+      "description": "R-16.3 insulated commercial door with thermal break and double hinge technology.",
+      "type": "commercial",
+      "series": "TX450",
+      "designs": ["UDC", "FLUSH"],
+      "colors": ["WHITE", "BLACK", "NEW_BROWN", "STEEL_GREY"],
+      "windowInserts": [],
+      "commercialWindows": ["24X12_THERMOPANE", "34X16_THERMOPANE", "18X8_THERMOPANE", "V130G"],
+      "defaultDesign": "UDC",
+      "defaultColor": "WHITE"
+    },
+    {
+      "id": "tx500",
+      "name": "TX500",
+      "tagline": "Ultra-premium commercial insulated",
+      "description": "R-18.4 top-of-line insulated commercial door with premium thermal break.",
+      "type": "commercial",
+      "series": "TX500",
+      "designs": ["UDC", "FLUSH"],
+      "colors": ["WHITE", "BLACK", "NEW_BROWN", "STEEL_GREY"],
+      "windowInserts": [],
+      "commercialWindows": ["24X12_THERMOPANE", "34X16_THERMOPANE", "18X8_THERMOPANE", "V230G"],
+      "defaultDesign": "UDC",
+      "defaultColor": "WHITE"
+    },
+    {
       "id": "al976",
       "name": "Full-View Aluminum",
       "tagline": "Contemporary glass & aluminum",
@@ -65,7 +93,9 @@
     "FLUSH": {"name": "Flush", "description": "Clean contemporary flat panel", "type": "flush"},
     "MUSKOKA": {"name": "Muskoka", "description": "X-brace barn door character", "type": "xbrace"},
     "DENISON": {"name": "Denison", "description": "Three-panel raised grid", "type": "raised_grid"},
-    "GRANVILLE": {"name": "Granville", "description": "Four-panel raised grid", "type": "raised_grid"}
+    "GRANVILLE": {"name": "Granville", "description": "Four-panel raised grid", "type": "raised_grid"},
+    "UDC": {"name": "UDC", "description": "Commercial standard ribbed panel", "type": "horizontal_ribbed"},
+    "UDC_FLUSH": {"name": "Flush", "description": "Flat commercial panel", "type": "flush"}
   },
   "windowData": {
     "STOCKTON_STANDARD": {"name": "Stockton", "grid": [2, 4], "size": "long", "arched": false},
@@ -78,7 +108,18 @@
   "glassData": {
     "CLEAR": {"name": "Clear Glass", "description": "Maximum natural light"},
     "ETCHED": {"name": "Etched Glass", "description": "Frosted privacy glass"},
-    "SUPER_GREY": {"name": "Super Grey", "description": "Dark tinted glass"}
+    "SUPER_GREY": {"name": "Super Grey", "description": "Dark tinted glass"},
+    "INSULATED_CLEAR": {"name": "Insulated Clear", "description": "Double-pane clear insulated"},
+    "INSULATED_ETCHED": {"name": "Insulated Etched", "description": "Double-pane frosted insulated"},
+    "SINGLE_CLEAR": {"name": "Single Clear", "description": "Single-pane clear glass"},
+    "THERMAL_CLEAR": {"name": "Thermal Clear", "description": "Thermopane insulated clear"}
+  },
+  "commercialWindowData": {
+    "24X12_THERMOPANE": {"name": "24\" x 12\" Thermopane", "width": 24, "height": 12},
+    "34X16_THERMOPANE": {"name": "34\" x 16\" Thermopane", "width": 34, "height": 16},
+    "18X8_THERMOPANE": {"name": "18\" x 8\" Thermopane", "width": 18, "height": 8},
+    "V130G": {"name": "V130G Full View", "fullView": true},
+    "V230G": {"name": "V230G Full View", "fullView": true}
   },
   "sizes": {
     "residential": {
@@ -86,6 +127,12 @@
       "heights": [7, 8],
       "defaultWidth": 16,
       "defaultHeight": 8
+    },
+    "commercial": {
+      "widths": [8, 10, 12, 14, 16, 18, 20, 22, 24],
+      "heights": [8, 10, 12, 14, 16],
+      "defaultWidth": 12,
+      "defaultHeight": 12
     }
   }
 }

@@ -1,9 +1,195 @@
 import React from 'react'
 import DoorPreview from '../DoorPreview'
 
+// Glass type options by context
+const RESIDENTIAL_GLASS = ['INSULATED_CLEAR', 'INSULATED_ETCHED', 'SINGLE_CLEAR']
+const COMMERCIAL_THERMOPANE_GLASS = ['THERMAL_CLEAR']
+const FULLVIEW_GLASS = ['CLEAR', 'ETCHED', 'SUPER_GREY']
+
 export default function WindowStep({ options, family, config, onSelect }) {
+  const isCommercial = family?.type === 'commercial'
+  const isAluminium = family?.type === 'aluminium'
+  const commercialWindows = family?.commercialWindows || []
   const windowInserts = family?.windowInserts || []
 
+  // Determine which glass options to show
+  const getGlassOptions = () => {
+    if (isAluminium) return FULLVIEW_GLASS
+    if (isCommercial) {
+      const cwd = options.commercialWindowData || {}
+      const selected = cwd[config.windowInsert]
+      if (selected?.fullView) return FULLVIEW_GLASS
+      if (config.windowInsert) return COMMERCIAL_THERMOPANE_GLASS
+      return []
+    }
+    // Residential with windows selected
+    if (config.windowInsert && config.windowInsert !== 'NONE') return RESIDENTIAL_GLASS
+    return []
+  }
+
+  const glassOptions = getGlassOptions()
+
+  // ---- COMMERCIAL WINDOW RENDERING ----
+  if (isCommercial && commercialWindows.length > 0) {
+    const cwd = options.commercialWindowData || {}
+    // Split into thermopane and full-view
+    const thermopaneOptions = commercialWindows.filter(id => cwd[id] && !cwd[id].fullView)
+    const fullViewOptions = commercialWindows.filter(id => cwd[id] && cwd[id].fullView)
+
+    return (
+      <div className="odc-step-content">
+        <h2 className="odc-step-title">Choose Your Windows</h2>
+        <p className="odc-step-subtitle">Select window type for your {family?.name}</p>
+
+        {/* Thermopane options */}
+        {thermopaneOptions.length > 0 && (
+          <>
+            <h3 className="odc-subsection-title">Thermopane Windows</h3>
+            <div className="odc-window-grid">
+              {thermopaneOptions.map((winId) => {
+                const winInfo = cwd[winId]
+                const isSelected = config.windowInsert === winId
+                return (
+                  <button
+                    key={winId}
+                    className={`odc-window-card ${isSelected ? 'odc-selected' : ''}`}
+                    onClick={() => onSelect(winId, config.windowQty || 1, 'THERMAL_CLEAR', config.windowSection)}
+                  >
+                    <div className="odc-commercial-window-visual">
+                      <div className="odc-commercial-window-frame">
+                        <div className="odc-commercial-window-glass" style={{
+                          width: `${Math.min(winInfo.width * 2.5, 100)}px`,
+                          height: `${Math.min(winInfo.height * 2.5, 60)}px`,
+                        }} />
+                      </div>
+                      <div className="odc-commercial-window-dims">
+                        {winInfo.width}" x {winInfo.height}"
+                      </div>
+                    </div>
+                    <span className="odc-window-name">{winInfo.name}</span>
+                  </button>
+                )
+              })}
+              {/* No windows option */}
+              <button
+                className={`odc-window-card ${!config.windowInsert ? 'odc-selected' : ''}`}
+                onClick={() => onSelect('NONE', 0, null, 1)}
+              >
+                <div className="odc-commercial-window-visual">
+                  <div className="odc-no-window-icon">&#10005;</div>
+                </div>
+                <span className="odc-window-name">No Windows</span>
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Full View options */}
+        {fullViewOptions.length > 0 && (
+          <>
+            <h3 className="odc-subsection-title">Full View Sections</h3>
+            <div className="odc-window-grid">
+              {fullViewOptions.map((winId) => {
+                const winInfo = cwd[winId]
+                const isSelected = config.windowInsert === winId
+                return (
+                  <button
+                    key={winId}
+                    className={`odc-window-card ${isSelected ? 'odc-selected' : ''}`}
+                    onClick={() => onSelect(winId, config.windowQty || 1, 'CLEAR', config.windowSection)}
+                  >
+                    <div className="odc-commercial-window-visual">
+                      <div className="odc-fullview-icon">
+                        <div className="odc-fullview-panes">
+                          <div className="odc-fullview-pane" />
+                          <div className="odc-fullview-pane" />
+                          <div className="odc-fullview-pane" />
+                          <div className="odc-fullview-pane" />
+                        </div>
+                      </div>
+                    </div>
+                    <span className="odc-window-name">{winInfo.name}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </>
+        )}
+
+        {/* Quantity / section count selector for selected commercial window */}
+        {config.windowInsert && config.windowInsert !== 'NONE' && (
+          <div className="odc-qty-section">
+            {cwd[config.windowInsert]?.fullView ? (
+              <>
+                <h3 className="odc-subsection-title">Number of Full View Sections</h3>
+                <div className="odc-size-presets">
+                  {[1, 2, 3, 4].map((n) => (
+                    <button
+                      key={n}
+                      className={`odc-size-btn ${config.windowQty === n ? 'odc-selected' : ''}`}
+                      onClick={() => onSelect(config.windowInsert, n, config.glassColor, config.windowSection)}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="odc-subsection-title">Windows Per Section</h3>
+                <div className="odc-size-presets">
+                  {[1, 2, 3, 4].map((n) => (
+                    <button
+                      key={n}
+                      className={`odc-size-btn ${config.windowQty === n ? 'odc-selected' : ''}`}
+                      onClick={() => onSelect(config.windowInsert, n, config.glassColor, config.windowSection)}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Glass type for commercial */}
+        {config.windowInsert && config.windowInsert !== 'NONE' && glassOptions.length > 0 && (
+          <>
+            <h3 className="odc-subsection-title">Glass Type</h3>
+            <div className="odc-color-grid">
+              {glassOptions.map((glassId) => {
+                const glassInfo = options.glassData?.[glassId]
+                if (!glassInfo) return null
+                const isSelected = config.glassColor === glassId
+                const glassColors = {
+                  CLEAR: '#A8D8EA', ETCHED: '#D3D3D3', SUPER_GREY: '#4A4A4A',
+                  INSULATED_CLEAR: '#A8D8EA', INSULATED_ETCHED: '#D3D3D3', SINGLE_CLEAR: '#BDE0EE',
+                  THERMAL_CLEAR: '#A8D8EA',
+                }
+                return (
+                  <button
+                    key={glassId}
+                    className={`odc-color-swatch ${isSelected ? 'odc-selected' : ''}`}
+                    onClick={() => onSelect(config.windowInsert, config.windowQty, glassId, config.windowSection)}
+                    title={glassInfo.name}
+                  >
+                    <div className="odc-color-circle-wrap">
+                      <div className="odc-color-circle odc-glass" style={{ backgroundColor: glassColors[glassId] || '#A8D8EA' }} />
+                    </div>
+                    <span className="odc-color-name">{glassInfo.name}</span>
+                    <span className="odc-color-type">{glassInfo.description}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
+  // ---- RESIDENTIAL WINDOW RENDERING ----
   if (windowInserts.length === 0) {
     return (
       <div className="odc-step-content">
@@ -31,7 +217,7 @@ export default function WindowStep({ options, family, config, onSelect }) {
             <button
               key={windowId}
               className={`odc-window-card ${isSelected ? 'odc-selected' : ''}`}
-              onClick={() => onSelect(windowId)}
+              onClick={() => onSelect(isNone ? 'NONE' : windowId, 0, config.glassColor, 1)}
             >
               <div className="odc-window-preview">
                 <DoorPreview
@@ -53,6 +239,39 @@ export default function WindowStep({ options, family, config, onSelect }) {
           )
         })}
       </div>
+
+      {/* Glass type for residential */}
+      {glassOptions.length > 0 && (
+        <>
+          <h3 className="odc-subsection-title">Glass Type</h3>
+          <div className="odc-color-grid">
+            {glassOptions.map((glassId) => {
+              const glassInfo = options.glassData?.[glassId]
+              if (!glassInfo) return null
+              const isSelected = config.glassColor === glassId
+              const glassColors = {
+                CLEAR: '#A8D8EA', ETCHED: '#D3D3D3', SUPER_GREY: '#4A4A4A',
+                INSULATED_CLEAR: '#A8D8EA', INSULATED_ETCHED: '#D3D3D3', SINGLE_CLEAR: '#BDE0EE',
+                THERMAL_CLEAR: '#A8D8EA',
+              }
+              return (
+                <button
+                  key={glassId}
+                  className={`odc-color-swatch ${isSelected ? 'odc-selected' : ''}`}
+                  onClick={() => onSelect(config.windowInsert, config.windowQty, glassId, config.windowSection)}
+                  title={glassInfo.name}
+                >
+                  <div className="odc-color-circle-wrap">
+                    <div className="odc-color-circle odc-glass" style={{ backgroundColor: glassColors[glassId] || '#A8D8EA' }} />
+                  </div>
+                  <span className="odc-color-name">{glassInfo.name}</span>
+                  <span className="odc-color-type">{glassInfo.description}</span>
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
     </div>
   )
 }

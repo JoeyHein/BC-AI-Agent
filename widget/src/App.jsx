@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react'
 import DoorPreview from './DoorPreview'
 import StyleStep from './steps/StyleStep'
+import SizeStep from './steps/SizeStep'
 import DesignStep from './steps/DesignStep'
 import ColorStep from './steps/ColorStep'
 import WindowStep from './steps/WindowStep'
@@ -8,6 +9,7 @@ import SummaryStep from './steps/SummaryStep'
 
 const STEPS = [
   { id: 'style', label: 'Style' },
+  { id: 'size', label: 'Size' },
   { id: 'design', label: 'Design' },
   { id: 'color', label: 'Color' },
   { id: 'windows', label: 'Windows' },
@@ -23,7 +25,10 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
     doorType: 'residential',
     doorSeries: '',
     windowInsert: null,
+    windowQty: 0,
+    glassPaneType: null,
     glassColor: 'CLEAR',
+    windowSection: 1,
     width: 192, // 16' in inches
     height: 96, // 8' in inches
   })
@@ -34,6 +39,10 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
 
   const handleFamilySelect = useCallback((f) => {
     setFamily(f)
+    // Determine default size based on door type
+    const sizeConfig = options.sizes[f.type === 'commercial' ? 'commercial' : 'residential'] || options.sizes.residential
+    const defaultWidth = (sizeConfig.defaultWidth || 16) * 12
+    const defaultHeight = (sizeConfig.defaultHeight || 8) * 12
     const newConfig = {
       ...config,
       color: f.defaultColor || 'WHITE',
@@ -41,16 +50,20 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
       doorType: f.type,
       doorSeries: f.series === 'CRAFT' ? 'CRAFT' : (f.type === 'aluminium' ? 'AL976' : ''),
       windowInsert: null,
+      windowQty: 0,
+      glassPaneType: null,
       glassColor: 'CLEAR',
+      windowSection: 1,
+      width: defaultWidth,
+      height: defaultHeight,
     }
     setConfig(newConfig)
-    // Skip design step if no designs (AL976)
-    if (!f.designs || f.designs.length === 0) {
-      setStep(2) // go to color
-    } else {
-      next()
-    }
-  }, [config, next])
+    next()
+  }, [config, next, options])
+
+  const handleSizeSelect = useCallback((w, h) => {
+    setConfig(c => ({ ...c, width: w, height: h }))
+  }, [])
 
   const handleDesignSelect = useCallback((designId) => {
     setConfig(c => ({ ...c, panelDesign: designId }))
@@ -64,38 +77,60 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
     }
   }, [])
 
-  const handleWindowSelect = useCallback((windowId) => {
-    setConfig(c => ({ ...c, windowInsert: windowId === 'NONE' ? null : windowId }))
+  const handleWindowSelect = useCallback((windowId, qty, glassType, section) => {
+    setConfig(c => {
+      const updates = {}
+      if (windowId !== undefined) {
+        updates.windowInsert = windowId === 'NONE' ? null : windowId
+      }
+      if (qty !== undefined) {
+        updates.windowQty = qty
+      }
+      if (glassType !== undefined) {
+        updates.glassPaneType = glassType
+        updates.glassColor = glassType
+      }
+      if (section !== undefined) {
+        updates.windowSection = section
+      }
+      return { ...c, ...updates }
+    })
   }, [])
 
-  // Determine if current step should be skipped
-  const shouldSkipWindows = family && (family.windowInserts?.length === 0)
+  // Determine skip logic
+  const isCommercial = family?.type === 'commercial'
+  const hasCommercialWindows = isCommercial && family?.commercialWindows?.length > 0
+  const shouldSkipWindows = family && (family.windowInserts?.length === 0) && !hasCommercialWindows
+  const shouldSkipDesign = family && (!family.designs || family.designs.length === 0)
 
   const handleNext = useCallback(() => {
-    const nextStep = step + 1
-    // Skip windows for Craft/AL976
-    if (nextStep === 3 && shouldSkipWindows) {
-      setStep(4)
-    } else {
-      next()
+    let nextStep = step + 1
+    // Skip design for AL976 (step 2)
+    if (nextStep === 2 && shouldSkipDesign) {
+      nextStep = 3
     }
-  }, [step, shouldSkipWindows, next])
+    // Skip windows for Craft (step 4) — but NOT for commercial
+    if (nextStep === 4 && shouldSkipWindows) {
+      nextStep = 5
+    }
+    setStep(Math.min(nextStep, STEPS.length - 1))
+  }, [step, shouldSkipDesign, shouldSkipWindows])
 
   const handlePrev = useCallback(() => {
-    const prevStep = step - 1
+    let prevStep = step - 1
     // Skip windows going back
-    if (prevStep === 3 && shouldSkipWindows) {
-      setStep(2)
-    // Skip design going back for AL976
-    } else if (prevStep === 1 && family && (!family.designs || family.designs.length === 0)) {
-      setStep(0)
-    } else {
-      prev()
+    if (prevStep === 4 && shouldSkipWindows) {
+      prevStep = 3
     }
-  }, [step, shouldSkipWindows, family, prev])
+    // Skip design going back for AL976
+    if (prevStep === 2 && shouldSkipDesign) {
+      prevStep = 1
+    }
+    setStep(Math.max(prevStep, 0))
+  }, [step, shouldSkipDesign, shouldSkipWindows])
 
   // Show live preview alongside steps (not on style or summary)
-  const showSidePreview = step > 0 && step < 4
+  const showSidePreview = step > 0 && step < 5
 
   return (
     <div className="odc-widget">
@@ -125,15 +160,18 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
             <StyleStep options={options} onSelect={handleFamilySelect} />
           )}
           {step === 1 && (
-            <DesignStep options={options} family={family} config={config} onSelect={handleDesignSelect} />
+            <SizeStep options={options} family={family} config={config} onSelect={handleSizeSelect} />
           )}
           {step === 2 && (
-            <ColorStep options={options} family={family} config={config} onSelect={handleColorSelect} />
+            <DesignStep options={options} family={family} config={config} onSelect={handleDesignSelect} />
           )}
           {step === 3 && (
-            <WindowStep options={options} family={family} config={config} onSelect={handleWindowSelect} />
+            <ColorStep options={options} family={family} config={config} onSelect={handleColorSelect} />
           )}
           {step === 4 && (
+            <WindowStep options={options} family={family} config={config} onSelect={handleWindowSelect} />
+          )}
+          {step === 5 && (
             <SummaryStep
               options={options}
               family={family}
@@ -156,7 +194,8 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
                 doorType={config.doorType}
                 doorSeries={config.doorSeries}
                 windowInsert={config.windowInsert}
-                windowSection={1}
+                windowSection={config.windowSection || 1}
+                windowQty={config.windowQty || 0}
                 hasInserts={true}
                 glassColor={config.glassColor || 'CLEAR'}
                 showDimensions={true}
