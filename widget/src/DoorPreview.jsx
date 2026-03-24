@@ -101,6 +101,8 @@ const WINDOW_SHAPES = {
   STOCKBRIDGE_ARCHED: { type: 'prairie', arched: true, size: 'LONG' },
   STOCKTON_SHORT: { type: 'grid', rows: 2, cols: 2, arched: false, size: 'SHORT' },
   STOCKTON_SHORT_ARCHED: { type: 'grid', rows: 2, cols: 2, arched: true, size: 'SHORT' },
+  PLAIN_LONG: { type: 'plain', rows: 0, cols: 0, arched: false, size: 'LONG' },
+  PLAIN_SHORT: { type: 'plain', rows: 0, cols: 0, arched: false, size: 'SHORT' },
 }
 
 function DoorPreview({
@@ -500,7 +502,7 @@ function DoorPreview({
         fill={glassFill} stroke={frameColor} strokeWidth="2" rx="2" ry="2" />
     )
 
-    if (!hasInserts) {
+    if (!hasInserts || windowShape.type === 'plain') {
       elements.push(
         <rect key={`reflection-${colIndex}`}
           x={windowX + 3} y={windowY + 3}
