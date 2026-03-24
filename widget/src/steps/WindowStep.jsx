@@ -130,103 +130,138 @@ export default function WindowStep({ options, family, config, onSelect, onWindow
   // ---- COMMERCIAL ----
   if (isCommercial && commercialWindows.length > 0) {
     const cwd = options.commercialWindowData || {}
-    const thermopaneOptions = commercialWindows.filter(id => cwd[id] && !cwd[id].fullView)
-    const fullViewOptions = commercialWindows.filter(id => cwd[id] && cwd[id].fullView)
+    // Only show 24X12_THERMOPANE and V130G/V230G
+    const showOptions = commercialWindows.filter(id => {
+      if (id === '24X12_THERMOPANE') return true
+      if (cwd[id]?.fullView) return true
+      return false
+    })
+    const thermopaneOptions = showOptions.filter(id => !cwd[id]?.fullView)
+    const fullViewOptions = showOptions.filter(id => cwd[id]?.fullView)
 
-    // Default section: 3rd from bottom
-    const commSectionHeight = config.height <= 84 ? 21 : 24
-    const commPanelCount = Math.round(config.height / commSectionHeight)
-    const commDefaultSection = commPanelCount >= 3 ? commPanelCount - 2 : 1
+    // Panel count from door height
+    const sectionHeight = config.height <= 84 ? 21 : 24
+    const panelCount = Math.round(config.height / sectionHeight)
+    const defaultSection = panelCount >= 3 ? panelCount - 2 : 1
+
+    // Recommended window qty based on door width and window size
+    const calcRecommended = () => {
+      const winInfo = cwd[config.windowInsert]
+      if (!winInfo || winInfo.fullView) return 1
+      const windowWidth = winInfo.width || 24
+      const doorWidth = config.width
+      const optimalSpacing = 10
+      return Math.max(1, Math.floor((doorWidth - optimalSpacing) / (windowWidth + optimalSpacing)))
+    }
+
+    const calcSpacing = (qty) => {
+      const winInfo = cwd[config.windowInsert]
+      if (!winInfo || winInfo.fullView || !qty) return null
+      const windowWidth = winInfo.width || 24
+      const totalWindowWidth = windowWidth * qty
+      const spaces = qty + 1
+      if (totalWindowWidth >= config.width) return null
+      return ((config.width - totalWindowWidth) / spaces).toFixed(1)
+    }
+
+    const recommended = calcRecommended()
+    const currentQty = config.windowQty || 0
+    const spacing = calcSpacing(currentQty)
+    const hasSelection = config.windowInsert && config.windowInsert !== 'NONE'
+    const isFullView = hasSelection && cwd[config.windowInsert]?.fullView
+
+    const [includeCommWindows, setIncludeCommWindows] = useState(hasSelection)
+
+    const handleToggle = (checked) => {
+      setIncludeCommWindows(checked)
+      if (!checked) {
+        onSelect('NONE', 0, null, 1)
+      } else {
+        onSelect('24X12_THERMOPANE', recommended, 'CLEAR', defaultSection)
+      }
+    }
 
     return (
       <div className="odc-step-content">
         <h2 className="odc-step-title">Windows</h2>
-        <p className="odc-step-subtitle">Select window type for your {family?.name}</p>
 
-        {thermopaneOptions.length > 0 && (
+        <label className="odc-checkbox-label">
+          <input type="checkbox" checked={includeCommWindows} onChange={(e) => handleToggle(e.target.checked)} className="odc-checkbox" />
+          Include windows in this door
+        </label>
+
+        {includeCommWindows && (
           <>
-            <h3 className="odc-subsection-title">Thermopane Windows</h3>
-            <div className="odc-window-grid">
-              {thermopaneOptions.map((winId) => {
-                const winInfo = cwd[winId]
-                return (
-                  <button key={winId}
-                    className={`odc-window-card ${config.windowInsert === winId ? 'odc-selected' : ''}`}
-                    onClick={() => onSelect(winId, config.windowQty || 1, 'CLEAR', config.windowSection || commDefaultSection)}>
-                    <div className="odc-commercial-window-visual">
-                      <div className="odc-commercial-window-frame">
-                        <div className="odc-commercial-window-glass" style={{
-                          width: `${Math.min(winInfo.width * 2.5, 100)}px`,
-                          height: `${Math.min(winInfo.height * 2.5, 60)}px`,
-                        }} />
-                      </div>
-                      <div className="odc-commercial-window-dims">{winInfo.width}" x {winInfo.height}"</div>
-                    </div>
-                    <span className="odc-window-name">{winInfo.name}</span>
-                  </button>
-                )
-              })}
-              <button className={`odc-window-card ${!config.windowInsert || config.windowInsert === 'NONE' ? 'odc-selected' : ''}`}
-                onClick={() => onSelect('NONE', 0, null, 1)}>
-                <div className="odc-commercial-window-visual"><div className="odc-no-window-icon">&#10005;</div></div>
-                <span className="odc-window-name">No Windows</span>
-              </button>
-            </div>
-          </>
-        )}
+            {/* Window Type */}
+            <h3 className="odc-subsection-title">Window Type</h3>
 
-        {fullViewOptions.length > 0 && (
-          <>
-            <h3 className="odc-subsection-title">Full View Sections</h3>
-            <div className="odc-window-grid">
-              {fullViewOptions.map((winId) => {
-                const winInfo = cwd[winId]
-                return (
-                  <button key={winId}
-                    className={`odc-window-card ${config.windowInsert === winId ? 'odc-selected' : ''}`}
-                    onClick={() => onSelect(winId, config.windowQty || 1, 'CLEAR', config.windowSection || commDefaultSection)}>
-                    <div className="odc-commercial-window-visual">
-                      <div className="odc-fullview-icon">
-                        <div className="odc-fullview-panes">{[1,2,3,4].map(i => <div key={i} className="odc-fullview-pane" />)}</div>
-                      </div>
-                    </div>
-                    <span className="odc-window-name">{winInfo.name}</span>
-                  </button>
-                )
-              })}
-            </div>
-          </>
-        )}
-
-        {config.windowInsert && config.windowInsert !== 'NONE' && (() => {
-          const isFullView = cwd[config.windowInsert]?.fullView
-          // Calculate panel count from door height
-          const sectionHeight = config.height <= 84 ? 21 : 24
-          const panelCount = Math.round(config.height / sectionHeight)
-          // Default section: 3rd from bottom if enough panels, else 1
-          const defaultSection = panelCount >= 3 ? panelCount - 2 : 1
-
-          return (
-            <>
-              <div className="odc-qty-section">
-                <h3 className="odc-subsection-title">
-                  {isFullView ? 'Number of Full View Sections' : 'Windows Per Section'}
-                </h3>
-                <div className="odc-size-presets">
-                  {[1, 2, 3, 4].map((n) => (
-                    <button key={n} className={`odc-size-btn ${config.windowQty === n ? 'odc-selected' : ''}`}
-                      onClick={() => onSelect(config.windowInsert, n, config.glassColor, config.windowSection || defaultSection)}>
-                      {n}
-                    </button>
-                  ))}
+            {thermopaneOptions.length > 0 && (
+              <>
+                <p style={{fontSize: '12px', color: 'var(--odc-text-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600}}>Thermopane</p>
+                <div className="odc-option-cards" style={{marginBottom: '16px'}}>
+                  {thermopaneOptions.map((winId) => {
+                    const winInfo = cwd[winId]
+                    return (
+                      <button key={winId}
+                        className={`odc-option-card ${config.windowInsert === winId ? 'odc-selected' : ''}`}
+                        onClick={() => onSelect(winId, recommended, config.glassColor || 'CLEAR', config.windowSection || defaultSection)}>
+                        <strong>{winInfo.name}</strong>
+                        <span className="odc-option-desc">24" section</span>
+                      </button>
+                    )
+                  })}
                 </div>
-              </div>
+              </>
+            )}
 
-              {/* Window Section Selection (which panel) */}
-              <div className="odc-qty-section">
+            {fullViewOptions.length > 0 && (
+              <>
+                <p style={{fontSize: '12px', color: 'var(--odc-text-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600}}>Full View</p>
+                <div className="odc-option-cards" style={{marginBottom: '20px'}}>
+                  {fullViewOptions.map((winId) => {
+                    const winInfo = cwd[winId]
+                    return (
+                      <button key={winId}
+                        className={`odc-option-card ${config.windowInsert === winId ? 'odc-selected' : ''}`}
+                        onClick={() => onSelect(winId, 1, config.glassColor || 'CLEAR', config.windowSection || defaultSection)}>
+                        <strong>{winInfo.name}</strong>
+                        <span className="odc-option-desc">Replaces insulated section</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </>
+            )}
+
+            {hasSelection && (
+              <>
+                {/* Window Quantity with +/- and recommended */}
                 <h3 className="odc-subsection-title">
-                  {isFullView ? 'Starting Section' : 'Window Section'} <span style={{fontSize: '13px', fontWeight: 400, color: 'var(--odc-text-secondary)'}}>(1 = Top)</span>
+                  {isFullView ? 'Number of Full View Sections' : 'Window Quantity'}
                 </h3>
+                <div style={{background: 'var(--odc-surface)', border: '1px solid var(--odc-border)', borderRadius: 'var(--odc-radius)', padding: '16px', marginBottom: '20px'}}>
+                  <div style={{display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px'}}>
+                    <button className="odc-size-btn" style={{width: 40, height: 40, minWidth: 40, padding: 0}}
+                      onClick={() => onSelect(config.windowInsert, Math.max(1, currentQty - 1), config.glassColor, config.windowSection || defaultSection)}>
+                      -
+                    </button>
+                    <span style={{fontSize: '20px', fontWeight: 700, minWidth: '40px', textAlign: 'center'}}>{currentQty}</span>
+                    <button className="odc-size-btn" style={{width: 40, height: 40, minWidth: 40, padding: 0}}
+                      onClick={() => onSelect(config.windowInsert, currentQty + 1, config.glassColor, config.windowSection || defaultSection)}>
+                      +
+                    </button>
+                    <button className="odc-btn-primary" style={{padding: '8px 16px', fontSize: '13px'}}
+                      onClick={() => onSelect(config.windowInsert, recommended, config.glassColor, config.windowSection || defaultSection)}>
+                      Use Recommended ({recommended})
+                    </button>
+                  </div>
+                  {spacing && (
+                    <p style={{fontSize: '12px', color: 'var(--odc-accent)'}}>Spacing between windows: {spacing}"</p>
+                  )}
+                </div>
+
+                {/* Window Section (which panel) */}
+                <h3 className="odc-subsection-title">Window Section <span style={{fontSize: '13px', fontWeight: 400, color: 'var(--odc-text-secondary)'}}>(1 = Top)</span></h3>
                 <div className="odc-size-presets">
                   {Array.from({ length: panelCount }).map((_, i) => (
                     <button key={i + 1}
@@ -236,60 +271,51 @@ export default function WindowStep({ options, family, config, onSelect, onWindow
                     </button>
                   ))}
                 </div>
-                <p style={{fontSize: '12px', color: 'var(--odc-text-muted)', marginTop: '8px'}}>
-                  This door has {panelCount} panels. Select which panel to place windows in.
+                <p style={{fontSize: '12px', color: 'var(--odc-text-muted)', marginTop: '8px', marginBottom: '20px'}}>
+                  This door has {panelCount} panels. Select which panel to place the {currentQty} window{currentQty !== 1 ? 's' : ''} in.
                 </p>
-              </div>
 
-              {/* Frame Color */}
-              <div className="odc-qty-section">
+                {/* Frame Color */}
                 <h3 className="odc-subsection-title">Frame Color</h3>
                 <p style={{fontSize: '12px', color: 'var(--odc-text-muted)', marginBottom: '12px'}}>Standard is black. Inside frame is always white.</p>
-                <div className="odc-insert-options">
+                <div className="odc-option-cards">
                   {[
-                    { id: 'BLACK', name: 'Black', hex: '#1a1a1a', desc: 'Black outside, white inside' },
-                    { id: 'WHITE', name: 'White', hex: '#FFFFFF', desc: 'White outside, white inside' },
+                    { id: 'BLACK', name: 'Black Frame', hex: '#1a1a1a', desc: 'Black outside, white inside', std: true },
+                    { id: 'WHITE', name: 'White Frame', hex: '#FFFFFF', desc: 'White outside, white inside', std: false },
                   ].map((fc) => (
                     <button key={fc.id}
-                      className={`odc-insert-btn ${(config.windowFrameColor || 'BLACK') === fc.id ? 'odc-selected' : ''}`}
+                      className={`odc-option-card ${(config.windowFrameColor || 'BLACK') === fc.id ? 'odc-selected' : ''}`}
                       onClick={() => onSelect(config.windowInsert, config.windowQty, config.glassColor, config.windowSection || defaultSection, config.glassPaneType, fc.id)}
-                      style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                      <div style={{width: 24, height: 24, borderRadius: '50%', backgroundColor: fc.hex, border: '1px solid var(--odc-border)', flexShrink: 0}} />
+                      style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+                      <div style={{width: 32, height: 32, borderRadius: '50%', backgroundColor: fc.hex, border: '2px solid var(--odc-border)', flexShrink: 0}} />
                       <div style={{textAlign: 'left'}}>
-                        <span style={{fontWeight: 600}}>{fc.name}</span>
-                        <span style={{display: 'block', fontSize: '11px', color: 'var(--odc-text-muted)'}}>{fc.desc}</span>
+                        <strong>{fc.name}{fc.std ? ' (Standard)' : ''}</strong>
+                        <span className="odc-option-desc">{fc.desc}</span>
                       </div>
                     </button>
                   ))}
                 </div>
-              </div>
 
-              {/* Glass Type */}
-              <div className="odc-qty-section">
+                {/* Glass Type */}
                 <h3 className="odc-subsection-title">Glass Type</h3>
-                <div className="odc-color-grid">
-                  {(isFullView ? FULLVIEW_GLASS : COMMERCIAL_THERMOPANE_GLASS).map((glassId) => {
-                    const glassInfo = options.glassData?.[glassId]
-                    if (!glassInfo) return null
-                    const glassColors = {
-                      CLEAR: '#87CEEB', ETCHED: '#C8C8C8', SUPER_GREY: '#3D3D3D', THERMAL_CLEAR: '#87CEEB',
-                    }
-                    return (
-                      <button key={glassId}
-                        className={`odc-color-swatch ${config.glassColor === glassId ? 'odc-selected' : ''}`}
-                        onClick={() => onSelect(config.windowInsert, config.windowQty, glassId, config.windowSection || defaultSection)}>
-                        <div className="odc-color-circle-wrap">
-                          <div className="odc-color-circle" style={{ backgroundColor: glassColors[glassId] || '#87CEEB' }} />
-                        </div>
-                        <span className="odc-color-name">{glassInfo.name}</span>
-                      </button>
-                    )
-                  })}
+                <div className="odc-option-cards">
+                  {[
+                    { id: 'CLEAR', name: 'Clear Glass' },
+                    { id: 'INSULATED', name: 'Insulated Glass' },
+                    { id: 'ETCHED', name: 'Etched Glass' },
+                    { id: 'TEMPERED', name: 'Tempered Glass' },
+                  ].map((g) => (
+                    <button key={g.id}
+                      className={`odc-option-card ${config.glassColor === g.id ? 'odc-selected' : ''}`}
+                      onClick={() => onSelect(config.windowInsert, config.windowQty, g.id, config.windowSection || defaultSection, config.glassPaneType, config.windowFrameColor)}>
+                      <strong>{g.name}</strong>
+                    </button>
+                  ))}
                 </div>
-              </div>
-            </>
-          )
-        })()}
+              </>
+            )}
+          </>
+        )}
       </div>
     )
   }
