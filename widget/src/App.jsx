@@ -159,6 +159,14 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
 
   return (
     <div className="odc-widget">
+      {/* Brand header */}
+      <div className="odc-header">
+        <div className="odc-brand">
+          <span className="odc-brand-name">Open Distribution Company</span>
+          <span className="odc-brand-tagline">Door Designer</span>
+        </div>
+      </div>
+
       {/* Progress bar */}
       <div className="odc-progress">
         {STEPS.map((s, i) => (
