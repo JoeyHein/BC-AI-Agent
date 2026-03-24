@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import DoorPreview from '../DoorPreview'
 
 // Glass type options by context
@@ -6,11 +6,22 @@ const RESIDENTIAL_GLASS = ['INSULATED_CLEAR', 'INSULATED_ETCHED', 'SINGLE_CLEAR'
 const COMMERCIAL_THERMOPANE_GLASS = ['THERMAL_CLEAR']
 const FULLVIEW_GLASS = ['CLEAR', 'ETCHED', 'SUPER_GREY']
 
-export default function WindowStep({ options, family, config, onSelect }) {
+export default function WindowStep({ options, family, config, onSelect, onWindowPositionsChange }) {
   const isCommercial = family?.type === 'commercial'
   const isAluminium = family?.type === 'aluminium'
   const commercialWindows = family?.commercialWindows || []
   const windowInserts = family?.windowInserts || []
+
+  const [highlightStamp, setHighlightStamp] = useState(null)
+
+  // Determine window size from options windowData
+  const getWindowSize = (windowId) => {
+    if (!windowId || windowId === 'NONE') return 'long'
+    const wd = options.windowData?.[windowId]
+    return wd?.size || 'long'
+  }
+
+  const currentWindowSize = getWindowSize(config.windowInsert)
 
   // Determine which glass options to show
   const getGlassOptions = () => {
@@ -28,6 +39,34 @@ export default function WindowStep({ options, family, config, onSelect }) {
   }
 
   const glassOptions = getGlassOptions()
+
+  // Handle stamp click — toggle window position
+  const handleStampClick = (section, col) => {
+    if (!config.windowInsert || config.windowInsert === 'NONE') return
+    const positions = config.windowPositions || []
+    const exists = positions.some(p => p.section === section && p.col === col)
+    let newPositions
+    if (exists) {
+      newPositions = positions.filter(p => !(p.section === section && p.col === col))
+    } else {
+      newPositions = [...positions, { section, col }]
+    }
+    if (onWindowPositionsChange) {
+      onWindowPositionsChange(newPositions)
+    }
+  }
+
+  // Handle stamp hover
+  const handleStampHover = (section, col) => {
+    if (section === null) {
+      setHighlightStamp(null)
+    } else {
+      setHighlightStamp({ section, col })
+    }
+  }
+
+  const windowPositionCount = (config.windowPositions || []).length
+  const hasWindowInsertSelected = config.windowInsert && config.windowInsert !== 'NONE'
 
   // ---- COMMERCIAL WINDOW RENDERING ----
   if (isCommercial && commercialWindows.length > 0) {
@@ -205,7 +244,7 @@ export default function WindowStep({ options, family, config, onSelect }) {
   return (
     <div className="odc-step-content">
       <h2 className="odc-step-title">Choose Your Windows</h2>
-      <p className="odc-step-subtitle">Add decorative window inserts to your top section</p>
+      <p className="odc-step-subtitle">Select a window insert style, then click panels to place them</p>
       <div className="odc-window-grid">
         {allOptions.map((windowId) => {
           const windowInfo = options.windowData[windowId]
@@ -229,6 +268,7 @@ export default function WindowStep({ options, family, config, onSelect }) {
                   doorSeries={config.doorSeries}
                   windowInsert={isNone ? null : windowId}
                   windowSection={1}
+                  windowSize={getWindowSize(windowId)}
                   hasInserts={true}
                   showDimensions={false}
                   maxWidth={140}
@@ -239,6 +279,44 @@ export default function WindowStep({ options, family, config, onSelect }) {
           )
         })}
       </div>
+
+      {/* Interactive door grid for placing windows */}
+      {hasWindowInsertSelected && (
+        <div className="odc-window-placement">
+          <h3 className="odc-subsection-title">Place Your Windows</h3>
+          <p className="odc-placement-instructions">
+            Click panels to place or remove windows
+          </p>
+          <div className="odc-placement-grid">
+            <DoorPreview
+              width={config.width}
+              height={config.height}
+              color={config.color}
+              panelDesign={config.panelDesign}
+              doorType={config.doorType}
+              doorSeries={config.doorSeries}
+              windowInsert={config.windowInsert}
+              windowPositions={config.windowPositions || []}
+              windowSize={currentWindowSize}
+              hasInserts={true}
+              glassColor={config.glassColor || 'CLEAR'}
+              showDimensions={false}
+              maxWidth={480}
+              scale={1.2}
+              interactive={true}
+              onStampClick={handleStampClick}
+              onStampHover={handleStampHover}
+              highlightStamp={highlightStamp}
+            />
+          </div>
+          <div className="odc-placement-count">
+            {windowPositionCount === 0
+              ? 'No windows placed yet'
+              : `${windowPositionCount} window${windowPositionCount !== 1 ? 's' : ''} selected`
+            }
+          </div>
+        </div>
+      )}
 
       {/* Glass type for residential */}
       {glassOptions.length > 0 && (

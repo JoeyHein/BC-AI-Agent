@@ -122,6 +122,10 @@ function DoorPreview({
   showDimensions = false,
   scale = 1,
   maxWidth = 400,
+  interactive = false,
+  onStampClick = null,
+  onStampHover = null,
+  highlightStamp = null,
 }) {
   const isCommercial = doorType === 'commercial'
   const maxDisplayWidth = maxWidth * scale
@@ -180,11 +184,33 @@ function DoorPreview({
 
     const windows = []
     for (let col = 0; col < cols; col++) {
+      const x = padding + gapX + col * (cellW + gapX)
       if (hasWindowAtPosition(absoluteSection, col)) {
-        const x = padding + gapX + col * (cellW + gapX)
         windows.push(
-          <g key={`window-overlay-${sectionIndex}-${col}`}>
+          <g key={`window-overlay-${sectionIndex}-${col}`}
+            style={interactive ? { cursor: 'pointer' } : {}}
+            onClick={interactive && onStampClick ? () => onStampClick(absoluteSection, col) : undefined}
+            onMouseEnter={interactive && onStampHover ? () => onStampHover(absoluteSection, col) : undefined}
+            onMouseLeave={interactive && onStampHover ? () => onStampHover(null) : undefined}
+          >
             {renderStampWindow(x, y, cellW, cellH, col)}
+          </g>
+        )
+      } else if (interactive) {
+        const isHovered = highlightStamp &&
+          highlightStamp.section === absoluteSection &&
+          highlightStamp.col === col
+        windows.push(
+          <g key={`interactive-overlay-${sectionIndex}-${col}`}
+            style={{ cursor: 'pointer' }}
+            onClick={onStampClick ? () => onStampClick(absoluteSection, col) : undefined}
+            onMouseEnter={onStampHover ? () => onStampHover(absoluteSection, col) : undefined}
+            onMouseLeave={onStampHover ? () => onStampHover(null) : undefined}
+          >
+            <rect x={x} y={y} width={cellW} height={cellH}
+              fill={isHovered ? 'rgba(201, 169, 110, 0.2)' : 'transparent'}
+              stroke={isHovered ? 'rgba(201, 169, 110, 0.8)' : 'none'}
+              strokeWidth="2" strokeDasharray="4,2" rx="2" />
           </g>
         )
       }
@@ -246,7 +272,7 @@ function DoorPreview({
 
     if (pattern.type !== 'raised' && pattern.type !== 'carriage') {
       const windowOverlays = renderWindowOverlays(sectionY + padding, panelWidth, panelHeight, padding, sectionIndex)
-      if (windowOverlays.length > 0) {
+      if (windowOverlays.length > 0 || interactive) {
         return <>{baseElements}{windowOverlays}</>
       }
     }
@@ -569,15 +595,43 @@ function DoorPreview({
 
         if (hasWindowAtPosition(absoluteSection, col)) {
           const windowW = isLongOnStandard ? cellW * 2 + gapX : cellW
-          panels.push(<g key={stampKey}>{renderStampWindow(x, cellY, windowW, cellH, col)}</g>)
+          panels.push(
+            <g key={stampKey}
+              style={interactive ? { cursor: 'pointer' } : {}}
+              onClick={interactive && onStampClick ? () => onStampClick(absoluteSection, isLongOnStandard ? Math.floor(col / 2) * 2 : col) : undefined}
+              onMouseEnter={interactive && onStampHover ? () => onStampHover(absoluteSection, col) : undefined}
+              onMouseLeave={interactive && onStampHover ? () => onStampHover(null) : undefined}
+            >
+              {renderStampWindow(x, cellY, windowW, cellH, col)}
+            </g>
+          )
           continue
         }
 
         const outerInset = Math.min(cellW, cellH) * 0.05
         const innerInset = Math.min(cellW, cellH) * 0.12
 
+        const clickCol = isLongOnStandard ? Math.floor(col / 2) * 2 : col
+        const pairStart = isLongOnStandard ? Math.floor(col / 2) * 2 : col
+        const isHovered = interactive && highlightStamp &&
+          highlightStamp.section === absoluteSection &&
+          (isLongOnStandard
+            ? Math.floor(highlightStamp.col / 2) * 2 === pairStart
+            : highlightStamp.col === col)
+
         panels.push(
-          <g key={stampKey}>
+          <g key={stampKey}
+            style={interactive ? { cursor: 'pointer' } : {}}
+            onClick={interactive && onStampClick ? () => onStampClick(absoluteSection, clickCol) : undefined}
+            onMouseEnter={interactive && onStampHover ? () => onStampHover(absoluteSection, col) : undefined}
+            onMouseLeave={interactive && onStampHover ? () => onStampHover(null) : undefined}
+          >
+            {isHovered && (isLongOnStandard ? col % 2 === 0 : true) && (
+              <rect x={x} y={cellY}
+                width={isLongOnStandard ? cellW * 2 + gapX : cellW} height={cellH}
+                fill="rgba(201, 169, 110, 0.2)" stroke="rgba(201, 169, 110, 0.8)"
+                strokeWidth="2" strokeDasharray="4,2" rx="2" />
+            )}
             <rect x={x + outerInset} y={cellY + outerInset}
               width={cellW - outerInset * 2} height={cellH - outerInset * 2}
               fill="none" stroke={lineColor} strokeWidth="1.5" />
@@ -625,7 +679,16 @@ function DoorPreview({
 
         if (hasWindowAtPosition(absoluteSection, col)) {
           const windowW = isLongOnStandard ? cellW * 2 + gapX : cellW
-          panels.push(<g key={stampKey}>{renderStampWindow(x, cellY, windowW, cellH, col)}</g>)
+          panels.push(
+            <g key={stampKey}
+              style={interactive ? { cursor: 'pointer' } : {}}
+              onClick={interactive && onStampClick ? () => onStampClick(absoluteSection, isLongOnStandard ? Math.floor(col / 2) * 2 : col) : undefined}
+              onMouseEnter={interactive && onStampHover ? () => onStampHover(absoluteSection, col) : undefined}
+              onMouseLeave={interactive && onStampHover ? () => onStampHover(null) : undefined}
+            >
+              {renderStampWindow(x, cellY, windowW, cellH, col)}
+            </g>
+          )
           continue
         }
 
@@ -633,8 +696,27 @@ function DoorPreview({
         const innerInset = Math.min(cellW, cellH) * 0.12
         const cornerRadius = Math.min(cellW, cellH) * 0.03
 
+        const clickCol = isLongOnStandard ? Math.floor(col / 2) * 2 : col
+        const pairStart = isLongOnStandard ? Math.floor(col / 2) * 2 : col
+        const isHovered = interactive && highlightStamp &&
+          highlightStamp.section === absoluteSection &&
+          (isLongOnStandard
+            ? Math.floor(highlightStamp.col / 2) * 2 === pairStart
+            : highlightStamp.col === col)
+
         panels.push(
-          <g key={stampKey}>
+          <g key={stampKey}
+            style={interactive ? { cursor: 'pointer' } : {}}
+            onClick={interactive && onStampClick ? () => onStampClick(absoluteSection, clickCol) : undefined}
+            onMouseEnter={interactive && onStampHover ? () => onStampHover(absoluteSection, col) : undefined}
+            onMouseLeave={interactive && onStampHover ? () => onStampHover(null) : undefined}
+          >
+            {isHovered && (isLongOnStandard ? col % 2 === 0 : true) && (
+              <rect x={x} y={cellY}
+                width={isLongOnStandard ? cellW * 2 + gapX : cellW} height={cellH}
+                fill="rgba(201, 169, 110, 0.2)" stroke="rgba(201, 169, 110, 0.8)"
+                strokeWidth="2" strokeDasharray="4,2" rx="2" />
+            )}
             <rect x={x + outerInset} y={cellY + outerInset}
               width={cellW - outerInset * 2} height={cellH - outerInset * 2}
               rx={cornerRadius} ry={cornerRadius}

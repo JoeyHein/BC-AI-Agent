@@ -38,6 +38,8 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
           colorId: config.color,
           windows: commercialWindowInfo?.name || windowInfo?.name || 'None',
           windowId: config.windowInsert || 'NONE',
+          windowPositions: config.windowPositions || [],
+          windowSize: config.windowSize || 'long',
           windowQty: config.windowQty || 0,
           glassType: glassInfo?.name || null,
           glassId: config.glassColor || null,
@@ -93,7 +95,9 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
             doorType={config.doorType}
             doorSeries={config.doorSeries}
             windowInsert={config.windowInsert}
+            windowPositions={config.windowPositions || []}
             windowSection={config.windowSection || 1}
+            windowSize={config.windowSize || 'long'}
             windowQty={config.windowQty || 0}
             hasInserts={true}
             glassColor={config.glassColor || 'CLEAR'}
@@ -136,7 +140,10 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
           {windowInfo && !commercialWindowInfo && config.windowInsert !== 'NONE' && (
             <div className="odc-detail-row">
               <span className="odc-detail-label">Windows</span>
-              <span className="odc-detail-value">{windowInfo.name}</span>
+              <span className="odc-detail-value">
+                {windowInfo.name}
+                {config.windowPositions?.length > 0 && ` (${config.windowPositions.length} placed)`}
+              </span>
             </div>
           )}
           {glassInfo && config.glassColor && (

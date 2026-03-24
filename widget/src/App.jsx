@@ -25,6 +25,8 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
     doorType: 'residential',
     doorSeries: '',
     windowInsert: null,
+    windowPositions: [],
+    windowSize: 'long',
     windowQty: 0,
     glassPaneType: null,
     glassColor: 'CLEAR',
@@ -50,6 +52,8 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
       doorType: f.type,
       doorSeries: f.series === 'CRAFT' ? 'CRAFT' : (f.type === 'aluminium' ? 'AL976' : ''),
       windowInsert: null,
+      windowPositions: [],
+      windowSize: 'long',
       windowQty: 0,
       glassPaneType: null,
       glassColor: 'CLEAR',
@@ -81,7 +85,18 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
     setConfig(c => {
       const updates = {}
       if (windowId !== undefined) {
-        updates.windowInsert = windowId === 'NONE' ? null : windowId
+        const newInsert = windowId === 'NONE' ? null : windowId
+        updates.windowInsert = newInsert
+        // Reset positions when insert type changes
+        if (newInsert !== c.windowInsert) {
+          updates.windowPositions = []
+        }
+        // Derive windowSize from options windowData
+        if (newInsert && options.windowData?.[newInsert]) {
+          updates.windowSize = options.windowData[newInsert].size || 'long'
+        } else {
+          updates.windowSize = 'long'
+        }
       }
       if (qty !== undefined) {
         updates.windowQty = qty
@@ -95,6 +110,10 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
       }
       return { ...c, ...updates }
     })
+  }, [options])
+
+  const handleWindowPositionsChange = useCallback((positions) => {
+    setConfig(c => ({ ...c, windowPositions: positions }))
   }, [])
 
   // Determine skip logic
@@ -169,7 +188,7 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
             <ColorStep options={options} family={family} config={config} onSelect={handleColorSelect} />
           )}
           {step === 4 && (
-            <WindowStep options={options} family={family} config={config} onSelect={handleWindowSelect} />
+            <WindowStep options={options} family={family} config={config} onSelect={handleWindowSelect} onWindowPositionsChange={handleWindowPositionsChange} />
           )}
           {step === 5 && (
             <SummaryStep
@@ -194,7 +213,9 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
                 doorType={config.doorType}
                 doorSeries={config.doorSeries}
                 windowInsert={config.windowInsert}
+                windowPositions={config.windowPositions || []}
                 windowSection={config.windowSection || 1}
+                windowSize={config.windowSize || 'long'}
                 windowQty={config.windowQty || 0}
                 hasInserts={true}
                 glassColor={config.glassColor || 'CLEAR'}
