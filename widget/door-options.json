@@ -1,0 +1,91 @@
+{
+  "doorFamilies": [
+    {
+      "id": "kanata",
+      "name": "Kanata Collection",
+      "tagline": "Classic insulated steel",
+      "description": "Traditional raised and carriage house designs in premium insulated steel. R-16.3 thermal performance.",
+      "type": "residential",
+      "series": "KANATA",
+      "designs": ["SHXL", "SH", "BCXL", "BC", "TRAFALGAR", "FLUSH"],
+      "colors": ["WHITE", "BLACK", "SANDTONE", "NEW_BROWN", "HAZELWOOD", "BRONZE", "STEEL_GREY", "IRON_ORE", "WALNUT", "ENGLISH_CHESTNUT", "FRENCH_OAK"],
+      "windowInserts": ["STOCKTON_STANDARD", "STOCKTON_ARCHED_XL", "STOCKTON_ARCHED", "STOCKBRIDGE_STRAIGHT", "STOCKBRIDGE_ARCHED"],
+      "defaultDesign": "SHXL",
+      "defaultColor": "WHITE"
+    },
+    {
+      "id": "craft",
+      "name": "Craft Series",
+      "tagline": "Modern farmhouse character",
+      "description": "Bold architectural designs with barn-door character. Available in select contemporary finishes.",
+      "type": "residential",
+      "series": "CRAFT",
+      "designs": ["MUSKOKA", "DENISON", "GRANVILLE", "FLUSH"],
+      "colors": ["WHITE", "SANDTONE", "WALNUT", "ENGLISH_CHESTNUT", "IRON_ORE", "FRENCH_OAK"],
+      "windowInserts": [],
+      "defaultDesign": "MUSKOKA",
+      "defaultColor": "WALNUT"
+    },
+    {
+      "id": "al976",
+      "name": "Full-View Aluminum",
+      "tagline": "Contemporary glass & aluminum",
+      "description": "Floor-to-ceiling glass in extruded aluminum frames. Maximum natural light with thermal performance.",
+      "type": "aluminium",
+      "series": "AL976",
+      "designs": [],
+      "colors": ["CLEAR_ANODIZED", "BLACK_ANODIZED", "WHITE"],
+      "windowInserts": [],
+      "glassOptions": ["CLEAR", "ETCHED", "SUPER_GREY"],
+      "defaultColor": "BLACK_ANODIZED"
+    }
+  ],
+  "colorData": {
+    "WHITE": {"hex": "#F4F4F4", "name": "White", "type": "solid"},
+    "BLACK": {"hex": "#282828", "name": "Jet Black", "type": "solid"},
+    "SANDTONE": {"hex": "#A4957D", "name": "Sandstone", "type": "solid"},
+    "NEW_BROWN": {"hex": "#4C4842", "name": "Dark Brown", "type": "solid"},
+    "HAZELWOOD": {"hex": "#756F61", "name": "Hazelwood", "type": "solid"},
+    "BRONZE": {"hex": "#6C6961", "name": "Bronze", "type": "solid"},
+    "STEEL_GREY": {"hex": "#7D7F7D", "name": "Steel Grey", "type": "solid"},
+    "IRON_ORE": {"hex": "#2F3234", "name": "Iron Ore", "type": "solid"},
+    "WALNUT": {"hex": "#4A3728", "name": "Walnut", "type": "woodgrain", "light": "#5D432C", "dark": "#3D2B1F"},
+    "ENGLISH_CHESTNUT": {"hex": "#6B4423", "name": "English Chestnut", "type": "woodgrain", "light": "#8B5A2B", "dark": "#5C3317"},
+    "FRENCH_OAK": {"hex": "#C2B078", "name": "French Oak", "type": "woodgrain", "light": "#C2B078", "dark": "#8A6642"},
+    "CLEAR_ANODIZED": {"hex": "#C0C0C0", "name": "Clear Anodized", "type": "aluminum"},
+    "BLACK_ANODIZED": {"hex": "#1a1a1a", "name": "Black Anodized", "type": "aluminum"},
+    "MILL": {"hex": "#D3D3D3", "name": "Mill Finish", "type": "aluminum"}
+  },
+  "designData": {
+    "SHXL": {"name": "Sheridan XL", "description": "Long raised panel — timeless elegance", "type": "raised"},
+    "SH": {"name": "Sheridan", "description": "Classic raised panel", "type": "raised"},
+    "BCXL": {"name": "Bronte Creek XL", "description": "Long carriage house panel", "type": "carriage"},
+    "BC": {"name": "Bronte Creek", "description": "Classic carriage house", "type": "carriage"},
+    "TRAFALGAR": {"name": "Trafalgar", "description": "Horizontal ribbed texture", "type": "ribbed"},
+    "FLUSH": {"name": "Flush", "description": "Clean contemporary flat panel", "type": "flush"},
+    "MUSKOKA": {"name": "Muskoka", "description": "X-brace barn door character", "type": "xbrace"},
+    "DENISON": {"name": "Denison", "description": "Three-panel raised grid", "type": "raised_grid"},
+    "GRANVILLE": {"name": "Granville", "description": "Four-panel raised grid", "type": "raised_grid"}
+  },
+  "windowData": {
+    "STOCKTON_STANDARD": {"name": "Stockton", "grid": [2, 4], "size": "long", "arched": false},
+    "STOCKTON_ARCHED_XL": {"name": "Stockton Arched XL", "grid": [2, 5], "size": "long", "arched": true},
+    "STOCKTON_ARCHED": {"name": "Stockton Arched", "grid": [2, 4], "size": "long", "arched": true},
+    "STOCKBRIDGE_STRAIGHT": {"name": "Stockbridge", "grid": [2, 4], "size": "long", "arched": false, "prairie": true},
+    "STOCKBRIDGE_ARCHED": {"name": "Stockbridge Arched", "grid": [2, 4], "size": "long", "arched": true, "prairie": true},
+    "NONE": {"name": "No Windows", "grid": [0, 0], "size": "long", "arched": false}
+  },
+  "glassData": {
+    "CLEAR": {"name": "Clear Glass", "description": "Maximum natural light"},
+    "ETCHED": {"name": "Etched Glass", "description": "Frosted privacy glass"},
+    "SUPER_GREY": {"name": "Super Grey", "description": "Dark tinted glass"}
+  },
+  "sizes": {
+    "residential": {
+      "widths": [8, 9, 10, 12, 14, 16, 18],
+      "heights": [7, 8],
+      "defaultWidth": 16,
+      "defaultHeight": 8
+    }
+  }
+}

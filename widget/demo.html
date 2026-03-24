@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OPENDC Door Designer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0a;
+      color: #e8e8e8;
+      font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+    }
+    .demo-header {
+      text-align: center;
+      padding: 48px 24px 32px;
+      border-bottom: 1px solid #222;
+    }
+    .demo-header h1 {
+      font-family: 'DM Serif Display', serif;
+      font-size: 36px;
+      font-weight: 400;
+      margin-bottom: 8px;
+    }
+    .demo-header p {
+      color: #999;
+      font-size: 16px;
+    }
+    .demo-header .brand {
+      color: #c9a96e;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+    #door-designer {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    .embed-snippet {
+      max-width: 700px;
+      margin: 60px auto;
+      padding: 24px;
+    }
+    .embed-snippet h3 {
+      font-family: 'DM Serif Display', serif;
+      font-size: 20px;
+      margin-bottom: 12px;
+      color: #c9a96e;
+    }
+    .embed-snippet pre {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 16px;
+      font-size: 13px;
+      overflow-x: auto;
+      color: #b0b0b0;
+      line-height: 1.6;
+    }
+    .embed-snippet code {
+      color: #b0b0b0;
+    }
+  </style>
+</head>
+<body>
+  <div class="demo-header">
+    <h1><span class="brand">OPENDC</span> Door Designer</h1>
+    <p>Design your perfect garage door. Choose style, color, and windows.</p>
+  </div>
+
+  <div id="door-designer"></div>
+
+  <div class="embed-snippet">
+    <h3>Embed on Your Website</h3>
+    <pre><code>&lt;!-- OPENDC Door Designer Widget --&gt;
+&lt;div id="door-designer"&gt;&lt;/div&gt;
+&lt;script src="opendc-door-designer.iife.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+  OpenDCDesigner.init({
+    container: '#door-designer',
+    quoteWebhook: '/api/quote-requests',
+    dealerLocatorUrl: '/find-a-dealer'
+  });
+&lt;/script&gt;</code></pre>
+  </div>
+
+  <!-- Production: use built files -->
+  <link rel="stylesheet" href="dist/style.css" />
+  <script src="dist/opendc-door-designer.iife.js"></script>
+  <script>
+    OpenDCDesigner.init({
+      container: '#door-designer',
+      quoteWebhook: null,
+      dealerLocatorUrl: '#'
+    });
+  </script>
+</body>
+</html>
