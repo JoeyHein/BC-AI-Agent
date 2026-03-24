@@ -15,24 +15,42 @@ import { useMemo } from 'react'
 const STAMP_WIDTH = 42 // inches
 const STAMP_HEIGHT = 14 // inches
 
-const getStampColumns = (widthInches, stampType = 'long', isCraft = false) => {
-  // Calculate stamp columns based on door width and stamp type
+const getStampColumns = (widthInches, stampType = 'long', isCraft = false, panelDesign = '') => {
   const widthFeet = widthInches / 12
 
-  // Base column counts (long stamps: SHXL, BCXL)
+  // Long stamps (SHXL, BCXL): ~42" wide
   let longCols
-  if (widthFeet <= 9) longCols = 2
+  if (widthFeet <= 10) longCols = 2
   else if (widthFeet <= 12) longCols = 3
   else if (widthFeet <= 16) longCols = 4
   else if (widthFeet <= 19) longCols = 5
   else longCols = 6
 
-  // Craft series: all stamps use the same count (no doubling for short stamps)
   if (isCraft) return longCols
+  if (stampType === 'long') return longCols
 
-  // Kanata/standard: short stamps (SH, BC) are 2× the long stamp count
-  if (stampType === 'standard') return longCols * 2
-  return longCols
+  // Short stamps vary by design — SH and BC have different stamp widths
+  // SH (Sheridan): ~21" stamps
+  // BC (Bronte Creek): ~24" stamps
+  const isBronte = panelDesign === 'BC'
+  if (isBronte) {
+    if (widthFeet <= 9) return 3
+    if (widthFeet <= 10) return 4
+    if (widthFeet <= 12) return 5
+    if (widthFeet <= 14) return 6
+    if (widthFeet <= 16) return 7
+    if (widthFeet <= 18) return 8
+    return 9
+  } else {
+    // SH (default for standard stamps)
+    if (widthFeet <= 9) return 4
+    if (widthFeet <= 10) return 5
+    if (widthFeet <= 12) return 6
+    if (widthFeet <= 14) return 7
+    if (widthFeet <= 16) return 8
+    if (widthFeet <= 18) return 9
+    return 10
+  }
 }
 
 const PANEL_PATTERNS = {
@@ -246,7 +264,7 @@ function DoorPreview({
   // Calculate stamp columns for current door width using pattern's stamp type
   const isCraft = doorSeries === 'CRAFT'
   const currentPattern = PANEL_PATTERNS[panelDesign] || PANEL_PATTERNS.SHXL
-  const stampColumns = getStampColumns(width, currentPattern.stampType, isCraft)
+  const stampColumns = getStampColumns(width, currentPattern.stampType, isCraft, panelDesign)
 
   // Calculate section heights
   const sectionConfig = useMemo(() => {
@@ -288,7 +306,7 @@ function DoorPreview({
   // Render window overlays for panel types that don't natively handle stamps (flush, ribbed, UDC)
   const renderWindowOverlays = (y, w, h, padding, sectionIndex) => {
     const absoluteSection = sectionIndex + 1
-    const cols = getStampColumns(width, currentPattern.stampType, isCraft)
+    const cols = getStampColumns(width, currentPattern.stampType, isCraft, panelDesign)
     const gapX = w * 0.02
     const cellW = (w - gapX * (cols + 1)) / cols
     const cellH = h  // Full section height for single-row patterns
@@ -847,7 +865,7 @@ function DoorPreview({
   const renderRaisedPanels = (y, w, h, padding, pattern, sectionIndex) => {
     const { rows } = pattern
     // Calculate columns dynamically based on door width and stamp type
-    const cols = pattern.cols === 'dynamic' ? getStampColumns(width, pattern.stampType, isCraft) : pattern.cols
+    const cols = pattern.cols === 'dynamic' ? getStampColumns(width, pattern.stampType, isCraft, panelDesign) : pattern.cols
     // Gap between stamps
     const gapX = w * 0.012
     const gapY = h * 0.03
@@ -984,7 +1002,7 @@ function DoorPreview({
   const renderCarriagePanels = (y, w, h, padding, pattern, sectionIndex) => {
     const { rows } = pattern
     // Calculate columns dynamically based on door width and stamp type for Bronte Creek styles
-    const cols = pattern.cols === 'dynamic' ? getStampColumns(width, pattern.stampType, isCraft) : pattern.cols
+    const cols = pattern.cols === 'dynamic' ? getStampColumns(width, pattern.stampType, isCraft, panelDesign) : pattern.cols
     // Gap between stamps
     const gapX = w * 0.012
     const gapY = h * 0.03
@@ -1431,7 +1449,7 @@ function DoorPreview({
     const windowHeightDisplay = windowSizeInches.height * scaleRatio
 
     // For short stamp patterns (SH/BC) with long windows (14x40), window spans 2 stamp columns
-    const cols = pattern.cols === 'dynamic' ? getStampColumns(width, pattern.stampType, isCraft) : pattern.cols
+    const cols = pattern.cols === 'dynamic' ? getStampColumns(width, pattern.stampType, isCraft, panelDesign) : pattern.cols
     const gapX = w * 0.02
     const stampWidth = (w - gapX * (cols + 1)) / cols
 

@@ -10,18 +10,43 @@ import { useMemo } from 'react'
 const STAMP_WIDTH = 42
 const STAMP_HEIGHT = 14
 
-const getStampColumns = (widthInches, stampType = 'long', isCraft = false) => {
+const getStampColumns = (widthInches, stampType = 'long', isCraft = false, panelDesign = '') => {
   const widthFeet = widthInches / 12
+
+  // Long stamps (SHXL, BCXL): ~42" wide
   let longCols
-  if (widthFeet <= 9) longCols = 2
+  if (widthFeet <= 10) longCols = 2
   else if (widthFeet <= 12) longCols = 3
   else if (widthFeet <= 16) longCols = 4
   else if (widthFeet <= 19) longCols = 5
   else longCols = 6
 
   if (isCraft) return longCols
-  if (stampType === 'standard') return longCols * 2
-  return longCols
+  if (stampType === 'long') return longCols
+
+  // Short stamps vary by design — SH and BC have different stamp widths
+  // SH (Sheridan): ~21" stamps
+  // BC (Bronte Creek): ~24" stamps
+  const isBronte = panelDesign === 'BC'
+  if (isBronte) {
+    // BC: 8'=3, 9'=3, 10'=4, 12'=5, 14'=6, 16'=7, 18'=8
+    if (widthFeet <= 9) return 3
+    if (widthFeet <= 10) return 4
+    if (widthFeet <= 12) return 5
+    if (widthFeet <= 14) return 6
+    if (widthFeet <= 16) return 7
+    if (widthFeet <= 18) return 8
+    return 9
+  } else {
+    // SH: 8'=4, 9'=4, 10'=5, 12'=6, 14'=7, 16'=8, 18'=9
+    if (widthFeet <= 9) return 4
+    if (widthFeet <= 10) return 5
+    if (widthFeet <= 12) return 6
+    if (widthFeet <= 14) return 7
+    if (widthFeet <= 16) return 8
+    if (widthFeet <= 18) return 9
+    return 10
+  }
 }
 
 const PANEL_PATTERNS = {
@@ -148,7 +173,7 @@ function DoorPreview({
 
   const isCraft = doorSeries === 'CRAFT'
   const currentPattern = PANEL_PATTERNS[panelDesign] || PANEL_PATTERNS.SHXL
-  const stampColumns = getStampColumns(width, currentPattern.stampType, isCraft)
+  const stampColumns = getStampColumns(width, currentPattern.stampType, isCraft, panelDesign)
 
   const sectionConfig = useMemo(() => {
     if (isCraft) {
@@ -179,7 +204,7 @@ function DoorPreview({
 
   const renderWindowOverlays = (y, w, h, padding, sectionIndex) => {
     const absoluteSection = sectionIndex + 1
-    const cols = getStampColumns(width, currentPattern.stampType, isCraft)
+    const cols = getStampColumns(width, currentPattern.stampType, isCraft, panelDesign)
     const gapX = w * 0.02
     const cellW = (w - gapX * (cols + 1)) / cols
     const cellH = h
@@ -577,7 +602,7 @@ function DoorPreview({
 
   const renderRaisedPanels = (y, w, h, padding, pattern, sectionIndex) => {
     const { rows } = pattern
-    const cols = pattern.cols === 'dynamic' ? getStampColumns(width, pattern.stampType, isCraft) : pattern.cols
+    const cols = pattern.cols === 'dynamic' ? getStampColumns(width, pattern.stampType, isCraft, panelDesign) : pattern.cols
     const gapX = w * 0.012
     const gapY = h * 0.03
     const cellW = (w - gapX * (cols + 1)) / cols
@@ -661,7 +686,7 @@ function DoorPreview({
 
   const renderCarriagePanels = (y, w, h, padding, pattern, sectionIndex) => {
     const { rows } = pattern
-    const cols = pattern.cols === 'dynamic' ? getStampColumns(width, pattern.stampType, isCraft) : pattern.cols
+    const cols = pattern.cols === 'dynamic' ? getStampColumns(width, pattern.stampType, isCraft, panelDesign) : pattern.cols
     const gapX = w * 0.012
     const gapY = h * 0.03
     const cellW = (w - gapX * (cols + 1)) / cols
