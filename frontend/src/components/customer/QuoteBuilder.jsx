@@ -2287,8 +2287,8 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         <label className="block text-sm font-medium text-gray-700 mb-2">
           Door Operator (Optional)
         </label>
-        {isOverTenFeet && (
-          <p className="text-xs text-amber-600 mb-2">Chain/belt rail operators are not available for doors over 10' wide.</p>
+        {isOverTenFeetTall && (
+          <p className="text-xs text-amber-600 mb-2">Chain/belt rail operators are not available for doors over 10' tall.</p>
         )}
         {/* No Operator option */}
         <button
