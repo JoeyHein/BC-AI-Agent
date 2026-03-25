@@ -14,6 +14,7 @@ import OrderManagement from './components/OrderManagement'
 import ChatBox from './components/Chat/ChatBox'
 import SettingsPage from './components/Settings/SettingsPage'
 import InstallReferralQueue from './components/InstallReferralQueue'
+import WeeklyEmail from './components/WeeklyEmail'
 
 function Navigation() {
   const { user, logout, isAuthenticated } = useAuth()
@@ -43,6 +44,7 @@ function Navigation() {
     { path: '/orders', label: 'Orders' },
     { path: '/install-referrals', label: 'Installs' },
     { path: '/production', label: 'Production' },
+    { path: '/weekly-email', label: 'Email' },
     { path: '/settings', label: 'Settings' },
   ]
 
@@ -170,6 +172,12 @@ function AppContent() {
           <Route path="/production" element={
             <ProtectedRoute>
               <ProductionCalendar />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/weekly-email" element={
+            <ProtectedRoute requireAdmin>
+              <WeeklyEmail />
             </ProtectedRoute>
           } />
         </Routes>

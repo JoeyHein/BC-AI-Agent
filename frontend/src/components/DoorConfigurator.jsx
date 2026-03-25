@@ -1858,16 +1858,16 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
 
 function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, onChange }) {
   const opData = operatorOptions[door.doorType] || operatorOptions.residential || {}
-  const doorWidthInches = door.doorWidth || 0
-  const isOverTenFeet = doorWidthInches > 120
+  const doorHeightInches = door.doorHeight || 0
+  const isOverTenFeetTall = doorHeightInches > 120
 
-  // Filter out chain/belt rail operators for doors over 10'
+  // Filter out chain/belt rail operators for doors over 10' tall (height, not width)
   const operatorBrands = Object.fromEntries(
     Object.entries(opData.operators || {}).map(([brand, items]) => [
       brand,
       items.map(op => ({
         ...op,
-        disabled: isOverTenFeet && /chain|belt/i.test(op.name),
+        disabled: isOverTenFeetTall && /chain|belt/i.test(op.name),
       }))
     ])
   )

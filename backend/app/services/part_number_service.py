@@ -575,9 +575,10 @@ class PartNumberService:
             astragal_parts = self._get_astragal_only_parts(config)
             parts.extend(astragal_parts)
 
-        # 5. TOP SEAL (if applicable - for insulated/commercial/aluminum doors)
-        top_seal_parts = self._get_top_seal_parts(config)
-        parts.extend(top_seal_parts)
+        # 5. TOP SEAL (commercial and aluminum only — residential doors do NOT get top seal)
+        if config.door_type != "residential":
+            top_seal_parts = self._get_top_seal_parts(config)
+            parts.extend(top_seal_parts)
 
         # 6. STRUTS
         if hardware.get("struts", True):
@@ -626,9 +627,9 @@ class PartNumberService:
             operator_parts = self._get_operator_parts(config)
             parts.extend(operator_parts)
 
-        # Apply quantity multiplier for door count (skip comment and operator)
+        # Apply quantity multiplier for door count (skip comment lines only)
         for part in parts:
-            if part.category not in ["operator", "comment"]:
+            if part.category != "comment":
                 part.quantity *= config.door_count
 
         return parts
@@ -729,7 +730,7 @@ class PartNumberService:
         width_display = f"{actual_ft:02d}' {actual_in_rem:02d}\""   # e.g., "12' 06\""
         cap_name = "DEC" if end_cap_type == EndCapType.DOUBLE else "SEC"
         color_str = config.panel_color.replace("_", " ").upper()
-        stamp_str = "UDC" if config.door_type == "commercial" else "STD"
+        stamp_str = "UDC" if config.door_type == "commercial" else (config.panel_design or "SHXL")
 
         # Get mixed-height breakdown
         breakdown = self._get_section_breakdown(config.door_height)
@@ -853,9 +854,9 @@ class PartNumberService:
         commercial = config.door_type in ("commercial",)
         hardware_weight = _get_hk_weight(config.door_width, config.door_height, commercial)
 
-        # 8. Top seal weight (rubber seal across full door width)
+        # 8. Top seal weight (commercial/aluminum only — residential doors have no top seal)
         TOP_SEAL_LBS_PER_INCH = 0.025  # 0.3 lbs per linear foot
-        top_seal_weight = config.door_width * TOP_SEAL_LBS_PER_INCH
+        top_seal_weight = config.door_width * TOP_SEAL_LBS_PER_INCH if config.door_type != "residential" else 0
 
         total_weight = panel_weight + end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight + hardware_weight + top_seal_weight
 
@@ -1319,7 +1320,9 @@ class PartNumberService:
 
         if is_residential and door_weight <= 750:
             # Light residential — 1" tube shaft (no split needed, max SH12 is 18'-10")
-            door_width_feet = math.ceil(config.door_width / 12)
+            # Shaft sizes already include extra length (e.g. 9' shaft = 9'10" actual),
+            # so use the foot portion of door width — no need to round up.
+            door_width_feet = config.door_width // 12
             shaft = mapper.get_shaft(door_width_feet=door_width_feet, shaft_type="tube")
             return [PartSelection(
                 part_number=shaft.part_number,
@@ -2265,9 +2268,14 @@ class PartNumberService:
             notes=f"GK16 glass kit, section {config.window_section or 1}, {frame_color} frame"
         )]
 
+    # Rail part numbers by type and door height (feet)
+    CHAIN_RAILS = {7: "OP19-02004-00", 8: "OP19-02005-00", 10: "OP19-02006-00"}
+    BELT_RAILS = {7: "OP19-02001-00", 8: "OP19-02002-00", 10: "OP19-02003-00"}
+
     def _get_operator_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get operator and accessory part numbers using real BC part numbers from catalog."""
         parts = []
+        accessory_pns = set()  # Track which accessories are already included
 
         # Main operator
         if config.operator and config.operator != "NONE":
@@ -2283,7 +2291,7 @@ class PartNumberService:
                     category="operator"
                 ))
 
-        # Operator accessories
+        # Operator accessories (user-selected)
         accessories = getattr(config, 'operator_accessories', None) or []
         if accessories:
             from app.services.operator_service import get_operator_part_number, get_operator_display_name
@@ -2298,6 +2306,36 @@ class PartNumberService:
                         quantity=1,
                         category="operator"
                     ))
+                    accessory_pns.add(acc_pn)
+
+        # Auto-include rail for chain/belt drive operators (if not already in accessories)
+        if config.operator and config.operator != "NONE":
+            from app.services.operator_service import get_operator_display_name
+            op_name = get_operator_display_name(config.operator).upper()
+
+            # Determine rail size based on door HEIGHT
+            door_height_ft = config.door_height // 12
+            if door_height_ft <= 7:
+                rail_size = 7
+            elif door_height_ft <= 8:
+                rail_size = 8
+            else:
+                rail_size = 10
+
+            rail_pn = None
+            if "CHAIN DRIVE" in op_name or "CHAIN DR" in op_name:
+                rail_pn = self.CHAIN_RAILS.get(rail_size)
+            elif "BELT DRIVE" in op_name or "BELT DR" in op_name:
+                rail_pn = self.BELT_RAILS.get(rail_size)
+
+            if rail_pn and rail_pn not in accessory_pns:
+                rail_name = get_operator_display_name(rail_pn)
+                parts.append(PartSelection(
+                    part_number=rail_pn,
+                    description=rail_name,
+                    quantity=1,
+                    category="operator"
+                ))
 
         return parts
 

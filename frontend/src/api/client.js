@@ -638,4 +638,19 @@ export const installReferralsAdminApi = {
     apiClient.patch(`/api/admin/install-referrals/${id}`, data),
 };
 
+// Weekly Email Agent API
+export const emailAgentApi = {
+  generate: (brief) =>
+    apiClient.post('/api/email-agent/generate', brief),
+
+  send: (data) =>
+    apiClient.post('/api/email-agent/send', data),
+
+  getAudienceCount: () =>
+    apiClient.get('/api/email-agent/audience-count'),
+
+  getHistory: () =>
+    apiClient.get('/api/email-agent/history'),
+};
+
 export default apiClient;

@@ -1626,3 +1626,21 @@ class POAgentLog(Base):
 
     def __repr__(self):
         return f"<POAgentLog(id={self.id}, vendor={self.vendor_name}, status={self.status})>"
+
+
+class EmailCampaign(Base):
+    """Log of weekly email campaigns sent via Mailchimp"""
+    __tablename__ = "email_campaigns"
+
+    id = Column(Integer, primary_key=True, index=True)
+    subject = Column(String(500), nullable=False)
+    mailchimp_campaign_id = Column(String(100), nullable=True)
+    recipient_count = Column(Integer, default=0)
+    brief_summary = Column(String(200), nullable=True)
+    sent_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    sent_at = Column(DateTime, default=datetime.utcnow)
+
+    sender = relationship("User", foreign_keys=[sent_by])
+
+    def __repr__(self):
+        return f"<EmailCampaign(id={self.id}, subject='{self.subject}')>"

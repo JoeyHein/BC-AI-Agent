@@ -735,9 +735,9 @@ class DoorCalculatorService:
         # 5. End cap seals
         seal_weight = (n21 * 2 * SEAL_WEIGHT_21) + (n24 * 2 * SEAL_WEIGHT_24)
 
-        # 5b. Top seal weight (rubber seal across full door width)
+        # 5b. Top seal weight (commercial/aluminum only — residential doors have no top seal)
         TOP_SEAL_LBS_PER_INCH = 0.025  # 0.3 lbs per linear foot
-        top_seal_weight = dimensions.width * TOP_SEAL_LBS_PER_INCH
+        top_seal_weight = dimensions.width * TOP_SEAL_LBS_PER_INCH if door_type != "residential" else 0
 
         # Steel = panels + end caps + retainer + astragal + seals + top seal
         weight.steel_weight = panel_weight + end_cap_weight + retainer_weight + astragal_weight + seal_weight + top_seal_weight

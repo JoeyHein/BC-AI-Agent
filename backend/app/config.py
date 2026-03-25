@@ -76,6 +76,13 @@ class Settings(BaseSettings):
     # Email Monitoring Settings
     EMAIL_CHECK_INTERVAL_MINUTES: int = 15  # How often to check for new emails
 
+    # Mailchimp (Weekly Email Agent)
+    MAILCHIMP_API_KEY: Optional[str] = None
+    MAILCHIMP_SERVER_PREFIX: Optional[str] = None  # e.g. us14
+    MAILCHIMP_AUDIENCE_ID: Optional[str] = None
+    MAILCHIMP_FROM_NAME: str = "Joey @ OPENDC"
+    MAILCHIMP_FROM_EMAIL: str = "joey@opendc.com"
+
     # Logging
     LOG_LEVEL: str = "INFO"
 
