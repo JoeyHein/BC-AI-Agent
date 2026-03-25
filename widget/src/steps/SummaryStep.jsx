@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useCallback } from 'react'
 import DoorPreview from '../DoorPreview'
 
 export default function SummaryStep({ options, family, config, quoteWebhook, dealerLocatorUrl }) {
@@ -6,12 +6,45 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
   const [formData, setFormData] = useState({ name: '', email: '', phone: '', postalCode: '', notes: '' })
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const previewRef = useRef(null)
+
+  // Capture SVG as PNG data URL
+  const captureDoorImage = useCallback(() => {
+    return new Promise((resolve) => {
+      try {
+        const svgEl = previewRef.current?.querySelector('svg')
+        if (!svgEl) { resolve(null); return }
+        const svgData = new XMLSerializer().serializeToString(svgEl)
+        const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' })
+        const url = URL.createObjectURL(svgBlob)
+        const img = new Image()
+        img.onload = () => {
+          const canvas = document.createElement('canvas')
+          canvas.width = img.naturalWidth * 2
+          canvas.height = img.naturalHeight * 2
+          const ctx = canvas.getContext('2d')
+          ctx.scale(2, 2)
+          ctx.drawImage(img, 0, 0)
+          URL.revokeObjectURL(url)
+          resolve(canvas.toDataURL('image/png'))
+        }
+        img.onerror = () => { URL.revokeObjectURL(url); resolve(null) }
+        img.src = url
+      } catch { resolve(null) }
+    })
+  }, [])
 
   const designInfo = options.designData[config.panelDesign]
   const colorInfo = options.colorData[config.color]
   const windowInfo = config.windowInsert ? options.windowData[config.windowInsert] : null
   const commercialWindowInfo = config.windowInsert ? options.commercialWindowData?.[config.windowInsert] : null
   const glassInfo = config.glassColor ? options.glassData?.[config.glassColor] : null
+
+  // Determine if windows are actually present (positions placed or commercial qty > 0)
+  const isCommercial = family?.type === 'commercial'
+  const hasWindows = config.windowInsert && config.windowInsert !== 'NONE' && (
+    (config.windowPositions?.length > 0) || (isCommercial && config.windowQty > 0)
+  )
 
   // Format size display
   const formatSize = (inches) => {
@@ -24,26 +57,32 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
     e.preventDefault()
     setSubmitting(true)
     try {
+      // Capture the door preview image
+      const doorImage = await captureDoorImage()
+
+      const doorConfig = {
+        family: family?.name,
+        familyId: family?.id,
+        size: `${formatSize(config.width)} x ${formatSize(config.height)}`,
+        widthInches: config.width,
+        heightInches: config.height,
+        design: designInfo?.name || 'N/A',
+        designId: config.panelDesign,
+        color: colorInfo?.name,
+        colorId: config.color,
+        windows: hasWindows ? (commercialWindowInfo?.name || windowInfo?.name || 'None') : 'None',
+        windowId: hasWindows ? (config.windowInsert || 'NONE') : 'NONE',
+        windowPositions: config.windowPositions || [],
+        windowSize: config.windowSize || 'long',
+        windowQty: config.windowQty || 0,
+        glassType: hasWindows ? (glassInfo?.name || null) : null,
+        glassId: hasWindows ? (config.glassColor || null) : null,
+        windowFrameColor: config.windowFrameColor || 'MATCH',
+      }
       const payload = {
-        ...formData,
-        configuration: {
-          family: family?.name,
-          familyId: family?.id,
-          size: `${formatSize(config.width)} x ${formatSize(config.height)}`,
-          widthInches: config.width,
-          heightInches: config.height,
-          design: designInfo?.name || 'N/A',
-          designId: config.panelDesign,
-          color: colorInfo?.name,
-          colorId: config.color,
-          windows: commercialWindowInfo?.name || windowInfo?.name || 'None',
-          windowId: config.windowInsert || 'NONE',
-          windowPositions: config.windowPositions || [],
-          windowSize: config.windowSize || 'long',
-          windowQty: config.windowQty || 0,
-          glassType: glassInfo?.name || null,
-          glassId: config.glassColor || null,
-        },
+        contact: formData,
+        doorConfig,
+        doorImage,
         timestamp: new Date().toISOString(),
       }
 
@@ -86,7 +125,7 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
       <p className="odc-step-subtitle">Review your configuration</p>
 
       <div className="odc-summary-layout">
-        <div className="odc-summary-preview">
+        <div className="odc-summary-preview" ref={previewRef}>
           <DoorPreview
             width={config.width}
             height={config.height}
@@ -128,25 +167,23 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
               {colorInfo?.name}
             </span>
           </div>
-          {commercialWindowInfo && config.windowInsert !== 'NONE' && (
+          {commercialWindowInfo && config.windowInsert !== 'NONE' && config.windowQty > 0 && (
             <div className="odc-detail-row">
               <span className="odc-detail-label">Windows</span>
               <span className="odc-detail-value">
-                {commercialWindowInfo.name}
-                {config.windowQty > 0 && ` (x${config.windowQty})`}
+                {commercialWindowInfo.name} (x{config.windowQty})
               </span>
             </div>
           )}
-          {windowInfo && !commercialWindowInfo && config.windowInsert !== 'NONE' && (
+          {windowInfo && !commercialWindowInfo && config.windowInsert && config.windowInsert !== 'NONE' && config.windowPositions?.length > 0 && (
             <div className="odc-detail-row">
               <span className="odc-detail-label">Windows</span>
               <span className="odc-detail-value">
-                {windowInfo.name}
-                {config.windowPositions?.length > 0 && ` (${config.windowPositions.length} placed)`}
+                {windowInfo.name} ({config.windowPositions.length} placed)
               </span>
             </div>
           )}
-          {glassInfo && config.glassColor && (
+          {glassInfo && config.glassColor && hasWindows && (
             <div className="odc-detail-row">
               <span className="odc-detail-label">Glass</span>
               <span className="odc-detail-value">{glassInfo.name}</span>

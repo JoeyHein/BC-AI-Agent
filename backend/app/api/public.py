@@ -39,6 +39,7 @@ def get_db():
 class PublicQuoteRequestSchema(BaseModel):
     contact: dict  # {name, email, phone, postalCode, notes}
     doorConfig: dict  # full door configuration from widget
+    doorImage: Optional[str] = None  # PNG data URL of the configured door
     timestamp: Optional[str] = None
 
 
@@ -93,6 +94,7 @@ def submit_quote_request(
         postal_code=(contact.get("postalCode") or "").strip() or None,
         notes=(contact.get("notes") or "").strip() or None,
         door_config=door_config,
+        door_image=payload.doorImage,
         source="widget",
         status="new",
     )
@@ -167,6 +169,8 @@ def _send_admin_notification(record: PublicQuoteRequestModel):
         </table>
 
         {"<h3 style='margin-top: 20px;'>Notes</h3><p>" + record.notes + "</p>" if record.notes else ""}
+
+        {"<h3 style='margin-top: 20px;'>Door Preview</h3><img src='" + record.door_image + "' style='max-width: 400px; border: 1px solid #e5e7eb; border-radius: 8px;' alt='Door Preview' />" if record.door_image else ""}
 
         <p style="margin-top: 20px; color: #6b7280; font-size: 13px;">
             Submitted at {record.created_at.strftime('%Y-%m-%d %H:%M UTC') if record.created_at else 'N/A'}
@@ -272,6 +276,7 @@ def list_quote_leads(
                 "phone": lead.phone,
                 "postalCode": lead.postal_code,
                 "doorConfig": lead.door_config,
+                "doorImage": lead.door_image,
                 "source": lead.source,
                 "status": lead.status,
                 "notes": lead.notes,

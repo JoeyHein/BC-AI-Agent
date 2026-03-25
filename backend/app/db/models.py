@@ -1570,6 +1570,7 @@ class PublicQuoteRequest(Base):
     postal_code = Column(String(20), nullable=True)
     notes = Column(Text, nullable=True)
     door_config = Column(JSON, nullable=False)  # Full door configuration
+    door_image = Column(Text, nullable=True)  # PNG data URL of the configured door
     source = Column(String(50), default='widget')  # 'widget', 'website', etc.
     status = Column(String(20), default='new')  # new, contacted, converted, archived
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
