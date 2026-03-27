@@ -851,6 +851,7 @@ class BCPartNumberMapper:
 
         # Stamp code — varies by series
         # Residential Kanata (PN65): 0=FLUSH, 1=SH, 2=BC, 3=TRAF, 4=SHXL, 5=BCXL
+        # Residential Craft (PN95): 0=FLUSH, 6=DENISON, 7=GRANVILLE, 8=MUSKOKA INT, 9=MUSKOKA BTM
         # Commercial (PN45/PN30/etc.): 4=UDC, 0=standard
         KANATA_STAMP_CODES = {
             "FLUSH": "0",
@@ -860,13 +861,23 @@ class BCPartNumberMapper:
             "SHXL": "4",
             "BCXL": "5", "LNCH": "5", "LNXL": "5",
         }
+        CRAFT_STAMP_CODES = {
+            "FLUSH": "0",
+            "DENISON": "6",
+            "GRANVILLE": "7",
+            "MUSKOKA": "8", "MUSKOKA_INTERMEDIATE": "8",
+            "MUSKOKA_BOTTOM": "9",
+        }
         COMMERCIAL_STAMP_CODES = {
             "UDC": "4",
             "FLUSH": "0",
         }
-        is_residential = prefix.startswith("PN65") or prefix.startswith("PN95")
+        is_craft = prefix.startswith("PN95") or prefix.startswith("PN90")
+        is_kanata = prefix.startswith("PN65")
         stamp_upper = stamp.upper()
-        if is_residential:
+        if is_craft:
+            stamp_code = CRAFT_STAMP_CODES.get(stamp_upper, "0")
+        elif is_kanata:
             stamp_code = KANATA_STAMP_CODES.get(stamp_upper, "0")
         else:
             stamp_code = COMMERCIAL_STAMP_CODES.get(stamp_upper, "0")
@@ -1197,19 +1208,21 @@ class BCPartNumberMapper:
         logger.debug(f"Glass kit {constructed_pn} not found in BC items, using constructed PN")
         return None
 
-    def get_frame_insert(self, insert_style: str, panel_color: str) -> Optional["BCPartNumber"]:
+    def get_frame_insert(self, insert_style: str, panel_color: str, insert_prefix: str = "GL18") -> Optional["BCPartNumber"]:
         """
-        Look up a GL18 decorative frame insert for LONG residential windows.
+        Look up a decorative frame insert for residential windows.
 
-        Searches bc_items for GL18 parts matching insert style + panel color.
+        Searches bc_items for parts matching insert style + panel color.
+        Prefix: GL18 (Kanata long), GL19 (Kanata short), GL17 (Craft long).
         Falls back to any matching style if no color match found.
 
         Args:
-            insert_style: Frontend insert ID (e.g. STOCKTON_STANDARD, STOCKBRIDGE_ARCHED)
-            panel_color:  Panel color name (e.g. WHITE, BLACK, IRON_ORE)
+            insert_style:  Frontend insert ID (e.g. STOCKTON_STANDARD, STOCKBRIDGE_ARCHED)
+            panel_color:   Panel color name (e.g. WHITE, BLACK, IRON_ORE)
+            insert_prefix: Part number prefix (GL17, GL18, GL19)
 
         Returns:
-            BCPartNumber for GL18 frame insert, or None if not found
+            BCPartNumber for frame insert, or None if not found
         """
         # Map frontend insert ID to the BC displayName phrase
         style_phrases = {
@@ -1246,8 +1259,9 @@ class BCPartNumberMapper:
 
         # Two-pass: prefer exact color match, then fall back to any match
         best_match = None
+        prefix_match = f"{insert_prefix}-"
         for pn, item in self.bc_items.items():
-            if not pn.startswith("GL18-"):
+            if not pn.startswith(prefix_match):
                 continue
             display = item.get("displayName", "").upper()
             if style_phrase.upper() not in display:

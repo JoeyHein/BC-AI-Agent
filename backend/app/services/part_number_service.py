@@ -506,12 +506,19 @@ RESI_WINDOW_COUNT = {
     "BC_LONG": {6:1, 7:1, 8:2, 9:2, 10:2, 11:2, 12:3, 13:3, 14:3, 15:3, 16:4, 17:4, 18:4, 19:4, 20:5},
     # SHXL/BCXL/FLUSH/TRAF long stamps (same as SH_LONG for these designs)
     "LONG": {7:2, 8:2, 9:2, 10:2, 11:2, 12:3, 13:3, 14:3, 15:3, 16:4, 17:4, 18:4, 19:4, 20:5},
+    # CRAFT series — fixed widths only (8, 9, 12, 16), windows always in top flush panel
+    "CRAFT": {8:2, 9:2, 12:3, 16:4},
 }
 
 
-def get_resi_window_count(door_width_feet: int, panel_design: str, window_size: str = 'long') -> int:
+def get_resi_window_count(door_width_feet: int, panel_design: str, window_size: str = 'long', door_series: str = '') -> int:
     """Look up expected window count from the rulebook tables."""
     design_upper = (panel_design or '').upper()
+
+    # CRAFT series has its own fixed table
+    if door_series == 'CRAFT':
+        table = RESI_WINDOW_COUNT["CRAFT"]
+        return table.get(door_width_feet, 2)
 
     if window_size == 'short' or design_upper in ('SH',):
         # Short stamps — use SH_SHORT or BC_SHORT
@@ -788,6 +795,58 @@ class PartNumberService:
         cap_name = "DEC" if end_cap_type == EndCapType.DOUBLE else "SEC"
         color_str = config.panel_color.replace("_", " ").upper()
         stamp_str = "UDC" if config.door_type == "commercial" else (config.panel_design or "SHXL")
+        is_craft = config.door_series == "CRAFT"
+
+        # CRAFT series: always 3 panels at 28" (7' door) or 32" (8' door)
+        # 1st panel = FLUSH, 2nd/3rd = chosen stamp (Muskoka splits to Intermediate + Bottom)
+        if is_craft:
+            craft_h = 28 if config.door_height <= 84 else 32
+            craft_panels = []
+            # Panel 1: always FLUSH
+            p1 = mapper.get_panel_part_number(
+                model=door_model, width_feet=panel_width_feet, height_inches=craft_h,
+                color=config.panel_color.replace("_", " "), end_cap_type=end_cap_type, stamp="FLUSH"
+            )
+            craft_panels.append(PartSelection(
+                part_number=p1.part_number,
+                description=f"SECTION, {door_model.value}, [{width_display}] X {craft_h}\", FLUSH, {color_str}, {cap_name}",
+                quantity=1, category="panel"
+            ))
+
+            if stamp_str.upper() == "MUSKOKA":
+                # Panel 2: Muskoka Intermediate
+                p2 = mapper.get_panel_part_number(
+                    model=door_model, width_feet=panel_width_feet, height_inches=craft_h,
+                    color=config.panel_color.replace("_", " "), end_cap_type=end_cap_type, stamp="MUSKOKA_INTERMEDIATE"
+                )
+                craft_panels.append(PartSelection(
+                    part_number=p2.part_number,
+                    description=f"SECTION, {door_model.value}, [{width_display}] X {craft_h}\", MUSKOKA INTERMEDIATE, {color_str}, {cap_name}",
+                    quantity=1, category="panel"
+                ))
+                # Panel 3: Muskoka Bottom
+                p3 = mapper.get_panel_part_number(
+                    model=door_model, width_feet=panel_width_feet, height_inches=craft_h,
+                    color=config.panel_color.replace("_", " "), end_cap_type=end_cap_type, stamp="MUSKOKA_BOTTOM"
+                )
+                craft_panels.append(PartSelection(
+                    part_number=p3.part_number,
+                    description=f"SECTION, {door_model.value}, [{width_display}] X {craft_h}\", MUSKOKA BOTTOM, {color_str}, {cap_name}",
+                    quantity=1, category="panel"
+                ))
+            else:
+                # Panels 2 & 3: same stamp (Denison, Granville, or Flush)
+                p2 = mapper.get_panel_part_number(
+                    model=door_model, width_feet=panel_width_feet, height_inches=craft_h,
+                    color=config.panel_color.replace("_", " "), end_cap_type=end_cap_type, stamp=stamp_str
+                )
+                craft_panels.append(PartSelection(
+                    part_number=p2.part_number,
+                    description=f"SECTION, {door_model.value}, [{width_display}] X {craft_h}\", {stamp_str}, {color_str}, {cap_name}",
+                    quantity=2, category="panel"
+                ))
+
+            return craft_panels
 
         # Get mixed-height breakdown
         breakdown = self._get_section_breakdown(config.door_height)
@@ -992,8 +1051,22 @@ class PartNumberService:
         available, steps up to the next available size.  If no larger size
         exists in the requested mount type, falls back to angle mount.
         Doors >= 16' (192") always get angle mount.
+        CRAFT series uses TR25 20" radius tracks exclusively.
         """
         mapper = get_bc_mapper()
+
+        # CRAFT series: always TR25 20" radius tracks per rulebook
+        if config.door_series == "CRAFT":
+            door_height_feet = math.ceil(config.door_height / 12)
+            craft_tracks = {
+                7: ("TR25-00001-00", 'COMPLETE STANDARD 2" TRACK KIT, 20" RADIUS, 7\' HIGH, BRACKET MOUNT'),
+                8: ("TR25-00003-00", 'COMPLETE STANDARD 2" TRACK KIT, 20" RADIUS, 8\' HIGH, BRACKET MOUNT'),
+            }
+            part_key = 7 if door_height_feet <= 7 else 8
+            pn, desc = craft_tracks[part_key]
+            return [PartSelection(
+                part_number=pn, description=desc, quantity=1, category="track"
+            )]
 
         # Round UP to next whole foot for BC part number (track must cover full door height)
         door_height_feet = math.ceil(config.door_height / 12)
@@ -1087,6 +1160,25 @@ class PartNumberService:
         springs (e.g. 2, 4, 6, 8) — NOT inches of spring wire.
         """
         parts = []
+
+        # CRAFT series: always use general spring part number per rulebook
+        if config.door_series == "CRAFT":
+            door_width_feet = config.door_width // 12
+            craft_qty = 2 if door_width_feet >= 16 else 1
+            parts.append(PartSelection(
+                part_number="SP01-00000-00",
+                description="SPRING, CUSTOM (CRAFT SERIES)",
+                quantity=craft_qty,
+                category="spring"
+            ))
+            # Comment line for spring details
+            parts.append(PartSelection(
+                part_number="",
+                description=f"SPRINGS: Craft {door_width_feet}'W — custom spring required, qty {craft_qty}",
+                quantity=1,
+                category="comment"
+            ))
+            return parts, craft_qty
 
         # Get door weight - use provided weight or calculate from linear foot weights
         door_weight = config.door_weight
@@ -1517,7 +1609,31 @@ class PartNumberService:
 
         The chart determines both the quantity and gauge of struts based on
         door width and height. Small doors may need zero struts.
+        CRAFT series: 0 struts without windows (except 16'=1), 1 strut with windows.
         """
+        # CRAFT series: simplified strutting per rulebook
+        if config.door_series == "CRAFT":
+            door_width_feet = config.door_width // 12
+            has_windows = config.window_count > 0 or (config.window_insert and config.window_insert not in (None, "NONE"))
+            if has_windows:
+                strut_count = 1
+            elif door_width_feet >= 16:
+                strut_count = 1
+            else:
+                strut_count = 0
+
+            if strut_count == 0:
+                return []
+
+            mapper = get_bc_mapper()
+            strut = mapper.get_strut(door_width_feet, 20)
+            return [PartSelection(
+                part_number=strut.part_number,
+                description=strut.description,
+                quantity=strut_count,
+                category="strut"
+            )]
+
         strut_info = self._get_strut_requirements(config.door_width, config.door_height)
         strut_count = strut_info["count"]
         strut_type = strut_info["type"]
@@ -1551,11 +1667,29 @@ class PartNumberService:
         Uses bc_part_number_mapper to generate correct part numbers:
         - Residential (2" track): HK10-0HHSS-WWWW pattern
         - Commercial (3" track): HWww-hhhhh-00 pattern
+        - CRAFT: specific HK02-xxxxx-CR part numbers
         """
         mapper = get_bc_mapper()
 
         door_width_feet = int(config.door_width / 12)
         door_height_feet = int(config.door_height / 12)
+
+        # CRAFT series: specific hardware kits per rulebook
+        if config.door_series == "CRAFT":
+            craft_hw = {
+                (8, 7): "HK02-10070-CR", (9, 7): "HK02-10070-CR",
+                (8, 8): "HK02-10080-CR", (9, 8): "HK02-10080-CR",
+                (12, 7): "HK02-18070-CR", (12, 8): "HK02-18080-CR",
+                (16, 7): "HK02-18070-CR", (16, 8): "HK02-18080-CR",
+            }
+            h_key = 7 if door_height_feet <= 7 else 8
+            pn = craft_hw.get((door_width_feet, h_key), craft_hw.get((12, h_key), "HK02-10080-CR"))
+            return [PartSelection(
+                part_number=pn,
+                description=f"CRAFT HARDWARE KIT, {door_width_feet}'W x {h_key}'H",
+                quantity=1,
+                category="hardware"
+            )]
         # Hardware box type follows track thickness, not door type
         # 3" track → commercial HW box (HK03/HW), 2" track → residential HW box (HK02/HK10)
         is_commercial = config.track_thickness == '3'
@@ -2108,15 +2242,24 @@ class PartNumberService:
             notes=window_note,
         )]
 
-        # Add GL18 frame insert for decorative LONG windows (no inserts for SHORT)
+        # Add frame insert for decorative windows
+        # Kanata LONG: GL18, Kanata SHORT: GL19, Craft: GL17
         decorative_inserts = {
             "STOCKTON_STANDARD", "STOCKTON_EIGHT_SQUARE", "STOCKTON_TEN_SQUARE_XL",
             "STOCKTON_ARCHED", "STOCKTON_ARCHED_XL",
             "STOCKBRIDGE_STRAIGHT", "STOCKBRIDGE_STRAIGHT_XL",
             "STOCKBRIDGE_ARCHED", "STOCKBRIDGE_ARCHED_XL",
         }
-        if not is_short and config.window_insert in decorative_inserts:
-            frame_insert = mapper.get_frame_insert(config.window_insert, config.panel_color)
+        if config.window_insert in decorative_inserts:
+            if series_upper == "CRAFT":
+                # Craft uses GL17 inserts per rulebook
+                insert_prefix = "GL17"
+            elif is_short:
+                insert_prefix = "GL19"
+            else:
+                insert_prefix = "GL18"
+
+            frame_insert = mapper.get_frame_insert(config.window_insert, config.panel_color, insert_prefix=insert_prefix)
             if frame_insert:
                 parts.append(PartSelection(
                     part_number=frame_insert.part_number,
