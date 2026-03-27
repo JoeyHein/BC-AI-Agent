@@ -618,8 +618,14 @@ class PartNumberService:
             astragal_parts = self._get_astragal_only_parts(config)
             parts.extend(astragal_parts)
 
-        # 5. TOP SEAL (commercial and aluminum only — residential doors do NOT get top seal)
-        if config.door_type != "residential":
+        # 5. TOP SEAL — per rulebook:
+        #    Residential: never
+        #    Commercial: only when width >= 18' (216") AND height >= 10' (120")
+        #    Aluminum: always
+        if config.door_type == "aluminium":
+            top_seal_parts = self._get_top_seal_parts(config)
+            parts.extend(top_seal_parts)
+        elif config.door_type == "commercial" and config.door_width >= 216 and config.door_height >= 120:
             top_seal_parts = self._get_top_seal_parts(config)
             parts.extend(top_seal_parts)
 
@@ -972,7 +978,10 @@ class PartNumberService:
 
         # 8. Top seal weight (commercial/aluminum only — residential doors have no top seal)
         TOP_SEAL_LBS_PER_INCH = 0.025  # 0.3 lbs per linear foot
-        top_seal_weight = config.door_width * TOP_SEAL_LBS_PER_INCH if config.door_type != "residential" else 0
+        # Top seal weight: aluminum always, commercial only when ≥18'W AND ≥10'H, residential never
+        has_top_seal = (config.door_type == "aluminium" or
+                        (config.door_type == "commercial" and config.door_width >= 216 and config.door_height >= 120))
+        top_seal_weight = config.door_width * TOP_SEAL_LBS_PER_INCH if has_top_seal else 0
 
         total_weight = panel_weight + end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight + hardware_weight + top_seal_weight
 
@@ -1072,6 +1081,12 @@ class PartNumberService:
         door_height_feet = math.ceil(config.door_height / 12)
         track_size = int(config.track_thickness) if config.track_thickness else 2
         radius_inches = int(config.track_radius) if config.track_radius else 12
+
+        # Commercial: 2" track only allowed if height ≤14' AND width ≤18' per rulebook
+        if config.door_type == "commercial" and track_size == 2:
+            if config.door_height > 168 or config.door_width > 216:  # >14' or >18'
+                track_size = 3
+                radius_inches = 12  # 3" tracks don't use radius
 
         # Determine lift type and mount type
         lift_type_map = {
@@ -1179,6 +1194,22 @@ class PartNumberService:
                 category="comment"
             ))
             return parts, craft_qty
+
+        # Commercial doors: always use general spring part number per rulebook
+        if config.door_type == "commercial":
+            parts.append(PartSelection(
+                part_number="SP01-00000-00",
+                description="OIL TEMPERED SPRING ASSEMBLY",
+                quantity=1,
+                category="spring"
+            ))
+            parts.append(PartSelection(
+                part_number="",
+                description=f"SPRINGS: Commercial — custom spring assembly required",
+                quantity=1,
+                category="comment"
+            ))
+            return parts, 1
 
         # Get door weight - use provided weight or calculate from linear foot weights
         door_weight = config.door_weight
@@ -1821,17 +1852,24 @@ class PartNumberService:
         # residential gets bottom only (pre-cut rigid retainer by width)
         # Quantity = door width in inches (retainer sold by the inch)
         if not is_residential:
-            retainer = mapper.get_retainer()
+            # Commercial retainer — select by panel series per rulebook
+            series = config.door_series or "TX450"
+            retainer_info = mapper.COMMERCIAL_RETAINER.get(series, mapper.COMMERCIAL_RETAINER["TX450"])
+            retainer_pn, retainer_desc = retainer_info
+
+            # Qty: if door width >= 18' (216"), qty = door_width * 2; else qty = door_width
+            retainer_qty = config.door_width * 2 if config.door_width >= 216 else config.door_width
+
             parts.append(PartSelection(
-                part_number=retainer.part_number,
-                description=f"{retainer.description} (TOP)",
-                quantity=config.door_width,
+                part_number=retainer_pn,
+                description=f"{retainer_desc} (TOP)",
+                quantity=retainer_qty,
                 category="retainer"
             ))
             parts.append(PartSelection(
-                part_number=retainer.part_number,
-                description=f"{retainer.description} (BOTTOM)",
-                quantity=config.door_width,
+                part_number=retainer_pn,
+                description=f"{retainer_desc} (BOTTOM)",
+                quantity=retainer_qty,
                 category="retainer"
             ))
         else:
@@ -2414,10 +2452,12 @@ class PartNumberService:
         """
         mapper = get_bc_mapper()
 
-        # S: Series digit
+        # S: Series digit per rulebook
         series_upper = config.door_series.upper()
         if series_upper.startswith("TX500"):
             s = "4"
+        elif series_upper.startswith("TX380"):
+            s = "3"
         else:
             s = "2"  # TX450 or default
 

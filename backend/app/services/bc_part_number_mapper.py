@@ -277,8 +277,15 @@ class BCPartNumberMapper:
         6.5: "PL10-00005-03",  # 6.5" COMM bottom rubber
     }
 
-    # Retainer part number (commercial — sold by the roll, cut on site)
-    RETAINER_1_75 = "PL10-00141-00"  # 1-3/4" Top/Bottom Retainer
+    # Commercial retainer part numbers by panel series
+    RETAINER_1_75 = "PL10-00141-00"  # 1-3/4" Top/Bottom Retainer (TX450 default)
+    COMMERCIAL_RETAINER = {
+        "TX380":    ("PL10-00134-00", 'TOP/BOTTOM RETAINER - 1 1/2"'),
+        "TX450":    ("PL10-00141-00", 'TOP/BOTTOM RETAINER, 1 3/4"'),
+        "TX450-20": ("PL10-00141-00", 'TOP/BOTTOM RETAINER, 1 3/4"'),
+        "TX500":    ("PL10-00135-00", 'TOP/BOTTOM RETAINER 2"'),
+        "TX500-20": ("PL10-00135-00", 'TOP/BOTTOM RETAINER 2"'),
+    }
 
     # Residential retainer — pre-cut rigid retainer by width
     RESI_RETAINER = {
@@ -544,11 +551,14 @@ class BCPartNumberMapper:
         # Get color code
         color_code = self.COLOR_CODES.get(color.upper(), "00")
 
-        # Specialty colors (woodgrain finishes) use PL11 dual fin strips
-        if color_code in self.PL11_COLOR_CODES:
-            resi_comm = "2" if commercial else "1"
-            part_number = f"PL11-{resi_comm}2{height:02d}2-{color_code}"
-            desc = f"WEATHER STRIP, DUAL FIN, {height:02d}' 2\", {color.upper()}"
+        # Commercial: ALL colors use PL11-22{size}2-{color} per rulebook
+        # Residential: specialty colors (woodgrain) use PL11-12, others use PL10
+        if commercial:
+            part_number = f"PL11-22{height:02d}2-{color_code}"
+            desc = f"WEATHER STRIP, DUAL FIN, COMM, {height:02d}' 2\", {color.upper()}"
+        elif color_code in self.PL11_COLOR_CODES:
+            part_number = f"PL11-12{height:02d}2-{color_code}"
+            desc = f"WEATHER STRIP, DUAL FIN, RESI, {height:02d}' 2\", {color.upper()}"
         else:
             part_number = f"PL10-{height:02d}203-{color_code}"
             desc = f"PLASTICS, WEATHER STRIP, GALVANIZED STEEL/FLEXIBLE VINYL, {color.upper()}, {height:02d}'"
@@ -617,11 +627,12 @@ class BCPartNumberMapper:
                 category="RETAINER"
             )
 
-        return BCPartNumber(
-            part_number=self.RETAINER_1_75,
-            description="TOP/BOTTOM RETAINER, 1 3/4\"",
-            category="RETAINER"
+        # Commercial retainer — select by panel series
+        pn, desc = self.COMMERCIAL_RETAINER.get(
+            getattr(self, '_current_series', 'TX450'),
+            (self.RETAINER_1_75, 'TOP/BOTTOM RETAINER, 1 3/4"')
         )
+        return BCPartNumber(part_number=pn, description=desc, category="RETAINER")
 
     def get_top_seal(self) -> BCPartNumber:
         """Get top seal rubber part number (distinct from weather strip)."""
@@ -869,8 +880,10 @@ class BCPartNumberMapper:
             "MUSKOKA_BOTTOM": "9",
         }
         COMMERCIAL_STAMP_CODES = {
-            "UDC": "4",
             "FLUSH": "0",
+            "V GROOVE": "2", "VGROOVE": "2",
+            "MICRO GROOVE": "3", "MICROGROOVE": "3",
+            "UDC": "4", "UDC GROOVE": "4",
         }
         is_craft = prefix.startswith("PN95") or prefix.startswith("PN90")
         is_kanata = prefix.startswith("PN65")
@@ -925,12 +938,20 @@ class BCPartNumberMapper:
 
         # Part number based on gauge and length
         if gauge == 16:
-            if strut_length >= 24:
-                part_number = f"FH17-00018-00"  # 24'
-            elif strut_length >= 20:
-                part_number = f"FH17-00036-00"  # 20'
-            else:
-                part_number = f"FH17-00035-00"  # 18'
+            length_map_16 = {
+                18: "FH17-00035-00",
+                20: "FH17-00036-00",
+                22: "FH17-00037-00",
+                24: "FH17-00018-00",
+                26: "FH17-00042-00",
+            }
+            # Find the smallest key >= strut_length
+            matched = None
+            for k in sorted(length_map_16.keys()):
+                if k >= strut_length:
+                    matched = length_map_16[k]
+                    break
+            part_number = matched or length_map_16[26]  # fallback to largest
         else:  # 20 gauge
             length_map = {
                 8: "FH17-00028-00",
