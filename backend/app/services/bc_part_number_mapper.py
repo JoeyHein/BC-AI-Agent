@@ -238,16 +238,20 @@ class BCPartNumberMapper:
     # Color codes
     COLOR_CODES = {
         "WHITE": "00",
+        "BRIGHT WHITE": "00",
         "BROWN": "01",
-        "ALMOND": "02",
+        "ALMOND": "03",
         "SANDTONE": "04",
         "BLACK": "05",
         "BRONZE": "06",
         "NEW BROWN": "10",
+        "ONYX BLACK": "15",
         "STEEL GREY": "20",
         "IRON ORE": "25",
         "NEW ALMOND": "30",
+        "FRENCH OAK": "35",
         "HAZELWOOD": "40",
+        "CANYON": "45",
         "WALNUT": "51",
         "ENGLISH CHESTNUT": "55",
     }
@@ -278,16 +282,18 @@ class BCPartNumberMapper:
 
     # Residential retainer — pre-cut rigid retainer by width
     RESI_RETAINER = {
-        7:  "PL10-00145-07",  # 7'
+        7:  "PL10-00145-01",  # 7'
         8:  "PL10-00145-01",  # 8'
         9:  "PL10-00146-02",  # 9'
         10: "PL10-00146-00",  # 10'
+        11: "PL10-00149-00",  # 11'
         12: "PL10-00149-00",  # 12'
-        13: "PL10-00146-03",  # 13'
-        14: "PL10-00146-04",  # 14'
-        15: "PL10-00146-05",  # 15'
+        13: "PL10-00146-01",  # 13'
+        14: "PL10-00146-01",  # 14'
+        15: "PL10-00146-01",  # 15'
         16: "PL10-00146-01",  # 16'
-        24: "PL10-00150-00",  # 24'
+        18: "PL10-00150-00",  # 18'
+        20: "PL10-00150-00",  # 20'
     }
 
     # Top seal part number (distinct from weather strip)
@@ -921,8 +927,10 @@ class BCPartNumberMapper:
                 10: "FH17-00030-00",
                 12: "FH17-00001-00",
                 14: "FH17-00002-00",
+                15: "FH17-00003-00",
                 16: "FH17-00003-00",
                 18: "FH17-00004-00",
+                20: "FH17-00036-00",
             }
             part_number = length_map.get(strut_length, "FH17-00003-00")
 

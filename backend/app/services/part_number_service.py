@@ -493,6 +493,42 @@ def _get_hk_weight(door_width_in: int, door_height_in: int, commercial: bool) ->
 # PART NUMBER SERVICE
 # ============================================================================
 
+    # Residential Kanata window count tables from rulebook
+    # Maps door_width_feet -> window count for each stamp group
+RESI_WINDOW_COUNT = {
+    # SH short stamps (Sheridan, short frame)
+    "SH_SHORT": {6:3, 7:3, 8:4, 9:4, 10:5, 11:5, 12:6, 13:6, 14:7, 15:7, 16:8, 17:8, 18:9, 19:9, 20:10},
+    # SH/SHXL/BCXL/FLUSH/TRAF long stamps
+    "SH_LONG": {6:1, 7:1, 8:2, 9:2, 10:2, 11:2, 12:3, 13:3, 14:3, 15:3, 16:4, 17:4, 18:4, 19:4, 20:5},
+    # BC/FLUSH/TRAF short stamps (Bronte Creek short)
+    "BC_SHORT": {6:3, 7:3, 8:4, 9:4, 10:4, 11:4, 12:6, 13:6, 14:6, 15:6, 16:8, 17:8, 18:8, 19:8, 20:10},
+    # BC long stamps (Bronte Creek long)
+    "BC_LONG": {6:1, 7:1, 8:2, 9:2, 10:2, 11:2, 12:3, 13:3, 14:3, 15:3, 16:4, 17:4, 18:4, 19:4, 20:5},
+    # SHXL/BCXL/FLUSH/TRAF long stamps (same as SH_LONG for these designs)
+    "LONG": {7:2, 8:2, 9:2, 10:2, 11:2, 12:3, 13:3, 14:3, 15:3, 16:4, 17:4, 18:4, 19:4, 20:5},
+}
+
+
+def get_resi_window_count(door_width_feet: int, panel_design: str, window_size: str = 'long') -> int:
+    """Look up expected window count from the rulebook tables."""
+    design_upper = (panel_design or '').upper()
+
+    if window_size == 'short' or design_upper in ('SH',):
+        # Short stamps — use SH_SHORT or BC_SHORT
+        if design_upper in ('BC',):
+            table = RESI_WINDOW_COUNT["BC_SHORT"]
+        else:
+            table = RESI_WINDOW_COUNT["SH_SHORT"]
+    else:
+        # Long stamps — SHXL, BCXL, FLUSH, TRAF, or SH with long frame
+        if design_upper in ('BC',):
+            table = RESI_WINDOW_COUNT["BC_LONG"]
+        else:
+            table = RESI_WINDOW_COUNT["SH_LONG"]
+
+    return table.get(door_width_feet, table.get(max(k for k in table if k <= door_width_feet), 2))
+
+
 class PartNumberService:
     """
     Service to select appropriate part numbers based on door configuration.
@@ -599,6 +635,21 @@ class PartNumberService:
             hw_parts = self._get_hardware_kit_parts(config)
             parts.extend(hw_parts)
 
+        # 8b. DECORATIVE HARDWARE (residential only, if selected)
+        if config.door_type == "residential" and hardware.get("decorativeHardware", False):
+            parts.append(PartSelection(
+                part_number="FH12-00003-00",
+                description="SPADE HINGES (SET OF 4)",
+                quantity=1,
+                category="decorative_hardware"
+            ))
+            parts.append(PartSelection(
+                part_number="FH13-00006-00",
+                description="SPADE PULL HANDLES (SET OF 2)",
+                quantity=1,
+                category="decorative_hardware"
+            ))
+
         # 9. SPRINGS (computed before shafts — spring count drives shaft count)
         spring_parts = []
         spring_count = 2  # default (number of individual springs, NOT inches)
@@ -626,6 +677,12 @@ class PartNumberService:
         if config.operator and config.operator != "NONE":
             operator_parts = self._get_operator_parts(config)
             parts.extend(operator_parts)
+
+        # 13. OVERLAY (residential wood overlay, if selected)
+        overlay = hardware.get("overlay") if hardware else None
+        if overlay and config.door_type == "residential":
+            overlay_parts = self._get_overlay_parts(config, overlay)
+            parts.extend(overlay_parts)
 
         # Apply quantity multiplier for door count (skip comment lines only)
         for part in parts:
@@ -1318,11 +1375,27 @@ class PartNumberService:
                 category="shaft"
             )]
 
-        if is_residential and door_weight <= 750:
-            # Light residential — 1" tube shaft (no split needed, max SH12 is 18'-10")
-            # Shaft sizes already include extra length (e.g. 9' shaft = 9'10" actual),
-            # so use the foot portion of door width — no need to round up.
+        if is_residential:
             door_width_feet = config.door_width // 12
+
+            # 20' residential doors use split solid keyed shafts per rulebook
+            if door_width_feet >= 20:
+                return [
+                    PartSelection(
+                        part_number="SH11-11006-00",
+                        description="1\" Solid Shaft Keyed 10'-6\"",
+                        quantity=1,
+                        category="shaft"
+                    ),
+                    PartSelection(
+                        part_number="SH11-11106-00",
+                        description="1\" Solid Shaft Keyed 11'-6\"",
+                        quantity=1,
+                        category="shaft"
+                    ),
+                ]
+
+            # 8'-18' residential — 1" tube shaft (SH12) per rulebook
             shaft = mapper.get_shaft(door_width_feet=door_width_feet, shaft_type="tube")
             return [PartSelection(
                 part_number=shaft.part_number,
@@ -2336,6 +2409,61 @@ class PartNumberService:
                     quantity=1,
                     category="operator"
                 ))
+
+        return parts
+
+    def _get_overlay_parts(self, config: DoorConfiguration, overlay: dict) -> List[PartSelection]:
+        """Get wood overlay parts (OL, OG, OS) per rulebook.
+
+        overlay dict expected keys:
+            woodType: 'RG' (Red Grandis) or 'CC' (Clear Cedar)
+            stamp: 'TG' (Tongue & Groove) or 'FL' (Flush)
+            design: 'UD01'-'UD06'
+            arched: 'A' (arched) or 'S' (straight)
+            glassType: 1-3 (optional, for glass overlay)
+            stain: 'DRKW'|'MHGN'|'MDOK'|'NTRL'|'SLGR' (optional)
+        """
+        parts = []
+        sq_ft = (config.door_width / 12) * (config.door_height / 12)
+        sq_ft_rounded = round(sq_ft)
+
+        wood = overlay.get("woodType", "RG")
+        stamp = overlay.get("stamp", "TG")
+        design = overlay.get("design", "UD01")
+        arched = overlay.get("arched", "S")
+
+        # OL — Overlay panel
+        ol_part = f"OL-{wood}{stamp}-{design}{arched}"
+        parts.append(PartSelection(
+            part_number=ol_part,
+            description=f"OVERLAY, {wood} {'TONGUE & GROOVE' if stamp == 'TG' else 'FLUSH'}, {design}, {'ARCHED' if arched == 'A' else 'STRAIGHT'}",
+            quantity=sq_ft_rounded,
+            category="overlay"
+        ))
+
+        # OG — Overlay glass (if glass type specified)
+        glass_type = overlay.get("glassType")
+        if glass_type:
+            glass_names = {1: "THERMAL CLEAR/CLEAR", 2: "THERMAL CLEAR/ACID ETCHED", 3: "THERMAL CLEAR/SUPER GREY"}
+            og_part = f"OG-{wood}{stamp}-{glass_type}"
+            parts.append(PartSelection(
+                part_number=og_part,
+                description=f"OVERLAY GLASS, {wood}, {glass_names.get(glass_type, '')}",
+                quantity=sq_ft_rounded,
+                category="overlay"
+            ))
+
+        # OS — Overlay stain (if stain specified)
+        stain = overlay.get("stain")
+        if stain:
+            stain_names = {"DRKW": "DARK WALNUT", "MHGN": "MAHOGANY", "MDOK": "MED OAK", "NTRL": "NATURAL", "SLGR": "SLATE DARK GREY"}
+            os_part = f"OS-{stain}"
+            parts.append(PartSelection(
+                part_number=os_part,
+                description=f"OVERLAY STAIN, {stain_names.get(stain, stain)}",
+                quantity=1,
+                category="overlay"
+            ))
 
         return parts
 
