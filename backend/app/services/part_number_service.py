@@ -800,7 +800,10 @@ class PartNumberService:
         width_display = f"{actual_ft:02d}' {actual_in_rem:02d}\""   # e.g., "12' 06\""
         cap_name = "DEC" if end_cap_type == EndCapType.DOUBLE else "SEC"
         color_str = config.panel_color.replace("_", " ").upper()
-        stamp_str = "UDC" if config.door_type == "commercial" else (config.panel_design or "SHXL")
+        if config.door_type == "commercial":
+            stamp_str = config.panel_design or "UDC"
+        else:
+            stamp_str = config.panel_design or "SHXL"
         is_craft = config.door_series == "CRAFT"
 
         # CRAFT series: always 3 panels at 28" (7' door) or 32" (8' door)
