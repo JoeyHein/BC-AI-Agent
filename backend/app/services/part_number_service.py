@@ -1977,7 +1977,7 @@ class PartNumberService:
         return result
 
     def _get_aluminum_section_parts(self, config: DoorConfiguration) -> List[PartSelection]:
-        """Get aluminum door section parts (PN97, PN80, PN20) + glass for all panels.
+        """Get aluminum door section parts (PN97, PN80, PN20, PN70) + glass for all panels.
 
         AL976 (PN97): PN97-{hh}{www}{f}{p}{s}-{wwww}
           hh  = section height (21 or 24)
@@ -2096,12 +2096,17 @@ class PartNumberService:
 
         elif series == "SOLALITE":
             # PN20: {hh}00{f}{p}{s}-{wwww}
-            finish_map = {"CLEAR_ANODIZED": "0", "MILL": "1"}
+            finish_map = {"CLEAR_ANODIZED": "0", "MILL": "1", "WHITE": "3", "BLACK_ANODIZED": "8", "BLACK": "8"}
+            finish_names = {"0": "CLEAR ANO", "1": "MILL", "3": "WHITE", "8": "BLACK ANODIZED"}
             f = finish_map.get(finish_color, "0")
-            finish_name = "CLEAR ANO" if f == "0" else "MILL"
+            finish_name = finish_names.get(f, "CLEAR ANO")
 
             # Determine if DEF needed (>12' uses DEF)
             use_def = door_width_feet > 12
+
+            # Thermal break option
+            hw = config.hardware or {}
+            has_therm = hw.get("thermalBreak", False)
 
             for section_num in range(1, panel_count + 1):
                 if section_num == 1:
@@ -2114,9 +2119,13 @@ class PartNumberService:
                 if use_def:
                     p_map = {"TOP": "4", "INT": "5", "BOT": "6"}
                     p = p_map[pos_label]
-                    s = "1"  # DOUBLE for DEF
+                    if has_therm:
+                        s = "3"  # THERM Y
+                        opt_label = "THERM Y"
+                    else:
+                        s = "1"  # DOUBLE
+                        opt_label = "DOUBLE"
                     end_label = "DEF"
-                    opt_label = "DOUBLE"
                 else:
                     p_map = {"TOP": "1", "INT": "2", "BOT": "3"}
                     p = p_map[pos_label]
@@ -2131,6 +2140,54 @@ class PartNumberService:
                     quantity=1,
                     category="aluminum_section",
                     notes=f"Solalite section {section_num} of {panel_count}"
+                ))
+
+        elif series == "AL-SWD" or series == "AL_SWD" or series == "ALSWD":
+            # PN70: {hh}{len}{f}{pp}-{wwww}
+            # Length codes based on door width range
+            if door_width_feet <= 8:
+                length_code = "1"
+            elif door_width_feet <= 10:
+                length_code = "2"
+            elif door_width_feet <= 16:
+                length_code = "3"
+            elif door_width_feet <= 18:
+                length_code = "4"
+            else:
+                length_code = "5"
+
+            finish_map = {"CLEAR_ANODIZED": "0", "MILL": "1", "WHITE": "3", "BLACK_ANODIZED": "8", "BLACK": "8"}
+            finish_names = {"0": "CLEAR ANO", "1": "MILL", "3": "WHITE", "8": "BLACK ANODIZED"}
+            f = finish_map.get(finish_color, "0")
+            finish_name = finish_names.get(f, "CLEAR ANO")
+
+            # DEF for doors > 14'2" (same threshold as AL976)
+            use_def = door_width_feet > 14
+
+            for section_num in range(1, panel_count + 1):
+                if section_num == 1:
+                    pos_label = "TOP"
+                elif section_num == panel_count:
+                    pos_label = "BOT"
+                else:
+                    pos_label = "INT"
+
+                if use_def:
+                    p_map = {"TOP": "45", "INT": "52", "BOT": "61"}
+                    pp = p_map[pos_label]
+                    end_label = "DEF"
+                else:
+                    p_map = {"TOP": "10", "INT": "20", "BOT": "30"}
+                    pp = p_map[pos_label]
+                    end_label = "SEF"
+
+                pn = f"PN70-{hh}{length_code}00{f}{pp}-{wwww}"
+                parts.append(PartSelection(
+                    part_number=pn,
+                    description=f"SECTION, AL-SWD, [{width_ft:02d}' {width_extra:02d}\"] X {section_height}\", {pos_label} {end_label}, {finish_name}",
+                    quantity=1,
+                    category="aluminum_section",
+                    notes=f"AL-SWD section {section_num} of {panel_count}"
                 ))
 
         # Glazing — GK17 glass for AL976, GK17 polycarbonate for Panorama/Solalite
