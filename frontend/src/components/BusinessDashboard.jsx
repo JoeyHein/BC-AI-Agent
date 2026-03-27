@@ -70,6 +70,8 @@ function ExecutiveView() {
         <KPICard loading={isLoading} title="Avg Order Value" value={fmt$(d.avgOrderValue || 0)} delta={d.avgOrderValuePY ? ((d.avgOrderValue - d.avgOrderValuePY) / d.avgOrderValuePY * 100) : null} deltaLabel="vs prior year" />
         <KPICard loading={isLoading} title="Active Customers" value={d.activeCustomers || 0} sub={d.newCustomers ? `${d.newCustomers} new this year` : null} />
         <KPICard loading={isLoading} title="On-Time Delivery %" value={`${d.otdPct || 0}%`} sub={d.otdTotal ? `${d.otdOnTime}/${d.otdTotal} shipments (30d)` : null} />
+        <KPICard loading={isLoading} title="Accounts Receivable" value={fmt$(d.arTotal || 0)} sub={d.arCount ? `${d.arCount} accounts` : null} />
+        <KPICard loading={isLoading} title="Accounts Payable" value={fmt$(d.apTotal || 0)} sub={d.apCount ? `${d.apCount} vendors` : null} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

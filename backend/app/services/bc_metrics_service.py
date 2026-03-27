@@ -171,6 +171,32 @@ class BCMetricsService:
         # OTD % (rolling 30d) from shipments
         otd = self._compute_otd(days=30)
 
+        # Accounts Receivable — sum of all customer balanceDue
+        try:
+            all_customers = self._get_all_pages("customers", {
+                "$select": "number,displayName,balanceDue",
+                "$filter": "balanceDue gt 0",
+            })
+            ar_total = sum(c.get("balanceDue", 0) or 0 for c in all_customers)
+            ar_count = len(all_customers)
+        except Exception as e:
+            logger.warning(f"Could not fetch A/R: {e}")
+            ar_total = 0
+            ar_count = 0
+
+        # Accounts Payable — sum of all vendor balanceDue
+        try:
+            vendors = self._get_all_pages("vendors", {
+                "$select": "number,displayName,balanceDue",
+                "$filter": "balanceDue gt 0",
+            })
+            ap_total = sum(v.get("balanceDue", 0) or 0 for v in vendors)
+            ap_count = len(vendors)
+        except Exception as e:
+            logger.warning(f"Could not fetch A/P: {e}")
+            ap_total = 0
+            ap_count = 0
+
         return {
             "revenueYTD": round(revenue_ytd, 2),
             "revenuePriorYTD": round(revenue_py, 2),
@@ -183,6 +209,10 @@ class BCMetricsService:
             "otdPct": otd["pct"],
             "otdTotal": otd["total"],
             "otdOnTime": otd["on_time"],
+            "arTotal": round(ar_total, 2),
+            "arCount": ar_count,
+            "apTotal": round(ap_total, 2),
+            "apCount": ap_count,
             "monthlyRevenue": chart_data,
             "productMix": product_mix,
             "topAccounts": top_accounts,
