@@ -556,6 +556,9 @@ export const quoteReviewApi = {
 
 // Customers API (admin)
 export const customersApi = {
+  getCustomer: (customerId) =>
+    apiClient.get(`/api/admin/customers/${customerId}`),
+
   updatePricingTier: (customerId, pricingTier) =>
     apiClient.patch(`/api/admin/customers/${customerId}/pricing-tier`, {
       pricing_tier: pricingTier,
@@ -636,6 +639,21 @@ export const installReferralsAdminApi = {
   // Update an install referral
   update: (id, data) =>
     apiClient.patch(`/api/admin/install-referrals/${id}`, data),
+};
+
+// Business Metrics API
+export const metricsApi = {
+  getExecutive: () =>
+    apiClient.get('/api/metrics/executive'),
+
+  getOperations: () =>
+    apiClient.get('/api/metrics/operations'),
+
+  getShipping: () =>
+    apiClient.get('/api/metrics/shipping'),
+
+  getCustomer: (customerNumber) =>
+    apiClient.get(`/api/metrics/customer/${customerNumber}`),
 };
 
 // Weekly Email Agent API

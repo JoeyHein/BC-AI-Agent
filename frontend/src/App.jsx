@@ -15,6 +15,8 @@ import ChatBox from './components/Chat/ChatBox'
 import SettingsPage from './components/Settings/SettingsPage'
 import InstallReferralQueue from './components/InstallReferralQueue'
 import WeeklyEmail from './components/WeeklyEmail'
+import BusinessDashboard from './components/BusinessDashboard'
+import CustomerDetail from './components/CustomerDetail'
 
 function Navigation() {
   const { user, logout, isAuthenticated } = useAuth()
@@ -32,11 +34,13 @@ function Navigation() {
 
   const isActive = (path) => {
     if (path === '/settings') return location.pathname.startsWith('/settings')
+    if (path === '/customers') return location.pathname === '/customers' || location.pathname.startsWith('/customers/')
     return location.pathname === path
   }
 
   const navItems = [
     { path: '/', label: 'Dashboard' },
+    { path: '/business', label: 'Business' },
     { path: '/reviews', label: 'Reviews' },
     { path: '/analytics', label: 'Analytics' },
     { path: '/door-configurator', label: 'Configurator' },
@@ -151,9 +155,21 @@ function AppContent() {
             </ProtectedRoute>
           } />
 
+          <Route path="/business" element={
+            <ProtectedRoute>
+              <BusinessDashboard />
+            </ProtectedRoute>
+          } />
+
           <Route path="/customers" element={
             <ProtectedRoute>
               <CustomerManagement />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/customers/:id" element={
+            <ProtectedRoute>
+              <CustomerDetail />
             </ProtectedRoute>
           } />
 

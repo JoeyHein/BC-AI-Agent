@@ -20,6 +20,7 @@ from app.api import inventory_agent
 from app.api import po_agent
 from app.api import public
 from app.api import email_agent
+from app.api import metrics
 
 # Import services
 from app.services.scheduler_service import get_scheduler
@@ -196,6 +197,10 @@ app.include_router(install_referrals.admin_router)
 # Weekly Email Agent router
 logger.info(f"Including email_agent router: {email_agent.router.prefix}")
 app.include_router(email_agent.router)
+
+# Business Metrics router
+logger.info(f"Including metrics router: {metrics.router.prefix}")
+app.include_router(metrics.router)
 
 # Public endpoints (no auth — widget quote requests)
 logger.info(f"Including public router: {public.public_router.prefix}")
