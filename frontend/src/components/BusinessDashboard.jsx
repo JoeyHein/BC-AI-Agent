@@ -182,6 +182,38 @@ function OperationsView() {
         )}
       </div>
 
+      {/* Monthly shipments by week */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white shadow rounded-lg p-5">
+          <h3 className="text-sm font-medium text-gray-700 mb-4">Shipments This Month (by week)</h3>
+          {isLoading ? <ChartSkeleton /> : (
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={d.weeklyShipments || []}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="week" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 12 }} />
+                <Tooltip />
+                <Bar dataKey="shipments" name="Shipments" fill="#4F46E5" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+        <div className="bg-white shadow rounded-lg p-5">
+          <h3 className="text-sm font-medium text-gray-700 mb-4">Shipment Value This Month (by week)</h3>
+          {isLoading ? <ChartSkeleton /> : (
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={d.weeklyShipments || []}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="week" tick={{ fontSize: 11 }} />
+                <YAxis tickFormatter={(v) => fmt$(v)} tick={{ fontSize: 12 }} />
+                <Tooltip formatter={(v) => fmt$(v)} />
+                <Bar dataKey="value" name="Value" fill="#10B981" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+
       {/* Overdue orders */}
       <div className="bg-white shadow rounded-lg">
         <div className="px-6 py-4 border-b border-gray-200">

@@ -273,6 +273,55 @@ class BCMetricsService:
                 "late": daily_shipments[ds]["late"],
             })
 
+        # Monthly shipments broken down by week (qty + value)
+        month_start = date.today().replace(day=1).isoformat()
+        month_shipments = self._get_all_pages("salesShipments", {
+            "$filter": f"postingDate ge {month_start}",
+            "$select": "id,number,postingDate,orderNo",
+        })
+
+        # Also fetch invoices this month for shipment values
+        month_invoices = self._get_all_pages("salesInvoices", {
+            "$filter": f"postingDate ge {month_start}",
+            "$select": "id,number,totalAmountExcludingTax,postingDate",
+        })
+        # Build invoice value by week
+        invoice_value_by_week = defaultdict(float)
+        for inv in month_invoices:
+            pd = inv.get("postingDate")
+            if pd:
+                inv_date = date.fromisoformat(pd)
+                # Week number within month (0-based): days since 1st / 7
+                week_idx = (inv_date.day - 1) // 7
+                invoice_value_by_week[week_idx] += inv.get("totalAmountExcludingTax", 0) or 0
+
+        shipment_count_by_week = defaultdict(int)
+        for s in month_shipments:
+            pd = s.get("postingDate")
+            if pd:
+                s_date = date.fromisoformat(pd)
+                week_idx = (s_date.day - 1) // 7
+                shipment_count_by_week[week_idx] += 1
+
+        # Build weekly chart for current month
+        import calendar
+        current_month = date.today().month
+        current_year = date.today().year
+        days_in_month = calendar.monthrange(current_year, current_month)[1]
+        num_weeks = (days_in_month - 1) // 7 + 1
+        month_name = date.today().strftime("%b")
+
+        weekly_shipments = []
+        for w in range(num_weeks):
+            start_day = w * 7 + 1
+            end_day = min(start_day + 6, days_in_month)
+            week_label = f"{month_name} {start_day}-{end_day}"
+            weekly_shipments.append({
+                "week": week_label,
+                "shipments": shipment_count_by_week[w],
+                "value": round(invoice_value_by_week[w], 2),
+            })
+
         # Overdue orders detail
         overdue_detail = []
         for o in sorted(overdue, key=lambda x: x.get("requestedDeliveryDate", ""))[:20]:
@@ -293,6 +342,7 @@ class BCMetricsService:
             "shipmentsToday": len(shipments_today),
             "commitDateMetPct": otd["pct"],
             "dailyShipments": daily_chart,
+            "weeklyShipments": weekly_shipments,
             "overdueDetail": overdue_detail,
         }
 
