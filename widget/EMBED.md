@@ -6,11 +6,11 @@ Add the widget to any webpage with two lines:
 
 ```html
 <div id="door-designer"></div>
-<script src="https://your-cdn.com/opendc-door-designer.iife.js"></script>
+<script src="https://portal.opendc.ca/widget/opendc-door-designer.iife.js"></script>
 <script>
   OpenDCDesigner.init({
     container: '#door-designer',
-    quoteWebhook: 'https://portal.opendc.ca/api/quote-requests',
+    quoteWebhook: 'https://portal.opendc.ca/api/public/quote-request',
     dealerLocatorUrl: 'https://opendc.ca/find-a-dealer'
   });
 </script>
