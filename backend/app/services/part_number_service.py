@@ -1179,41 +1179,6 @@ class PartNumberService:
         """
         parts = []
 
-        # CRAFT series: always use general spring part number per rulebook
-        if config.door_series == "CRAFT":
-            door_width_feet = config.door_width // 12
-            craft_qty = 2 if door_width_feet >= 16 else 1
-            parts.append(PartSelection(
-                part_number="SP01-00000-00",
-                description="SPRING, CUSTOM (CRAFT SERIES)",
-                quantity=craft_qty,
-                category="spring"
-            ))
-            # Comment line for spring details
-            parts.append(PartSelection(
-                part_number="",
-                description=f"SPRINGS: Craft {door_width_feet}'W — custom spring required, qty {craft_qty}",
-                quantity=1,
-                category="comment"
-            ))
-            return parts, craft_qty
-
-        # Commercial doors: always use general spring part number per rulebook
-        if config.door_type == "commercial":
-            parts.append(PartSelection(
-                part_number="SP01-00000-00",
-                description="OIL TEMPERED SPRING ASSEMBLY",
-                quantity=1,
-                category="spring"
-            ))
-            parts.append(PartSelection(
-                part_number="",
-                description=f"SPRINGS: Commercial — custom spring assembly required",
-                quantity=1,
-                category="comment"
-            ))
-            return parts, 1
-
         # Get door weight - use provided weight or calculate from linear foot weights
         door_weight = config.door_weight
         if door_weight is None:
