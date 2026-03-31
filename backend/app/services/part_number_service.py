@@ -1717,6 +1717,19 @@ class PartNumberService:
                 category="strut"
             )]
 
+        # KANATA residential: always 1 x 20ga strut regardless of door size
+        if config.door_series == "KANATA" and config.door_type == "residential":
+            door_width_feet = config.door_width // 12
+            mapper = get_bc_mapper()
+            strut = mapper.get_strut(door_width_feet, 20)
+            return [PartSelection(
+                part_number=strut.part_number,
+                description=strut.description,
+                quantity=1,
+                category="strut"
+            )]
+
+        # Commercial doors: use Thermalex strutting chart
         strut_info = self._get_strut_requirements(config.door_width, config.door_height)
         strut_count = strut_info["count"]
         strut_type = strut_info["type"]
