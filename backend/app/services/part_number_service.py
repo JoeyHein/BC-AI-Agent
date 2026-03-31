@@ -1222,22 +1222,56 @@ class PartNumberService:
         )
 
         if spring_result is None:
-            # Fallback to simplified rules if calculator fails
+            # Calculator couldn't find a valid spring — return warning instead of placeholder
             logger.warning(
                 f"Spring calculator returned no result for {door_weight:.0f} lbs, "
-                f"{config.door_height}\" height - falling back to simplified rules"
+                f"{config.door_height}\" height, {config.target_cycles} cycles"
             )
-            wire_size = 0.234
-            coil_id = 2.0
-            spring_length = 29
-            spring_qty = 2
-            is_duplex = False
+            parts.append(PartSelection(
+                part_number="",
+                description=(
+                    f"** SPRING WARNING: No standard spring available for this configuration "
+                    f"({door_weight:.0f} lbs, {config.door_height}\"H, {config.target_cycles:,} cycles). "
+                    f"Contact office for custom spring quote. **"
+                ),
+                quantity=0,
+                category="spring_warning",
+                notes="spring_calculation_failed",
+            ))
+            return parts, 0
         else:
             wire_size = spring_result.wire_diameter
             coil_id = spring_result.coil_diameter
             spring_length = math.ceil(spring_result.length)
             spring_qty = spring_result.quantity
             is_duplex = spring_result.is_duplex
+
+        # Validate spring is physically practical
+        spring_warnings = []
+        MAX_SPRING_LENGTH = 60  # inches — longer than this won't fit most shafts
+        MAX_WIRE_SIZE = 0.625   # inches — thicker than this needs special equipment
+
+        if spring_length > MAX_SPRING_LENGTH:
+            spring_warnings.append(
+                f"Spring length ({spring_length}\") exceeds maximum practical length ({MAX_SPRING_LENGTH}\"). "
+                f"Consider reducing cycle life or contact office for custom quote."
+            )
+
+        if wire_size > MAX_WIRE_SIZE:
+            spring_warnings.append(
+                f"Wire size ({wire_size}\") exceeds maximum standard size ({MAX_WIRE_SIZE}\"). "
+                f"Contact office for custom spring quote."
+            )
+
+        if spring_warnings:
+            for warning in spring_warnings:
+                parts.append(PartSelection(
+                    part_number="",
+                    description=f"** SPRING WARNING: {warning} **",
+                    quantity=0,
+                    category="spring_warning",
+                    notes="spring_validation_warning",
+                ))
 
         # Residential doors: if wire < .218 with 2+ springs, retry with 1 spring
         # BC minimum wire is .218 — anything smaller has no BC part number
@@ -1293,7 +1327,8 @@ class PartNumberService:
         spring_rh = mapper.get_spring_part_number(wire_size, coil_id, "RH")
 
         # Validate spring exists in BC — if not, step up wire until we find one
-        if spring_lh.part_number not in mapper.spring_items:
+        spring_found_in_bc = spring_lh.part_number in mapper.spring_items
+        if not spring_found_in_bc:
             for bc_wire in sorted(mapper.WIRE_SIZE_CODES.keys()):
                 if bc_wire >= wire_size:
                     test_lh = mapper.get_spring_part_number(bc_wire, coil_id, "LH")
@@ -1305,7 +1340,26 @@ class PartNumberService:
                         wire_size = bc_wire
                         spring_lh = test_lh
                         spring_rh = mapper.get_spring_part_number(bc_wire, coil_id, "RH")
+                        spring_found_in_bc = True
                         break
+
+        # If no BC part number found after step-up, warn the user
+        if not spring_found_in_bc:
+            logger.warning(
+                f"No BC spring part number for {wire_size}\" wire x {coil_id}\" coil — "
+                f"no step-up available"
+            )
+            parts.append(PartSelection(
+                part_number="",
+                description=(
+                    f"** SPRING WARNING: Calculated spring ({wire_size}\" wire x {coil_id}\" ID x {spring_length}\") "
+                    f"is not available in standard inventory for {config.target_cycles:,} cycles. "
+                    f"Contact office for custom spring quote. **"
+                ),
+                quantity=0,
+                category="spring_warning",
+                notes="spring_not_in_inventory",
+            ))
 
         # Spring detail comment: wire, ID, length, qty per hand
         if is_duplex and spring_result:
