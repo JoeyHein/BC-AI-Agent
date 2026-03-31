@@ -1694,31 +1694,8 @@ class PartNumberService:
         door width and height. Small doors may need zero struts.
         CRAFT series: 0 struts without windows (except 16'=1), 1 strut with windows.
         """
-        # CRAFT series: simplified strutting per rulebook
-        if config.door_series == "CRAFT":
-            door_width_feet = config.door_width // 12
-            has_windows = config.window_count > 0 or (config.window_insert and config.window_insert not in (None, "NONE"))
-            if has_windows:
-                strut_count = 1
-            elif door_width_feet >= 16:
-                strut_count = 1
-            else:
-                strut_count = 0
-
-            if strut_count == 0:
-                return []
-
-            mapper = get_bc_mapper()
-            strut = mapper.get_strut(door_width_feet, 20)
-            return [PartSelection(
-                part_number=strut.part_number,
-                description=strut.description,
-                quantity=strut_count,
-                category="strut"
-            )]
-
-        # KANATA residential: always 1 x 20ga strut regardless of door size
-        if config.door_series == "KANATA" and config.door_type == "residential":
+        # Residential doors (KANATA & CRAFT): always 1 x 20ga strut
+        if config.door_type == "residential" and config.door_series in ("KANATA", "CRAFT"):
             door_width_feet = config.door_width // 12
             mapper = get_bc_mapper()
             strut = mapper.get_strut(door_width_feet, 20)
