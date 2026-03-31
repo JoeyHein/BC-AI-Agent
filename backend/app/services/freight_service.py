@@ -14,6 +14,23 @@ logger = logging.getLogger(__name__)
 
 FREIGHT_CONFIG_KEY = "freight_config"
 
+# BC sends full province names — map to codes for freight lookup
+PROVINCE_NAME_TO_CODE = {
+    "ALBERTA": "AB",
+    "BRITISH COLUMBIA": "BC",
+    "MANITOBA": "MB",
+    "NEW BRUNSWICK": "NB",
+    "NEWFOUNDLAND AND LABRADOR": "NL",
+    "NORTHWEST TERRITORIES": "NT",
+    "NOVA SCOTIA": "NS",
+    "NUNAVUT": "NU",
+    "ONTARIO": "ON",
+    "PRINCE EDWARD ISLAND": "PE",
+    "QUEBEC": "QC",
+    "SASKATCHEWAN": "SK",
+    "YUKON": "YT",
+}
+
 
 def get_default_freight_config() -> Dict[str, Any]:
     """Hardcoded default freight configuration."""
@@ -71,15 +88,16 @@ def calculate_freight(
     default_rate = config.get("default_rate", 5.0)
     province_overrides = config.get("province_overrides", {})
 
-    # Look up province-specific rate (normalize to uppercase)
+    # Normalize province — BC sends full names like "Manitoba", we need codes like "MB"
     province_upper = (province or "").upper().strip()
-    rate = province_overrides.get(province_upper, default_rate)
+    province_code = PROVINCE_NAME_TO_CODE.get(province_upper, province_upper)
+    rate = province_overrides.get(province_code, default_rate)
 
     amount = round(product_subtotal * rate / 100, 2)
 
     # Build description
-    if province_upper and province_upper in province_overrides:
-        description = f"Freight ({rate}% - {province_upper})"
+    if province_code and province_code in province_overrides:
+        description = f"Freight ({rate}% - {province_code})"
     else:
         description = f"Freight ({rate}%)"
 
