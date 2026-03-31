@@ -1428,6 +1428,19 @@ async def calculate_door_specifications(request: DoorCalculationRequest, db: Ses
         # Get summary
         summary = door_calculator.get_calculation_summary(calc)
 
+        # Add top seal upgrade info for commercial doors
+        commercial_auto_threshold = (
+            request.doorType == "commercial"
+            and width_inches >= 216
+            and height_inches >= 120
+        )
+        summary["top_seal"] = {
+            "available": request.doorType in ("commercial", "aluminium"),
+            "auto_included": request.doorType == "aluminium" or commercial_auto_threshold,
+            "is_upgrade": request.doorType == "commercial" and not commercial_auto_threshold,
+            "description": "Top seal rubber weatherstrip" if request.doorType != "residential" else None,
+        }
+
         return {
             "success": True,
             "data": summary,

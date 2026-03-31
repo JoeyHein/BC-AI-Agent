@@ -128,6 +128,7 @@ class DoorConfiguration:
     window_size: str = 'long'  # 'short' (GK15-10xxx) or 'long' (GK15-11xxx)
     glass_pockets_per_section: int = 1  # Number of glass pockets per V130G/V230G section
     spring_inventory: Optional[Dict[str, list]] = None  # stocked coil/wire combos from settings
+    include_top_seal: Optional[bool] = None  # None=auto (apply rules), True=force include, False=exclude
 
 
 # ============================================================================
@@ -618,14 +619,22 @@ class PartNumberService:
             astragal_parts = self._get_astragal_only_parts(config)
             parts.extend(astragal_parts)
 
-        # 5. TOP SEAL — per rulebook:
+        # 5. TOP SEAL
         #    Residential: never
-        #    Commercial: only when width >= 18' (216") AND height >= 10' (120")
+        #    Commercial ≥ 18'W AND ≥ 10'H: always included (auto, can't remove)
+        #    Commercial below threshold: optional upgrade (include_top_seal=True)
         #    Aluminum: always
-        if config.door_type == "aluminium":
-            top_seal_parts = self._get_top_seal_parts(config)
-            parts.extend(top_seal_parts)
-        elif config.door_type == "commercial" and config.door_width >= 216 and config.door_height >= 120:
+        commercial_auto_top_seal = (
+            config.door_type == "commercial"
+            and config.door_width >= 216
+            and config.door_height >= 120
+        )
+        include_top_seal = (
+            config.door_type == "aluminium"
+            or commercial_auto_top_seal
+            or (config.door_type == "commercial" and config.include_top_seal is True)
+        )
+        if include_top_seal:
             top_seal_parts = self._get_top_seal_parts(config)
             parts.extend(top_seal_parts)
 
@@ -979,11 +988,14 @@ class PartNumberService:
         commercial = config.door_type in ("commercial",)
         hardware_weight = _get_hk_weight(config.door_width, config.door_height, commercial)
 
-        # 8. Top seal weight (commercial/aluminum only — residential doors have no top seal)
+        # 8. Top seal weight — matches part inclusion logic
         TOP_SEAL_LBS_PER_INCH = 0.025  # 0.3 lbs per linear foot
-        # Top seal weight: aluminum always, commercial only when ≥18'W AND ≥10'H, residential never
-        has_top_seal = (config.door_type == "aluminium" or
-                        (config.door_type == "commercial" and config.door_width >= 216 and config.door_height >= 120))
+        commercial_auto_ts = (config.door_type == "commercial" and config.door_width >= 216 and config.door_height >= 120)
+        has_top_seal = (
+            config.door_type == "aluminium"
+            or commercial_auto_ts
+            or (config.door_type == "commercial" and config.include_top_seal is True)
+        )
         top_seal_weight = config.door_width * TOP_SEAL_LBS_PER_INCH if has_top_seal else 0
 
         total_weight = panel_weight + end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight + hardware_weight + top_seal_weight
@@ -2857,6 +2869,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         glass_pockets_per_section=config_dict.get("glassPocketsPerSection") or _default_glass_pockets(config_dict.get("doorWidth", 96)),
         window_count=(len(config_dict.get("windowPositions", [])) or config_dict.get("windowCount", 0)) if config_dict.get("hasWindows", True) else 0,
         spring_inventory=spring_inventory,
+        include_top_seal=config_dict.get("includeTopSeal"),
     )
 
     parts = part_number_service.get_parts_for_configuration(config)
