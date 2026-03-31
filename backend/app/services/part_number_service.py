@@ -593,6 +593,14 @@ class PartNumberService:
         if config.panel_design:
             comment_desc += f" {config.panel_design}"
 
+        # Add lift type details to comment
+        if config.lift_type == 'high_lift' and config.high_lift_inches:
+            comment_desc += f" | HIGH LIFT {config.high_lift_inches}\""
+        elif config.lift_type == 'vertical':
+            comment_desc += " | VERTICAL LIFT"
+        elif config.lift_type == 'low_headroom':
+            comment_desc += " | LOW HEADROOM"
+
         parts.append(PartSelection(
             part_number="",  # Comment line has no part number
             description=comment_desc,
