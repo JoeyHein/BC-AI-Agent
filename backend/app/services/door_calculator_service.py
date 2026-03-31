@@ -618,6 +618,47 @@ class DoorCalculatorService:
             high_lift_inches=high_lift_inches or 0,
         )
 
+        # 6b. Spring warnings — show during configuration, before quote
+        if springs is None:
+            warnings.append(
+                f"No standard spring available for this configuration "
+                f"({weight.total_weight:.0f} lbs, {height_inches}\"H, {target_cycles:,} cycles). "
+                f"Contact office for custom spring quote."
+            )
+        else:
+            MAX_SPRING_LENGTH = 60
+            MAX_WIRE_SIZE = 0.625
+            if math.ceil(springs.length) > MAX_SPRING_LENGTH:
+                warnings.append(
+                    f"Spring length ({math.ceil(springs.length)}\") exceeds maximum practical length ({MAX_SPRING_LENGTH}\"). "
+                    f"Consider fewer cycles or contact office for custom quote."
+                )
+            if springs.wire_diameter > MAX_WIRE_SIZE:
+                warnings.append(
+                    f"Wire size ({springs.wire_diameter}\") exceeds standard maximum ({MAX_WIRE_SIZE}\"). "
+                    f"Contact office for custom spring quote."
+                )
+            # Check if this wire/coil combo exists in BC inventory
+            if spring_inventory:
+                from app.services.bc_part_number_mapper import get_bc_mapper
+                mapper = get_bc_mapper()
+                test_pn = mapper.get_spring_part_number(springs.wire_diameter, springs.coil_diameter, "LH")
+                if test_pn.part_number not in mapper.spring_items:
+                    # Try stepping up
+                    found = False
+                    for bc_wire in sorted(mapper.WIRE_SIZE_CODES.keys()):
+                        if bc_wire >= springs.wire_diameter:
+                            test = mapper.get_spring_part_number(bc_wire, springs.coil_diameter, "LH")
+                            if test.part_number in mapper.spring_items:
+                                found = True
+                                break
+                    if not found:
+                        warnings.append(
+                            f"Calculated spring ({springs.wire_diameter}\" wire x {springs.coil_diameter}\" coil) "
+                            f"is not available in standard inventory for {target_cycles:,} cycles. "
+                            f"Contact office for custom spring quote."
+                        )
+
         # 7. Calculate shaft (spring count drives shaft count)
         is_residential = door_type == "residential"
         spring_count = springs.quantity if springs else 2
