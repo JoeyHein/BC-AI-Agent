@@ -1222,7 +1222,8 @@ class PartNumberService:
         )
 
         if spring_result is None:
-            # Calculator couldn't find a valid spring — return warning instead of placeholder
+            # Calculator couldn't find a standard spring — add editable placeholder
+            # Quote still creates so it can be completed manually in BC
             logger.warning(
                 f"Spring calculator returned no result for {door_weight:.0f} lbs, "
                 f"{config.door_height}\" height, {config.target_cycles} cycles"
@@ -1230,15 +1231,23 @@ class PartNumberService:
             parts.append(PartSelection(
                 part_number="",
                 description=(
-                    f"** SPRING WARNING: No standard spring available for this configuration "
-                    f"({door_weight:.0f} lbs, {config.door_height}\"H, {config.target_cycles:,} cycles). "
-                    f"Contact office for custom spring quote. **"
+                    f"** SPRING — REQUIRES MANUAL ENTRY: No standard spring for "
+                    f"{door_weight:.0f} lbs, {config.door_height}\"H, {config.target_cycles:,} cycles. "
+                    f"Edit spring line in BC quote. **"
                 ),
                 quantity=0,
                 category="spring_warning",
                 notes="spring_calculation_failed",
             ))
-            return parts, 0
+            # Add a placeholder spring line that can be edited in BC
+            parts.append(PartSelection(
+                part_number="SP-CUSTOM",
+                description=f"CUSTOM SPRING - {door_weight:.0f}lbs {config.door_height}\"H {config.target_cycles:,} cycles - EDIT IN BC",
+                quantity=2,
+                category="spring",
+                notes="editable_placeholder",
+            ))
+            return parts, 2
         else:
             wire_size = spring_result.wire_diameter
             coil_id = spring_result.coil_diameter
@@ -1343,7 +1352,8 @@ class PartNumberService:
                         spring_found_in_bc = True
                         break
 
-        # If no BC part number found after step-up, warn the user
+        # If no BC part number found after step-up, warn but still include the calculated specs
+        # so the line can be edited in BC with the correct part number
         if not spring_found_in_bc:
             logger.warning(
                 f"No BC spring part number for {wire_size}\" wire x {coil_id}\" coil — "
@@ -1352,9 +1362,9 @@ class PartNumberService:
             parts.append(PartSelection(
                 part_number="",
                 description=(
-                    f"** SPRING WARNING: Calculated spring ({wire_size}\" wire x {coil_id}\" ID x {spring_length}\") "
-                    f"is not available in standard inventory for {config.target_cycles:,} cycles. "
-                    f"Contact office for custom spring quote. **"
+                    f"** SPRING — EDIT IN BC: Calculated {wire_size}\" wire x {coil_id}\" ID x {spring_length}\" "
+                    f"not in standard inventory for {config.target_cycles:,} cycles. "
+                    f"Update spring part number in BC quote. **"
                 ),
                 quantity=0,
                 category="spring_warning",
