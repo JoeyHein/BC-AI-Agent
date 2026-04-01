@@ -1478,13 +1478,19 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
               className="w-full max-w-xs rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-odc-500 focus:ring-1 focus:ring-odc-500"
             >
               <option value="MATCH">Match Door Color (Standard)</option>
-              {colors && Object.values(colors).flat()
-                .filter((c, i, arr) => arr.findIndex(x => x.id === c.id) === i)
-                .filter(c => c.id !== door.panelColor && c.id !== 'CUSTOM')
-                .map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))
-              }
+              {(() => {
+                // Only show frame colors from the current door type's color palette
+                const colorKey = door.doorSeries === 'CRAFT' ? 'CRAFT'
+                  : door.doorType === 'commercial' ? 'COMMERCIAL'
+                  : 'KANATA'
+                const doorColors = (colors && colors[colorKey]) || []
+                return doorColors
+                  .filter(c => c.id !== door.panelColor && c.id !== 'CUSTOM')
+                  .filter(c => c.type !== 'woodgrain') // Woodgrain finishes aren't available as frame colors
+                  .map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))
+              })()}
             </select>
           </div>
 
