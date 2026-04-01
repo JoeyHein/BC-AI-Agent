@@ -296,10 +296,16 @@ async def get_pricing_tiers(db: Session = Depends(get_db)):
             }
         }
 
+    # Merge saved margins with defaults so new categories (e.g. glazing) always appear
+    defaults = get_default_tier_margins()
+    merged = dict(defaults)
+    if setting.setting_value:
+        merged.update(setting.setting_value)
+
     return {
         "success": True,
         "data": {
-            "margins": setting.setting_value,
+            "margins": merged,
             "isDefault": False,
             "updatedAt": setting.updated_at.isoformat() if setting.updated_at else None,
         }
