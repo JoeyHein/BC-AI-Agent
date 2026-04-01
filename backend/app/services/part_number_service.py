@@ -593,7 +593,12 @@ class PartNumberService:
         if config.panel_design:
             comment_desc += f" {config.panel_design}"
 
-        # Add lift type details to comment
+        # Add track/mount details to comment
+        track_size = int(config.track_thickness) if config.track_thickness else 2
+        mount_label = "CONTINUOUS ANGLE" if config.track_mount == 'angle' else "BRACKET MOUNT"
+        comment_desc += f" | {track_size}\" {mount_label}"
+
+        # Add lift type details
         if config.lift_type == 'high_lift' and config.high_lift_inches:
             comment_desc += f" | HIGH LIFT {config.high_lift_inches}\""
         elif config.lift_type == 'vertical':
