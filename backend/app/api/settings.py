@@ -296,11 +296,20 @@ async def get_pricing_tiers(db: Session = Depends(get_db)):
             }
         }
 
-    # Merge saved margins with defaults so new categories (e.g. glazing) always appear
+    # Deep merge: saved values override defaults, but empty/missing values fall back to defaults
     defaults = get_default_tier_margins()
-    merged = dict(defaults)
-    if setting.setting_value:
-        merged.update(setting.setting_value)
+    saved = setting.setting_value or {}
+    merged = {}
+    for door_type, default_tiers in defaults.items():
+        saved_tiers = saved.get(door_type, {})
+        merged[door_type] = {}
+        for tier, default_val in default_tiers.items():
+            saved_val = saved_tiers.get(tier)
+            # Use saved value if it's a real number, otherwise use default
+            if saved_val is not None and saved_val != '' and saved_val != 0:
+                merged[door_type][tier] = saved_val
+            else:
+                merged[door_type][tier] = default_val
 
     return {
         "success": True,
