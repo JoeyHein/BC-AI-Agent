@@ -1483,38 +1483,66 @@ class PartNumberService:
             ))
 
             # Winder/stationary sets for inner coil size
-            inner_winder_lh = mapper.get_winder_stationary_set(inner_coil, 1.0, "LH")
-            inner_winder_rh = mapper.get_winder_stationary_set(inner_coil, 1.0, "RH")
+            # Same logic: universal if in BC, else legacy LH/RH
+            inner_winder = mapper.get_winder_stationary_set(inner_coil, 1.0, "LH")
+            if inner_winder.part_number in mapper.bc_items:
+                parts.append(PartSelection(
+                    part_number=inner_winder.part_number,
+                    description=inner_winder.description,
+                    quantity=1,
+                    category="spring_accessory"
+                ))
+            else:
+                closest_inner = min(BCPartNumberMapper.COIL_SIZE_CODES.keys(), key=lambda x: abs(x - inner_coil))
+                inner_lh_pn = BCPartNumberMapper.WINDER_SETS.get((closest_inner, 1.0, "LH"), "SP12-00233-00")
+                inner_rh_pn = BCPartNumberMapper.WINDER_SETS.get((closest_inner, 1.0, "RH"), "SP12-00239-00")
+                inner_coil_str = mapper._format_coil_size(closest_inner)
+                parts.append(PartSelection(
+                    part_number=inner_lh_pn,
+                    description=f"SPRING, WINDERS & STATIONARY PLUGS SET, {inner_coil_str}\", 1\" BORE, LH",
+                    quantity=1,
+                    category="spring_accessory"
+                ))
+                parts.append(PartSelection(
+                    part_number=inner_rh_pn,
+                    description=f"SPRING, WINDERS & STATIONARY PLUGS SET, {inner_coil_str}\", 1\" BORE, RH",
+                    quantity=1,
+                    category="spring_accessory"
+                ))
+
+        # Add winder/stationary cone sets
+        # Try universal part first (SP12-xxxxx-01), fall back to separate LH/RH
+        winder_universal = mapper.get_winder_stationary_set(coil_id, 1.0, "LH")
+        if winder_universal.part_number in mapper.bc_items:
+            # Universal part exists in BC — use single line
             parts.append(PartSelection(
-                part_number=inner_winder_lh.part_number,
-                description=inner_winder_lh.description,
+                part_number=winder_universal.part_number,
+                description=winder_universal.description,
+                quantity=1,
+                category="spring_accessory"
+            ))
+        else:
+            # Universal not in BC yet — use legacy separate LH/RH parts
+            # Force legacy lookup by checking the old WINDER_SETS directly
+            from app.services.bc_part_number_mapper import BCPartNumberMapper
+            closest_coil = min(BCPartNumberMapper.COIL_SIZE_CODES.keys(), key=lambda x: abs(x - coil_id))
+            lh_key = (closest_coil, 1.0, "LH")
+            rh_key = (closest_coil, 1.0, "RH")
+            lh_pn = BCPartNumberMapper.WINDER_SETS.get(lh_key, "SP12-00231-00")
+            rh_pn = BCPartNumberMapper.WINDER_SETS.get(rh_key, "SP12-00237-00")
+            coil_str = mapper._format_coil_size(closest_coil)
+            parts.append(PartSelection(
+                part_number=lh_pn,
+                description=f"SPRING, WINDERS & STATIONARY PLUGS SET, {coil_str}\", 1\" BORE, LH",
                 quantity=1,
                 category="spring_accessory"
             ))
             parts.append(PartSelection(
-                part_number=inner_winder_rh.part_number,
-                description=inner_winder_rh.description,
+                part_number=rh_pn,
+                description=f"SPRING, WINDERS & STATIONARY PLUGS SET, {coil_str}\", 1\" BORE, RH",
                 quantity=1,
                 category="spring_accessory"
             ))
-
-        # Add winder/stationary sets for outer coil
-        winder_lh = mapper.get_winder_stationary_set(coil_id, 1.0, "LH")
-        winder_rh = mapper.get_winder_stationary_set(coil_id, 1.0, "RH")
-
-        parts.append(PartSelection(
-            part_number=winder_lh.part_number,
-            description=winder_lh.description,
-            quantity=1,
-            category="spring_accessory"
-        ))
-
-        parts.append(PartSelection(
-            part_number=winder_rh.part_number,
-            description=winder_rh.description,
-            quantity=1,
-            category="spring_accessory"
-        ))
 
         return parts, spring_qty
 

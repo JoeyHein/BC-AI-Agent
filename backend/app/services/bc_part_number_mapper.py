@@ -190,7 +190,19 @@ class BCPartNumberMapper:
         6.0: "60",
     }
 
-    # Winder/Stationary set part numbers by coil size and bore size
+    # Universal winder/stationary cone set part numbers (created Mar 2026)
+    # One universal part per coil size — replaces separate LH/RH parts
+    # -01 suffix = universal (works for both LH and RH)
+    WINDER_SETS_UNIVERSAL = {
+        # (coil_inches, bore_inches) -> universal part_number
+        (2.0, 1.0): "SP12-00231-01",
+        (2.625, 1.0): "SP12-00232-01",
+        (3.75, 1.0): "SP12-00233-01",
+        (6.0, 1.0): "SP12-00234-01",
+        (6.0, 1.25): "SP12-00236-01",
+    }
+
+    # Legacy LH/RH part numbers (kept as fallback if universal not in BC yet)
     WINDER_SETS = {
         # (coil_inches, bore_inches, wind) -> part_number
         (2.0, 1.0, "LH"): "SP12-00231-00",
@@ -489,33 +501,44 @@ class BCPartNumberMapper:
         """
         Get winder/stationary plug set part number.
 
+        Uses universal cone parts (SP12-xxxxx-01) that work for both LH and RH.
+        Falls back to legacy separate LH/RH parts if universal not in BC yet.
+
         Args:
             coil_id: Inside coil diameter in inches
             bore_size: Shaft bore size (1.0" or 1.25")
-            wind: Wind direction
+            wind: Wind direction (kept for compatibility but universal parts ignore it)
 
         Returns:
             BCPartNumber for the winder/stationary set
         """
         # Find closest coil size
         closest_coil = min(self.COIL_SIZE_CODES.keys(), key=lambda x: abs(x - coil_id))
+        coil_str = self._format_coil_size(closest_coil)
+        bore_str = '1"' if bore_size == 1.0 else '1-1/4"'
 
-        # Look up part number
+        # Try universal part first (SP12-xxxxx-01 — works for both LH and RH)
+        universal_key = (closest_coil, bore_size)
+        if universal_key in self.WINDER_SETS_UNIVERSAL:
+            part_number = self.WINDER_SETS_UNIVERSAL[universal_key]
+            return BCPartNumber(
+                part_number=part_number,
+                description=f"SPRING, WINDERS & STATIONARY PLUGS SET, {coil_str}\", {bore_str} BORE, UNIVERSAL",
+                category="SPRING_ACCESSORY"
+            )
+
+        # Fall back to legacy LH/RH parts
         key = (closest_coil, bore_size, wind.upper())
         if key in self.WINDER_SETS:
             part_number = self.WINDER_SETS[key]
-            coil_str = self._format_coil_size(closest_coil)
-            bore_str = '1"' if bore_size == 1.0 else '1-1/4"'
-
             return BCPartNumber(
                 part_number=part_number,
                 description=f"SPRING, WINDERS & STATIONARY PLUGS SET, {coil_str}\", {bore_str} BORE, {wind.upper()}",
                 category="SPRING_ACCESSORY"
             )
 
-        # Default to 2" set if not found
-        default_key = (2.0, 1.0, wind.upper())
-        part_number = self.WINDER_SETS[default_key]
+        # Default to 2" universal set if not found
+        default_pn = self.WINDER_SETS_UNIVERSAL.get((2.0, 1.0), "SP12-00231-01")
         return BCPartNumber(
             part_number=part_number,
             description=f"SPRING, WINDERS & STATIONARY PLUGS SET, 2\", 1\" BORE, {wind.upper()}",
