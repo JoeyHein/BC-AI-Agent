@@ -3157,6 +3157,26 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
                   <span className="font-medium">Note:</span> {quoteResult.data.lines_failed.length} items could not be added (not in BC inventory)
                 </div>
               )}
+              {quoteResult.data.part_warnings && quoteResult.data.part_warnings.length > 0 && (
+                <div className="mt-2 bg-amber-50 border border-amber-200 rounded p-3">
+                  <p className="text-sm font-medium text-amber-800 mb-2">
+                    ⚠ {quoteResult.data.part_warnings.length} part(s) substituted — review in BC
+                  </p>
+                  <div className="space-y-1">
+                    {quoteResult.data.part_warnings.map((w, i) => (
+                      <div key={i} className="text-xs text-amber-700">
+                        <span className="font-mono">{w.original}</span>
+                        {w.substituted ? (
+                          <span> → <span className="font-mono font-medium">{w.substituted}</span></span>
+                        ) : (
+                          <span> — no match found, added as comment</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-amber-600 mt-2">Please verify these part numbers in the BC quote and update if needed.</p>
+                </div>
+              )}
               {/* Review Changes button */}
               {quoteResult.data.bc_quote_id && (
                 <div className="mt-3 pt-3 border-t border-green-200">

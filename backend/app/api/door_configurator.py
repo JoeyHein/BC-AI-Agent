@@ -913,7 +913,48 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
             item_pns = [l["part_number"] for l in all_lines if l.get("part_number")]
             warm_bc_cost_cache(item_pns)
 
-        # Step 3: Add line items to the quote in proper order
+        # Step 3: Validate part numbers against BC before sending
+        # Find closest matches for any that don't exist
+        part_warnings = []
+        from app.services.bc_part_number_mapper import get_bc_mapper
+        mapper = get_bc_mapper()
+
+        for line in all_lines:
+            if line.get("lineType") == "Comment" or not line.get("part_number"):
+                continue
+            pn = line["part_number"]
+            if pn in mapper.bc_items:
+                continue
+            # Part doesn't exist in BC — find closest match
+            prefix = pn.split("-")[0] if "-" in pn else pn[:4]
+            candidates = [
+                (bc_pn, item.get("displayName", ""))
+                for bc_pn, item in mapper.bc_items.items()
+                if bc_pn.startswith(prefix)
+            ]
+            candidates.sort(key=lambda x: abs(len(x[0]) - len(pn)))
+
+            if candidates:
+                closest_pn, closest_desc = candidates[0]
+                part_warnings.append({
+                    "original": pn,
+                    "substituted": closest_pn,
+                    "description": line.get("description", ""),
+                    "message": f"Part {pn} not found in BC. Using closest match: {closest_pn}"
+                })
+                logger.warning(f"Part {pn} not in BC — substituting {closest_pn}")
+                line["part_number"] = closest_pn
+                line["_original_part_number"] = pn
+            else:
+                part_warnings.append({
+                    "original": pn,
+                    "substituted": None,
+                    "description": line.get("description", ""),
+                    "message": f"Part {pn} not found in BC and no close match. Will add as comment."
+                })
+                logger.warning(f"Part {pn} not in BC — no close match, will add as comment")
+
+        # Step 4: Add line items to the quote in proper order
         lines_added = 0
         lines_failed = []
 
@@ -1176,8 +1217,11 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "pricing": pricing,
                 "line_pricing": line_pricing if line_pricing else None,
                 "freight": freight_info,
+                "part_warnings": part_warnings if part_warnings else None,
             },
-            "message": f"BC Quote {bc_quote_number} created with {lines_added} line items"
+            "message": f"BC Quote {bc_quote_number} created with {lines_added} line items" + (
+                f" ({len(part_warnings)} part(s) substituted — review in BC)" if part_warnings else ""
+            )
         }
 
     except Exception as e:
