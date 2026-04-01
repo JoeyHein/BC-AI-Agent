@@ -1479,16 +1479,40 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
             >
               <option value="MATCH">Match Door Color (Standard)</option>
               {(() => {
-                // Only show frame colors from the current door type's color palette
-                const colorKey = door.doorSeries === 'CRAFT' ? 'CRAFT'
-                  : door.doorType === 'commercial' ? 'COMMERCIAL'
-                  : 'KANATA'
+                // Frame color options depend on door type:
+                // Commercial: Black and White only
+                // Aluminum: standard finishes (Clear Anodized, Black Anodized, White) unless custom powder coat
+                // KANATA/CRAFT: all solid colors + woodgrain finishes
+                if (door.doorType === 'commercial') {
+                  return [
+                    { id: 'BLACK', name: 'Black' },
+                    { id: 'WHITE', name: 'White' },
+                  ].filter(c => c.id !== door.panelColor)
+                   .map(c => <option key={c.id} value={c.id}>{c.name}</option>)
+                }
+                if (door.doorType === 'aluminium') {
+                  const alColors = [
+                    { id: 'CLEAR_ANODIZED', name: 'Clear Anodized' },
+                    { id: 'BLACK_ANODIZED', name: 'Black Anodized' },
+                    { id: 'WHITE', name: 'White' },
+                  ]
+                  // If custom powder coat is selected as panel color, all colors available
+                  if (door.panelColor === 'CUSTOM') {
+                    return alColors
+                      .concat([{ id: 'CUSTOM', name: 'Custom Powder Coat' }])
+                      .map(c => <option key={c.id} value={c.id}>{c.name}</option>)
+                  }
+                  return alColors
+                    .filter(c => c.id !== door.panelColor)
+                    .map(c => <option key={c.id} value={c.id}>{c.name}</option>)
+                }
+                // KANATA / CRAFT: solid colors + woodgrain
+                const colorKey = door.doorSeries === 'CRAFT' ? 'CRAFT' : 'KANATA'
                 const doorColors = (colors && colors[colorKey]) || []
                 return doorColors
                   .filter(c => c.id !== door.panelColor && c.id !== 'CUSTOM')
-                  .filter(c => c.type !== 'woodgrain') // Woodgrain finishes aren't available as frame colors
                   .map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
+                    <option key={c.id} value={c.id}>{c.name}{c.type === 'woodgrain' ? ' (Woodgrain)' : ''}</option>
                   ))
               })()}
             </select>
