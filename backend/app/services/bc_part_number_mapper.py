@@ -1135,11 +1135,21 @@ class BCPartNumberMapper:
         else:
             # Standard Lift hardware kits
             if commercial:
-                # Always use HK03 for commercial standard lift (not HW boxes)
-                # HK03 format: HK03-WWHHX-RC where X is 0 or 1 variant
-                variant = "1" if door_width_feet > 14 else "0"
-                part_number = f"HK03-{width_code}{height_code[:-1]}{variant}-RC"
-                description = f"HARDWARE KIT, STD LIFT 3\", {door_width_feet}'x{door_height_feet}'"
+                # Commercial standard lift uses HW boxes: HW{WW}-{HH}000-00
+                # Format: HWww-hh000-00 where ww=width(2-digit), hh=height(2-digit)
+                # These are the actual BC part numbers (e.g. HW18-10000-00)
+                hw_width = f"{door_width_feet:02d}"
+                hw_height = f"{door_height_feet:02d}"
+                hw_part = f"HW{hw_width}-{hw_height}000-00"
+
+                # Validate against BC items; fall back to generic HK03 if not found
+                if hw_part in self.bc_items:
+                    part_number = hw_part
+                    description = f"HARDWARE BOX, {door_width_feet} X {door_height_feet}, 3\""
+                else:
+                    # Generic commercial hardware kit for non-standard sizes
+                    part_number = "HK03-00000-RC"
+                    description = f"COMPLETE STANDARD HARDWARE KIT, 3\", {door_width_feet}'x{door_height_feet}'"
             else:
                 # Residential 2" Track - Check for premade HK10 boxes first
                 # HK10 premade boxes are more cost-effective for standard sizes:
@@ -1177,9 +1187,10 @@ class BCPartNumberMapper:
                     part_number = hk10_part
                     description = hk10_desc
                 else:
-                    # Fall back to HK02 for non-standard sizes
-                    part_number = f"HK02-{width_code}{height_code}-RC"
-                    description = f"HARDWARE KIT, STD LIFT 2\", {door_width_feet}'x{door_height_feet}'"
+                    # Fall back to generic HK02 for non-standard sizes
+                    # Sized HK02-WWHH0-RC part numbers don't exist in BC
+                    part_number = "HK02-00000-RC"
+                    description = f"COMPLETE STANDARD HARDWARE KIT, 2\", {door_width_feet}'x{door_height_feet}'"
 
         return BCPartNumber(
             part_number=part_number,
