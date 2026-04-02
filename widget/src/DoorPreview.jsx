@@ -426,7 +426,7 @@ function DoorPreview({
     if (widthFeet <= 10) paneCount = 3
     else if (widthFeet <= 14) paneCount = 4
     else if (widthFeet <= 18) paneCount = 5
-    else if (widthFeet <= 22) paneCount = 6
+    else if (widthFeet <= 20) paneCount = 6
     else paneCount = 7
 
     const totalMullionW = mullionW * (paneCount - 1)
