@@ -3144,7 +3144,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
       {/* Generate Quote Button */}
       <button
         onClick={onGenerateQuote}
-        disabled={isGenerating}
+        disabled={isGenerating || !selectedCustomer}
         className="w-full inline-flex justify-center items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-odc-600 hover:bg-odc-700 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {isGenerating ? (
@@ -3158,7 +3158,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
         ) : selectedCustomer ? (
           `Generate Quote for ${selectedCustomer.company_name}`
         ) : (
-          'Generate Quote (Cash Sale)'
+          'Select a customer to generate quote'
         )}
       </button>
 
@@ -3329,7 +3329,7 @@ function CustomerSelector({ selectedCustomer, onCustomerChange }) {
           </button>
         )}
       </div>
-      <p className="mt-1 text-xs text-gray-400">No customer selected — will use Cash Sale</p>
+      <p className="mt-1 text-xs text-red-400">Customer selection required</p>
 
       {open && search && (
         <div className="absolute right-0 z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
