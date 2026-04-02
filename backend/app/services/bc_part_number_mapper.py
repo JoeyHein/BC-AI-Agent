@@ -1158,21 +1158,9 @@ class BCPartNumberMapper:
         else:
             # Standard Lift hardware kits
             if commercial:
-                # Commercial standard lift uses HW boxes: HW{WW}-{HH}000-00
-                # Format: HWww-hh000-00 where ww=width(2-digit), hh=height(2-digit)
-                # These are the actual BC part numbers (e.g. HW18-10000-00)
-                hw_width = f"{door_width_feet:02d}"
-                hw_height = f"{door_height_feet:02d}"
-                hw_part = f"HW{hw_width}-{hw_height}000-00"
-
-                # Validate against BC items; fall back to generic HK03 if not found
-                if hw_part in self.bc_items:
-                    part_number = hw_part
-                    description = f"HARDWARE BOX, {door_width_feet} X {door_height_feet}, 3\""
-                else:
-                    # Generic commercial hardware kit for non-standard sizes
-                    part_number = "HK03-00000-RC"
-                    description = f"COMPLETE STANDARD HARDWARE KIT, 3\", {door_width_feet}'x{door_height_feet}'"
+                # Commercial 3" track — always use HK03 kit
+                part_number = "HK03-00000-RC"
+                description = f"COMPLETE STANDARD HARDWARE KIT, 3\", {door_width_feet}'x{door_height_feet}'"
             else:
                 # Residential 2" Track - Check for premade HK10 boxes first
                 # HK10 premade boxes are more cost-effective for standard sizes:
