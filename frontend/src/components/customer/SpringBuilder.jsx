@@ -731,6 +731,25 @@ export default function SpringBuilder() {
                   </div>
                 )}
 
+                {/* Cone Sets with Pricing */}
+                {convResult?.success && convResult.cone_sets && (
+                  <div className="mt-3 bg-purple-50 rounded-lg p-3">
+                    <p className="text-xs font-semibold text-purple-700 mb-2">Cone Sets (Winder/Stationary)</p>
+                    {['lh', 'rh'].map(side => {
+                      const cone = convResult.cone_sets[side]
+                      if (!cone) return null
+                      return (
+                        <div key={side} className="flex items-center justify-between text-xs py-1">
+                          <span className="font-mono">{cone.part_number}</span>
+                          {cone.unit_price > 0 && (
+                            <span className="font-semibold text-purple-800">${cone.unit_price.toFixed(2)}</span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
                 {/* Calculate / Clear buttons */}
                 <div className="mt-4 flex gap-2">
                   <button
@@ -788,6 +807,7 @@ export default function SpringBuilder() {
                         <th className="py-2 px-2 text-xs font-medium text-gray-500" colSpan="3">OUTER (6" Coil)</th>
                         <th className="py-2 px-2 text-xs font-medium text-gray-500" colSpan="3">INNER (3-3/4" Coil)</th>
                         <th className="py-2 px-2 text-xs font-medium text-gray-500">Saving</th>
+                        <th className="py-2 px-2 text-xs font-medium text-gray-500">Cones</th>
                         <th className="py-2 px-2 text-xs font-medium text-gray-500">Stock</th>
                       </tr>
                       <tr className="border-b border-gray-100 text-xs text-gray-400">
@@ -799,6 +819,7 @@ export default function SpringBuilder() {
                         <th className="px-2">Length</th>
                         <th className="px-2">Part#</th>
                         <th className="px-2"></th>
+                        <th className="px-2">4 sets</th>
                         <th className="px-2"></th>
                       </tr>
                     </thead>
@@ -815,6 +836,9 @@ export default function SpringBuilder() {
                             <td className="py-2 px-2 font-mono">{opt.inner.length}"</td>
                             <td className="py-2 px-2 font-mono text-xs text-gray-500">{opt.inner.lh_part}</td>
                             <td className="py-2 px-2 text-green-600 font-semibold">-{saving.toFixed(0)}"</td>
+                            <td className="py-2 px-2 text-xs font-mono text-gray-600">
+                              {opt.total_cone_cost > 0 ? `$${opt.total_cone_cost.toFixed(2)}` : '—'}
+                            </td>
                             <td className="py-2 px-2">
                               {opt.both_in_stock ? (
                                 <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">In Stock</span>
@@ -1024,7 +1048,12 @@ export default function SpringBuilder() {
                           <span className="ml-2 text-xs text-gray-500">{cone.description}</span>
                         )}
                       </div>
-                      <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">Included</span>
+                      <div className="flex items-center gap-2">
+                        {cone.unit_price > 0 && (
+                          <span className="text-sm font-medium text-gray-700">${cone.unit_price.toFixed(2)}</span>
+                        )}
+                        <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">Included</span>
+                      </div>
                     </div>
                   );
                 })}
