@@ -1774,49 +1774,130 @@ class PartNumberService:
                 category="shaft"
             )]
 
-        # Heavy residential OR any commercial — 1" solid keyed shaft (SH11)
-        # Calculate shaft count N
-        spring_driven = math.ceil(spring_count / 2)
-        width_minimum = 2 if config.door_width > 170 else 1
-        N = max(spring_driven, width_minimum)
+        # Commercial / heavy residential — 1" solid keyed shaft (SH11)
+        # Use lookup table matching Upwardor Portal (quoteLogic.js)
+        # Split point: ≤ 10'0" (120") = 1 shaft, ≥ 10'2" (122"+) = 2 shafts
+        # Spring count does NOT determine shaft count — always 1 or 2.
+        #
+        # Lookup: door width (feet.inches decimal) → (shaft1_ff, shaft2_ff or None)
+        # FF value maps to part SH11-1{FF:02d}06-00, physical length = FF*12+6 inches
+        SHAFT_TABLE = {
+            # Single shaft: width ≤ 10'0"
+            72:  (7, None),    # 6'0"
+            73:  (8, None),    # 6'1"
+            74:  (8, None),    # 6'2"  – 6'11"
+            75:  (8, None),
+            78:  (8, None),
+            81:  (8, None),
+            84:  (8, None),    # 7'0"
+            85:  (9, None),    # 7'1"
+            86:  (9, None),    # 7'2" – 7'11"
+            87:  (9, None),
+            90:  (9, None),
+            93:  (9, None),
+            96:  (9, None),    # 8'0"
+            97:  (9, None),    # 8'1"
+            98:  (10, None),   # 8'2"
+            99:  (10, None),   # 8'3" – 8'11"
+            102: (10, None),
+            105: (10, None),
+            108: (10, None),   # 9'0"
+            110: (11, None),   # 9'2"
+            111: (11, None),   # 9'3" – 9'11"
+            114: (11, None),
+            117: (11, None),
+            120: (11, None),   # 10'0" — last single shaft
+            # Dual shaft: width ≥ 10'2" (122"+)
+            122: (6, 6),       # 10'2"
+            123: (6, 6),
+            126: (6, 6),
+            129: (6, 6),
+            132: (6, 6),       # 11'0"
+            133: (6, 7),       # 11'1"
+            134: (6, 7),       # 11'2" – 11'11"
+            138: (6, 7),
+            141: (6, 7),
+            144: (6, 7),       # 12'0"
+            145: (7, 7),       # 12'1"
+            146: (7, 7),       # 12'2" – 12'11"
+            150: (7, 7),
+            153: (7, 7),
+            156: (7, 7),       # 13'0"
+            157: (7, 8),       # 13'1"
+            158: (7, 8),       # 13'2" – 13'11"
+            162: (7, 8),
+            165: (7, 8),
+            168: (7, 8),       # 14'0"
+            169: (8, 8),       # 14'1"
+            170: (8, 8),       # 14'2" – 14'11"
+            174: (8, 8),
+            177: (8, 8),
+            180: (8, 8),       # 15'0"
+            181: (8, 9),       # 15'1"
+            182: (8, 9),       # 15'2" – 15'11"
+            186: (8, 9),
+            189: (8, 9),
+            192: (8, 9),       # 16'0"
+            193: (9, 9),       # 16'1"
+            194: (9, 9),       # 16'2" – 16'11"
+            198: (9, 9),
+            201: (9, 9),
+            204: (9, 9),       # 17'0"
+            205: (9, 10),      # 17'1"
+            206: (9, 10),      # 17'2" – 17'11"
+            210: (9, 10),
+            213: (9, 10),
+            216: (9, 10),      # 18'0"
+            217: (10, 10),     # 18'1"
+            218: (10, 10),     # 18'2" – 18'11"
+            222: (10, 10),
+            225: (10, 10),
+            228: (10, 10),     # 19'0"
+            229: (10, 11),     # 19'1"
+            230: (10, 11),     # 19'2" – 19'11"
+            234: (10, 11),
+            237: (10, 11),
+            240: (10, 11),     # 20'0"
+            241: (11, 11),     # 20'1"
+            242: (11, 11),     # 20'2" – 20'11"
+            246: (11, 11),
+            249: (11, 11),
+            252: (11, 11),     # 21'0"
+            253: (11, 13),     # 21'1"
+            254: (11, 13),     # 21'2" – 21'11"
+            258: (11, 13),
+            261: (11, 13),
+            264: (11, 13),     # 22'0"
+            265: (13, 13),     # 22'1"
+            266: (13, 13),     # 22'2" – 24'2"
+            270: (13, 13),
+            273: (13, 13),
+            276: (13, 13),
+            279: (13, 13),
+            282: (13, 13),
+            285: (13, 13),
+            288: (13, 13),
+            290: (13, 13),
+        }
 
-        # Apply user overrides
-        if config.shaft_preference == 'single':
-            N = 1
-        elif config.shaft_preference == 'split' and N < 2:
-            N = 2
+        # Find closest match in table (round up to next entry)
+        w = config.door_width
+        match = SHAFT_TABLE.get(w)
+        if not match:
+            # Find the smallest table key >= door width
+            for key in sorted(SHAFT_TABLE.keys()):
+                if key >= w:
+                    match = SHAFT_TABLE[key]
+                    break
+            if not match:
+                # Wider than table — use largest entry
+                match = SHAFT_TABLE[max(SHAFT_TABLE.keys())]
 
-        # Get all available SH11 sizes (FF values) from BC catalog
-        available_sh11 = []
-        for pn in mapper.bc_items:
-            if (pn.startswith("SH11-1") and len(pn) == 13 and
-                    pn[8:10] == "06" and pn.endswith("-00")):
-                try:
-                    available_sh11.append(int(pn[6:8]))
-                except ValueError:
-                    pass
-        available_sh11.sort()
-        if not available_sh11:
-            available_sh11 = [7, 8, 9, 10, 11, 12, 13, 14, 15]
+        shaft1_ff, shaft2_ff = match
 
-        # Convert FF values to physical lengths (inches)
-        sh11_lengths = [(ff, ff * 12 + 6) for ff in available_sh11]
-
-        if N == 1:
-            # Single solid shaft: FF*12+6 >= door_width+18 → FF >= (door_width+12)/12
-            required_ff = math.ceil((config.door_width + 12) / 12)
-            shaft = mapper.get_shaft(door_width_feet=required_ff, shaft_type="solid")
-
-            selected_ff = int(shaft.part_number[6:8])
-            physical_length = selected_ff * 12 + 6
-            needed = config.door_width + 18
-            if physical_length < needed:
-                logger.warning(
-                    f"No solid shaft long enough for {width_display} door "
-                    f"(need {needed}\", max available {physical_length}\"): "
-                    f"using {shaft.part_number}"
-                )
-
+        if shaft2_ff is None:
+            # Single shaft
+            shaft = mapper.get_shaft(door_width_feet=shaft1_ff, shaft_type="solid")
             return [PartSelection(
                 part_number=shaft.part_number,
                 description=shaft.description,
@@ -1824,60 +1905,28 @@ class PartNumberService:
                 category="shaft"
             )]
         else:
-            # Multi-shaft: N-1 standard shafts + 1 operator shaft + N-1 couplers
-            total_needed = config.door_width + 18
-            base = total_needed / N
-
-            # Standard shaft: largest available SH11 <= base (round DOWN)
-            std_ff = available_sh11[0]  # fallback to smallest
-            for ff, length in sh11_lengths:
-                if length <= base:
-                    std_ff = ff
-                else:
-                    break
-            std_length = std_ff * 12 + 6
-
-            # Operator shaft: remainder rounded UP to nearest available SH11
-            op_remainder = total_needed - (std_length * (N - 1))
-            op_ff = available_sh11[-1]  # fallback to largest
-            for ff, length in sh11_lengths:
-                if length >= op_remainder:
-                    op_ff = ff
-                    break
-
-            shaft_std = mapper.get_shaft(door_width_feet=std_ff, shaft_type="solid")
-            shaft_op = mapper.get_shaft(door_width_feet=op_ff, shaft_type="solid")
+            # Dual shaft + coupler
+            shaft1 = mapper.get_shaft(door_width_feet=shaft1_ff, shaft_type="solid")
+            shaft2 = mapper.get_shaft(door_width_feet=shaft2_ff, shaft_type="solid")
             coupler = mapper.get_shaft_coupler(bore_size=1.0)
 
-            op_length = op_ff * 12 + 6
-            total_actual = std_length * (N - 1) + op_length
-            if total_actual < total_needed:
-                logger.warning(
-                    f"Multi-shaft total {total_actual}\" short for {width_display} door "
-                    f"(need {total_needed}\"): {N-1}× {shaft_std.part_number} + {shaft_op.part_number}"
-                )
-
             parts = []
-            # N-1 standard (non-operator) shafts
-            if N - 1 > 0:
-                parts.append(PartSelection(
-                    part_number=shaft_std.part_number,
-                    description=shaft_std.description,
-                    quantity=N - 1,
-                    category="shaft"
-                ))
-            # 1 operator shaft
             parts.append(PartSelection(
-                part_number=shaft_op.part_number,
-                description=shaft_op.description,
+                part_number=shaft1.part_number,
+                description=shaft1.description,
                 quantity=1,
                 category="shaft"
             ))
-            # N-1 couplers
+            parts.append(PartSelection(
+                part_number=shaft2.part_number,
+                description=shaft2.description,
+                quantity=1,
+                category="shaft"
+            ))
             parts.append(PartSelection(
                 part_number=coupler.part_number,
                 description=coupler.description,
-                quantity=N - 1,
+                quantity=1,
                 category="shaft"
             ))
             return parts

@@ -32,15 +32,15 @@ Last updated: 2026-04-02
 | 24 | SQ-002319 | Portal showed 5 glass pockets — should be 6 by default | DONE | `4052ba1` | 18'2" doors now get 6 pockets |
 | 7 | | Short windows on Flush doors appear as long in image | DONE | `a773216`, `c42731c` | Short panel windows + windowSize field |
 | 20 | SQ-002319 | Does not add aluminum wrapping charge | DONE | `42923fe` | WRAPALU wrapping for all aluminum doors |
-| 30 | | Missing items should refer customer to rep, not show price | TODO | | Missing item handling in bc_quote_service |
+| 30 | | Missing items should refer customer to rep, not show price | DONE | (pending commit) | Shows "CONTACT REP FOR PRICING" |
 | 37 | SQ-002320 | No top seal added for TX450-20 door | DONE | `12877af`, `0ddbbdc` | Optional upgrade toggle added |
 
 ## Tier 3: Medium Fixes (calculation logic)
 
 | S.No | Quote | Bug | Status | Commit | Notes |
 |------|-------|-----|--------|--------|-------|
-| 35 | SQ-002320 | Used 2 shafts on 10x12 instead of 11'6" single | TODO | | Shaft formula vs rulebook table |
-| 26 | SQ-002319 | Assigned (3) 6'6" shafts for 18' wide door | TODO | | width_minimum or spring count issue |
+| 35 | SQ-002320 | Used 2 shafts on 10x12 instead of 11'6" single | DONE | (pending commit) | Shaft lookup table from Upwardor Portal |
+| 26 | SQ-002319 | Assigned (3) 6'6" shafts for 18' wide door | DONE | (pending commit) | Fixed: always 2 shafts, exact parts from table |
 | 31 | SQ-002320 | Can't find HW box for 10x12 or 8x8 TX450-20 | DONE | `d47e02d`, `a4915d4` | HK03 for all commercial, all sizes mapped |
 | 18 | SQ-002319 | Can't find hardware boxes for 18' wide doors | DONE | `d47e02d`, `a4915d4` | All sized HK kits mapped |
 | 10 | | Only added 4 short windows to 16' wide door | TODO | | Formula vs rulebook max table |
@@ -76,12 +76,9 @@ Last updated: 2026-04-02
 ## Summary
 
 - **Total bugs**: 29
-- **DONE**: 21
-- **TODO**: 8
+- **DONE**: 24
+- **TODO**: 5
   - S.No 28 — Struts on AL976 (built-in)
-  - S.No 30 — Missing items should say "contact rep"
-  - S.No 35 — Shaft: 2 shafts on 10x12 instead of single
-  - S.No 26 — Shaft: (3) 6'6" for 18' door
   - S.No 10 — Only 4 short windows on 16' door
   - S.No 22 — Spring over-selection (6 vs 2)
   - S.No 36 — TX450-20 weight incorrect

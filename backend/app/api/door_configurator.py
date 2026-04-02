@@ -1079,7 +1079,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                     try:
                         comment_line = {
                             "lineType": "Comment",
-                            "description": f"{line['part_number']} - {line.get('description', '')} (Qty: {line['quantity']})"
+                            "description": f"** {line['part_number']} (Qty: {line['quantity']}) — CONTACT REP FOR PRICING **"
                         }
                         bc_client.add_quote_line(bc_quote_id, comment_line)
                         lines_added += 1

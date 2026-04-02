@@ -291,10 +291,10 @@ class BCQuoteService:
                     if bc_unit_price and bc_unit_price > 0:
                         line_data["unitPrice"] = bc_unit_price
                 else:
-                    # Item not found in BC - add as a text line with description
+                    # Item not found in BC — flag for manual pricing
                     line_data = {
                         "lineType": "Comment",
-                        "description": f"{item.product_code}: {item.description or 'Part not in BC'} (Qty: {item.quantity})"
+                        "description": f"** {item.product_code} (Qty: {item.quantity}) — CONTACT REP FOR PRICING **"
                     }
 
                 self.bc_client.add_quote_line(bc_quote_id, line_data)
