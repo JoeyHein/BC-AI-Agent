@@ -950,10 +950,15 @@ class PartNumberService:
             "CRAFT": {"18": 3.7655, "21": 4.1875, "24": 4.6392, "28": 5.1363, "32": 6.1875},
         }
 
-        model_weights = MODEL_WEIGHTS.get(config.door_series, MODEL_WEIGHTS["KANATA"])
         door_width_ft = config.door_width / 12
         door_height_in = config.door_height
         series = config.door_series.upper()
+
+        # Aluminum doors: separate weight model
+        if config.door_type == "aluminium":
+            return self._calculate_aluminum_door_weight(config)
+
+        model_weights = MODEL_WEIGHTS.get(config.door_series, MODEL_WEIGHTS["KANATA"])
 
         # Section breakdown (21"/24" mix)
         breakdown = self._get_section_breakdown(door_height_in)
@@ -1023,6 +1028,76 @@ class PartNumberService:
             f"(endcaps={end_cap_weight:.1f}, retainer={retainer_weight:.1f}, "
             f"astragal={astragal_weight:.1f}, struts={strut_weight:.1f}, "
             f"hardware={hardware_weight:.1f}, top_seal={top_seal_weight:.1f}) = {total_weight:.1f} lbs"
+        )
+
+        return total_weight
+
+    def _calculate_aluminum_door_weight(self, config: DoorConfiguration) -> float:
+        """
+        Calculate weight for aluminum full-view doors (AL976, Panorama, Solalite).
+
+        Based on OpenDC All Door Weight Calculator spreadsheet:
+        - Panorama / Solalite: 1.5 lbs/ft² of total panel area
+        - AL976: aluminum frame weight + glazing weight (varies by glass type)
+          Frame: ~1.39 lbs/ft² of door area (derived from spreadsheet build-up)
+          Glazing varies significantly by material type
+
+        All types add: hardware (~25 lbs) + strut weight + top seal
+        """
+        series = config.door_series.upper()
+        door_width_ft = config.door_width / 12
+        door_height_ft = config.door_height / 12
+        door_area_sqft = door_width_ft * door_height_ft
+
+        if series in ("PANORAMA", "SOLALITE"):
+            # Simple: 1.5 lbs/ft² of panel area
+            panel_weight = door_area_sqft * 1.5
+        else:
+            # AL976: aluminum frame + glazing
+            # Frame weight: ~1.39 lbs/ft² (from spreadsheet 18'x8' = 200 lbs / 144 sqft)
+            AL976_FRAME_LBS_PER_SQFT = 1.39
+            frame_weight = door_area_sqft * AL976_FRAME_LBS_PER_SQFT
+
+            # Glazing weight per sqft — varies by glass/polycarbonate type
+            # From spreadsheet gram/in² converted to lbs/ft²
+            glazing_type = (config.glazing_type or "glass").lower()
+            glass_color = (config.glass_color or "CLEAR").upper()
+            pane_type = (config.glass_pane_type or "INSULATED").upper()
+
+            if glazing_type == "polycarbonate":
+                glazing_lbs_per_sqft = 0.54  # 5/8" Polycarbonate
+            elif pane_type == "SINGLE":
+                glazing_lbs_per_sqft = 1.59  # 3mm Single Tempered
+            else:
+                # Insulated / thermal glass (default)
+                glazing_lbs_per_sqft = 3.32  # 1/2" Sealed Standard Glass
+
+            # Glazing area is slightly less than door area (frame takes some space)
+            # From spreadsheet: glazing ~85% of door area
+            glazing_area_sqft = door_area_sqft * 0.85
+            glazing_weight = glazing_area_sqft * glazing_lbs_per_sqft
+
+            panel_weight = frame_weight + glazing_weight
+
+        # Hardware weight (~25 lbs fixed per spreadsheet)
+        hardware_weight = 25.0
+
+        # Strut weight
+        strut_info = self._get_strut_requirements(config.door_width, config.door_height)
+        strut_weight = 0.0
+        if strut_info["count"] > 0 and strut_info["type"] != "z":
+            strut_weight = strut_info["count"] * door_width_ft * strut_info["weight_per_ft"]
+
+        # Top seal (aluminum doors always get top seal)
+        TOP_SEAL_LBS_PER_INCH = 0.025
+        top_seal_weight = config.door_width * TOP_SEAL_LBS_PER_INCH
+
+        total_weight = panel_weight + hardware_weight + strut_weight + top_seal_weight
+
+        logger.info(
+            f"Aluminum door weight: {series} {door_width_ft:.0f}'x{door_height_ft:.0f}' "
+            f"panel={panel_weight:.1f} + hw={hardware_weight:.1f} + struts={strut_weight:.1f} "
+            f"+ top_seal={top_seal_weight:.1f} = {total_weight:.1f} lbs"
         )
 
         return total_weight
