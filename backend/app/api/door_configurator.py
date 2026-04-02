@@ -429,6 +429,7 @@ class DoorConfigRequest(BaseModel):
     panelDesign: str
     hasWindows: bool = False
     windowInsert: Optional[str] = None
+    windowSize: str = "long"  # 'short' (GK15-10xxx) or 'long' (GK15-11xxx)
     windowPositions: Optional[List[WindowPosition]] = []  # Multi-stamp window positions
     windowSection: Optional[int] = None  # Legacy: single section (for backward compatibility)
     windowQty: int = 0  # Commercial: V130G section count or window qty
@@ -821,7 +822,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "panelColor": door.panelColor,
                 "panelDesign": door.panelDesign,
                 "windowInsert": door.windowInsert if door.hasWindows else None,
-                "windowSize": getattr(door, 'windowSize', 'long') or 'long',
+                "windowSize": door.windowSize or 'long',
                 "windowPositions": [{"section": p.section, "col": p.col} for p in door.windowPositions] if door.windowPositions else [],
                 "windowCount": window_count if door.hasWindows else 0,
                 "windowSection": door.windowSection,

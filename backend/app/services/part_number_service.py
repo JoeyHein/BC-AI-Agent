@@ -2419,6 +2419,7 @@ class PartNumberService:
             "STOCKTON_ARCHED", "STOCKTON_ARCHED_XL",
             "STOCKBRIDGE_STRAIGHT", "STOCKBRIDGE_STRAIGHT_XL",
             "STOCKBRIDGE_ARCHED", "STOCKBRIDGE_ARCHED_XL",
+            "STOCKTON_SHORT", "STOCKTON_SHORT_ARCHED",
         }
         if config.window_insert in decorative_inserts:
             if series_upper == "CRAFT":
