@@ -601,6 +601,13 @@ class PartNumberService:
         parts = []
         hardware = config.hardware or {}
 
+        # 0. ALUMINUM AUTO-UPGRADE: 2" → 3" track if door weight > 750 lbs
+        if config.door_type == "aluminium" and config.track_thickness == '2':
+            al_weight = self._calculate_aluminum_door_weight(config)
+            if al_weight > 750:
+                config.track_thickness = '3'
+                logger.info(f"AL976 auto-upgrade to 3\" track: weight {al_weight:.0f} lbs > 750 lbs threshold")
+
         # 1. COMMENT - Door description line
         door_width_ft = config.door_width // 12
         door_width_in = config.door_width % 12
@@ -3126,7 +3133,7 @@ def _default_glass_pockets(door_width_inches: int) -> int:
         return 4
     elif door_width_feet <= 18:
         return 5
-    elif door_width_feet <= 22:
+    elif door_width_feet <= 20:
         return 6
     else:
         return 7
