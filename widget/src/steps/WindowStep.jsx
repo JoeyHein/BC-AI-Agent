@@ -90,29 +90,39 @@ export default function WindowStep({ options, family, config, onSelect, onWindow
     [config.width, config.height, config.panelDesign, config.doorSeries]
   )
 
+  // For long windows on SH/BC, each window spans 2 stamps — show half the grid columns
+  const isStandardStamp = ['SH', 'BC'].includes(config.panelDesign)
+  const isLongOnStandard = (config.windowSize || 'long') === 'long' && isStandardStamp
+  const displayCols = isLongOnStandard ? Math.floor(grid.cols / 2) : grid.cols
+
   const windowPositions = config.windowPositions || []
   const windowCount = windowPositions.length
 
   // Toggle a window position
   const togglePosition = (section, col) => {
-    const exists = windowPositions.some(p => p.section === section && p.col === col)
+    // For long windows on standard stamps, store position as even col index (0, 2, 4...)
+    const storeCol = isLongOnStandard ? col * 2 : col
+    const exists = windowPositions.some(p => p.section === section && p.col === storeCol)
     let newPositions
     if (exists) {
-      newPositions = windowPositions.filter(p => !(p.section === section && p.col === col))
+      newPositions = windowPositions.filter(p => !(p.section === section && p.col === storeCol))
     } else {
-      newPositions = [...windowPositions, { section, col }]
+      newPositions = [...windowPositions, { section, col: storeCol }]
     }
     onWindowPositionsChange?.(newPositions)
   }
 
   const hasWindowAt = (section, col) => {
-    return windowPositions.some(p => p.section === section && p.col === col)
+    const checkCol = isLongOnStandard ? col * 2 : col
+    return windowPositions.some(p => p.section === section && p.col === checkCol)
   }
 
   // Quick pattern helpers
   const setTopRow = () => {
     const positions = []
-    for (let c = 0; c < grid.cols; c++) positions.push({ section: 1, col: c })
+    for (let c = 0; c < displayCols; c++) {
+      positions.push({ section: 1, col: isLongOnStandard ? c * 2 : c })
+    }
     onWindowPositionsChange?.(positions)
   }
 
@@ -124,7 +134,8 @@ export default function WindowStep({ options, family, config, onSelect, onWindow
 
   const setRightColumn = () => {
     const positions = []
-    for (let s = 1; s <= grid.sections; s++) positions.push({ section: s, col: grid.cols - 1 })
+    const lastCol = isLongOnStandard ? (displayCols - 1) * 2 : displayCols - 1
+    for (let s = 1; s <= grid.sections; s++) positions.push({ section: s, col: lastCol })
     onWindowPositionsChange?.(positions)
   }
 
@@ -481,7 +492,7 @@ export default function WindowStep({ options, family, config, onSelect, onWindow
               </div>
 
               <div className="odc-grid-info">
-                <strong>Door Grid:</strong> {grid.sections} sections × {grid.cols} window positions
+                <strong>Door Grid:</strong> {grid.sections} sections × {displayCols} window positions
                 <br />
                 <strong>Windows Selected:</strong> {windowCount}
               </div>
@@ -490,7 +501,7 @@ export default function WindowStep({ options, family, config, onSelect, onWindow
               <div className="odc-click-grid">
                 {Array.from({ length: grid.sections }).map((_, sIdx) => (
                   <div key={sIdx} className="odc-click-grid-row">
-                    {Array.from({ length: grid.cols }).map((_, cIdx) => {
+                    {Array.from({ length: displayCols }).map((_, cIdx) => {
                       const section = sIdx + 1
                       const active = hasWindowAt(section, cIdx)
                       return (
