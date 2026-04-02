@@ -2427,6 +2427,16 @@ class PartNumberService:
                     notes=f"AL-SWD section {section_num} of {panel_count}"
                 ))
 
+        # Wrapping — covers all aluminum panels (sold per sqft)
+        wrap_sqft = round((config.door_width * section_height * panel_count) / 144, 2)
+        parts.append(PartSelection(
+            part_number="WRAPALU",
+            description="WRAPPING - ALUMINUM PANELS",
+            quantity=wrap_sqft,
+            category="aluminum_wrapping",
+            notes=f"Wrapping for {panel_count} sections ({config.door_width / 12:.0f}' x {section_height}\" each)"
+        ))
+
         # Glazing — GK17 glass for AL976, GK17 polycarbonate for Panorama/Solalite
         # Glass sqft calculated from actual window opening dimensions per PN Generator spreadsheet
         glazing_sqft_per_section = self._calculate_al976_glass_sqft_per_section(
