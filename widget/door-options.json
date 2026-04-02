@@ -10,6 +10,7 @@
       "designs": ["SHXL", "SH", "BCXL", "BC", "TRAFALGAR", "FLUSH"],
       "colors": ["WHITE", "BLACK", "SANDTONE", "NEW_BROWN", "HAZELWOOD", "BRONZE", "STEEL_GREY", "IRON_ORE", "WALNUT", "ENGLISH_CHESTNUT", "FRENCH_OAK"],
       "windowInserts": ["STOCKTON_STANDARD", "STOCKTON_ARCHED_XL", "STOCKTON_ARCHED", "STOCKBRIDGE_STRAIGHT", "STOCKBRIDGE_ARCHED"],
+      "windowInsertsShort": ["STOCKTON_SHORT", "STOCKTON_SHORT_ARCHED"],
       "defaultDesign": "SHXL",
       "defaultColor": "WHITE"
     },
@@ -103,6 +104,9 @@
     "STOCKTON_ARCHED": {"name": "Stockton Arched", "grid": [2, 4], "size": "long", "arched": true},
     "STOCKBRIDGE_STRAIGHT": {"name": "Stockbridge", "grid": [2, 4], "size": "long", "arched": false, "prairie": true},
     "STOCKBRIDGE_ARCHED": {"name": "Stockbridge Arched", "grid": [2, 4], "size": "long", "arched": true, "prairie": true},
+    "STOCKTON_SHORT": {"name": "Stockton Short", "grid": [2, 2], "size": "short", "arched": false},
+    "STOCKTON_SHORT_ARCHED": {"name": "Stockton Short Arched", "grid": [2, 2], "size": "short", "arched": true},
+    "PLAIN_SHORT": {"name": "Plain Short", "grid": [0, 0], "size": "short", "arched": false},
     "NONE": {"name": "No Windows", "grid": [0, 0], "size": "long", "arched": false}
   },
   "glassData": {

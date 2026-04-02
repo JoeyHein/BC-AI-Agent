@@ -109,6 +109,10 @@ export default function WindowStep({ options, family, config, onSelect, onWindow
     onWindowPositionsChange?.([])
   }
 
+  // Determine if short windows are allowed (not for SHXL/BCXL)
+  const isLongOnlyDesign = ['SHXL', 'BCXL'].includes(config.panelDesign)
+  const currentWindowSize = config.windowSize || 'long'
+
   // Toggle include windows
   const handleToggleWindows = (checked) => {
     setIncludeWindows(checked)
@@ -116,9 +120,16 @@ export default function WindowStep({ options, family, config, onSelect, onWindow
       onSelect('NONE', 0, null, 1)
       onWindowPositionsChange?.([])
     } else {
-      // Default to plain windows (no decorative insert)
-      onSelect('PLAIN_LONG', 0, config.glassColor || 'CLEAR', 1)
+      const defaultInsert = currentWindowSize === 'short' ? 'PLAIN_SHORT' : 'PLAIN_LONG'
+      onSelect(defaultInsert, 0, config.glassColor || 'CLEAR', 1)
     }
+  }
+
+  // Handle window size change (long/short)
+  const handleWindowSizeChange = (size) => {
+    const defaultInsert = size === 'short' ? 'PLAIN_SHORT' : 'PLAIN_LONG'
+    onSelect(defaultInsert, 0, config.glassColor || 'CLEAR', 1)
+    onWindowPositionsChange?.([])
   }
 
   // Handle insert type change
@@ -383,8 +394,29 @@ export default function WindowStep({ options, family, config, onSelect, onWindow
 
       {includeWindows && (
         <>
-          {/* 1. Select Window Positions */}
-          <h3 className="odc-subsection-title">1. Select Window Positions</h3>
+          {/* 1. Window Size (only for SH, BC, TRAF, FLUSH) */}
+          {!isLongOnlyDesign && (
+            <>
+              <h3 className="odc-subsection-title">1. Window Size</h3>
+              <div className="odc-option-cards" style={{marginBottom: '16px'}}>
+                <button
+                  className={`odc-option-card ${currentWindowSize === 'long' ? 'odc-selected' : ''}`}
+                  onClick={() => handleWindowSizeChange('long')}>
+                  <strong>Long Window</strong>
+                  <span className="odc-option-desc">Full stamp width</span>
+                </button>
+                <button
+                  className={`odc-option-card ${currentWindowSize === 'short' ? 'odc-selected' : ''}`}
+                  onClick={() => handleWindowSizeChange('short')}>
+                  <strong>Short Window</strong>
+                  <span className="odc-option-desc">Fits one stamp</span>
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* 2. Select Window Positions */}
+          <h3 className="odc-subsection-title">{isLongOnlyDesign ? '1' : '2'}. Select Window Positions</h3>
           <p className="odc-step-hint">Click stamps to add/remove windows</p>
 
           <div className="odc-window-placement-layout">
@@ -454,29 +486,40 @@ export default function WindowStep({ options, family, config, onSelect, onWindow
             </div>
           </div>
 
-          {/* 2. Window Insert Style */}
-          <h3 className="odc-subsection-title">2. Window Insert Style</h3>
+          {/* Window Insert Style */}
+          <h3 className="odc-subsection-title">{isLongOnlyDesign ? '2' : '3'}. Window Insert Style</h3>
           <div className="odc-insert-options">
-            <button
-              className={`odc-insert-btn ${!config.windowInsert || config.windowInsert === 'PLAIN_LONG' ? 'odc-selected' : ''}`}
-              onClick={() => handleInsertChange('PLAIN_LONG')}>
-              No Insert
-            </button>
-            {windowInserts.map((insertId) => {
-              const info = options.windowData?.[insertId]
-              if (!info) return null
+            {(() => {
+              const isShort = currentWindowSize === 'short'
+              const plainId = isShort ? 'PLAIN_SHORT' : 'PLAIN_LONG'
+              const availableInserts = isShort
+                ? (family?.windowInsertsShort || [])
+                : windowInserts
               return (
-                <button key={insertId}
-                  className={`odc-insert-btn ${config.windowInsert === insertId ? 'odc-selected' : ''}`}
-                  onClick={() => handleInsertChange(insertId)}>
-                  {info.name}
-                </button>
+                <>
+                  <button
+                    className={`odc-insert-btn ${!config.windowInsert || config.windowInsert === plainId ? 'odc-selected' : ''}`}
+                    onClick={() => handleInsertChange(plainId)}>
+                    No Insert
+                  </button>
+                  {availableInserts.map((insertId) => {
+                    const info = options.windowData?.[insertId]
+                    if (!info) return null
+                    return (
+                      <button key={insertId}
+                        className={`odc-insert-btn ${config.windowInsert === insertId ? 'odc-selected' : ''}`}
+                        onClick={() => handleInsertChange(insertId)}>
+                        {info.name}
+                      </button>
+                    )
+                  })}
+                </>
               )
-            })}
+            })()}
           </div>
 
-          {/* 3. Glass Pane Type */}
-          <h3 className="odc-subsection-title">3. Glass Pane Type</h3>
+          {/* Glass Pane Type */}
+          <h3 className="odc-subsection-title">{isLongOnlyDesign ? '3' : '4'}. Glass Pane Type</h3>
           <div className="odc-option-cards">
             {GLASS_PANE_TYPES.map(g => (
               <button key={g.id}
@@ -488,8 +531,8 @@ export default function WindowStep({ options, family, config, onSelect, onWindow
             ))}
           </div>
 
-          {/* 4. Glass Color */}
-          <h3 className="odc-subsection-title">4. Glass Color</h3>
+          {/* Glass Color */}
+          <h3 className="odc-subsection-title">{isLongOnlyDesign ? '4' : '5'}. Glass Color</h3>
           <div className="odc-color-grid">
             {GLASS_COLORS.map(g => (
               <button key={g.id}
@@ -504,8 +547,8 @@ export default function WindowStep({ options, family, config, onSelect, onWindow
             ))}
           </div>
 
-          {/* 5. Window Frame Color */}
-          <h3 className="odc-subsection-title">5. Window Frame Color</h3>
+          {/* Window Frame Color */}
+          <h3 className="odc-subsection-title">{isLongOnlyDesign ? '5' : '6'}. Window Frame Color</h3>
           <select
             className="odc-select"
             value={config.windowFrameColor || 'MATCH'}

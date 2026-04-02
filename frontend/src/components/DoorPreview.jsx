@@ -31,16 +31,15 @@ const getStampColumns = (widthInches, stampType = 'long', isCraft = false, panel
 
   // Short stamps vary by design — SH and BC have different stamp widths
   // SH (Sheridan): ~21" stamps
-  // BC (Bronte Creek): ~24" stamps
+  // BC (Bronte Creek): always in pairs of 2 stamps
   const isBronte = panelDesign === 'BC'
   if (isBronte) {
-    if (widthFeet <= 9) return 3
-    if (widthFeet <= 10) return 4
-    if (widthFeet <= 12) return 5
-    if (widthFeet <= 14) return 6
-    if (widthFeet <= 16) return 7
-    if (widthFeet <= 18) return 8
-    return 9
+    // BC stamps always come in pairs: 2 pairs=4, 3 pairs=6, 4 pairs=8
+    if (widthFeet <= 10) return 4   // 2 pairs
+    if (widthFeet <= 14) return 6   // 3 pairs
+    if (widthFeet <= 16) return 8   // 4 pairs
+    if (widthFeet <= 18) return 8   // 4 pairs
+    return 10                       // 5 pairs
   } else {
     // SH (default for standard stamps)
     if (widthFeet <= 9) return 4
@@ -212,6 +211,8 @@ const WINDOW_SHAPES = {
   // 14x20 windows (for SH/BC short stamps - fits in 1 stamp)
   STOCKTON_SHORT: { type: 'grid', rows: 2, cols: 2, arched: false, size: 'SHORT' },
   STOCKTON_SHORT_ARCHED: { type: 'grid', rows: 2, cols: 2, arched: true, size: 'SHORT' },
+  PLAIN_LONG: { type: 'plain', rows: 0, cols: 0, arched: false, size: 'LONG' },
+  PLAIN_SHORT: { type: 'plain', rows: 0, cols: 0, arched: false, size: 'SHORT' },
 }
 
 function DoorPreview({
