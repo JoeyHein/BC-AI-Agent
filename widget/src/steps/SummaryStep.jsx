@@ -3,8 +3,11 @@ import DoorPreview from '../DoorPreview'
 
 export default function SummaryStep({ options, family, config, quoteWebhook, dealerLocatorUrl }) {
   const [showForm, setShowForm] = useState(false)
+  const [showDealerForm, setShowDealerForm] = useState(false)
   const [formData, setFormData] = useState({ name: '', email: '', phone: '', postalCode: '', notes: '' })
+  const [dealerFormData, setDealerFormData] = useState({ name: '', email: '', phone: '', city: '', postalCode: '' })
   const [submitted, setSubmitted] = useState(false)
+  const [dealerSubmitted, setDealerSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const previewRef = useRef(null)
 
@@ -101,18 +104,69 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
     setSubmitting(false)
   }
 
+  const handleDealerSubmit = async (e) => {
+    e.preventDefault()
+    setSubmitting(true)
+    try {
+      const doorImage = await captureDoorImage()
+      const doorConfig = {
+        family: family?.name,
+        familyId: family?.id,
+        size: `${formatSize(config.width)} x ${formatSize(config.height)}`,
+        widthInches: config.width,
+        heightInches: config.height,
+        design: designInfo?.name || 'N/A',
+        designId: config.panelDesign,
+        color: colorInfo?.name,
+        colorId: config.color,
+        windows: hasWindows ? (commercialWindowInfo?.name || windowInfo?.name || 'None') : 'None',
+        windowId: hasWindows ? (config.windowInsert || 'NONE') : 'NONE',
+      }
+      const payload = {
+        contact: {
+          name: dealerFormData.name,
+          email: dealerFormData.email,
+          phone: dealerFormData.phone,
+          postalCode: dealerFormData.postalCode,
+          notes: dealerFormData.city ? `Location: ${dealerFormData.city}` : '',
+        },
+        doorConfig,
+        doorImage,
+        source: 'dealer_locator',
+        timestamp: new Date().toISOString(),
+      }
+      if (quoteWebhook) {
+        await fetch(quoteWebhook, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+      }
+      setDealerSubmitted(true)
+    } catch (err) {
+      console.error('Dealer locator submission error:', err)
+      setDealerSubmitted(true)
+    }
+    setSubmitting(false)
+  }
+
   const handleChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }))
   }
 
-  if (submitted) {
+  const handleDealerChange = (field, value) => {
+    setDealerFormData(prev => ({ ...prev, [field]: value }))
+  }
+
+  if (submitted || dealerSubmitted) {
+    const contactName = submitted ? formData.name : dealerFormData.name
     return (
       <div className="odc-step-content odc-summary">
         <div className="odc-success-message">
           <div className="odc-success-icon">&#10003;</div>
-          <h2 className="odc-step-title">Quote Request Sent!</h2>
+          <h2 className="odc-step-title">{submitted ? 'Quote Request Sent!' : 'Dealer Request Sent!'}</h2>
           <p className="odc-step-subtitle">
-            Thank you, {formData.name}. A dealer in your area will contact you shortly with pricing for your custom door configuration.
+            Thank you, {contactName}. A dealer in your area will contact you shortly{submitted ? ' with pricing for your custom door configuration' : ''}.
           </p>
         </div>
       </div>
@@ -194,11 +248,9 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
             <button className="odc-btn-primary" onClick={() => setShowForm(true)}>
               Request a Quote
             </button>
-            {dealerLocatorUrl && (
-              <a href={dealerLocatorUrl} target="_blank" rel="noopener noreferrer" className="odc-btn-outline">
-                Find a Dealer
-              </a>
-            )}
+            <button className="odc-btn-outline" onClick={() => setShowDealerForm(true)}>
+              Find a Dealer
+            </button>
           </div>
         </div>
       </div>
@@ -240,6 +292,50 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
               </div>
               <button type="submit" className="odc-btn-primary odc-btn-full" disabled={submitting}>
                 {submitting ? 'Sending...' : 'Submit Quote Request'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showDealerForm && (
+        <div className="odc-modal-overlay" onClick={() => setShowDealerForm(false)}>
+          <div className="odc-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="odc-modal-close" onClick={() => setShowDealerForm(false)}>&times;</button>
+            <h3 className="odc-modal-title">Find a Dealer</h3>
+            <p className="odc-modal-subtitle">Enter your location and we'll connect you with your nearest authorized dealer.</p>
+            <form onSubmit={handleDealerSubmit} className="odc-quote-form">
+              <div className="odc-form-row">
+                <label className="odc-form-label">Full Name *</label>
+                <input type="text" required className="odc-form-input"
+                  value={dealerFormData.name} onChange={(e) => handleDealerChange('name', e.target.value)} />
+              </div>
+              <div className="odc-form-row">
+                <label className="odc-form-label">Email *</label>
+                <input type="email" required className="odc-form-input"
+                  value={dealerFormData.email} onChange={(e) => handleDealerChange('email', e.target.value)} />
+              </div>
+              <div className="odc-form-row">
+                <label className="odc-form-label">Phone</label>
+                <input type="tel" className="odc-form-input"
+                  value={dealerFormData.phone} onChange={(e) => handleDealerChange('phone', e.target.value)} />
+              </div>
+              <div className="odc-form-row-double">
+                <div className="odc-form-row">
+                  <label className="odc-form-label">City / Town *</label>
+                  <input type="text" required className="odc-form-input"
+                    placeholder="e.g. Vancouver"
+                    value={dealerFormData.city} onChange={(e) => handleDealerChange('city', e.target.value)} />
+                </div>
+                <div className="odc-form-row">
+                  <label className="odc-form-label">Postal Code</label>
+                  <input type="text" className="odc-form-input"
+                    placeholder="e.g. V6B 1A1"
+                    value={dealerFormData.postalCode} onChange={(e) => handleDealerChange('postalCode', e.target.value)} />
+                </div>
+              </div>
+              <button type="submit" className="odc-btn-primary odc-btn-full" disabled={submitting}>
+                {submitting ? 'Sending...' : 'Find My Dealer'}
               </button>
             </form>
           </div>
