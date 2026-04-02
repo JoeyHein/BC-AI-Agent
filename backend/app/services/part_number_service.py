@@ -106,6 +106,7 @@ class DoorConfiguration:
     window_insert: Optional[str] = None
     window_section: Optional[int] = None
     window_count: int = 0  # Number of windows (calculated from windowPositions)
+    window_positions: Optional[List[dict]] = None  # Residential: [{section, col}, ...]
     window_qty: int = 0  # Commercial: number of windows per section, or V130G section count
     window_panels: Optional[Dict[int, dict]] = None  # Per-panel window config: {2: {"qty": 3}, 4: {"qty": 2}}
     window_frame_color: str = "BLACK"  # Commercial window frame color
@@ -2476,17 +2477,44 @@ class PartNumberService:
         return self._consolidate_parts(parts)
 
     def _build_window_placement_note(self, config: DoorConfiguration) -> Optional[str]:
-        """Build a human-readable note describing where windows should be placed."""
+        """Build a human-readable note describing where windows should be placed.
+
+        Panel numbering: 1 = top panel, counting down.
+        """
+        num_sections = self._calculate_panel_count(config.door_height)
+
+        def panel_label(num):
+            if num == 1:
+                return "TOP"
+            elif num >= num_sections:
+                return "BOTTOM"
+            else:
+                return f"{num} FROM TOP"
+
         if config.window_panels:
             # Per-panel config: e.g. {1: {"qty": 3}, 3: {"qty": 2}}
             panel_descs = []
             for panel_num in sorted(config.window_panels.keys()):
                 qty = config.window_panels[panel_num].get("qty", 1)
-                panel_descs.append(f"Panel {panel_num}: {qty} window{'s' if qty > 1 else ''}")
-            return "WINDOWS: " + ", ".join(panel_descs)
+                label = panel_label(panel_num)
+                panel_descs.append(f"{label} PANEL ({qty} window{'s' if qty > 1 else ''})")
+            return "WINDOW PLACEMENT: " + ", ".join(panel_descs)
+        elif config.window_positions:
+            # Residential stamp-based positions: group by section
+            from collections import defaultdict
+            by_section = defaultdict(list)
+            for pos in config.window_positions:
+                by_section[pos.get("section", 1)].append(pos.get("col", 0) + 1)
+            section_descs = []
+            for section_num in sorted(by_section.keys()):
+                cols = sorted(by_section[section_num])
+                label = panel_label(section_num)
+                section_descs.append(f"{label} PANEL (positions {','.join(str(c) for c in cols)})")
+            return f"WINDOW PLACEMENT: {len(config.window_positions)} windows — " + ", ".join(section_descs)
         elif config.window_count > 0:
             section = config.window_section or 1
-            return f"WINDOWS: Section {section}, {config.window_count} per panel"
+            label = panel_label(section)
+            return f"WINDOW PLACEMENT: {config.window_count} windows in {label} PANEL"
         return None
 
     def _get_window_parts(self, config: DoorConfiguration) -> List[PartSelection]:
@@ -2873,35 +2901,44 @@ class PartNumberService:
 
         # Per-panel window generation: if windowPanels is provided, emit one GK16 line per panel
         window_desc = ws["desc"]  # e.g. "24" x 12""
+        num_sections = self._calculate_panel_count(config.door_height)
+
+        def _panel_label(num):
+            if num == 1: return "TOP"
+            elif num >= num_sections: return "BOTTOM"
+            else: return f"{num} FROM TOP"
+
         if config.window_panels:
             parts = []
             for panel_num in sorted(config.window_panels.keys()):
                 panel_info = config.window_panels[panel_num]
                 qty = panel_info.get("qty", 1)
                 if qty > 0:
+                    label = _panel_label(panel_num)
                     parts.append(PartSelection(
                         part_number=part_number,
                         description=description,
                         quantity=qty,
                         category="commercial_window",
-                        notes=f"{window_desc} THERMOPANE, PANEL {panel_num}, {frame_color} FRAME"
+                        notes=f"{window_desc} THERMOPANE, {label} PANEL, {frame_color} FRAME"
                     ))
             return parts if parts else [PartSelection(
                 part_number=part_number,
                 description=description,
                 quantity=config.window_qty or 1,
                 category="commercial_window",
-                notes=f"{window_desc} THERMOPANE, SECTION {config.window_section or 1}, {frame_color} FRAME"
+                notes=f"{window_desc} THERMOPANE, {_panel_label(config.window_section or 1)} PANEL, {frame_color} FRAME"
             )]
 
         qty = config.window_qty or 1
+        label = _panel_label(config.window_section or 1)
 
         return [PartSelection(
             part_number=part_number,
             description=description,
             quantity=qty,
             category="commercial_window",
-            notes=f"{window_desc} THERMOPANE, SECTION {config.window_section or 1}, {frame_color} FRAME"
+            notes=f"{window_desc} THERMOPANE, {label} PANEL, {frame_color} FRAME"
         )]
 
     # Rail part numbers by type and door height (feet)
@@ -3147,6 +3184,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         window_size=config_dict.get("windowSize", "long"),
         glass_pockets_per_section=config_dict.get("glassPocketsPerSection") or _default_glass_pockets(config_dict.get("doorWidth", 96)),
         window_count=(len(config_dict.get("windowPositions", [])) or config_dict.get("windowCount", 0)) if config_dict.get("hasWindows", True) else 0,
+        window_positions=config_dict.get("windowPositions") if config_dict.get("hasWindows", True) else None,
         spring_inventory=spring_inventory,
         include_top_seal=config_dict.get("includeTopSeal"),
     )
