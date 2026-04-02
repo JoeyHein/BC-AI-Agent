@@ -29,8 +29,7 @@ const getStampColumns = (widthInches, stampType = 'long', isCraft = false, panel
   // BC (Bronte Creek): ~24" stamps
   const isBronte = panelDesign === 'BC'
   if (isBronte) {
-    // BC: 8'=3, 9'=3, 10'=4, 12'=5, 14'=6, 16'=7, 18'=8
-    if (widthFeet <= 9) return 3
+    // BC: 8'=4, 9'=4, 10'=4, 12'=5, 14'=6, 16'=7, 18'=8
     if (widthFeet <= 10) return 4
     if (widthFeet <= 12) return 5
     if (widthFeet <= 14) return 6
