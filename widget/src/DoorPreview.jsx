@@ -26,16 +26,15 @@ const getStampColumns = (widthInches, stampType = 'long', isCraft = false, panel
 
   // Short stamps vary by design — SH and BC have different stamp widths
   // SH (Sheridan): ~21" stamps
-  // BC (Bronte Creek): ~24" stamps
+  // BC (Bronte Creek): always in pairs of 2 stamps
   const isBronte = panelDesign === 'BC'
   if (isBronte) {
-    // BC: 8'=4, 9'=4, 10'=4, 12'=5, 14'=6, 16'=7, 18'=8
-    if (widthFeet <= 10) return 4
-    if (widthFeet <= 12) return 5
-    if (widthFeet <= 14) return 6
-    if (widthFeet <= 16) return 7
-    if (widthFeet <= 18) return 8
-    return 9
+    // BC stamps always come in pairs: 2 pairs=4, 3 pairs=6, 4 pairs=8
+    if (widthFeet <= 10) return 4   // 2 pairs
+    if (widthFeet <= 14) return 6   // 3 pairs
+    if (widthFeet <= 16) return 8   // 4 pairs
+    if (widthFeet <= 18) return 8   // 4 pairs
+    return 10                       // 5 pairs
   } else {
     // SH: 8'=4, 9'=4, 10'=5, 12'=6, 14'=7, 16'=8, 18'=9
     if (widthFeet <= 9) return 4
