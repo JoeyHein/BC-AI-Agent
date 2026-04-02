@@ -517,6 +517,7 @@ class DoorCalculatorService:
         spring_inventory: Optional[Dict[str, List[str]]] = None,  # stocked coil/wire combos
         high_lift_inches: Optional[int] = None,  # extra inches above door for high_lift
         door_type: str = "commercial",  # 'residential' or 'commercial'
+        **kwargs,
     ) -> DoorCalculation:
         """
         Calculate complete door configuration.
@@ -541,7 +542,8 @@ class DoorCalculatorService:
 
         # Normalize door model
         door_model = door_model.upper().replace(" ", "-")
-        if door_model not in self.model_weights:
+        is_aluminum = door_model in ("AL976", "PANORAMA", "SOLALITE", "AL-SWD", "ALSWD")
+        if not is_aluminum and door_model not in self.model_weights:
             warnings.append(f"Unknown door model '{door_model}', using TX450 defaults")
             door_model = "TX450"
 
@@ -553,8 +555,9 @@ class DoorCalculatorService:
         )
 
         # Set correct steel gauge based on model
-        # TX450-20 and TX500-20 are 20 gauge, all others are 24 gauge
-        if door_model in ["TX450-20", "TX500-20"]:
+        if is_aluminum:
+            panel_config.gauge = 0  # Aluminum — no steel gauge
+        elif door_model in ["TX450-20", "TX500-20"]:
             panel_config.gauge = 20
         else:
             panel_config.gauge = 24
@@ -575,6 +578,9 @@ class DoorCalculatorService:
             strut_count,
             strut_type,
             door_type=door_type,
+            is_aluminum=is_aluminum,
+            glazing_type=kwargs.get("glazing_type", "glass"),
+            glass_pane_type=kwargs.get("glass_pane_type", "INSULATED"),
         )
 
         # 4. Calculate track configuration
@@ -725,14 +731,17 @@ class DoorCalculatorService:
         strut_count: int = 0,
         strut_type: str = "16ga",
         door_type: str = "commercial",
+        is_aluminum: bool = False,
+        glazing_type: str = "glass",
+        glass_pane_type: str = "INSULATED",
     ) -> WeightBreakdown:
         """Calculate door weight breakdown matching part_number_service methodology.
 
         Steel weight includes: panels + end caps + retainer + astragal + seals.
         Hardware weight: from BC hardware kit (HK02/HK03) weights.
         Strut weight: 20ga/16ga struts (Z struts excluded from spring weight).
+        Aluminum doors use separate frame + glazing weight model.
         """
-        # Import here to avoid circular imports at module level
         from app.services.part_number_service import (
             END_CAP_WEIGHT_LBS, RETAINER_LBS_PER_FT,
             BOTTOM_ASTRAGAL_LBS_PER_FT, TOP_ASTRAGAL_LBS_PER_FT,
@@ -741,6 +750,39 @@ class DoorCalculatorService:
         )
 
         weight = WeightBreakdown()
+
+        # Aluminum doors: separate weight model
+        if is_aluminum:
+            series = door_model.upper()
+            width_ft = dimensions.width_ft
+            height_ft = dimensions.height / 12
+            door_area_sqft = width_ft * height_ft
+
+            if series in ("PANORAMA", "SOLALITE"):
+                weight.aluminum_weight = door_area_sqft * 1.5
+            else:
+                # AL976: frame + glazing
+                frame_weight = door_area_sqft * 1.39
+                if glazing_type == "polycarbonate":
+                    glazing_lbs_per_sqft = 0.54
+                elif glass_pane_type == "SINGLE":
+                    glazing_lbs_per_sqft = 1.59
+                else:
+                    glazing_lbs_per_sqft = 3.32
+                glazing_area = door_area_sqft * 0.85
+                weight.aluminum_weight = frame_weight
+                weight.glazing_weight = glazing_area * glazing_lbs_per_sqft
+
+            # Hardware — use commercial lookup
+            weight.hardware_weight = _get_hk_weight(dimensions.width, dimensions.height, commercial=True)
+
+            # Struts
+            if strut_count > 0 and strut_type != "z":
+                strut_lbs_per_ft = STRUT_WEIGHT_PER_FT.get(strut_type, 1.05)
+                weight.strut_weight = strut_count * width_ft * strut_lbs_per_ft
+
+            weight.calculate_total()
+            return weight
 
         # Get model weight factors
         model_weights = self.model_weights.get(door_model, self.model_weights["TX450"])
@@ -1655,6 +1697,8 @@ def calculate_door_from_config(config: Dict[str, Any]) -> Dict[str, Any]:
         shaft_type=config.get("shaft_type", config.get("shaftType", "auto")),
         high_lift_inches=config.get("high_lift_inches", config.get("highLiftInches")),
         door_type=config.get("door_type", config.get("doorType", "commercial")),
+        glazing_type=config.get("glazing_type", config.get("glazingType", "glass")),
+        glass_pane_type=config.get("glass_pane_type", config.get("glassPaneType", "INSULATED")),
     )
 
     return door_calculator.get_calculation_summary(calc)

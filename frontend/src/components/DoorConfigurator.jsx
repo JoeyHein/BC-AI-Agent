@@ -364,6 +364,7 @@ function DoorConfigurator() {
                 glassColor: null,
                 ...(isCommercialSeries ? { trackThickness: '3' } : {}),
                 ...(isAluminumSeries ? {
+                  glazingType: series === 'AL976' ? 'glass' : 'polycarbonate',
                   glassPaneType: series === 'AL976' ? 'INSULATED' : null,
                   glassColor: 'CLEAR',
                 } : {}),
@@ -427,6 +428,7 @@ function DoorConfigurator() {
           <WindowsStep
             door={currentDoor}
             windowInserts={config.windowInserts}
+            windowInsertsShort={config.windowInsertsShort}
             glazingOptions={config.glazingOptions}
             colors={config.colors}
             config={config}
@@ -963,7 +965,7 @@ function WindowInsertPreview({ insertId, size = 60 }) {
   )
 }
 
-function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onChange }) {
+function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, colors, config, onChange }) {
   const [hoveredStamp, setHoveredStamp] = useState(null)
   const hasWindows = door.hasWindows || false
   const isCommercial = door.doorType === 'commercial'
@@ -985,15 +987,29 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
   const getStampColumns = (widthInches, panelDesign) => {
     const widthFeet = widthInches / 12
     let longCols
-    if (widthFeet <= 9) longCols = 2
+    if (widthFeet <= 10) longCols = 2
     else if (widthFeet <= 12) longCols = 3
     else if (widthFeet <= 16) longCols = 4
     else if (widthFeet <= 19) longCols = 5
     else longCols = 6
-    // Craft series: all stamps use same count (no doubling for short stamps)
     if (isCraft) return longCols
-    if (['SH', 'BC'].includes(panelDesign)) return longCols * 2
-    return longCols
+    if (!['SH', 'BC'].includes(panelDesign)) return longCols
+    // Standard (short) stamps — exact counts matching DoorPreview
+    if (panelDesign === 'BC') {
+      if (widthFeet <= 10) return 4
+      if (widthFeet <= 14) return 6
+      if (widthFeet <= 16) return 8
+      if (widthFeet <= 18) return 8
+      return 10
+    }
+    // SH
+    if (widthFeet <= 9) return 4
+    if (widthFeet <= 10) return 5
+    if (widthFeet <= 12) return 6
+    if (widthFeet <= 14) return 7
+    if (widthFeet <= 16) return 8
+    if (widthFeet <= 18) return 9
+    return 10
   }
   const stampColumns = getStampColumns(door.doorWidth, door.panelDesign)
 
@@ -1146,12 +1162,12 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
         ]
         const seriesName = seriesData?.name || door.doorSeries
         const customFinishNote = seriesData?.customFinishNote
-        const glazingType = seriesData?.glazingType || 'glass'
-        const isGlass = glazingType === 'glass'
-        const glazingOptions = seriesData?.glazingOptions || (isGlass
-          ? [{ id: 'CLEAR', name: 'Clear' }, { id: 'ETCHED', name: 'Etched' }, { id: 'SUPER_GREY', name: 'Super Grey' }]
-          : [{ id: 'CLEAR', name: 'Clear' }, { id: 'LIGHT_BRONZE', name: 'Light Bronze' }]
-        )
+        const glazingTypes = seriesData?.glazingTypes || null
+        const activeGlazingType = door.glazingType || seriesData?.glazingType || 'glass'
+        const isGlass = activeGlazingType === 'glass'
+        const glazingOptions = isGlass
+          ? (seriesData?.glazingOptions || [{ id: 'CLEAR', name: 'Clear' }, { id: 'ETCHED', name: 'Etched' }, { id: 'SUPER_GREY', name: 'Super Grey' }])
+          : (seriesData?.polycarbonateOptions || seriesData?.glazingOptions || [{ id: 'CLEAR', name: 'Clear' }, { id: 'LIGHT_BRONZE', name: 'Light Bronze' }])
         const paneTypes = seriesData?.paneTypes || []
         return (
           <div className="space-y-4">
@@ -1161,7 +1177,29 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
               </p>
             </div>
 
-            {/* Glass Type — only for glass series (AL976) */}
+            {/* Glazing Type selector (Glass vs Polycarbonate) — only when series supports both */}
+            {glazingTypes && glazingTypes.length > 1 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Glazing Material</label>
+                <div className="flex space-x-3">
+                  {glazingTypes.map(gt => (
+                    <button
+                      key={gt.id}
+                      onClick={() => onChange({ glazingType: gt.id, glassColor: 'CLEAR', glassPaneType: gt.id === 'glass' ? 'INSULATED' : null })}
+                      className={`px-4 py-2 text-sm rounded-md border ${
+                        activeGlazingType === gt.id
+                          ? 'border-odc-500 bg-odc-100 text-odc-700'
+                          : 'border-gray-300 hover:border-gray-400'
+                      }`}
+                    >
+                      {gt.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Glass Type — only for glass glazing */}
             {isGlass && paneTypes.length > 0 && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Glass Type</label>
@@ -1519,59 +1557,68 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
             </select>
           </div>
 
-          {/* Step 6: Optional Window Inserts — LONG windows only (no inserts for short glass kits) */}
-          {door.windowSize !== 'short' && (
-          <div className="border-t pt-6">
-            <div className="flex items-center space-x-3 mb-4">
-              <input
-                type="checkbox"
-                id="hasInserts"
-                checked={door.hasInserts || false}
-                onChange={(e) => onChange({
-                  hasInserts: e.target.checked,
-                  windowInsert: e.target.checked ? 'STOCKTON_STANDARD' : 'NONE'
-                })}
-                className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
-              />
-              <label htmlFor="hasInserts" className="text-sm font-medium text-gray-700">
-                Add decorative window inserts (optional upgrade)
-              </label>
-            </div>
+          {/* Step 6: Optional Window Inserts */}
+          {(() => {
+            const isShort = door.windowSize === 'short'
+            const activeInserts = isShort ? (windowInsertsShort || {}) : (windowInserts || {})
+            const defaultInsert = isShort ? 'STOCKTON_SHORT' : 'STOCKTON_STANDARD'
+            const hasAnyInserts = Object.keys(activeInserts).length > 0
 
-            {door.hasInserts && (
-              <div className="pl-7">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  4. Select Insert Style
-                </label>
-                <div className="space-y-4">
-                  {Object.entries(windowInserts).map(([style, inserts]) => (
-                    <div key={style}>
-                      <h4 className="text-sm font-medium text-gray-600 mb-2">{style}</h4>
-                      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                        {inserts.map((insert) => (
-                          <button
-                            key={insert.id}
-                            onClick={() => onChange({ windowInsert: insert.id })}
-                            className={`p-2 rounded-lg border-2 flex flex-col items-center transition-all ${
-                              door.windowInsert === insert.id
-                                ? 'border-odc-500 bg-odc-50'
-                                : 'border-gray-200 hover:border-gray-400'
-                            }`}
-                          >
-                            <WindowInsertPreview insertId={insert.id} size={60} />
-                            <span className="mt-2 text-xs text-center text-gray-700 leading-tight">
-                              {insert.name}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+            if (!hasAnyInserts) return null
+
+            return (
+              <div className="border-t pt-6">
+                <div className="flex items-center space-x-3 mb-4">
+                  <input
+                    type="checkbox"
+                    id="hasInserts"
+                    checked={door.hasInserts || false}
+                    onChange={(e) => onChange({
+                      hasInserts: e.target.checked,
+                      windowInsert: e.target.checked ? defaultInsert : 'NONE'
+                    })}
+                    className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
+                  />
+                  <label htmlFor="hasInserts" className="text-sm font-medium text-gray-700">
+                    Add decorative window inserts (optional upgrade)
+                  </label>
                 </div>
+
+                {door.hasInserts && (
+                  <div className="pl-7">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      4. Select Insert Style
+                    </label>
+                    <div className="space-y-4">
+                      {Object.entries(activeInserts).map(([style, inserts]) => (
+                        <div key={style}>
+                          <h4 className="text-sm font-medium text-gray-600 mb-2">{style}</h4>
+                          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                            {inserts.map((insert) => (
+                              <button
+                                key={insert.id}
+                                onClick={() => onChange({ windowInsert: insert.id })}
+                                className={`p-2 rounded-lg border-2 flex flex-col items-center transition-all ${
+                                  door.windowInsert === insert.id
+                                    ? 'border-odc-500 bg-odc-50'
+                                    : 'border-gray-200 hover:border-gray-400'
+                                }`}
+                              >
+                                <WindowInsertPreview insertId={insert.id} size={60} />
+                                <span className="mt-2 text-xs text-center text-gray-700 leading-tight">
+                                  {insert.name}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          )}
+            )
+          })()}
         </>
       )}
 
@@ -1617,8 +1664,9 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
                       <button
                         key={wt.id}
                         onClick={() => {
-                          if (wt.id === 'V130G' || wt.id === 'V230G') {
-                            onChange({ windowInsert: wt.id, windowQty: 1, windowSection: 1, windowPanels: { 1: { qty: 1 } }, glassPaneType: 'INSULATED', glassColor: 'CLEAR' })
+                          if (wt.id === 'V130G' || wt.id === 'V230G' || wt.id === 'PANORAMA') {
+                            const isPano = wt.id === 'PANORAMA'
+                            onChange({ windowInsert: wt.id, windowQty: 1, windowSection: 1, windowPanels: { 1: { qty: 1 } }, glassPaneType: isPano ? null : 'INSULATED', glassColor: 'CLEAR', glazingType: isPano ? 'polycarbonate' : 'glass' })
                           } else {
                             const windowSize = config?.commercialWindowSizes?.[wt.id]
                             if (windowSize) {
@@ -1649,12 +1697,18 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
             </div>
           </div>
 
-          {/* V130G/V230G full view options */}
-          {(door.windowInsert === 'V130G' || door.windowInsert === 'V230G') && (
+          {/* V130G/V230G/PANORAMA full view options */}
+          {(door.windowInsert === 'V130G' || door.windowInsert === 'V230G' || door.windowInsert === 'PANORAMA') && (() => {
+            const isPanorama = door.windowInsert === 'PANORAMA'
+            const colorOptions = isPanorama
+              ? [{ id: 'CLEAR', name: 'Clear' }, { id: 'LIGHT_BRONZE', name: 'Light Bronze' }, { id: 'DARK_BRONZE', name: 'Dark Bronze' }, { id: 'WHITE_OPAL', name: 'White Opal' }]
+              : [{ id: 'CLEAR', name: 'Clear' }, { id: 'ETCHED', name: 'Etched' }, { id: 'SUPER_GREY', name: 'Super Grey' }]
+            return (
             <div className="bg-odc-50 rounded-lg p-4">
               <p className="text-sm text-odc-700">
-                <strong>{door.windowInsert} Full View</strong> — replaces an insulated section with a full aluminum/glass panel (AL976 material).
+                <strong>{isPanorama ? 'Panorama' : door.windowInsert} Full View</strong> — replaces an insulated section with a full aluminum/{isPanorama ? 'polycarbonate' : 'glass'} panel.
               </p>
+              {!isPanorama && (
               <div className="mt-3">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Glass Type</label>
                 <div className="flex space-x-3">
@@ -1673,14 +1727,11 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
                   ))}
                 </div>
               </div>
+              )}
               <div className="mt-3">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Glass Color</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{isPanorama ? 'Polycarbonate Color' : 'Glass Color'}</label>
                 <div className="flex space-x-3">
-                  {[
-                    { id: 'CLEAR', name: 'Clear' },
-                    { id: 'ETCHED', name: 'Etched' },
-                    { id: 'SUPER_GREY', name: 'Super Grey' },
-                  ].map(gc => (
+                  {colorOptions.map(gc => (
                     <button
                       key={gc.id}
                       onClick={() => onChange({ glassColor: gc.id })}
@@ -1697,7 +1748,7 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
               </div>
               <div className="mt-3">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Number of V130G sections
+                  Number of {isPanorama ? 'Panorama' : door.windowInsert} sections
                 </label>
                 <div className="flex items-center space-x-4">
                   <button
@@ -1712,10 +1763,11 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
                 </div>
               </div>
             </div>
-          )}
+            )
+          })()}
 
           {/* Window Quantity (non-V130G) */}
-          {door.windowInsert && door.windowInsert !== 'NONE' && door.windowInsert !== 'V130G' && door.windowInsert !== 'V230G' && (() => {
+          {door.windowInsert && door.windowInsert !== 'NONE' && door.windowInsert !== 'V130G' && door.windowInsert !== 'V230G' && door.windowInsert !== 'PANORAMA' && (() => {
             const windowSize = config?.commercialWindowSizes?.[door.windowInsert]
             const windowWidth = windowSize?.width || 24
             const panelWidth = door.doorWidth
@@ -1769,7 +1821,7 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
           {/* Window Panel Selection (multi-panel toggle) */}
           {door.windowInsert && door.windowInsert !== 'NONE' && (() => {
             const windowPanels = door.windowPanels || {}
-            const isV130G = door.windowInsert === 'V130G' || door.windowInsert === 'V230G'
+            const isV130G = door.windowInsert === 'V130G' || door.windowInsert === 'V230G' || door.windowInsert === 'PANORAMA'
             const windowSize = config?.commercialWindowSizes?.[door.windowInsert]
             const windowWidth = windowSize?.width || 24
             const maxQtyPerPanel = isV130G ? 1 : Math.max(1, Math.floor((door.doorWidth - 10) / (windowWidth + 10)))
@@ -1805,7 +1857,7 @@ function WindowsStep({ door, windowInserts, glazingOptions, colors, config, onCh
             return (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  {isV130G ? 'V130G Panels (1 = Top)' : 'Window Panels (1 = Top)'}
+                  {isV130G ? `${door.windowInsert === 'PANORAMA' ? 'Panorama' : door.windowInsert} Panels (1 = Top)` : 'Window Panels (1 = Top)'}
                 </label>
                 <div className="flex flex-wrap gap-3">
                   {[...Array(panelCount)].map((_, i) => {
@@ -2506,6 +2558,8 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
               shaftType: door.shaftType || 'auto',
               highLiftInches: door.liftType === 'high_lift' ? door.highLiftInches : null,
               doorType: door.doorType || 'commercial',
+              glazingType: door.glazingType || null,
+              glassPaneType: door.glassPaneType || null,
             }
             const response = await doorConfigApi.calculateDoor(calcRequest)
             return {

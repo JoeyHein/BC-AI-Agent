@@ -1057,27 +1057,47 @@ class BCPartNumberMapper:
             BCPartNumber for hardware box
         """
         # Width code mapping (WW)
-        def get_width_code(width_ft: int) -> str:
-            if width_ft <= 11:
-                return "11"
-            elif width_ft <= 14:
-                return "14"
-            elif width_ft <= 16:
-                return "16"
-            elif width_ft <= 18:
-                return "18"
-            elif width_ft <= 20:
-                return "20"
-            elif width_ft <= 22:
-                return "22"
-            elif width_ft <= 24:
-                return "24"
-            elif width_ft <= 26:
-                return "26"
-            elif width_ft <= 28:
-                return "28"
+        # HK02 (residential): 11, 14, 16, 18, 20
+        # HK03 (commercial): 11, 14, 16, 17, 19, 20, 22, 24, 26, 28, 29
+        # Commercial >16' uses DEC (double end cap) with different width codes
+        def get_width_code(width_ft: int, is_commercial: bool = False) -> str:
+            if is_commercial:
+                if width_ft <= 11:
+                    return "11"
+                elif width_ft <= 14:
+                    return "14"
+                elif width_ft <= 16:
+                    return "16"
+                elif width_ft <= 17:
+                    return "17"
+                elif width_ft <= 19:
+                    return "19"
+                elif width_ft <= 20:
+                    return "20"
+                elif width_ft <= 22:
+                    return "22"
+                elif width_ft <= 24:
+                    return "24"
+                elif width_ft <= 26:
+                    return "26"
+                elif width_ft <= 28:
+                    return "28"
+                else:
+                    return "29"
             else:
-                return "29"  # Max width code
+                # Residential
+                if width_ft <= 11:
+                    return "11"
+                elif width_ft <= 14:
+                    return "14"
+                elif width_ft <= 16:
+                    return "16"
+                elif width_ft <= 18:
+                    return "18"
+                elif width_ft <= 20:
+                    return "20"
+                else:
+                    return "20"  # Max residential width code
 
         # Height code mapping (HH0)
         def get_height_code(height_ft: int) -> str:
@@ -1105,7 +1125,7 @@ class BCPartNumberMapper:
                 return "260"  # Max height code
 
         # Get width and height codes
-        width_code = get_width_code(door_width_feet)
+        width_code = get_width_code(door_width_feet, commercial)
         height_code = get_height_code(door_height_feet)
 
         if lift_type == "high":
@@ -1157,63 +1177,28 @@ class BCPartNumberMapper:
 
         else:
             # Standard Lift hardware kits
-            if commercial:
-                # Commercial standard lift uses HW boxes: HW{WW}-{HH}000-00
-                # Format: HWww-hh000-00 where ww=width(2-digit), hh=height(2-digit)
-                # These are the actual BC part numbers (e.g. HW18-10000-00)
-                hw_width = f"{door_width_feet:02d}"
-                hw_height = f"{door_height_feet:02d}"
-                hw_part = f"HW{hw_width}-{hw_height}000-00"
+            # Format: HK{02|03}-{WW}{HH}{D}-RC
+            #   WW = width code, HH = height code (3 digits: 080, 100, etc.)
+            #   D = 0 for SEC (single end cap), 1 for DEC (double end cap)
+            # DEC used for wider doors (typically >16' residential, varies for commercial)
+            prefix = "HK03" if commercial else "HK02"
+            track_label = '3"' if commercial else '2"'
 
-                # Validate against BC items; fall back to generic HK03 if not found
-                if hw_part in self.bc_items:
-                    part_number = hw_part
-                    description = f"HARDWARE BOX, {door_width_feet} X {door_height_feet}, 3\""
-                else:
-                    # Generic commercial hardware kit for non-standard sizes
-                    part_number = "HK03-00000-RC"
-                    description = f"COMPLETE STANDARD HARDWARE KIT, 3\", {door_width_feet}'x{door_height_feet}'"
+            # Try sized part number first (SEC then DEC)
+            sec_pn = f"{prefix}-{width_code}{height_code}-RC"
+            dec_height = height_code[:-1] + "1"  # e.g. 080 -> 081
+            dec_pn = f"{prefix}-{width_code}{dec_height}-RC"
+
+            if sec_pn in self.bc_items:
+                part_number = sec_pn
+                description = self.bc_items[sec_pn].get("displayName", f"HARDWARE KIT, STD LIFT {track_label}, {door_width_feet}'x{door_height_feet}', SEC")
+            elif dec_pn in self.bc_items:
+                part_number = dec_pn
+                description = self.bc_items[dec_pn].get("displayName", f"HARDWARE KIT, STD LIFT {track_label}, {door_width_feet}'x{door_height_feet}', DEC")
             else:
-                # Residential 2" Track - Check for premade HK10 boxes first
-                # HK10 premade boxes are more cost-effective for standard sizes:
-                # - HK10-00704-0809: 7' height, 8'-10' width, 4 sections
-                # - HK10-00704-1316: 7' height, 12'-18' width, 4 sections
-                # - HK10-00804-0809: 8' height, 8'-10' width, 4 sections
-                # - HK10-00804-1316: 8' height, 12'-18' width, 4 sections
-
-                # Check if door fits premade HK10 box dimensions
-                hk10_available = False
-                hk10_part = None
-                hk10_desc = None
-
-                if door_height_feet == 7 and num_sections == 4:
-                    if 8 <= door_width_feet <= 10:
-                        hk10_part = "HK10-00704-0809"
-                        hk10_desc = "PURCHASED HARDWARE BOX, 2R 8'-10' X 7', STANDARD, 4S3HW, 4 SECTIONS"
-                        hk10_available = True
-                    elif 12 <= door_width_feet <= 18:
-                        hk10_part = "HK10-00704-1316"
-                        hk10_desc = "PURCHASED HARDWARE BOX, 2R 12'-18' X 7', STANDARD, 4S5HW, 4 SECTIONS"
-                        hk10_available = True
-                elif door_height_feet == 8 and num_sections == 4:
-                    if 8 <= door_width_feet <= 10:
-                        hk10_part = "HK10-00804-0809"
-                        hk10_desc = "PURCHASED HARDWARE BOX, 2R 8'-10' X 8', STANDARD, 4S3HW, 4 SECTIONS"
-                        hk10_available = True
-                    elif 12 <= door_width_feet <= 18:
-                        hk10_part = "HK10-00804-1316"
-                        hk10_desc = "PURCHASED HARDWARE BOX, 2R 12'-18' X 8', STANDARD, 4S5HW, 4 SECTIONS"
-                        hk10_available = True
-
-                if hk10_available:
-                    # Use premade HK10 box (more cost-effective)
-                    part_number = hk10_part
-                    description = hk10_desc
-                else:
-                    # Fall back to generic HK02 for non-standard sizes
-                    # Sized HK02-WWHH0-RC part numbers don't exist in BC
-                    part_number = "HK02-00000-RC"
-                    description = f"COMPLETE STANDARD HARDWARE KIT, 2\", {door_width_feet}'x{door_height_feet}'"
+                # Fall back to generic kit
+                part_number = f"{prefix}-00000-RC"
+                description = f"COMPLETE STANDARD HARDWARE KIT, {track_label}, {door_width_feet}'x{door_height_feet}'"
 
         return BCPartNumber(
             part_number=part_number,
@@ -1286,6 +1271,8 @@ class BCPartNumberMapper:
             "STOCKTON_TEN_SQUARE_XL":  "STOCKTON (1PC)",
             "STOCKTON_ARCHED":         "ARCHED STOCKTON",
             "STOCKTON_ARCHED_XL":      "ARCHED STOCKTON",
+            "STOCKTON_SHORT":          "STOCKTON (1PC)",
+            "STOCKTON_SHORT_ARCHED":   "ARCHED STOCKTON",
             "STOCKBRIDGE_STRAIGHT":    "STRAIGHT STOCKBRIDGE",
             "STOCKBRIDGE_STRAIGHT_XL": "STRAIGHT STOCKBRIDGE",
             "STOCKBRIDGE_ARCHED":      "ARCHED STOCKBRIDGE",

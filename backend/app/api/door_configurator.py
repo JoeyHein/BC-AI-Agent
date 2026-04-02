@@ -126,10 +126,20 @@ DOOR_SERIES = {
             "categoryValue": "67f7c1c39cf0ed4a3b00baea",
             "partPrefix": "PN97",
             "glazingType": "glass",
+            "glazingTypes": [
+                {"id": "glass", "name": "Glass"},
+                {"id": "polycarbonate", "name": "Polycarbonate"},
+            ],
             "glazingOptions": [
                 {"id": "CLEAR", "name": "Clear"},
                 {"id": "ETCHED", "name": "Etched"},
                 {"id": "SUPER_GREY", "name": "Super Grey"},
+            ],
+            "polycarbonateOptions": [
+                {"id": "CLEAR", "name": "Clear"},
+                {"id": "LIGHT_BRONZE", "name": "Light Bronze"},
+                {"id": "DARK_BRONZE", "name": "Dark Bronze"},
+                {"id": "WHITE_OPAL", "name": "White Opal"},
             ],
             "paneTypes": [
                 {"id": "INSULATED", "name": "Insulated (Thermal)"},
@@ -307,8 +317,8 @@ PANEL_DESIGNS = {
     ],
 }
 
-WINDOW_INSERTS = {
-    # Residential window inserts
+WINDOW_INSERTS_LONG = {
+    # Long window inserts — fit SHXL/BCXL stamps or span 2 short stamps
     "STOCKTON": [
         {"id": "STOCKTON_STANDARD", "name": "Standard Stockton"},
         {"id": "STOCKTON_TEN_SQUARE_XL", "name": "Ten Square XL - Stockton"},
@@ -324,6 +334,17 @@ WINDOW_INSERTS = {
     ],
 }
 
+WINDOW_INSERTS_SHORT = {
+    # Short window inserts — fit in a single SH/BC/TRAF/FLUSH stamp
+    "STOCKTON": [
+        {"id": "STOCKTON_SHORT", "name": "Stockton Short"},
+        {"id": "STOCKTON_SHORT_ARCHED", "name": "Stockton Short Arched"},
+    ],
+}
+
+# Combined for backward compatibility
+WINDOW_INSERTS = WINDOW_INSERTS_LONG
+
 # Commercial window sizes — no decorative inserts on commercial doors
 # Frame colors: standard black, optional white. Inside always white.
 COMMERCIAL_WINDOW_TYPES = {
@@ -333,8 +354,9 @@ COMMERCIAL_WINDOW_TYPES = {
         {"id": "18X8_THERMOPANE", "name": "18\" x 8\" Thermopane", "width": 18, "height": 8, "sectionType": "21\" or 24\" section", "glassOptions": ["thermal"]},
     ],
     "FULL VIEW": [
-        {"id": "V130G", "name": "V130G Full View Section", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glassOptions": ["single", "thermal"], "glassColors": ["CLEAR", "ETCHED", "SUPER_GREY"], "material": "AL976", "note": "Full aluminum/glass section", "series": ["TX450", "TX450-20"]},
-        {"id": "V230G", "name": "V230G Full View Section", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glassOptions": ["single", "thermal"], "glassColors": ["CLEAR", "ETCHED", "SUPER_GREY"], "material": "AL976", "note": "Full aluminum/glass section (TX500)", "series": ["TX500", "TX500-20"]},
+        {"id": "V130G", "name": "V130G Full View (Glass)", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glassOptions": ["single", "thermal"], "glassColors": ["CLEAR", "ETCHED", "SUPER_GREY"], "material": "AL976", "note": "Full aluminum/glass section", "series": ["TX450", "TX450-20"]},
+        {"id": "PANORAMA", "name": "Panorama Full View (Polycarbonate)", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glazingType": "polycarbonate", "glassColors": ["CLEAR", "LIGHT_BRONZE", "DARK_BRONZE", "WHITE_OPAL"], "material": "PANORAMA", "note": "Full aluminum/polycarbonate section", "series": ["TX450", "TX450-20"]},
+        {"id": "V230G", "name": "V230G Full View (Glass)", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glassOptions": ["single", "thermal"], "glassColors": ["CLEAR", "ETCHED", "SUPER_GREY"], "material": "AL976", "note": "Full aluminum/glass section (TX500)", "series": ["TX500", "TX500-20"]},
     ],
 }
 
@@ -427,6 +449,7 @@ class DoorConfigRequest(BaseModel):
     panelDesign: str
     hasWindows: bool = False
     windowInsert: Optional[str] = None
+    windowSize: str = "long"  # 'short' (GK15-10xxx) or 'long' (GK15-11xxx)
     windowPositions: Optional[List[WindowPosition]] = []  # Multi-stamp window positions
     windowSection: Optional[int] = None  # Legacy: single section (for backward compatibility)
     windowQty: int = 0  # Commercial: V130G section count or window qty
@@ -473,6 +496,8 @@ class DoorCalculationRequest(BaseModel):
     targetCycles: int = 10000  # 10000, 15000, 25000, 50000, 100000
     highLiftInches: Optional[int] = None  # extra inches above door for high_lift
     doorType: str = "commercial"  # 'residential' or 'commercial'
+    glazingType: Optional[str] = None  # 'glass' or 'polycarbonate' (aluminum doors)
+    glassPaneType: Optional[str] = None  # 'INSULATED' or 'SINGLE' (aluminum doors)
 
 
 # ============================================================================
@@ -536,7 +561,7 @@ async def get_window_inserts(door_type: Optional[str] = None):
     """Get available window insert styles. Commercial doors have no decorative inserts."""
     if door_type == "commercial":
         return {"success": True, "data": {}}
-    return {"success": True, "data": WINDOW_INSERTS}
+    return {"success": True, "data": WINDOW_INSERTS_LONG, "dataShort": WINDOW_INSERTS_SHORT}
 
 
 @router.get("/glazing-options/{door_type}")
@@ -582,7 +607,8 @@ async def get_full_configuration():
             "doorSeries": DOOR_SERIES,
             "colors": COLORS,
             "panelDesigns": PANEL_DESIGNS,
-            "windowInserts": WINDOW_INSERTS,
+            "windowInserts": WINDOW_INSERTS_LONG,
+            "windowInsertsShort": WINDOW_INSERTS_SHORT,
             "commercialWindowTypes": COMMERCIAL_WINDOW_TYPES,
             "commercialWindowFrameColors": COMMERCIAL_WINDOW_FRAME_COLORS,
             "commercialWindowSizes": COMMERCIAL_WINDOW_SIZES,
@@ -829,7 +855,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "panelColor": door.panelColor,
                 "panelDesign": door.panelDesign,
                 "windowInsert": door.windowInsert if door.hasWindows else None,
-                "windowSize": getattr(door, 'windowSize', 'long') or 'long',
+                "windowSize": door.windowSize or 'long',
                 "windowPositions": [{"section": p.section, "col": p.col} for p in door.windowPositions] if door.windowPositions else [],
                 "windowCount": window_count if door.hasWindows else 0,
                 "windowSection": door.windowSection,
@@ -1172,6 +1198,15 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                         )
                         freight_added = True
                         logger.info(f"Added freight line: ${freight['amount']:.2f} ({freight['description']})")
+
+                        # Set Output=True so BC groups freight separately (not bundled with door package)
+                        if added_freight.get("sequence"):
+                            try:
+                                bc_client.set_quote_line_output(
+                                    bc_quote_number, added_freight["sequence"], output=True
+                                )
+                            except Exception as out_err:
+                                logger.warning(f"Failed to set Output flag on freight line: {out_err}")
                     except Exception as freight_item_err:
                         logger.warning(f"Could not add freight as Item '{freight_item}': {freight_item_err}")
 
@@ -1502,6 +1537,8 @@ async def calculate_door_specifications(request: DoorCalculationRequest, db: Ses
             spring_inventory=spring_inventory,
             high_lift_inches=request.highLiftInches,
             door_type=request.doorType,
+            glazing_type=request.glazingType or 'glass',
+            glass_pane_type=request.glassPaneType or 'INSULATED',
         )
 
         # Get summary

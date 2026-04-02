@@ -554,6 +554,18 @@ def _generate_bc_quote_with_items(
             "is_door_desc": True,
         })
 
+        # Glass pockets comment for aluminium doors
+        if door.get("doorType") == "aluminium":
+            from app.services.part_number_service import _default_glass_pockets
+            pockets = door.get("glassPocketsPerSection") or _default_glass_pockets(door.get("doorWidth", 96))
+            all_lines.append({
+                "lineType": "Comment",
+                "description": f"** {pockets} GLASS POCKETS PER SECTION **",
+                "category": "COMMENT",
+                "door_index": door_index,
+                "is_note": True,
+            })
+
         # Get parts for this door configuration
         config_dict = {
             "doorType": door.get("doorType", "residential"),
@@ -653,15 +665,14 @@ def _generate_bc_quote_with_items(
                 "error": str(e),
             })
 
-        # Blank separator between doors (not after the last door)
-        if door_index < len(doors):
-            all_lines.append({
-                "lineType": "Comment",
-                "description": "",
-                "category": "COMMENT",
-                "door_index": door_index,
-                "is_separator": True,
-            })
+        # Blank separator after every door (including last — separates from freight)
+        all_lines.append({
+            "lineType": "Comment",
+            "description": " ",
+            "category": "COMMENT",
+            "door_index": door_index,
+            "is_separator": True,
+        })
 
     # Step 2: Create BC Quote
     # Note: requestedDeliveryDate is not available on the v2.0 salesQuotes entity.
@@ -1216,6 +1227,16 @@ def _estimate_pricing_locally(
             "door_index": door_index,
         })
 
+        # Glass pockets comment for aluminium doors
+        if door.get("doorType") == "aluminium":
+            from app.services.part_number_service import _default_glass_pockets
+            pockets = door.get("glassPocketsPerSection") or _default_glass_pockets(door.get("doorWidth", 96))
+            all_lines.append({
+                "lineType": "Comment",
+                "description": f"** {pockets} GLASS POCKETS PER SECTION **",
+                "door_index": door_index,
+            })
+
         config_dict = {
             "doorType": door.get("doorType", "residential"),
             "doorSeries": door.get("doorSeries"),
@@ -1314,15 +1335,14 @@ def _estimate_pricing_locally(
                 "error": str(e),
             })
 
-        # Blank separator between doors (not after the last door)
-        if door_index < len(doors):
-            all_lines.append({
-                "lineType": "Comment",
-                "description": "",
-                "category": "COMMENT",
-                "door_index": door_index,
-                "is_separator": True,
-            })
+        # Blank separator after every door (including last — separates from freight)
+        all_lines.append({
+            "lineType": "Comment",
+            "description": " ",
+            "category": "COMMENT",
+            "door_index": door_index,
+            "is_separator": True,
+        })
 
     # Warm the BC cost cache so pricing uses live production costs
     item_pns = [l["part_number"] for l in all_lines if l.get("part_number")]

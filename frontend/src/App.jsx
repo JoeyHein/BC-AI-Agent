@@ -17,6 +17,7 @@ import InstallReferralQueue from './components/InstallReferralQueue'
 import WeeklyEmail from './components/WeeklyEmail'
 import BusinessDashboard from './components/BusinessDashboard'
 import CustomerDetail from './components/CustomerDetail'
+import QuoteLeads from './components/QuoteLeads'
 
 function Navigation() {
   const { user, logout, isAuthenticated } = useAuth()
@@ -46,6 +47,7 @@ function Navigation() {
     { path: '/door-configurator', label: 'Configurator' },
     { path: '/customers', label: 'Customers' },
     { path: '/orders', label: 'Orders' },
+    { path: '/leads', label: 'Leads' },
     { path: '/install-referrals', label: 'Installs' },
     { path: '/production', label: 'Production' },
     { path: '/weekly-email', label: 'Email' },
@@ -176,6 +178,12 @@ function AppContent() {
           <Route path="/orders" element={
             <ProtectedRoute>
               <OrderManagement />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/leads" element={
+            <ProtectedRoute>
+              <QuoteLeads />
             </ProtectedRoute>
           } />
 

@@ -731,6 +731,25 @@ export default function SpringBuilder() {
                   </div>
                 )}
 
+                {/* Cone Sets with Pricing */}
+                {convResult?.success && convResult.cone_sets && (
+                  <div className="mt-3 bg-purple-50 rounded-lg p-3">
+                    <p className="text-xs font-semibold text-purple-700 mb-2">Cone Sets (Winder/Stationary)</p>
+                    {['lh', 'rh'].map(side => {
+                      const cone = convResult.cone_sets[side]
+                      if (!cone) return null
+                      return (
+                        <div key={side} className="flex items-center justify-between text-xs py-1">
+                          <span className="font-mono">{cone.part_number}</span>
+                          {cone.unit_price > 0 && (
+                            <span className="font-semibold text-purple-800">${cone.unit_price.toFixed(2)}</span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
                 {/* Calculate / Clear buttons */}
                 <div className="mt-4 flex gap-2">
                   <button
@@ -770,6 +789,79 @@ export default function SpringBuilder() {
               ) : null}
             </Panel>
           </div>
+
+          {/* Duplex Conversion Options */}
+          {convResult?.success && convResult.duplex_options?.length > 0 && (
+            <div className="mt-6">
+              <Panel title="Duplex Conversion Options (Spring Inside a Spring)">
+                <p className="text-sm text-gray-600 mb-4">
+                  Duplex springs nest a 3-3/4" coil inside a 6" coil — both contribute torque, allowing
+                  <strong> much shorter springs</strong>. Ideal when shaft space is limited.
+                </p>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200 text-left">
+                        <th className="py-2 px-2 text-xs font-medium text-gray-500">#</th>
+                        <th className="py-2 px-2 text-xs font-medium text-gray-500" colSpan="3">OUTER (6" Coil)</th>
+                        <th className="py-2 px-2 text-xs font-medium text-gray-500" colSpan="3">INNER (3-3/4" Coil)</th>
+                        <th className="py-2 px-2 text-xs font-medium text-gray-500">Saving</th>
+                        <th className="py-2 px-2 text-xs font-medium text-gray-500">Cones</th>
+                        <th className="py-2 px-2 text-xs font-medium text-gray-500">Stock</th>
+                      </tr>
+                      <tr className="border-b border-gray-100 text-xs text-gray-400">
+                        <th></th>
+                        <th className="px-2">Wire</th>
+                        <th className="px-2">Length</th>
+                        <th className="px-2">Part#</th>
+                        <th className="px-2">Wire</th>
+                        <th className="px-2">Length</th>
+                        <th className="px-2">Part#</th>
+                        <th className="px-2"></th>
+                        <th className="px-2">4 sets</th>
+                        <th className="px-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {convResult.duplex_options.map((opt, i) => {
+                        const saving = convResult.current.length - opt.outer.length
+                        return (
+                          <tr key={i} className={`border-b border-gray-50 hover:bg-blue-50 ${opt.both_in_stock ? '' : 'opacity-70'}`}>
+                            <td className="py-2 px-2 text-gray-400">{i + 1}</td>
+                            <td className="py-2 px-2 font-mono font-medium">{opt.outer.wire_diameter}"</td>
+                            <td className="py-2 px-2 font-mono">{opt.outer.length}"</td>
+                            <td className="py-2 px-2 font-mono text-xs text-gray-500">{opt.outer.lh_part}</td>
+                            <td className="py-2 px-2 font-mono font-medium">{opt.inner.wire_diameter}"</td>
+                            <td className="py-2 px-2 font-mono">{opt.inner.length}"</td>
+                            <td className="py-2 px-2 font-mono text-xs text-gray-500">{opt.inner.lh_part}</td>
+                            <td className="py-2 px-2 text-green-600 font-semibold">-{saving.toFixed(0)}"</td>
+                            <td className="py-2 px-2 text-xs font-mono text-gray-600">
+                              {opt.total_cone_cost > 0 ? `$${opt.total_cone_cost.toFixed(2)}` : '—'}
+                            </td>
+                            <td className="py-2 px-2">
+                              {opt.both_in_stock ? (
+                                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">In Stock</span>
+                              ) : opt.outer.in_stock || opt.inner.in_stock ? (
+                                <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">Partial</span>
+                              ) : (
+                                <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Special</span>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="mt-3 p-3 bg-amber-50 rounded-lg text-xs text-amber-700">
+                  <strong>Note:</strong> Duplex springs require both outer (6") and inner (3-3/4") cone sets.
+                  Each duplex position uses 1 LH outer + 1 RH outer + 1 LH inner + 1 RH inner.
+                </div>
+              </Panel>
+            </div>
+          )}
         </form>
       )}
 
@@ -956,7 +1048,12 @@ export default function SpringBuilder() {
                           <span className="ml-2 text-xs text-gray-500">{cone.description}</span>
                         )}
                       </div>
-                      <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">Included</span>
+                      <div className="flex items-center gap-2">
+                        {cone.unit_price > 0 && (
+                          <span className="text-sm font-medium text-gray-700">${cone.unit_price.toFixed(2)}</span>
+                        )}
+                        <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded-full">Included</span>
+                      </div>
                     </div>
                   );
                 })}

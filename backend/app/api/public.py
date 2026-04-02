@@ -40,6 +40,7 @@ class PublicQuoteRequestSchema(BaseModel):
     contact: dict  # {name, email, phone, postalCode, notes}
     doorConfig: dict  # full door configuration from widget
     doorImage: Optional[str] = None  # PNG data URL of the configured door
+    source: Optional[str] = None  # 'widget' (default) or 'dealer_locator'
     timestamp: Optional[str] = None
 
 
@@ -95,7 +96,7 @@ def submit_quote_request(
         notes=(contact.get("notes") or "").strip() or None,
         door_config=door_config,
         door_image=payload.doorImage,
-        source="widget",
+        source=payload.source if payload.source in ("widget", "dealer_locator") else "widget",
         status="new",
     )
     db.add(record)
@@ -141,7 +142,7 @@ def _send_admin_notification(record: PublicQuoteRequestModel):
     body = f"""
     <html>
     <body style="font-family: Arial, sans-serif; line-height: 1.6;">
-        <h2 style="color: #2563eb;">New Door Designer Quote Request</h2>
+        <h2 style="color: #2563eb;">{"New Dealer Locator Request" if record.source == "dealer_locator" else "New Door Designer Quote Request"}</h2>
 
         <h3 style="margin-top: 20px;">Contact Information</h3>
         <table style="border-collapse: collapse; width: 100%; max-width: 500px;">
@@ -182,7 +183,7 @@ def _send_admin_notification(record: PublicQuoteRequestModel):
 
     notification_service.send_email(
         to_emails=notification_service.admin_emails,
-        subject=f"New Door Designer Quote Request \u2014 {record.name}",
+        subject=f"{'New Dealer Locator Request' if record.source == 'dealer_locator' else 'New Door Designer Quote Request'} \u2014 {record.name}",
         body=body,
         is_html=True,
     )

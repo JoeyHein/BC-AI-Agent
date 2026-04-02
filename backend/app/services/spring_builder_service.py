@@ -288,18 +288,26 @@ class SpringBuilderService:
         return None, None
 
     def _resolve_cone_sets(self, coil_diameter: float) -> dict:
-        """Look up cone/winder set part numbers by coil diameter."""
+        """Look up cone/winder set part numbers and pricing by coil diameter."""
         lh_winder = mapper.get_winder_stationary_set(coil_diameter, bore_size=1.0, wind="LH")
         rh_winder = mapper.get_winder_stationary_set(coil_diameter, bore_size=1.0, wind="RH")
+
+        # Pull pricing from BC items
+        lh_item = mapper.bc_items.get(lh_winder.part_number, {})
+        rh_item = mapper.bc_items.get(rh_winder.part_number, {})
 
         return {
             "lh": {
                 "part_number": lh_winder.part_number,
                 "description": lh_winder.description,
+                "unit_cost": lh_item.get("unitCost", 0),
+                "unit_price": lh_item.get("unitPrice", 0),
             },
             "rh": {
                 "part_number": rh_winder.part_number,
                 "description": rh_winder.description,
+                "unit_cost": rh_item.get("unitCost", 0),
+                "unit_price": rh_item.get("unitPrice", 0),
             },
         }
 
@@ -505,6 +513,44 @@ class SpringBuilderService:
             }
             result["cone_sets"] = self._resolve_cone_sets(repl["coil_diameter"])
             result["special_order_needed"] = not lh_match and not rh_match
+
+        # Add catalog matching for duplex options
+        duplex_options = result.get("duplex_options", [])
+        for opt in duplex_options:
+            outer = opt["outer"]
+            inner = opt["inner"]
+
+            # Match outer springs (6" coil) with pricing
+            outer_lh = mapper.get_spring_part_number(outer["wire_diameter"], outer["coil_diameter"], "LH")
+            outer_rh = mapper.get_spring_part_number(outer["wire_diameter"], outer["coil_diameter"], "RH")
+            outer["lh_part"] = outer_lh.part_number
+            outer["rh_part"] = outer_rh.part_number
+            outer["in_stock"] = self._match_sku(db, outer_lh.part_number) is not None
+            outer_bc = mapper.bc_items.get(outer_lh.part_number, {})
+            outer["unit_cost"] = outer_bc.get("unitCost", 0)
+            outer["unit_price"] = outer_bc.get("unitPrice", 0)
+
+            # Match inner springs (3.75" coil) with pricing
+            inner_lh = mapper.get_spring_part_number(inner["wire_diameter"], inner["coil_diameter"], "LH")
+            inner_rh = mapper.get_spring_part_number(inner["wire_diameter"], inner["coil_diameter"], "RH")
+            inner["lh_part"] = inner_lh.part_number
+            inner["rh_part"] = inner_rh.part_number
+            inner["in_stock"] = self._match_sku(db, inner_lh.part_number) is not None
+            inner_bc = mapper.bc_items.get(inner_lh.part_number, {})
+            inner["unit_cost"] = inner_bc.get("unitCost", 0)
+            inner["unit_price"] = inner_bc.get("unitPrice", 0)
+
+            # Cone sets for both coils (includes pricing now)
+            opt["outer_cones"] = self._resolve_cone_sets(outer["coil_diameter"])
+            opt["inner_cones"] = self._resolve_cone_sets(inner["coil_diameter"])
+            opt["both_in_stock"] = outer["in_stock"] and inner["in_stock"]
+
+            # Total estimated cost per pair (outer LH + RH + inner LH + RH + 2 cone sets)
+            outer_spring_cost = outer["unit_price"] * 2  # LH + RH per inch, but qty is length
+            inner_spring_cost = inner["unit_price"] * 2
+            outer_cone_cost = opt["outer_cones"]["lh"]["unit_price"] + opt["outer_cones"]["rh"]["unit_price"]
+            inner_cone_cost = opt["inner_cones"]["lh"]["unit_price"] + opt["inner_cones"]["rh"]["unit_price"]
+            opt["total_cone_cost"] = round(outer_cone_cost + inner_cone_cost, 2)
 
         return result
 

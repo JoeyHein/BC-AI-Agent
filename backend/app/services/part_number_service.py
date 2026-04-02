@@ -106,6 +106,7 @@ class DoorConfiguration:
     window_insert: Optional[str] = None
     window_section: Optional[int] = None
     window_count: int = 0  # Number of windows (calculated from windowPositions)
+    window_positions: Optional[List[dict]] = None  # Residential: [{section, col}, ...]
     window_qty: int = 0  # Commercial: number of windows per section, or V130G section count
     window_panels: Optional[Dict[int, dict]] = None  # Per-panel window config: {2: {"qty": 3}, 4: {"qty": 2}}
     window_frame_color: str = "BLACK"  # Commercial window frame color
@@ -428,27 +429,45 @@ def _get_hk_weight(door_width_in: int, door_height_in: int, commercial: bool) ->
     door_width_feet = round(door_width_in / 12)
     door_height_feet = round(door_height_in / 12)
 
-    # Width code (same as get_hardware_box)
-    if door_width_feet <= 11:
-        wc = "11"
-    elif door_width_feet <= 14:
-        wc = "14"
-    elif door_width_feet <= 16:
-        wc = "16"
-    elif door_width_feet <= 18:
-        wc = "18"
-    elif door_width_feet <= 20:
-        wc = "20"
-    elif door_width_feet <= 22:
-        wc = "22"
-    elif door_width_feet <= 24:
-        wc = "24"
-    elif door_width_feet <= 26:
-        wc = "26"
-    elif door_width_feet <= 28:
-        wc = "28"
+    # Width code (must match get_hardware_box in bc_part_number_mapper)
+    if commercial:
+        # Commercial width codes: 11, 14, 16, 17, 19, 20, 22, 24, 26, 28, 29
+        if door_width_feet <= 11:
+            wc = "11"
+        elif door_width_feet <= 14:
+            wc = "14"
+        elif door_width_feet <= 16:
+            wc = "16"
+        elif door_width_feet <= 17:
+            wc = "17"
+        elif door_width_feet <= 19:
+            wc = "19"
+        elif door_width_feet <= 20:
+            wc = "20"
+        elif door_width_feet <= 22:
+            wc = "22"
+        elif door_width_feet <= 24:
+            wc = "24"
+        elif door_width_feet <= 26:
+            wc = "26"
+        elif door_width_feet <= 28:
+            wc = "28"
+        else:
+            wc = "29"
     else:
-        wc = "29"
+        # Residential width codes: 11, 14, 16, 18, 20
+        if door_width_feet <= 11:
+            wc = "11"
+        elif door_width_feet <= 14:
+            wc = "14"
+        elif door_width_feet <= 16:
+            wc = "16"
+        elif door_width_feet <= 18:
+            wc = "18"
+        elif door_width_feet <= 20:
+            wc = "20"
+        else:
+            wc = "20"
 
     # Height code (same as get_hardware_box)
     if door_height_feet <= 8:
@@ -475,9 +494,11 @@ def _get_hk_weight(door_width_in: int, door_height_in: int, commercial: bool) ->
         hc = "260"
 
     if commercial:
-        # HK03 format: HK03-WWHHX-RC where X is 0 or 1 variant
-        variant = "1" if door_width_feet > 14 else "0"
-        pn = f"HK03-{wc}{hc[:-1]}{variant}-RC"
+        # HK03 format: HK03-WWHHX-RC where X is 0 (SEC) or 1 (DEC)
+        # Try SEC first, then DEC
+        pn_sec = f"HK03-{wc}{hc[:-1]}0-RC"
+        pn_dec = f"HK03-{wc}{hc[:-1]}1-RC"
+        pn = pn_sec if HK_WEIGHTS.get(pn_sec, 0.0) > 0 else pn_dec
     else:
         # HK02 format: HK02-WWHH0-RC
         pn = f"HK02-{wc}{hc}-RC"
@@ -579,6 +600,13 @@ class PartNumberService:
         """
         parts = []
         hardware = config.hardware or {}
+
+        # 0. ALUMINUM AUTO-UPGRADE: 2" → 3" track if door weight > 750 lbs
+        if config.door_type == "aluminium" and config.track_thickness == '2':
+            al_weight = self._calculate_aluminum_door_weight(config)
+            if al_weight > 750:
+                config.track_thickness = '3'
+                logger.info(f"AL976 auto-upgrade to 3\" track: weight {al_weight:.0f} lbs > 750 lbs threshold")
 
         # 1. COMMENT - Door description line
         door_width_ft = config.door_width // 12
@@ -950,10 +978,15 @@ class PartNumberService:
             "CRAFT": {"18": 3.7655, "21": 4.1875, "24": 4.6392, "28": 5.1363, "32": 6.1875},
         }
 
-        model_weights = MODEL_WEIGHTS.get(config.door_series, MODEL_WEIGHTS["KANATA"])
         door_width_ft = config.door_width / 12
         door_height_in = config.door_height
         series = config.door_series.upper()
+
+        # Aluminum doors: separate weight model
+        if config.door_type == "aluminium":
+            return self._calculate_aluminum_door_weight(config)
+
+        model_weights = MODEL_WEIGHTS.get(config.door_series, MODEL_WEIGHTS["KANATA"])
 
         # Section breakdown (21"/24" mix)
         breakdown = self._get_section_breakdown(door_height_in)
@@ -1026,6 +1059,135 @@ class PartNumberService:
         )
 
         return total_weight
+
+    def _calculate_aluminum_door_weight(self, config: DoorConfiguration) -> float:
+        """
+        Calculate weight for aluminum full-view doors (AL976, Panorama, Solalite).
+
+        Based on OpenDC All Door Weight Calculator spreadsheet:
+        - Panorama / Solalite: 1.5 lbs/ft² of total panel area
+        - AL976: aluminum frame weight + glazing weight (varies by glass type)
+          Frame: ~1.39 lbs/ft² of door area (derived from spreadsheet build-up)
+          Glazing varies significantly by material type
+
+        All types add: hardware (~25 lbs) + strut weight + top seal
+        """
+        series = config.door_series.upper()
+        door_width_ft = config.door_width / 12
+        door_height_ft = config.door_height / 12
+        door_area_sqft = door_width_ft * door_height_ft
+
+        if series in ("PANORAMA", "SOLALITE"):
+            # Simple: 1.5 lbs/ft² of panel area
+            panel_weight = door_area_sqft * 1.5
+        else:
+            # AL976: aluminum frame + glazing
+            # Frame weight: ~1.39 lbs/ft² (from spreadsheet 18'x8' = 200 lbs / 144 sqft)
+            AL976_FRAME_LBS_PER_SQFT = 1.39
+            frame_weight = door_area_sqft * AL976_FRAME_LBS_PER_SQFT
+
+            # Glazing weight per sqft — varies by glass/polycarbonate type
+            # From spreadsheet gram/in² converted to lbs/ft²
+            glazing_type = (config.glazing_type or "glass").lower()
+            glass_color = (config.glass_color or "CLEAR").upper()
+            pane_type = (config.glass_pane_type or "INSULATED").upper()
+
+            if glazing_type == "polycarbonate":
+                glazing_lbs_per_sqft = 0.54  # 5/8" Polycarbonate
+            elif pane_type == "SINGLE":
+                glazing_lbs_per_sqft = 1.59  # 3mm Single Tempered
+            else:
+                # Insulated / thermal glass (default)
+                glazing_lbs_per_sqft = 3.32  # 1/2" Sealed Standard Glass
+
+            # Glazing area is slightly less than door area (frame takes some space)
+            # From spreadsheet: glazing ~85% of door area
+            glazing_area_sqft = door_area_sqft * 0.85
+            glazing_weight = glazing_area_sqft * glazing_lbs_per_sqft
+
+            panel_weight = frame_weight + glazing_weight
+
+        # Hardware weight — use same commercial HK weight lookup
+        hardware_weight = _get_hk_weight(config.door_width, config.door_height, commercial=True)
+
+        # Strut weight
+        strut_info = self._get_strut_requirements(config.door_width, config.door_height)
+        strut_weight = 0.0
+        if strut_info["count"] > 0 and strut_info["type"] != "z":
+            strut_weight = strut_info["count"] * door_width_ft * strut_info["weight_per_ft"]
+
+        # Top seal (aluminum doors always get top seal)
+        TOP_SEAL_LBS_PER_INCH = 0.025
+        top_seal_weight = config.door_width * TOP_SEAL_LBS_PER_INCH
+
+        total_weight = panel_weight + hardware_weight + strut_weight + top_seal_weight
+
+        logger.info(
+            f"Aluminum door weight: {series} {door_width_ft:.0f}'x{door_height_ft:.0f}' "
+            f"panel={panel_weight:.1f} + hw={hardware_weight:.1f} + struts={strut_weight:.1f} "
+            f"+ top_seal={top_seal_weight:.1f} = {total_weight:.1f} lbs"
+        )
+
+        return total_weight
+
+    @staticmethod
+    def _calculate_al976_glass_sqft_per_section(
+        door_width_in: int, door_height_in: int,
+        section_height_in: int, num_sections: int
+    ) -> float:
+        """
+        Calculate actual glass square footage per section for AL976 aluminum doors.
+
+        Based on OpenDC PN Generator - Aluminum Panels spreadsheet (GLASS CALC sheet).
+        Accounts for aluminum frame rails, stiles, and build-up components that reduce
+        the actual glass area from the full door area.
+
+        Constants (inches):
+          End stile (3"):     3.6
+          Center stile (2"):  2.64
+          Top rail (3"):      3.135
+          Bottom rail (3"):   3.135
+          Male rail:          1.25
+          Female rail:        1.25
+          Glass width add:    +0.4545 (per pane)
+          Glass height sub:   -0.431 (per section)
+        """
+        # Glass panels per section based on door width
+        if door_width_in <= 98:
+            panels = 2
+        elif door_width_in <= 146:
+            panels = 3
+        elif door_width_in <= 170:
+            panels = 4
+        elif door_width_in <= 206:
+            panels = 5
+        elif door_width_in <= 242:
+            panels = 6
+        elif door_width_in <= 291:
+            panels = 7
+        else:
+            panels = 8
+
+        # Frame constants
+        END_STILE = 3.6
+        CENTER_STILE = 2.64
+        TOP_RAIL = 3.135
+        BOTTOM_RAIL = 3.135
+        MALE_RAIL = 1.25
+        FEMALE_RAIL = 1.25
+        GLASS_W_CONSTANT = 0.4545
+        GLASS_H_CONSTANT = 0.431
+
+        # Glass width per pane
+        glass_width = ((door_width_in - (END_STILE * 2) - (CENTER_STILE * (panels - 1))) / panels) + GLASS_W_CONSTANT
+
+        # Glass height per section
+        glass_height = ((door_height_in - TOP_RAIL - BOTTOM_RAIL - ((MALE_RAIL + FEMALE_RAIL) * (num_sections - 1))) / num_sections) - GLASS_H_CONSTANT
+
+        # Total glass area for one section (all panes in that section)
+        glass_sqft_per_section = (glass_width * glass_height * panels) / 144
+
+        return max(glass_sqft_per_section, 0)
 
     @staticmethod
     def _get_strut_requirements(door_width_in: int, door_height_in: int) -> dict:
@@ -2265,11 +2427,27 @@ class PartNumberService:
                     notes=f"AL-SWD section {section_num} of {panel_count}"
                 ))
 
+        # Wrapping — covers all aluminum panels (sold per sqft)
+        wrap_sqft = round((config.door_width * section_height * panel_count) / 144, 2)
+        parts.append(PartSelection(
+            part_number="WRAPALU",
+            description="WRAPPING - ALUMINUM PANELS",
+            quantity=wrap_sqft,
+            category="aluminum_wrapping",
+            notes=f"Wrapping for {panel_count} sections ({config.door_width / 12:.0f}' x {section_height}\" each)"
+        ))
+
         # Glazing — GK17 glass for AL976, GK17 polycarbonate for Panorama/Solalite
-        glazing_sqft_per_section = (config.door_width * section_height) / 144
+        # Glass sqft calculated from actual window opening dimensions per PN Generator spreadsheet
+        glazing_sqft_per_section = self._calculate_al976_glass_sqft_per_section(
+            config.door_width, config.door_height, section_height, panel_count
+        )
         total_glazing_sqft = round(glazing_sqft_per_section * panel_count, 2)
 
-        if series in ("PANORAMA", "SOLALITE"):
+        glazing_type = (config.glazing_type or "").lower()
+        is_polycarbonate = glazing_type == "polycarbonate" or series in ("PANORAMA", "SOLALITE")
+
+        if is_polycarbonate:
             # Polycarbonate glazing kits
             glass_color = (config.glass_color or "CLEAR").upper()
             gk17_map = {
@@ -2316,17 +2494,44 @@ class PartNumberService:
         return self._consolidate_parts(parts)
 
     def _build_window_placement_note(self, config: DoorConfiguration) -> Optional[str]:
-        """Build a human-readable note describing where windows should be placed."""
+        """Build a human-readable note describing where windows should be placed.
+
+        Panel numbering: 1 = top panel, counting down.
+        """
+        num_sections = self._calculate_panel_count(config.door_height)
+
+        def panel_label(num):
+            if num == 1:
+                return "TOP"
+            elif num >= num_sections:
+                return "BOTTOM"
+            else:
+                return f"{num} FROM TOP"
+
         if config.window_panels:
             # Per-panel config: e.g. {1: {"qty": 3}, 3: {"qty": 2}}
             panel_descs = []
             for panel_num in sorted(config.window_panels.keys()):
                 qty = config.window_panels[panel_num].get("qty", 1)
-                panel_descs.append(f"Panel {panel_num}: {qty} window{'s' if qty > 1 else ''}")
-            return "WINDOWS: " + ", ".join(panel_descs)
+                label = panel_label(panel_num)
+                panel_descs.append(f"{label} PANEL ({qty} window{'s' if qty > 1 else ''})")
+            return "WINDOW PLACEMENT: " + ", ".join(panel_descs)
+        elif config.window_positions:
+            # Residential stamp-based positions: group by section
+            from collections import defaultdict
+            by_section = defaultdict(list)
+            for pos in config.window_positions:
+                by_section[pos.get("section", 1)].append(pos.get("col", 0) + 1)
+            section_descs = []
+            for section_num in sorted(by_section.keys()):
+                cols = sorted(by_section[section_num])
+                label = panel_label(section_num)
+                section_descs.append(f"{label} PANEL (positions {','.join(str(c) for c in cols)})")
+            return f"WINDOW PLACEMENT: {len(config.window_positions)} windows — " + ", ".join(section_descs)
         elif config.window_count > 0:
             section = config.window_section or 1
-            return f"WINDOWS: Section {section}, {config.window_count} per panel"
+            label = panel_label(section)
+            return f"WINDOW PLACEMENT: {config.window_count} windows in {label} PANEL"
         return None
 
     def _get_window_parts(self, config: DoorConfiguration) -> List[PartSelection]:
@@ -2341,6 +2546,10 @@ class PartNumberService:
         # V130G/V230G: full-view aluminum section + glass (separate line items)
         if config.window_insert in ("V130G", "V230G"):
             return self._get_v130g_parts(config)
+
+        # Panorama: full-view polycarbonate section on commercial door
+        if config.window_insert == "PANORAMA":
+            return self._get_panorama_section_parts(config)
 
         # Commercial thermopane windows (24x12, 34x16, 18x8)
         if config.window_insert in ("24X12_THERMOPANE", "34X16_THERMOPANE", "18X8_THERMOPANE"):
@@ -2419,6 +2628,7 @@ class PartNumberService:
             "STOCKTON_ARCHED", "STOCKTON_ARCHED_XL",
             "STOCKBRIDGE_STRAIGHT", "STOCKBRIDGE_STRAIGHT_XL",
             "STOCKBRIDGE_ARCHED", "STOCKBRIDGE_ARCHED_XL",
+            "STOCKTON_SHORT", "STOCKTON_SHORT_ARCHED",
         }
         if config.window_insert in decorative_inserts:
             if series_upper == "CRAFT":
@@ -2558,9 +2768,11 @@ class PartNumberService:
             ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR")
         )
 
-        # Calculate glass square footage per section, then multiply by number of sections
-        # Glass pockets affect frame layout (mullions), not total glass area
-        glass_sqft_per_section = (config.door_width * section_height) / 144
+        # Calculate glass square footage per section using actual window opening dimensions
+        panel_count = self._calculate_panel_count(config.door_height)
+        glass_sqft_per_section = self._calculate_al976_glass_sqft_per_section(
+            config.door_width, config.door_height, section_height, panel_count
+        )
         total_glass_sqft = round(glass_sqft_per_section * v130g_qty, 2)
 
         parts.append(PartSelection(
@@ -2569,6 +2781,86 @@ class PartNumberService:
             quantity=total_glass_sqft,
             category="v130g_glass",
             notes=f"Thermopane glass for {v130g_qty} {model_name} section(s), {config.glass_pockets_per_section} pockets per section ({glass_sqft_per_section:.2f} sqft each)"
+        ))
+
+        return self._consolidate_parts(parts)
+
+    def _get_panorama_section_parts(self, config: DoorConfiguration) -> List[PartSelection]:
+        """
+        Get Panorama full-view polycarbonate section parts for commercial doors.
+
+        Uses PN80 prefix for aluminum frame sections + GK17 polycarbonate glazing.
+        Same panel replacement logic as V130G but with polycarbonate instead of glass.
+        """
+        parts = []
+        panorama_qty = config.window_qty or 1
+
+        section_height = 21 if config.door_type == "residential" or config.door_height <= 84 else 24
+        hh = str(section_height)
+
+        # Width code: door width + 2" overhang
+        width_ft = config.door_width // 12
+        width_extra = config.door_width % 12 + 2
+        if width_extra >= 12:
+            width_ft += 1
+            width_extra -= 12
+        wwww = f"{width_ft:02d}{width_extra:02d}"
+
+        # Finish code — Panorama uses PN80 finish map
+        finish_color = (config.panel_color or "CLEAR_ANODIZED").upper().replace(" ", "_")
+        finish_map = {"CLEAR_ANODIZED": "00", "WHITE": "10", "MILL": "20", "BLACK_ANODIZED": "30"}
+        ff = finish_map.get(finish_color, "00")
+        finish_name = {"00": "CLEAR ANODIZED", "10": "WHITE", "20": "MILL", "30": "BLACK ANODIZED"}.get(ff, "CLEAR ANODIZED")
+
+        panel_count = self._calculate_panel_count(config.door_height)
+
+        # Build list of section numbers
+        if config.window_panels:
+            section_numbers = sorted(config.window_panels.keys())
+            panorama_qty = len(section_numbers)
+        else:
+            section_start = config.window_section or 1
+            section_numbers = [section_start + i for i in range(panorama_qty)]
+
+        for section_num in section_numbers:
+            if section_num >= panel_count:
+                s = "2"   # BOT SEF
+                pos_label = "BOTTOM SEF"
+            else:
+                s = "1"   # TOP/INT SEF
+                pos_label = "TOP/INTERMEDIATE SEF"
+
+            pn = f"PN80-{hh}{s}{ff}-{wwww}"
+            parts.append(PartSelection(
+                part_number=pn,
+                description=f"SECTION, PANORAMA, [{width_ft:02d}' {width_extra:02d}\"] X {section_height}\", {pos_label}, {finish_name}",
+                quantity=1,
+                category="v130g_section",
+                notes=f"Panorama polycarbonate section - replaces insulated panel at section {section_num}"
+            ))
+
+        # Polycarbonate glazing (GK17)
+        glass_color = (config.glass_color or "CLEAR").upper()
+        gk17_map = {
+            "CLEAR":        ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"),
+            "LIGHT_BRONZE": ("GK17-12600-00", "GLAZING KIT, ALUM, POLYCARBONATE, LIGHT BRONZE"),
+            "DARK_BRONZE":  ("GK17-12700-00", "GLAZING KIT, ALUM, POLYCARBONATE, DARK BRONZE"),
+            "WHITE_OPAL":   ("GK17-12800-00", "GLAZING KIT, ALUM, POLYCARBONATE, WHITE OPAL"),
+        }
+        poly_pn, poly_desc = gk17_map.get(glass_color, ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"))
+
+        panel_count = self._calculate_panel_count(config.door_height)
+        glazing_sqft_per_section = self._calculate_al976_glass_sqft_per_section(
+            config.door_width, config.door_height, section_height, panel_count
+        )
+        total_glazing_sqft = round(glazing_sqft_per_section * panorama_qty, 2)
+
+        parts.append(PartSelection(
+            part_number=poly_pn,
+            description=poly_desc,
+            quantity=total_glazing_sqft,
+            category="v130g_glass",
+            notes=f"Polycarbonate for {panorama_qty} Panorama section(s) ({glazing_sqft_per_section:.2f} sqft each)"
         ))
 
         return self._consolidate_parts(parts)
@@ -2625,35 +2917,45 @@ class PartNumberService:
             description = f"GLASS KIT, COMMERCIAL, THERM-CLEAR, {ws['desc']}, {frame_color}"
 
         # Per-panel window generation: if windowPanels is provided, emit one GK16 line per panel
+        window_desc = ws["desc"]  # e.g. "24" x 12""
+        num_sections = self._calculate_panel_count(config.door_height)
+
+        def _panel_label(num):
+            if num == 1: return "TOP"
+            elif num >= num_sections: return "BOTTOM"
+            else: return f"{num} FROM TOP"
+
         if config.window_panels:
             parts = []
             for panel_num in sorted(config.window_panels.keys()):
                 panel_info = config.window_panels[panel_num]
                 qty = panel_info.get("qty", 1)
                 if qty > 0:
+                    label = _panel_label(panel_num)
                     parts.append(PartSelection(
                         part_number=part_number,
                         description=description,
                         quantity=qty,
                         category="commercial_window",
-                        notes=f"GK16 glass kit, panel {panel_num}, {frame_color} frame"
+                        notes=f"{window_desc} THERMOPANE, {label} PANEL, {frame_color} FRAME"
                     ))
             return parts if parts else [PartSelection(
                 part_number=part_number,
                 description=description,
                 quantity=config.window_qty or 1,
                 category="commercial_window",
-                notes=f"GK16 glass kit, section {config.window_section or 1}, {frame_color} frame"
+                notes=f"{window_desc} THERMOPANE, {_panel_label(config.window_section or 1)} PANEL, {frame_color} FRAME"
             )]
 
         qty = config.window_qty or 1
+        label = _panel_label(config.window_section or 1)
 
         return [PartSelection(
             part_number=part_number,
             description=description,
             quantity=qty,
             category="commercial_window",
-            notes=f"GK16 glass kit, section {config.window_section or 1}, {frame_color} frame"
+            notes=f"{window_desc} THERMOPANE, {label} PANEL, {frame_color} FRAME"
         )]
 
     # Rail part numbers by type and door height (feet)
@@ -2841,7 +3143,7 @@ def _default_glass_pockets(door_width_inches: int) -> int:
         return 4
     elif door_width_feet <= 18:
         return 5
-    elif door_width_feet <= 22:
+    elif door_width_feet <= 20:
         return 6
     else:
         return 7
@@ -2899,6 +3201,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         window_size=config_dict.get("windowSize", "long"),
         glass_pockets_per_section=config_dict.get("glassPocketsPerSection") or _default_glass_pockets(config_dict.get("doorWidth", 96)),
         window_count=(len(config_dict.get("windowPositions", [])) or config_dict.get("windowCount", 0)) if config_dict.get("hasWindows", True) else 0,
+        window_positions=config_dict.get("windowPositions") if config_dict.get("hasWindows", True) else None,
         spring_inventory=spring_inventory,
         include_top_seal=config_dict.get("includeTopSeal"),
     )

@@ -3,8 +3,11 @@ import DoorPreview from '../DoorPreview'
 
 export default function SummaryStep({ options, family, config, quoteWebhook, dealerLocatorUrl }) {
   const [showForm, setShowForm] = useState(false)
-  const [formData, setFormData] = useState({ name: '', email: '', phone: '', postalCode: '', notes: '' })
+  const [showDealerForm, setShowDealerForm] = useState(false)
+  const [formData, setFormData] = useState({ name: '', email: '', phone: '', postalCode: '', trackType: '', ceilingHeight: '', notes: '' })
+  const [dealerFormData, setDealerFormData] = useState({ name: '', email: '', phone: '', city: '', postalCode: '' })
   const [submitted, setSubmitted] = useState(false)
+  const [dealerSubmitted, setDealerSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const previewRef = useRef(null)
 
@@ -63,6 +66,8 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
       const doorConfig = {
         family: family?.name,
         familyId: family?.id,
+        doorType: config.doorType || 'residential',
+        doorSeries: config.doorSeries || '',
         size: `${formatSize(config.width)} x ${formatSize(config.height)}`,
         widthInches: config.width,
         heightInches: config.height,
@@ -77,7 +82,10 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
         windowQty: config.windowQty || 0,
         glassType: hasWindows ? (glassInfo?.name || null) : null,
         glassId: hasWindows ? (config.glassColor || null) : null,
+        glassPaneType: config.glassPaneType || null,
         windowFrameColor: config.windowFrameColor || 'MATCH',
+        trackType: formData.trackType || null,
+        ceilingHeight: formData.ceilingHeight || null,
       }
       const payload = {
         contact: formData,
@@ -101,18 +109,69 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
     setSubmitting(false)
   }
 
+  const handleDealerSubmit = async (e) => {
+    e.preventDefault()
+    setSubmitting(true)
+    try {
+      const doorImage = await captureDoorImage()
+      const doorConfig = {
+        family: family?.name,
+        familyId: family?.id,
+        size: `${formatSize(config.width)} x ${formatSize(config.height)}`,
+        widthInches: config.width,
+        heightInches: config.height,
+        design: designInfo?.name || 'N/A',
+        designId: config.panelDesign,
+        color: colorInfo?.name,
+        colorId: config.color,
+        windows: hasWindows ? (commercialWindowInfo?.name || windowInfo?.name || 'None') : 'None',
+        windowId: hasWindows ? (config.windowInsert || 'NONE') : 'NONE',
+      }
+      const payload = {
+        contact: {
+          name: dealerFormData.name,
+          email: dealerFormData.email,
+          phone: dealerFormData.phone,
+          postalCode: dealerFormData.postalCode,
+          notes: dealerFormData.city ? `Location: ${dealerFormData.city}` : '',
+        },
+        doorConfig,
+        doorImage,
+        source: 'dealer_locator',
+        timestamp: new Date().toISOString(),
+      }
+      if (quoteWebhook) {
+        await fetch(quoteWebhook, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+      }
+      setDealerSubmitted(true)
+    } catch (err) {
+      console.error('Dealer locator submission error:', err)
+      setDealerSubmitted(true)
+    }
+    setSubmitting(false)
+  }
+
   const handleChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }))
   }
 
-  if (submitted) {
+  const handleDealerChange = (field, value) => {
+    setDealerFormData(prev => ({ ...prev, [field]: value }))
+  }
+
+  if (submitted || dealerSubmitted) {
+    const contactName = submitted ? formData.name : dealerFormData.name
     return (
       <div className="odc-step-content odc-summary">
         <div className="odc-success-message">
           <div className="odc-success-icon">&#10003;</div>
-          <h2 className="odc-step-title">Quote Request Sent!</h2>
+          <h2 className="odc-step-title">{submitted ? 'Quote Request Sent!' : 'Dealer Request Sent!'}</h2>
           <p className="odc-step-subtitle">
-            Thank you, {formData.name}. A dealer in your area will contact you shortly with pricing for your custom door configuration.
+            Thank you, {contactName}. A dealer in your area will contact you shortly{submitted ? ' with pricing for your custom door configuration' : ''}.
           </p>
         </div>
       </div>
@@ -140,6 +199,7 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
             windowQty={config.windowQty || 0}
             hasInserts={true}
             glassColor={config.glassColor || 'CLEAR'}
+            windowFrameColor={config.windowFrameColor || 'MATCH'}
             showDimensions={true}
             maxWidth={380}
           />
@@ -189,16 +249,20 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
               <span className="odc-detail-value">{glassInfo.name}</span>
             </div>
           )}
+          {hasWindows && config.windowFrameColor && config.windowFrameColor !== 'MATCH' && (
+            <div className="odc-detail-row">
+              <span className="odc-detail-label">Frame Color</span>
+              <span className="odc-detail-value">{config.windowFrameColor === 'BLACK' ? 'Black' : config.windowFrameColor === 'WHITE' ? 'White' : config.windowFrameColor}</span>
+            </div>
+          )}
 
           <div className="odc-cta-group">
             <button className="odc-btn-primary" onClick={() => setShowForm(true)}>
               Request a Quote
             </button>
-            {dealerLocatorUrl && (
-              <a href={dealerLocatorUrl} target="_blank" rel="noopener noreferrer" className="odc-btn-outline">
-                Find a Dealer
-              </a>
-            )}
+            <button className="odc-btn-outline" onClick={() => setShowDealerForm(true)}>
+              Find a Dealer
+            </button>
           </div>
         </div>
       </div>
@@ -232,14 +296,78 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
                     value={formData.postalCode} onChange={(e) => handleChange('postalCode', e.target.value)} />
                 </div>
               </div>
+              <div className="odc-form-row-double">
+                <div className="odc-form-row">
+                  <label className="odc-form-label">Track Type</label>
+                  <select className="odc-form-input"
+                    value={formData.trackType} onChange={(e) => handleChange('trackType', e.target.value)}>
+                    <option value="">Select track...</option>
+                    <option value="standard">Standard Lift</option>
+                    <option value="low_headroom">Low Headroom</option>
+                    <option value="high_lift">High Lift</option>
+                    <option value="vertical_lift">Vertical Lift</option>
+                    <option value="follow_roof">Follow Roof Pitch</option>
+                  </select>
+                </div>
+                <div className="odc-form-row">
+                  <label className="odc-form-label">Ceiling Height</label>
+                  <input type="text" className="odc-form-input"
+                    placeholder="e.g. 10 ft"
+                    value={formData.ceilingHeight} onChange={(e) => handleChange('ceilingHeight', e.target.value)} />
+                </div>
+              </div>
               <div className="odc-form-row">
-                <label className="odc-form-label">Notes</label>
+                <label className="odc-form-label">Additional Notes</label>
                 <textarea className="odc-form-textarea" rows="3"
-                  placeholder="Any additional details about your project..."
+                  placeholder="Any other details — existing opener, special requirements, etc."
                   value={formData.notes} onChange={(e) => handleChange('notes', e.target.value)} />
               </div>
               <button type="submit" className="odc-btn-primary odc-btn-full" disabled={submitting}>
                 {submitting ? 'Sending...' : 'Submit Quote Request'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showDealerForm && (
+        <div className="odc-modal-overlay" onClick={() => setShowDealerForm(false)}>
+          <div className="odc-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="odc-modal-close" onClick={() => setShowDealerForm(false)}>&times;</button>
+            <h3 className="odc-modal-title">Find a Dealer</h3>
+            <p className="odc-modal-subtitle">Enter your location and we'll connect you with your nearest authorized dealer.</p>
+            <form onSubmit={handleDealerSubmit} className="odc-quote-form">
+              <div className="odc-form-row">
+                <label className="odc-form-label">Full Name *</label>
+                <input type="text" required className="odc-form-input"
+                  value={dealerFormData.name} onChange={(e) => handleDealerChange('name', e.target.value)} />
+              </div>
+              <div className="odc-form-row">
+                <label className="odc-form-label">Email *</label>
+                <input type="email" required className="odc-form-input"
+                  value={dealerFormData.email} onChange={(e) => handleDealerChange('email', e.target.value)} />
+              </div>
+              <div className="odc-form-row">
+                <label className="odc-form-label">Phone</label>
+                <input type="tel" className="odc-form-input"
+                  value={dealerFormData.phone} onChange={(e) => handleDealerChange('phone', e.target.value)} />
+              </div>
+              <div className="odc-form-row-double">
+                <div className="odc-form-row">
+                  <label className="odc-form-label">City / Town *</label>
+                  <input type="text" required className="odc-form-input"
+                    placeholder="e.g. Vancouver"
+                    value={dealerFormData.city} onChange={(e) => handleDealerChange('city', e.target.value)} />
+                </div>
+                <div className="odc-form-row">
+                  <label className="odc-form-label">Postal Code</label>
+                  <input type="text" className="odc-form-input"
+                    placeholder="e.g. V6B 1A1"
+                    value={dealerFormData.postalCode} onChange={(e) => handleDealerChange('postalCode', e.target.value)} />
+                </div>
+              </div>
+              <button type="submit" className="odc-btn-primary odc-btn-full" disabled={submitting}>
+                {submitting ? 'Sending...' : 'Find My Dealer'}
               </button>
             </form>
           </div>

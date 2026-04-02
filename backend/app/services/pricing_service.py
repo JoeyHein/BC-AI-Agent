@@ -308,15 +308,11 @@ def calculate_selling_price(
             # Other aluminium panels/sections keep standard aluminium margins
             pass
         elif posting_group in ("HARD", "TRAC", "SPRI", "OPER", "PLAS", "ACS"):
-            # Hardware/non-panel items on aluminium doors use 30% GM regardless of tier
-            effective_door_type = None  # will be overridden below
+            # Hardware/non-panel items on aluminium doors use customer's commercial tier
+            effective_door_type = "commercial"
 
     # Resolve margin
-    if effective_door_type is None:
-        margin_pct = 30  # fixed for aluminium hardware
-        _tier_name = tier
-    else:
-        _tier_name, margin_pct = resolve_tier(tier, effective_door_type, db)
+    _tier_name, margin_pct = resolve_tier(tier, effective_door_type, db)
 
     # Check for part-number prefix override (longest prefix wins)
     prefix_overrides = _load_prefix_margins(db)
