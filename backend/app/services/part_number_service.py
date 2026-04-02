@@ -1123,6 +1123,65 @@ class PartNumberService:
         return total_weight
 
     @staticmethod
+    def _calculate_al976_glass_sqft_per_section(
+        door_width_in: int, door_height_in: int,
+        section_height_in: int, num_sections: int
+    ) -> float:
+        """
+        Calculate actual glass square footage per section for AL976 aluminum doors.
+
+        Based on OpenDC PN Generator - Aluminum Panels spreadsheet (GLASS CALC sheet).
+        Accounts for aluminum frame rails, stiles, and build-up components that reduce
+        the actual glass area from the full door area.
+
+        Constants (inches):
+          End stile (3"):     3.6
+          Center stile (2"):  2.64
+          Top rail (3"):      3.135
+          Bottom rail (3"):   3.135
+          Male rail:          1.25
+          Female rail:        1.25
+          Glass width add:    +0.4545 (per pane)
+          Glass height sub:   -0.431 (per section)
+        """
+        # Glass panels per section based on door width
+        if door_width_in <= 98:
+            panels = 2
+        elif door_width_in <= 146:
+            panels = 3
+        elif door_width_in <= 170:
+            panels = 4
+        elif door_width_in <= 206:
+            panels = 5
+        elif door_width_in <= 242:
+            panels = 6
+        elif door_width_in <= 291:
+            panels = 7
+        else:
+            panels = 8
+
+        # Frame constants
+        END_STILE = 3.6
+        CENTER_STILE = 2.64
+        TOP_RAIL = 3.135
+        BOTTOM_RAIL = 3.135
+        MALE_RAIL = 1.25
+        FEMALE_RAIL = 1.25
+        GLASS_W_CONSTANT = 0.4545
+        GLASS_H_CONSTANT = 0.431
+
+        # Glass width per pane
+        glass_width = ((door_width_in - (END_STILE * 2) - (CENTER_STILE * (panels - 1))) / panels) + GLASS_W_CONSTANT
+
+        # Glass height per section
+        glass_height = ((door_height_in - TOP_RAIL - BOTTOM_RAIL - ((MALE_RAIL + FEMALE_RAIL) * (num_sections - 1))) / num_sections) - GLASS_H_CONSTANT
+
+        # Total glass area for one section (all panes in that section)
+        glass_sqft_per_section = (glass_width * glass_height * panels) / 144
+
+        return max(glass_sqft_per_section, 0)
+
+    @staticmethod
     def _get_strut_requirements(door_width_in: int, door_height_in: int) -> dict:
         """Look up strut requirements from the Thermalex strutting chart.
 
@@ -2361,7 +2420,10 @@ class PartNumberService:
                 ))
 
         # Glazing — GK17 glass for AL976, GK17 polycarbonate for Panorama/Solalite
-        glazing_sqft_per_section = (config.door_width * section_height) / 144
+        # Glass sqft calculated from actual window opening dimensions per PN Generator spreadsheet
+        glazing_sqft_per_section = self._calculate_al976_glass_sqft_per_section(
+            config.door_width, config.door_height, section_height, panel_count
+        )
         total_glazing_sqft = round(glazing_sqft_per_section * panel_count, 2)
 
         glazing_type = (config.glazing_type or "").lower()
@@ -2661,9 +2723,11 @@ class PartNumberService:
             ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR")
         )
 
-        # Calculate glass square footage per section, then multiply by number of sections
-        # Glass pockets affect frame layout (mullions), not total glass area
-        glass_sqft_per_section = (config.door_width * section_height) / 144
+        # Calculate glass square footage per section using actual window opening dimensions
+        panel_count = self._calculate_panel_count(config.door_height)
+        glass_sqft_per_section = self._calculate_al976_glass_sqft_per_section(
+            config.door_width, config.door_height, section_height, panel_count
+        )
         total_glass_sqft = round(glass_sqft_per_section * v130g_qty, 2)
 
         parts.append(PartSelection(
@@ -2740,7 +2804,10 @@ class PartNumberService:
         }
         poly_pn, poly_desc = gk17_map.get(glass_color, ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"))
 
-        glazing_sqft_per_section = (config.door_width * section_height) / 144
+        panel_count = self._calculate_panel_count(config.door_height)
+        glazing_sqft_per_section = self._calculate_al976_glass_sqft_per_section(
+            config.door_width, config.door_height, section_height, panel_count
+        )
         total_glazing_sqft = round(glazing_sqft_per_section * panorama_qty, 2)
 
         parts.append(PartSelection(
