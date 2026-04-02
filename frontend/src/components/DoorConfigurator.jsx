@@ -364,6 +364,7 @@ function DoorConfigurator() {
                 glassColor: null,
                 ...(isCommercialSeries ? { trackThickness: '3' } : {}),
                 ...(isAluminumSeries ? {
+                  glazingType: series === 'AL976' ? 'glass' : 'polycarbonate',
                   glassPaneType: series === 'AL976' ? 'INSULATED' : null,
                   glassColor: 'CLEAR',
                 } : {}),
@@ -1160,12 +1161,12 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
         ]
         const seriesName = seriesData?.name || door.doorSeries
         const customFinishNote = seriesData?.customFinishNote
-        const glazingType = seriesData?.glazingType || 'glass'
-        const isGlass = glazingType === 'glass'
-        const glazingOptions = seriesData?.glazingOptions || (isGlass
-          ? [{ id: 'CLEAR', name: 'Clear' }, { id: 'ETCHED', name: 'Etched' }, { id: 'SUPER_GREY', name: 'Super Grey' }]
-          : [{ id: 'CLEAR', name: 'Clear' }, { id: 'LIGHT_BRONZE', name: 'Light Bronze' }]
-        )
+        const glazingTypes = seriesData?.glazingTypes || null
+        const activeGlazingType = door.glazingType || seriesData?.glazingType || 'glass'
+        const isGlass = activeGlazingType === 'glass'
+        const glazingOptions = isGlass
+          ? (seriesData?.glazingOptions || [{ id: 'CLEAR', name: 'Clear' }, { id: 'ETCHED', name: 'Etched' }, { id: 'SUPER_GREY', name: 'Super Grey' }])
+          : (seriesData?.polycarbonateOptions || seriesData?.glazingOptions || [{ id: 'CLEAR', name: 'Clear' }, { id: 'LIGHT_BRONZE', name: 'Light Bronze' }])
         const paneTypes = seriesData?.paneTypes || []
         return (
           <div className="space-y-4">
@@ -1175,7 +1176,29 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
               </p>
             </div>
 
-            {/* Glass Type — only for glass series (AL976) */}
+            {/* Glazing Type selector (Glass vs Polycarbonate) — only when series supports both */}
+            {glazingTypes && glazingTypes.length > 1 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Glazing Material</label>
+                <div className="flex space-x-3">
+                  {glazingTypes.map(gt => (
+                    <button
+                      key={gt.id}
+                      onClick={() => onChange({ glazingType: gt.id, glassColor: 'CLEAR', glassPaneType: gt.id === 'glass' ? 'INSULATED' : null })}
+                      className={`px-4 py-2 text-sm rounded-md border ${
+                        activeGlazingType === gt.id
+                          ? 'border-odc-500 bg-odc-100 text-odc-700'
+                          : 'border-gray-300 hover:border-gray-400'
+                      }`}
+                    >
+                      {gt.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Glass Type — only for glass glazing */}
             {isGlass && paneTypes.length > 0 && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Glass Type</label>

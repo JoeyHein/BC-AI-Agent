@@ -2269,7 +2269,10 @@ class PartNumberService:
         glazing_sqft_per_section = (config.door_width * section_height) / 144
         total_glazing_sqft = round(glazing_sqft_per_section * panel_count, 2)
 
-        if series in ("PANORAMA", "SOLALITE"):
+        glazing_type = (config.glazing_type or "").lower()
+        is_polycarbonate = glazing_type == "polycarbonate" or series in ("PANORAMA", "SOLALITE")
+
+        if is_polycarbonate:
             # Polycarbonate glazing kits
             glass_color = (config.glass_color or "CLEAR").upper()
             gk17_map = {

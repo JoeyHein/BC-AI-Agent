@@ -375,37 +375,100 @@ export default function WindowStep({ options, family, config, onSelect, onWindow
     )
   }
 
-  // AL976 — glass only, no inserts
+  // AL976 — glass or polycarbonate
   if (isAluminium) {
+    const hasPolyOption = family?.polycarbonateOptions?.length > 0
+    const polyColors = (family?.polycarbonateOptions || []).map(id => {
+      const info = options.glassData?.[id]
+      return info ? { id, name: info.name, hex: info.hex || '#CCC', description: info.description } : null
+    }).filter(Boolean)
+
+    // Determine active glazing type from current glass color selection
+    const polyColorIds = new Set(family?.polycarbonateOptions || [])
+    const isPolySelected = polyColorIds.has(config.glassColor)
+    const [glazingMode, setGlazingMode] = useState(isPolySelected ? 'polycarbonate' : 'glass')
+    const isGlass = glazingMode === 'glass'
+
+    const handleGlazingSwitch = (mode) => {
+      setGlazingMode(mode)
+      // Reset to first color of the new mode
+      if (mode === 'polycarbonate') {
+        onSelect(config.windowInsert, config.windowQty, 'CLEAR', config.windowSection, null)
+      } else {
+        onSelect(config.windowInsert, config.windowQty, 'CLEAR', config.windowSection, 'INSULATED')
+      }
+    }
+
     return (
       <div className="odc-step-content">
-        <h2 className="odc-step-title">Glass Options</h2>
-        <p className="odc-step-subtitle">Choose glass type and color for your aluminum door</p>
-        <h3 className="odc-subsection-title">Glass Pane Type</h3>
-        <div className="odc-option-cards">
-          {GLASS_PANE_TYPES.map(g => (
-            <button key={g.id}
-              className={`odc-option-card ${config.glassPaneType === g.id ? 'odc-selected' : ''}`}
-              onClick={() => onSelect(config.windowInsert, config.windowQty, config.glassColor, config.windowSection, g.id)}>
-              <strong>{g.name}</strong>
-              <span className="odc-option-desc">{g.description}</span>
-            </button>
-          ))}
-        </div>
-        <h3 className="odc-subsection-title">Glass Color</h3>
-        <div className="odc-color-grid">
-          {GLASS_COLORS.map(g => (
-            <button key={g.id}
-              className={`odc-color-swatch ${config.glassColor === g.id ? 'odc-selected' : ''}`}
-              onClick={() => onSelect(config.windowInsert, config.windowQty, g.id, config.windowSection, config.glassPaneType)}>
-              <div className="odc-color-circle-wrap">
-                <div className="odc-color-circle" style={{ backgroundColor: g.hex }} />
-              </div>
-              <span className="odc-color-name">{g.name}</span>
-              <span className="odc-color-type">{g.description}</span>
-            </button>
-          ))}
-        </div>
+        <h2 className="odc-step-title">Glazing Options</h2>
+        <p className="odc-step-subtitle">Choose glazing for your aluminum door</p>
+
+        {hasPolyOption && (
+          <>
+            <h3 className="odc-subsection-title">Glazing Material</h3>
+            <div className="odc-option-cards" style={{marginBottom: '16px'}}>
+              <button
+                className={`odc-option-card ${isGlass ? 'odc-selected' : ''}`}
+                onClick={() => handleGlazingSwitch('glass')}>
+                <strong>Glass</strong>
+                <span className="odc-option-desc">Clear, etched, or tinted glass</span>
+              </button>
+              <button
+                className={`odc-option-card ${!isGlass ? 'odc-selected' : ''}`}
+                onClick={() => handleGlazingSwitch('polycarbonate')}>
+                <strong>Polycarbonate</strong>
+                <span className="odc-option-desc">Lightweight, impact-resistant</span>
+              </button>
+            </div>
+          </>
+        )}
+
+        {isGlass && (
+          <>
+            <h3 className="odc-subsection-title">Glass Pane Type</h3>
+            <div className="odc-option-cards">
+              {GLASS_PANE_TYPES.map(g => (
+                <button key={g.id}
+                  className={`odc-option-card ${config.glassPaneType === g.id ? 'odc-selected' : ''}`}
+                  onClick={() => onSelect(config.windowInsert, config.windowQty, config.glassColor, config.windowSection, g.id)}>
+                  <strong>{g.name}</strong>
+                  <span className="odc-option-desc">{g.description}</span>
+                </button>
+              ))}
+            </div>
+            <h3 className="odc-subsection-title">Glass Color</h3>
+            <div className="odc-color-grid">
+              {GLASS_COLORS.map(g => (
+                <button key={g.id}
+                  className={`odc-color-swatch ${config.glassColor === g.id ? 'odc-selected' : ''}`}
+                  onClick={() => onSelect(config.windowInsert, config.windowQty, g.id, config.windowSection, config.glassPaneType)}>
+                  <div className="odc-color-circle-wrap">
+                    <div className="odc-color-circle" style={{ backgroundColor: g.hex }} />
+                  </div>
+                  <span className="odc-color-name">{g.name}</span>
+                  <span className="odc-color-type">{g.description}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {!isGlass && (
+          <>
+            <h3 className="odc-subsection-title">Polycarbonate Color</h3>
+            <div className="odc-option-cards">
+              {polyColors.map(g => (
+                <button key={g.id}
+                  className={`odc-option-card ${config.glassColor === g.id ? 'odc-selected' : ''}`}
+                  onClick={() => onSelect(config.windowInsert, config.windowQty, g.id, config.windowSection, null)}>
+                  <strong>{g.name}</strong>
+                  <span className="odc-option-desc">{g.description}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     )
   }

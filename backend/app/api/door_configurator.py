@@ -126,10 +126,20 @@ DOOR_SERIES = {
             "categoryValue": "67f7c1c39cf0ed4a3b00baea",
             "partPrefix": "PN97",
             "glazingType": "glass",
+            "glazingTypes": [
+                {"id": "glass", "name": "Glass"},
+                {"id": "polycarbonate", "name": "Polycarbonate"},
+            ],
             "glazingOptions": [
                 {"id": "CLEAR", "name": "Clear"},
                 {"id": "ETCHED", "name": "Etched"},
                 {"id": "SUPER_GREY", "name": "Super Grey"},
+            ],
+            "polycarbonateOptions": [
+                {"id": "CLEAR", "name": "Clear"},
+                {"id": "LIGHT_BRONZE", "name": "Light Bronze"},
+                {"id": "DARK_BRONZE", "name": "Dark Bronze"},
+                {"id": "WHITE_OPAL", "name": "White Opal"},
             ],
             "paneTypes": [
                 {"id": "INSULATED", "name": "Insulated (Thermal)"},

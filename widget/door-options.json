@@ -66,6 +66,7 @@
       "colors": ["CLEAR_ANODIZED", "BLACK_ANODIZED", "WHITE"],
       "windowInserts": [],
       "glassOptions": ["CLEAR", "ETCHED", "SUPER_GREY"],
+      "polycarbonateOptions": ["CLEAR", "LIGHT_BRONZE", "DARK_BRONZE", "WHITE_OPAL"],
       "defaultColor": "BLACK_ANODIZED"
     }
   ],
@@ -110,9 +111,12 @@
     "NONE": {"name": "No Windows", "grid": [0, 0], "size": "long", "arched": false}
   },
   "glassData": {
-    "CLEAR": {"name": "Clear Glass", "description": "Maximum natural light"},
-    "ETCHED": {"name": "Etched Glass", "description": "Frosted privacy glass"},
+    "CLEAR": {"name": "Clear", "description": "Maximum natural light"},
+    "ETCHED": {"name": "Etched", "description": "Frosted privacy glass"},
     "SUPER_GREY": {"name": "Super Grey", "description": "Dark tinted glass"},
+    "LIGHT_BRONZE": {"name": "Light Bronze", "description": "Light bronze tint"},
+    "DARK_BRONZE": {"name": "Dark Bronze", "description": "Dark bronze tint"},
+    "WHITE_OPAL": {"name": "White Opal", "description": "Translucent white"},
     "INSULATED_CLEAR": {"name": "Insulated Clear", "description": "Double-pane clear insulated"},
     "INSULATED_ETCHED": {"name": "Insulated Etched", "description": "Double-pane frosted insulated"},
     "SINGLE_CLEAR": {"name": "Single Clear", "description": "Single-pane clear glass"},
