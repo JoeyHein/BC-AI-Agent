@@ -554,6 +554,14 @@ export const quoteReviewApi = {
     apiClient.get(`/api/admin/quote-review/reviews/${reviewId}`),
 };
 
+// Quote Leads API (admin)
+export const quoteLeadsApi = {
+  list: (params = {}) =>
+    apiClient.get('/api/admin/quote-leads', { params }),
+  updateStatus: (leadId, data) =>
+    apiClient.patch(`/api/admin/quote-leads/${leadId}`, data),
+};
+
 // Customers API (admin)
 export const customersApi = {
   getCustomer: (customerId) =>
