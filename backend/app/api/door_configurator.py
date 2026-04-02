@@ -298,8 +298,8 @@ PANEL_DESIGNS = {
     ],
 }
 
-WINDOW_INSERTS = {
-    # Residential window inserts
+WINDOW_INSERTS_LONG = {
+    # Long window inserts — fit SHXL/BCXL stamps or span 2 short stamps
     "STOCKTON": [
         {"id": "STOCKTON_STANDARD", "name": "Standard Stockton"},
         {"id": "STOCKTON_TEN_SQUARE_XL", "name": "Ten Square XL - Stockton"},
@@ -314,6 +314,17 @@ WINDOW_INSERTS = {
         {"id": "STOCKBRIDGE_ARCHED", "name": "Arched"},
     ],
 }
+
+WINDOW_INSERTS_SHORT = {
+    # Short window inserts — fit in a single SH/BC/TRAF/FLUSH stamp
+    "STOCKTON": [
+        {"id": "STOCKTON_SHORT", "name": "Stockton Short"},
+        {"id": "STOCKTON_SHORT_ARCHED", "name": "Stockton Short Arched"},
+    ],
+}
+
+# Combined for backward compatibility
+WINDOW_INSERTS = WINDOW_INSERTS_LONG
 
 # Commercial window sizes — no decorative inserts on commercial doors
 # Frame colors: standard black, optional white. Inside always white.
@@ -526,7 +537,7 @@ async def get_window_inserts(door_type: Optional[str] = None):
     """Get available window insert styles. Commercial doors have no decorative inserts."""
     if door_type == "commercial":
         return {"success": True, "data": {}}
-    return {"success": True, "data": WINDOW_INSERTS}
+    return {"success": True, "data": WINDOW_INSERTS_LONG, "dataShort": WINDOW_INSERTS_SHORT}
 
 
 @router.get("/glazing-options/{door_type}")
@@ -572,7 +583,8 @@ async def get_full_configuration():
             "doorSeries": DOOR_SERIES,
             "colors": COLORS,
             "panelDesigns": PANEL_DESIGNS,
-            "windowInserts": WINDOW_INSERTS,
+            "windowInserts": WINDOW_INSERTS_LONG,
+            "windowInsertsShort": WINDOW_INSERTS_SHORT,
             "commercialWindowTypes": COMMERCIAL_WINDOW_TYPES,
             "commercialWindowFrameColors": COMMERCIAL_WINDOW_FRAME_COLORS,
             "commercialWindowSizes": COMMERCIAL_WINDOW_SIZES,
@@ -1141,6 +1153,15 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                         )
                         freight_added = True
                         logger.info(f"Added freight line: ${freight['amount']:.2f} ({freight['description']})")
+
+                        # Set Output=True so BC groups freight separately (not bundled with door package)
+                        if added_freight.get("sequence"):
+                            try:
+                                bc_client.set_quote_line_output(
+                                    bc_quote_number, added_freight["sequence"], output=True
+                                )
+                            except Exception as out_err:
+                                logger.warning(f"Failed to set Output flag on freight line: {out_err}")
                     except Exception as freight_item_err:
                         logger.warning(f"Could not add freight as Item '{freight_item}': {freight_item_err}")
 
