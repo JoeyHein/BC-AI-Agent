@@ -2872,6 +2872,7 @@ class PartNumberService:
             description = f"GLASS KIT, COMMERCIAL, THERM-CLEAR, {ws['desc']}, {frame_color}"
 
         # Per-panel window generation: if windowPanels is provided, emit one GK16 line per panel
+        window_desc = ws["desc"]  # e.g. "24" x 12""
         if config.window_panels:
             parts = []
             for panel_num in sorted(config.window_panels.keys()):
@@ -2883,14 +2884,14 @@ class PartNumberService:
                         description=description,
                         quantity=qty,
                         category="commercial_window",
-                        notes=f"GK16 glass kit, panel {panel_num}, {frame_color} frame"
+                        notes=f"{window_desc} THERMOPANE, PANEL {panel_num}, {frame_color} FRAME"
                     ))
             return parts if parts else [PartSelection(
                 part_number=part_number,
                 description=description,
                 quantity=config.window_qty or 1,
                 category="commercial_window",
-                notes=f"GK16 glass kit, section {config.window_section or 1}, {frame_color} frame"
+                notes=f"{window_desc} THERMOPANE, SECTION {config.window_section or 1}, {frame_color} FRAME"
             )]
 
         qty = config.window_qty or 1
@@ -2900,7 +2901,7 @@ class PartNumberService:
             description=description,
             quantity=qty,
             category="commercial_window",
-            notes=f"GK16 glass kit, section {config.window_section or 1}, {frame_color} frame"
+            notes=f"{window_desc} THERMOPANE, SECTION {config.window_section or 1}, {frame_color} FRAME"
         )]
 
     # Rail part numbers by type and door height (feet)
