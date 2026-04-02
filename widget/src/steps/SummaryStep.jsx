@@ -4,7 +4,7 @@ import DoorPreview from '../DoorPreview'
 export default function SummaryStep({ options, family, config, quoteWebhook, dealerLocatorUrl }) {
   const [showForm, setShowForm] = useState(false)
   const [showDealerForm, setShowDealerForm] = useState(false)
-  const [formData, setFormData] = useState({ name: '', email: '', phone: '', postalCode: '', notes: '' })
+  const [formData, setFormData] = useState({ name: '', email: '', phone: '', postalCode: '', trackType: '', ceilingHeight: '', notes: '' })
   const [dealerFormData, setDealerFormData] = useState({ name: '', email: '', phone: '', city: '', postalCode: '' })
   const [submitted, setSubmitted] = useState(false)
   const [dealerSubmitted, setDealerSubmitted] = useState(false)
@@ -66,6 +66,8 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
       const doorConfig = {
         family: family?.name,
         familyId: family?.id,
+        doorType: config.doorType || 'residential',
+        doorSeries: config.doorSeries || '',
         size: `${formatSize(config.width)} x ${formatSize(config.height)}`,
         widthInches: config.width,
         heightInches: config.height,
@@ -80,7 +82,10 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
         windowQty: config.windowQty || 0,
         glassType: hasWindows ? (glassInfo?.name || null) : null,
         glassId: hasWindows ? (config.glassColor || null) : null,
+        glassPaneType: config.glassPaneType || null,
         windowFrameColor: config.windowFrameColor || 'MATCH',
+        trackType: formData.trackType || null,
+        ceilingHeight: formData.ceilingHeight || null,
       }
       const payload = {
         contact: formData,
@@ -194,6 +199,7 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
             windowQty={config.windowQty || 0}
             hasInserts={true}
             glassColor={config.glassColor || 'CLEAR'}
+            windowFrameColor={config.windowFrameColor || 'MATCH'}
             showDimensions={true}
             maxWidth={380}
           />
@@ -243,6 +249,12 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
               <span className="odc-detail-value">{glassInfo.name}</span>
             </div>
           )}
+          {hasWindows && config.windowFrameColor && config.windowFrameColor !== 'MATCH' && (
+            <div className="odc-detail-row">
+              <span className="odc-detail-label">Frame Color</span>
+              <span className="odc-detail-value">{config.windowFrameColor === 'BLACK' ? 'Black' : config.windowFrameColor === 'WHITE' ? 'White' : config.windowFrameColor}</span>
+            </div>
+          )}
 
           <div className="odc-cta-group">
             <button className="odc-btn-primary" onClick={() => setShowForm(true)}>
@@ -284,10 +296,30 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
                     value={formData.postalCode} onChange={(e) => handleChange('postalCode', e.target.value)} />
                 </div>
               </div>
+              <div className="odc-form-row-double">
+                <div className="odc-form-row">
+                  <label className="odc-form-label">Track Type</label>
+                  <select className="odc-form-input"
+                    value={formData.trackType} onChange={(e) => handleChange('trackType', e.target.value)}>
+                    <option value="">Select track...</option>
+                    <option value="standard">Standard Lift</option>
+                    <option value="low_headroom">Low Headroom</option>
+                    <option value="high_lift">High Lift</option>
+                    <option value="vertical_lift">Vertical Lift</option>
+                    <option value="follow_roof">Follow Roof Pitch</option>
+                  </select>
+                </div>
+                <div className="odc-form-row">
+                  <label className="odc-form-label">Ceiling Height</label>
+                  <input type="text" className="odc-form-input"
+                    placeholder="e.g. 10 ft"
+                    value={formData.ceilingHeight} onChange={(e) => handleChange('ceilingHeight', e.target.value)} />
+                </div>
+              </div>
               <div className="odc-form-row">
-                <label className="odc-form-label">Notes</label>
+                <label className="odc-form-label">Additional Notes</label>
                 <textarea className="odc-form-textarea" rows="3"
-                  placeholder="Any additional details about your project..."
+                  placeholder="Any other details — existing opener, special requirements, etc."
                   value={formData.notes} onChange={(e) => handleChange('notes', e.target.value)} />
               </div>
               <button type="submit" className="odc-btn-primary odc-btn-full" disabled={submitting}>
