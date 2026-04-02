@@ -985,15 +985,29 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
   const getStampColumns = (widthInches, panelDesign) => {
     const widthFeet = widthInches / 12
     let longCols
-    if (widthFeet <= 9) longCols = 2
+    if (widthFeet <= 10) longCols = 2
     else if (widthFeet <= 12) longCols = 3
     else if (widthFeet <= 16) longCols = 4
     else if (widthFeet <= 19) longCols = 5
     else longCols = 6
-    // Craft series: all stamps use same count (no doubling for short stamps)
     if (isCraft) return longCols
-    if (['SH', 'BC'].includes(panelDesign)) return longCols * 2
-    return longCols
+    if (!['SH', 'BC'].includes(panelDesign)) return longCols
+    // Standard (short) stamps — exact counts matching DoorPreview
+    if (panelDesign === 'BC') {
+      if (widthFeet <= 10) return 4
+      if (widthFeet <= 14) return 6
+      if (widthFeet <= 16) return 8
+      if (widthFeet <= 18) return 8
+      return 10
+    }
+    // SH
+    if (widthFeet <= 9) return 4
+    if (widthFeet <= 10) return 5
+    if (widthFeet <= 12) return 6
+    if (widthFeet <= 14) return 7
+    if (widthFeet <= 16) return 8
+    if (widthFeet <= 18) return 9
+    return 10
   }
   const stampColumns = getStampColumns(door.doorWidth, door.panelDesign)
 
