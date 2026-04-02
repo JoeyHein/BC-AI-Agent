@@ -2557,6 +2557,8 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
               shaftType: door.shaftType || 'auto',
               highLiftInches: door.liftType === 'high_lift' ? door.highLiftInches : null,
               doorType: door.doorType || 'commercial',
+              glazingType: door.glazingType || null,
+              glassPaneType: door.glassPaneType || null,
             }
             const response = await doorConfigApi.calculateDoor(calcRequest)
             return {

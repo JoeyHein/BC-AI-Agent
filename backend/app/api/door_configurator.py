@@ -487,6 +487,8 @@ class DoorCalculationRequest(BaseModel):
     targetCycles: int = 10000  # 10000, 15000, 25000, 50000, 100000
     highLiftInches: Optional[int] = None  # extra inches above door for high_lift
     doorType: str = "commercial"  # 'residential' or 'commercial'
+    glazingType: Optional[str] = None  # 'glass' or 'polycarbonate' (aluminum doors)
+    glassPaneType: Optional[str] = None  # 'INSULATED' or 'SINGLE' (aluminum doors)
 
 
 # ============================================================================
@@ -1504,6 +1506,8 @@ async def calculate_door_specifications(request: DoorCalculationRequest, db: Ses
             spring_inventory=spring_inventory,
             high_lift_inches=request.highLiftInches,
             door_type=request.doorType,
+            glazing_type=request.glazingType or 'glass',
+            glass_pane_type=request.glassPaneType or 'INSULATED',
         )
 
         # Get summary
