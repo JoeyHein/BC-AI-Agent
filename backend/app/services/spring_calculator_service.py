@@ -985,14 +985,101 @@ class SpringCalculatorService:
             min_width = drum_total + end_plates + (qty * spring_len) + (qty * winder_per) + gap
             min_door_widths[qty] = round(min_width, 1)
 
+        # Calculate duplex options (6" outer + 3.75" inner nested)
+        duplex_options = self._calculate_duplex_conversions(ippt, current_spring_qty)
+
         return {
             "success": True,
             "current": current_analysis,
             "replacement": replacement,
             "all_candidates": candidates if not replacement_wire else None,
+            "duplex_options": duplex_options,
             "min_door_widths": min_door_widths,
             "ippt": round(ippt, 2),
         }
+
+    def _calculate_duplex_conversions(
+        self,
+        ippt: float,
+        spring_qty: int = 2,
+        outer_coil: float = 6.0,
+        inner_coil: float = 3.75,
+    ) -> list[dict]:
+        """Calculate duplex spring options for a given IPPT.
+
+        Duplex springs nest a smaller coil inside a larger one.
+        Both contribute torque, allowing much shorter springs.
+        Standard combo: 6" outer + 3-3/4" inner.
+
+        Returns list of viable options sorted by outer spring length (shortest first).
+        """
+        options = []
+
+        for outer_wire in sorted(self.dividers.keys()):
+            outer_div = self.get_divider(outer_wire, outer_coil)
+            if not outer_div:
+                continue
+
+            for inner_wire in sorted(self.dividers.keys()):
+                if inner_wire >= outer_wire:
+                    continue  # Inner must be smaller wire
+                inner_div = self.get_divider(inner_wire, inner_coil)
+                if not inner_div:
+                    continue
+
+                # Combined divider per duplex position
+                combined_divider = outer_div + inner_div
+
+                # Active coils needed: same formula but with combined divider
+                needed_active = (spring_qty * combined_divider) / ippt
+
+                outer_dcf = self.get_dead_coil_factor(outer_wire, outer_coil)
+                inner_dcf = self.get_dead_coil_factor(inner_wire, inner_coil)
+
+                outer_length = round(needed_active + outer_dcf, 1)
+                inner_length = round(needed_active + inner_dcf, 1)
+
+                # Filter impractical results
+                if outer_length < 8 or outer_length > 48:
+                    continue
+                if inner_length < 6 or inner_length > 45:
+                    continue
+
+                # Get MIP capacity
+                outer_mip_10k = self.get_mip_capacity(outer_wire, 10000)
+                inner_mip_10k = self.get_mip_capacity(inner_wire, 10000)
+                outer_mip_25k = self.get_mip_capacity(outer_wire, 25000)
+                inner_mip_25k = self.get_mip_capacity(inner_wire, 25000)
+
+                # Spring weights
+                outer_weight = calculate_spring_weight(outer_wire, outer_coil, outer_length)
+                inner_weight = calculate_spring_weight(inner_wire, inner_coil, inner_length)
+
+                options.append({
+                    "outer": {
+                        "wire_diameter": outer_wire,
+                        "coil_diameter": outer_coil,
+                        "length": outer_length,
+                        "mip_10k": outer_mip_10k,
+                        "mip_25k": outer_mip_25k,
+                        "weight": outer_weight,
+                    },
+                    "inner": {
+                        "wire_diameter": inner_wire,
+                        "coil_diameter": inner_coil,
+                        "length": inner_length,
+                        "mip_10k": inner_mip_10k,
+                        "mip_25k": inner_mip_25k,
+                        "weight": inner_weight,
+                    },
+                    "combined_divider": round(combined_divider, 1),
+                    "spring_quantity": spring_qty,
+                    "total_weight": round((outer_weight or 0) + (inner_weight or 0), 2),
+                })
+
+        # Sort by outer length (shortest first) and limit to top 15
+        options.sort(key=lambda o: o["outer"]["length"])
+        return options[:15]
 
 
 # Global instance

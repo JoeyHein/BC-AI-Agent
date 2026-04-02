@@ -506,6 +506,31 @@ class SpringBuilderService:
             result["cone_sets"] = self._resolve_cone_sets(repl["coil_diameter"])
             result["special_order_needed"] = not lh_match and not rh_match
 
+        # Add catalog matching for duplex options
+        duplex_options = result.get("duplex_options", [])
+        for opt in duplex_options:
+            outer = opt["outer"]
+            inner = opt["inner"]
+
+            # Match outer springs (6" coil)
+            outer_lh = mapper.get_spring_part_number(outer["wire_diameter"], outer["coil_diameter"], "LH")
+            outer_rh = mapper.get_spring_part_number(outer["wire_diameter"], outer["coil_diameter"], "RH")
+            outer["lh_part"] = outer_lh.part_number
+            outer["rh_part"] = outer_rh.part_number
+            outer["in_stock"] = self._match_sku(db, outer_lh.part_number) is not None
+
+            # Match inner springs (3.75" coil)
+            inner_lh = mapper.get_spring_part_number(inner["wire_diameter"], inner["coil_diameter"], "LH")
+            inner_rh = mapper.get_spring_part_number(inner["wire_diameter"], inner["coil_diameter"], "RH")
+            inner["lh_part"] = inner_lh.part_number
+            inner["rh_part"] = inner_rh.part_number
+            inner["in_stock"] = self._match_sku(db, inner_lh.part_number) is not None
+
+            # Cone sets for both coils
+            opt["outer_cones"] = self._resolve_cone_sets(outer["coil_diameter"])
+            opt["inner_cones"] = self._resolve_cone_sets(inner["coil_diameter"])
+            opt["both_in_stock"] = outer["in_stock"] and inner["in_stock"]
+
         return result
 
     def get_drum_list(self, lift_type: str) -> list:
