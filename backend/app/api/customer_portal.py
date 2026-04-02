@@ -554,6 +554,18 @@ def _generate_bc_quote_with_items(
             "is_door_desc": True,
         })
 
+        # Glass pockets comment for aluminium doors
+        if door.get("doorType") == "aluminium":
+            from app.services.part_number_service import _default_glass_pockets
+            pockets = door.get("glassPocketsPerSection") or _default_glass_pockets(door.get("doorWidth", 96))
+            all_lines.append({
+                "lineType": "Comment",
+                "description": f"** {pockets} GLASS POCKETS PER SECTION **",
+                "category": "COMMENT",
+                "door_index": door_index,
+                "is_note": True,
+            })
+
         # Get parts for this door configuration
         config_dict = {
             "doorType": door.get("doorType", "residential"),
@@ -1214,6 +1226,16 @@ def _estimate_pricing_locally(
             "description": door_desc,
             "door_index": door_index,
         })
+
+        # Glass pockets comment for aluminium doors
+        if door.get("doorType") == "aluminium":
+            from app.services.part_number_service import _default_glass_pockets
+            pockets = door.get("glassPocketsPerSection") or _default_glass_pockets(door.get("doorWidth", 96))
+            all_lines.append({
+                "lineType": "Comment",
+                "description": f"** {pockets} GLASS POCKETS PER SECTION **",
+                "door_index": door_index,
+            })
 
         config_dict = {
             "doorType": door.get("doorType", "residential"),
