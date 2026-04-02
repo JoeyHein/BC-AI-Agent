@@ -242,10 +242,20 @@ COLORS = {
         {"id": "FRENCH_OAK", "name": "French Oak", "hex": "#C4A35A", "type": "woodgrain", "grain": ["#C4A35A", "#D4B56A", "#B49A4A"]},
     ],
     "COMMERCIAL": [
+        # TX380, TX450: all 4 colors
         {"id": "WHITE", "name": "White", "hex": "#F4F4F4", "ral": "RAL 9003", "type": "solid"},
         {"id": "BLACK", "name": "Black", "hex": "#282828", "ral": "RAL 9004", "type": "solid"},
         {"id": "NEW_BROWN", "name": "New Brown", "hex": "#4C4842", "ral": "RAL 7022", "type": "solid"},
         {"id": "STEEL_GREY", "name": "Steel Grey", "hex": "#7D7F7D", "ral": "RAL 7037", "type": "solid"},
+    ],
+    "COMMERCIAL_TX500": [
+        # TX500: White and Black only per rulebook
+        {"id": "WHITE", "name": "White", "hex": "#F4F4F4", "ral": "RAL 9003", "type": "solid"},
+        {"id": "BLACK", "name": "Black", "hex": "#282828", "ral": "RAL 9004", "type": "solid"},
+    ],
+    "COMMERCIAL_20": [
+        # TX450-20 and TX500-20: White only per rulebook (20-gauge)
+        {"id": "WHITE", "name": "White", "hex": "#F4F4F4", "ral": "RAL 9003", "type": "solid"},
     ],
     "AL976": [
         {"id": "CLEAR_ANODIZED", "name": "Clear Anodized (Standard)", "hex": "#C0C0C0"},
@@ -280,9 +290,8 @@ PANEL_DESIGNS = {
         {"id": "UDC", "code": "UDC", "name": "UDC (Undercoated)", "type": "Commercial Standard"},
     ],
     "COMMERCIAL_20": [
-        # TX450-20 and TX500-20: Flush and UDC designs
+        # TX450-20 and TX500-20: Flush ONLY per rulebook (20-gauge panels)
         {"id": "FLUSH", "code": "FLUSH", "name": "Flush", "type": "Flush/Flat"},
-        {"id": "UDC", "code": "UDC", "name": "UDC (Undercoated)", "type": "Commercial Standard"},
     ],
     "EXECUTIVE": [
         {"id": "F01", "code": "F01", "name": "Flush Basic", "base": "Flush"},
@@ -492,10 +501,11 @@ async def get_colors(series_id: str):
     color_map = {
         "KANATA": "KANATA",
         "CRAFT": "CRAFT",
+        "TX380": "COMMERCIAL",
         "TX450": "COMMERCIAL",
-        "TX500": "COMMERCIAL",
-        "TX450-20": "COMMERCIAL",
-        "TX500-20": "COMMERCIAL",
+        "TX500": "COMMERCIAL_TX500",
+        "TX450-20": "COMMERCIAL_20",
+        "TX500-20": "COMMERCIAL_20",
         "AL976": "AL976",
         "KANATA_EXECUTIVE": "EXECUTIVE_STAINS",
     }
@@ -784,6 +794,16 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
         for i, door in enumerate(request.doors):
             door_index = i + 1
 
+            # Add blank separator line between doors (not before the first door)
+            if i > 0:
+                all_lines.append({
+                    "lineType": "Comment",
+                    "description": " ",
+                    "category": "COMMENT",
+                    "door_index": door_index,
+                    "is_note": True,
+                })
+
             # Generate door description for comment line
             door_desc = _format_door_description(door)
 
@@ -894,8 +914,10 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                     pricing_tier = tier
             logger.info(f"Using pricing tier '{pricing_tier}' for customer {request.customerId}")
         else:
-            # Default to standard customer number
-            quote_data["customerNumber"] = "CASH"
+            raise HTTPException(
+                status_code=400,
+                detail="A customer must be selected before generating a quote."
+            )
 
         # Set external document number for tracking
         po_number = request.poNumber or f"CFG-{len(request.doors)}-DOORS"
@@ -1121,6 +1143,15 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                     freight_config = get_freight_config(db)
                     freight_item = freight_config.get("freight_item_number", "FREIGHT")
                     freight_added = False
+
+                    # Add blank separator line before freight
+                    try:
+                        bc_client.add_quote_line(bc_quote_id, {
+                            "lineType": "Comment",
+                            "description": " ",
+                        })
+                    except Exception:
+                        pass  # non-critical separator
 
                     # Try adding as Item line
                     try:

@@ -766,14 +766,15 @@ function DesignStep({ door, colors, panelDesigns, config, onChange }) {
   }
 
   // Get colors for current series
+  // TX500 = white+black only, TX450-20/TX500-20 = white only per rulebook
   const colorMap = {
     'KANATA': 'KANATA',
     'CRAFT': 'CRAFT',
     'TX380': 'COMMERCIAL',
     'TX450': 'COMMERCIAL',
-    'TX500': 'COMMERCIAL',
-    'TX450-20': 'COMMERCIAL',
-    'TX500-20': 'COMMERCIAL',
+    'TX500': 'COMMERCIAL_TX500',
+    'TX450-20': 'COMMERCIAL_20',
+    'TX500-20': 'COMMERCIAL_20',
     'AL976': 'AL976',
     'KANATA_EXECUTIVE': 'EXECUTIVE_STAINS',
   }
@@ -3092,7 +3093,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
       {/* Generate Quote Button */}
       <button
         onClick={onGenerateQuote}
-        disabled={isGenerating}
+        disabled={isGenerating || !selectedCustomer}
         className="w-full inline-flex justify-center items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-odc-600 hover:bg-odc-700 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {isGenerating ? (
@@ -3106,7 +3107,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
         ) : selectedCustomer ? (
           `Generate Quote for ${selectedCustomer.company_name}`
         ) : (
-          'Generate Quote (Cash Sale)'
+          'Select a customer to generate quote'
         )}
       </button>
 
@@ -3277,7 +3278,9 @@ function CustomerSelector({ selectedCustomer, onCustomerChange }) {
           </button>
         )}
       </div>
-      <p className="mt-1 text-xs text-gray-400">No customer selected — will use Cash Sale</p>
+      {!selectedCustomer && (
+        <p className="mt-1 text-xs text-amber-500 font-medium">Please select a customer before generating a quote</p>
+      )}
 
       {open && search && (
         <div className="absolute right-0 z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
