@@ -2345,6 +2345,10 @@ class PartNumberService:
         if config.window_insert in ("V130G", "V230G"):
             return self._get_v130g_parts(config)
 
+        # Panorama: full-view polycarbonate section on commercial door
+        if config.window_insert == "PANORAMA":
+            return self._get_panorama_section_parts(config)
+
         # Commercial thermopane windows (24x12, 34x16, 18x8)
         if config.window_insert in ("24X12_THERMOPANE", "34X16_THERMOPANE", "18X8_THERMOPANE"):
             return self._get_commercial_window_parts(config)
@@ -2573,6 +2577,83 @@ class PartNumberService:
             quantity=total_glass_sqft,
             category="v130g_glass",
             notes=f"Thermopane glass for {v130g_qty} {model_name} section(s), {config.glass_pockets_per_section} pockets per section ({glass_sqft_per_section:.2f} sqft each)"
+        ))
+
+        return self._consolidate_parts(parts)
+
+    def _get_panorama_section_parts(self, config: DoorConfiguration) -> List[PartSelection]:
+        """
+        Get Panorama full-view polycarbonate section parts for commercial doors.
+
+        Uses PN80 prefix for aluminum frame sections + GK17 polycarbonate glazing.
+        Same panel replacement logic as V130G but with polycarbonate instead of glass.
+        """
+        parts = []
+        panorama_qty = config.window_qty or 1
+
+        section_height = 21 if config.door_type == "residential" or config.door_height <= 84 else 24
+        hh = str(section_height)
+
+        # Width code: door width + 2" overhang
+        width_ft = config.door_width // 12
+        width_extra = config.door_width % 12 + 2
+        if width_extra >= 12:
+            width_ft += 1
+            width_extra -= 12
+        wwww = f"{width_ft:02d}{width_extra:02d}"
+
+        # Finish code — Panorama uses PN80 finish map
+        finish_color = (config.panel_color or "CLEAR_ANODIZED").upper().replace(" ", "_")
+        finish_map = {"CLEAR_ANODIZED": "00", "WHITE": "10", "MILL": "20", "BLACK_ANODIZED": "30"}
+        ff = finish_map.get(finish_color, "00")
+        finish_name = {"00": "CLEAR ANODIZED", "10": "WHITE", "20": "MILL", "30": "BLACK ANODIZED"}.get(ff, "CLEAR ANODIZED")
+
+        panel_count = self._calculate_panel_count(config.door_height)
+
+        # Build list of section numbers
+        if config.window_panels:
+            section_numbers = sorted(config.window_panels.keys())
+            panorama_qty = len(section_numbers)
+        else:
+            section_start = config.window_section or 1
+            section_numbers = [section_start + i for i in range(panorama_qty)]
+
+        for section_num in section_numbers:
+            if section_num >= panel_count:
+                s = "2"   # BOT SEF
+                pos_label = "BOTTOM SEF"
+            else:
+                s = "1"   # TOP/INT SEF
+                pos_label = "TOP/INTERMEDIATE SEF"
+
+            pn = f"PN80-{hh}{s}{ff}-{wwww}"
+            parts.append(PartSelection(
+                part_number=pn,
+                description=f"SECTION, PANORAMA, [{width_ft:02d}' {width_extra:02d}\"] X {section_height}\", {pos_label}, {finish_name}",
+                quantity=1,
+                category="v130g_section",
+                notes=f"Panorama polycarbonate section - replaces insulated panel at section {section_num}"
+            ))
+
+        # Polycarbonate glazing (GK17)
+        glass_color = (config.glass_color or "CLEAR").upper()
+        gk17_map = {
+            "CLEAR":        ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"),
+            "LIGHT_BRONZE": ("GK17-12600-00", "GLAZING KIT, ALUM, POLYCARBONATE, LIGHT BRONZE"),
+            "DARK_BRONZE":  ("GK17-12700-00", "GLAZING KIT, ALUM, POLYCARBONATE, DARK BRONZE"),
+            "WHITE_OPAL":   ("GK17-12800-00", "GLAZING KIT, ALUM, POLYCARBONATE, WHITE OPAL"),
+        }
+        poly_pn, poly_desc = gk17_map.get(glass_color, ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"))
+
+        glazing_sqft_per_section = (config.door_width * section_height) / 144
+        total_glazing_sqft = round(glazing_sqft_per_section * panorama_qty, 2)
+
+        parts.append(PartSelection(
+            part_number=poly_pn,
+            description=poly_desc,
+            quantity=total_glazing_sqft,
+            category="v130g_glass",
+            notes=f"Polycarbonate for {panorama_qty} Panorama section(s) ({glazing_sqft_per_section:.2f} sqft each)"
         ))
 
         return self._consolidate_parts(parts)

@@ -345,8 +345,9 @@ COMMERCIAL_WINDOW_TYPES = {
         {"id": "18X8_THERMOPANE", "name": "18\" x 8\" Thermopane", "width": 18, "height": 8, "sectionType": "21\" or 24\" section", "glassOptions": ["thermal"]},
     ],
     "FULL VIEW": [
-        {"id": "V130G", "name": "V130G Full View Section", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glassOptions": ["single", "thermal"], "glassColors": ["CLEAR", "ETCHED", "SUPER_GREY"], "material": "AL976", "note": "Full aluminum/glass section", "series": ["TX450", "TX450-20"]},
-        {"id": "V230G", "name": "V230G Full View Section", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glassOptions": ["single", "thermal"], "glassColors": ["CLEAR", "ETCHED", "SUPER_GREY"], "material": "AL976", "note": "Full aluminum/glass section (TX500)", "series": ["TX500", "TX500-20"]},
+        {"id": "V130G", "name": "V130G Full View (Glass)", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glassOptions": ["single", "thermal"], "glassColors": ["CLEAR", "ETCHED", "SUPER_GREY"], "material": "AL976", "note": "Full aluminum/glass section", "series": ["TX450", "TX450-20"]},
+        {"id": "PANORAMA", "name": "Panorama Full View (Polycarbonate)", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glazingType": "polycarbonate", "glassColors": ["CLEAR", "LIGHT_BRONZE", "DARK_BRONZE", "WHITE_OPAL"], "material": "PANORAMA", "note": "Full aluminum/polycarbonate section", "series": ["TX450", "TX450-20"]},
+        {"id": "V230G", "name": "V230G Full View (Glass)", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glassOptions": ["single", "thermal"], "glassColors": ["CLEAR", "ETCHED", "SUPER_GREY"], "material": "AL976", "note": "Full aluminum/glass section (TX500)", "series": ["TX500", "TX500-20"]},
     ],
 }
 

@@ -37,7 +37,7 @@
       "designs": ["UDC", "FLUSH"],
       "colors": ["WHITE", "BLACK", "NEW_BROWN", "STEEL_GREY"],
       "windowInserts": [],
-      "commercialWindows": ["24X12_THERMOPANE", "34X16_THERMOPANE", "18X8_THERMOPANE", "V130G"],
+      "commercialWindows": ["24X12_THERMOPANE", "34X16_THERMOPANE", "18X8_THERMOPANE", "V130G", "PANORAMA"],
       "defaultDesign": "UDC",
       "defaultColor": "WHITE"
     },
@@ -126,7 +126,8 @@
     "24X12_THERMOPANE": {"name": "24\" x 12\" Thermopane", "width": 24, "height": 12},
     "34X16_THERMOPANE": {"name": "34\" x 16\" Thermopane", "width": 34, "height": 16},
     "18X8_THERMOPANE": {"name": "18\" x 8\" Thermopane", "width": 18, "height": 8},
-    "V130G": {"name": "V130G Full View", "fullView": true},
+    "V130G": {"name": "V130G Full View (Glass)", "fullView": true},
+    "PANORAMA": {"name": "Panorama Full View (Polycarbonate)", "fullView": true, "glazingType": "polycarbonate"},
     "V230G": {"name": "V230G Full View", "fullView": true}
   },
   "sizes": {

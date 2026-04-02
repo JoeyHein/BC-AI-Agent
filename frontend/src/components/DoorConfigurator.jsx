@@ -1663,8 +1663,9 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
                       <button
                         key={wt.id}
                         onClick={() => {
-                          if (wt.id === 'V130G' || wt.id === 'V230G') {
-                            onChange({ windowInsert: wt.id, windowQty: 1, windowSection: 1, windowPanels: { 1: { qty: 1 } }, glassPaneType: 'INSULATED', glassColor: 'CLEAR' })
+                          if (wt.id === 'V130G' || wt.id === 'V230G' || wt.id === 'PANORAMA') {
+                            const isPano = wt.id === 'PANORAMA'
+                            onChange({ windowInsert: wt.id, windowQty: 1, windowSection: 1, windowPanels: { 1: { qty: 1 } }, glassPaneType: isPano ? null : 'INSULATED', glassColor: 'CLEAR', glazingType: isPano ? 'polycarbonate' : 'glass' })
                           } else {
                             const windowSize = config?.commercialWindowSizes?.[wt.id]
                             if (windowSize) {
@@ -1695,12 +1696,18 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
             </div>
           </div>
 
-          {/* V130G/V230G full view options */}
-          {(door.windowInsert === 'V130G' || door.windowInsert === 'V230G') && (
+          {/* V130G/V230G/PANORAMA full view options */}
+          {(door.windowInsert === 'V130G' || door.windowInsert === 'V230G' || door.windowInsert === 'PANORAMA') && (() => {
+            const isPanorama = door.windowInsert === 'PANORAMA'
+            const colorOptions = isPanorama
+              ? [{ id: 'CLEAR', name: 'Clear' }, { id: 'LIGHT_BRONZE', name: 'Light Bronze' }, { id: 'DARK_BRONZE', name: 'Dark Bronze' }, { id: 'WHITE_OPAL', name: 'White Opal' }]
+              : [{ id: 'CLEAR', name: 'Clear' }, { id: 'ETCHED', name: 'Etched' }, { id: 'SUPER_GREY', name: 'Super Grey' }]
+            return (
             <div className="bg-odc-50 rounded-lg p-4">
               <p className="text-sm text-odc-700">
-                <strong>{door.windowInsert} Full View</strong> — replaces an insulated section with a full aluminum/glass panel (AL976 material).
+                <strong>{isPanorama ? 'Panorama' : door.windowInsert} Full View</strong> — replaces an insulated section with a full aluminum/{isPanorama ? 'polycarbonate' : 'glass'} panel.
               </p>
+              {!isPanorama && (
               <div className="mt-3">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Glass Type</label>
                 <div className="flex space-x-3">
@@ -1719,14 +1726,11 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
                   ))}
                 </div>
               </div>
+              )}
               <div className="mt-3">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Glass Color</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{isPanorama ? 'Polycarbonate Color' : 'Glass Color'}</label>
                 <div className="flex space-x-3">
-                  {[
-                    { id: 'CLEAR', name: 'Clear' },
-                    { id: 'ETCHED', name: 'Etched' },
-                    { id: 'SUPER_GREY', name: 'Super Grey' },
-                  ].map(gc => (
+                  {colorOptions.map(gc => (
                     <button
                       key={gc.id}
                       onClick={() => onChange({ glassColor: gc.id })}
@@ -1743,7 +1747,7 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
               </div>
               <div className="mt-3">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Number of V130G sections
+                  Number of {isPanorama ? 'Panorama' : door.windowInsert} sections
                 </label>
                 <div className="flex items-center space-x-4">
                   <button
@@ -1758,10 +1762,11 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
                 </div>
               </div>
             </div>
-          )}
+            )
+          })()}
 
           {/* Window Quantity (non-V130G) */}
-          {door.windowInsert && door.windowInsert !== 'NONE' && door.windowInsert !== 'V130G' && door.windowInsert !== 'V230G' && (() => {
+          {door.windowInsert && door.windowInsert !== 'NONE' && door.windowInsert !== 'V130G' && door.windowInsert !== 'V230G' && door.windowInsert !== 'PANORAMA' && (() => {
             const windowSize = config?.commercialWindowSizes?.[door.windowInsert]
             const windowWidth = windowSize?.width || 24
             const panelWidth = door.doorWidth
@@ -1815,7 +1820,7 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
           {/* Window Panel Selection (multi-panel toggle) */}
           {door.windowInsert && door.windowInsert !== 'NONE' && (() => {
             const windowPanels = door.windowPanels || {}
-            const isV130G = door.windowInsert === 'V130G' || door.windowInsert === 'V230G'
+            const isV130G = door.windowInsert === 'V130G' || door.windowInsert === 'V230G' || door.windowInsert === 'PANORAMA'
             const windowSize = config?.commercialWindowSizes?.[door.windowInsert]
             const windowWidth = windowSize?.width || 24
             const maxQtyPerPanel = isV130G ? 1 : Math.max(1, Math.floor((door.doorWidth - 10) / (windowWidth + 10)))
@@ -1851,7 +1856,7 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
             return (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  {isV130G ? 'V130G Panels (1 = Top)' : 'Window Panels (1 = Top)'}
+                  {isV130G ? `${door.windowInsert === 'PANORAMA' ? 'Panorama' : door.windowInsert} Panels (1 = Top)` : 'Window Panels (1 = Top)'}
                 </label>
                 <div className="flex flex-wrap gap-3">
                   {[...Array(panelCount)].map((_, i) => {
