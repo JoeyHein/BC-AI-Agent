@@ -428,27 +428,45 @@ def _get_hk_weight(door_width_in: int, door_height_in: int, commercial: bool) ->
     door_width_feet = round(door_width_in / 12)
     door_height_feet = round(door_height_in / 12)
 
-    # Width code (same as get_hardware_box)
-    if door_width_feet <= 11:
-        wc = "11"
-    elif door_width_feet <= 14:
-        wc = "14"
-    elif door_width_feet <= 16:
-        wc = "16"
-    elif door_width_feet <= 18:
-        wc = "18"
-    elif door_width_feet <= 20:
-        wc = "20"
-    elif door_width_feet <= 22:
-        wc = "22"
-    elif door_width_feet <= 24:
-        wc = "24"
-    elif door_width_feet <= 26:
-        wc = "26"
-    elif door_width_feet <= 28:
-        wc = "28"
+    # Width code (must match get_hardware_box in bc_part_number_mapper)
+    if commercial:
+        # Commercial width codes: 11, 14, 16, 17, 19, 20, 22, 24, 26, 28, 29
+        if door_width_feet <= 11:
+            wc = "11"
+        elif door_width_feet <= 14:
+            wc = "14"
+        elif door_width_feet <= 16:
+            wc = "16"
+        elif door_width_feet <= 17:
+            wc = "17"
+        elif door_width_feet <= 19:
+            wc = "19"
+        elif door_width_feet <= 20:
+            wc = "20"
+        elif door_width_feet <= 22:
+            wc = "22"
+        elif door_width_feet <= 24:
+            wc = "24"
+        elif door_width_feet <= 26:
+            wc = "26"
+        elif door_width_feet <= 28:
+            wc = "28"
+        else:
+            wc = "29"
     else:
-        wc = "29"
+        # Residential width codes: 11, 14, 16, 18, 20
+        if door_width_feet <= 11:
+            wc = "11"
+        elif door_width_feet <= 14:
+            wc = "14"
+        elif door_width_feet <= 16:
+            wc = "16"
+        elif door_width_feet <= 18:
+            wc = "18"
+        elif door_width_feet <= 20:
+            wc = "20"
+        else:
+            wc = "20"
 
     # Height code (same as get_hardware_box)
     if door_height_feet <= 8:
@@ -475,9 +493,11 @@ def _get_hk_weight(door_width_in: int, door_height_in: int, commercial: bool) ->
         hc = "260"
 
     if commercial:
-        # HK03 format: HK03-WWHHX-RC where X is 0 or 1 variant
-        variant = "1" if door_width_feet > 14 else "0"
-        pn = f"HK03-{wc}{hc[:-1]}{variant}-RC"
+        # HK03 format: HK03-WWHHX-RC where X is 0 (SEC) or 1 (DEC)
+        # Try SEC first, then DEC
+        pn_sec = f"HK03-{wc}{hc[:-1]}0-RC"
+        pn_dec = f"HK03-{wc}{hc[:-1]}1-RC"
+        pn = pn_sec if HK_WEIGHTS.get(pn_sec, 0.0) > 0 else pn_dec
     else:
         # HK02 format: HK02-WWHH0-RC
         pn = f"HK02-{wc}{hc}-RC"
@@ -1079,8 +1099,8 @@ class PartNumberService:
 
             panel_weight = frame_weight + glazing_weight
 
-        # Hardware weight (~25 lbs fixed per spreadsheet)
-        hardware_weight = 25.0
+        # Hardware weight — use same commercial HK weight lookup
+        hardware_weight = _get_hk_weight(config.door_width, config.door_height, commercial=True)
 
         # Strut weight
         strut_info = self._get_strut_requirements(config.door_width, config.door_height)
