@@ -18,6 +18,7 @@ import WeeklyEmail from './components/WeeklyEmail'
 import BusinessDashboard from './components/BusinessDashboard'
 import CustomerDetail from './components/CustomerDetail'
 import QuoteLeads from './components/QuoteLeads'
+import QuotingAnalytics from './pages/QuotingAnalytics'
 
 function Navigation() {
   const { user, logout, isAuthenticated } = useAuth()
@@ -44,6 +45,7 @@ function Navigation() {
     { path: '/business', label: 'Business' },
     { path: '/reviews', label: 'Reviews' },
     { path: '/analytics', label: 'Analytics' },
+    { path: '/analytics/quoting', label: 'Quoting' },
     { path: '/door-configurator', label: 'Configurator' },
     { path: '/customers', label: 'Customers' },
     { path: '/orders', label: 'Orders' },
@@ -136,6 +138,11 @@ function AppContent() {
           <Route path="/analytics" element={
             <ProtectedRoute>
               <Analytics />
+            </ProtectedRoute>
+          } />
+          <Route path="/analytics/quoting" element={
+            <ProtectedRoute requireReviewer>
+              <QuotingAnalytics />
             </ProtectedRoute>
           } />
 
