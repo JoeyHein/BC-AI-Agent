@@ -331,6 +331,9 @@ class BusinessCentralClient:
     def add_quote_line(self, quote_id: str, line_data: Dict[str, Any], company_id: Optional[str] = None) -> Dict[str, Any]:
         """Add line to sales quote"""
         cid = company_id or self.company_id
+        # BC enforces a 100-character limit on line descriptions — truncate if needed
+        if "description" in line_data and line_data["description"] and len(line_data["description"]) > 100:
+            line_data = {**line_data, "description": line_data["description"][:97] + "..."}
         result = self._make_request(
             "POST",
             f"companies({cid})/salesQuotes({quote_id})/salesQuoteLines",

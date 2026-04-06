@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     # CORS — comma-separated list of allowed origins
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:5173"
 
+    # Application URLs
+    API_URL: str = "http://localhost:8000"
+
     # Customer Portal Notifications
     NOTIFICATION_SENDER_EMAIL: str = "noreply@opendc.ca"
     ADMIN_NOTIFICATION_EMAILS: str = "joey@opendc.ca"  # Comma-separated list

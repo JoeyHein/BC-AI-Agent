@@ -22,7 +22,7 @@ class EmailOAuthService:
         self.tenant_id = settings.GRAPH_TENANT_ID
         self.client_id = settings.GRAPH_CLIENT_ID
         self.client_secret = settings.GRAPH_CLIENT_SECRET
-        self.redirect_uri = "http://localhost:8000/api/email-connections/oauth/callback"  # TODO: Make configurable
+        self.redirect_uri = f"{settings.API_URL}/api/email-connections/oauth/callback"
 
     def get_authorization_url(self, state: str) -> str:
         """

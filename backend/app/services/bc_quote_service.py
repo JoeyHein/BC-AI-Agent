@@ -170,11 +170,19 @@ class BCQuoteService:
     ):
         """Cache BC customer data for faster lookups"""
         try:
-            # Extract price multiplier if present
-            multiplier = (
-                bc_customer_data.get("priceMultiplierPercent")
-                or bc_customer_data.get("priceMultiplier")
-                or bc_customer_data.get("price_multiplier_percent")
+            # Extract price multiplier if present.
+            # Use `is not None` checks so a legitimate 0 value is not skipped
+            # by Python's falsy `or` evaluation.
+            def _first_not_none(*vals):
+                for v in vals:
+                    if v is not None:
+                        return v
+                return None
+
+            multiplier = _first_not_none(
+                bc_customer_data.get("priceMultiplierPercent"),
+                bc_customer_data.get("priceMultiplier"),
+                bc_customer_data.get("price_multiplier_percent"),
             )
 
             cached = BCCustomer(
