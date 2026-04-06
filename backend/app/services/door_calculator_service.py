@@ -243,6 +243,37 @@ WINDOW_CUTOUT_WEIGHTS = {
 # Stocked spring coil diameters (inches) — these are the only coils we carry
 STOCKED_COIL_DIAMETERS = [2.0, 2.625, 3.75, 6.0]
 
+# Shaft component widths (inches) — used for fitment validation
+_DRUM_WIDTH_DEFAULT = 5.0
+_BEARING_END_PLATE_WIDTH = 2.5
+_COUPLER_WIDTH = 3.5
+_CENTER_BEARING_WIDTH = 2.5
+_CLEARANCE_PER_GAP = 0.25
+_WINDER_CONE_WIDTHS = {2.0: 3.0, 2.625: 3.5, 3.75: 4.5, 6.0: 6.0}
+
+
+def _springs_fit_on_shaft(
+    door_width_inches: int,
+    spring_length: float,
+    spring_qty: int,
+    coil_diameter: float,
+    drum_model: str = None,
+) -> bool:
+    """Quick check: do the springs + shaft components fit within the door width?"""
+    winder_w = _WINDER_CONE_WIDTHS.get(coil_diameter, 3.0)
+    num_couplers = max(0, (spring_qty // 2) - 1)
+    required = (
+        2 * _DRUM_WIDTH_DEFAULT +           # 2 drums
+        2 * _BEARING_END_PLATE_WIDTH +       # 2 end plates
+        num_couplers * _COUPLER_WIDTH +       # shaft couplers
+        num_couplers * _CENTER_BEARING_WIDTH + # center bearing plates
+        spring_qty * winder_w +               # winder cones
+        spring_qty * spring_length +          # springs
+        (2 + 2 + spring_qty + spring_qty + num_couplers) * _CLEARANCE_PER_GAP  # gaps
+    )
+    return required <= door_width_inches
+
+
 # Drum selection table
 # Format: {drum_model: {max_height: int, max_weight: int, offset: float, cable_diameters: [small, large]}}
 DRUM_TABLE = {
@@ -1071,6 +1102,13 @@ class DoorCalculatorService:
                     high_lift_inches=high_lift_inches,
                 )
                 if result is not None:
+                    # Verify springs physically fit on the shaft
+                    if not _springs_fit_on_shaft(width_inches, result.length, qty, coil_diam, drum_model):
+                        logger.info(
+                            f"Skipping {qty}x {coil_diam}\" coil / {result.wire_diameter}\" wire "
+                            f"({result.length}\" long) — doesn't fit on {width_inches}\" wide door"
+                        )
+                        continue
                     return SpringSelection(
                         quantity=result.spring_quantity,
                         coil_diameter=result.coil_diameter,
@@ -1162,6 +1200,13 @@ class DoorCalculatorService:
                     # Verify MIP capacity is sufficient
                     mip_capacity = spring_calculator.get_mip_capacity(wire_diam, target_cycles)
                     if mip_capacity and mip_capacity >= result.mip_per_spring:
+                        # Verify springs physically fit on the shaft
+                        if not _springs_fit_on_shaft(width_inches, result.length, spring_qty, coil_diam, drum_model):
+                            logger.info(
+                                f"Skipping stocked {spring_qty}x {coil_diam}\"/{wire_diam}\" "
+                                f"({result.length}\" long) — doesn't fit on {width_inches}\" wide door"
+                            )
+                            continue
                         qty_candidates.append(result)
 
             if qty_candidates:
