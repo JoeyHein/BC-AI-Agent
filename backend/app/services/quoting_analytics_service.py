@@ -56,9 +56,9 @@ class QuotingAnalyticsService:
         cutoff = date.today() - timedelta(days=days)
         cutoff_str = cutoff.isoformat()
 
-        # Fetch data
+        # Fetch data — BC uses documentDate for quotes, orderDate for orders
         quotes = self._get_all_pages("salesQuotes", {
-            "$select": "id,number,customerNumber,customerName,totalAmountIncludingTax,quoteDate,status,dueDate,externalDocumentNumber",
+            "$select": "id,number,customerNumber,customerName,totalAmountIncludingTax,documentDate,status,validUntilDate,externalDocumentNumber",
         })
         orders = self._get_all_pages("salesOrders", {
             "$select": "id,number,customerNumber,customerName,totalAmountIncludingTax,orderDate,status,externalDocumentNumber",
@@ -66,7 +66,7 @@ class QuotingAnalyticsService:
 
         # Parse dates
         for q in quotes:
-            q["_date"] = self._parse_date(q.get("quoteDate", ""))
+            q["_date"] = self._parse_date(q.get("documentDate", ""))
         for o in orders:
             o["_date"] = self._parse_date(o.get("orderDate", ""))
 
@@ -91,7 +91,7 @@ class QuotingAnalyticsService:
         # Expiring within 7 days
         expiring_soon = 0
         for q in open_quotes:
-            due = self._parse_date(q.get("dueDate", ""))
+            due = self._parse_date(q.get("validUntilDate", ""))
             if due and today <= due <= today + timedelta(days=7):
                 expiring_soon += 1
 
