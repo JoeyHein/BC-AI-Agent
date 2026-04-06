@@ -1256,20 +1256,21 @@ class DoorCalculatorService:
         def candidate_sort_key(c):
             is_reasonable = c.length <= MAX_PRACTICAL_LENGTH
 
-            # Estimate total material cost: wire_volume ∝ wire_diameter² × length × quantity
-            # For duplex, add inner spring material too
+            # Fewer springs is always better — simpler install, fewer failure points
+            # Then prefer reasonable length, then smaller coil (cheaper), then shorter
             outer_material = (c.wire_diameter ** 2) * c.length * c.quantity
             inner_material = 0
             if c.is_duplex and c.inner_wire_diameter and c.inner_length:
                 inner_material = (c.inner_wire_diameter ** 2) * c.inner_length * c.quantity
             total_material = outer_material + inner_material
 
-            if is_reasonable:
-                # Best price = least material, then smaller coil, then shorter
-                return (0, total_material, c.coil_diameter, c.length)
-            else:
-                # Overlong: penalize, then least material
-                return (1, total_material, c.length, c.coil_diameter)
+            return (
+                0 if is_reasonable else 1,  # reasonable length first
+                c.quantity,                  # fewer springs always preferred
+                c.coil_diameter,             # smaller coil (cheaper)
+                c.length,                    # shorter spring
+                total_material,              # less material as tiebreaker
+            )
 
         best = min(all_candidates, key=candidate_sort_key)
 
