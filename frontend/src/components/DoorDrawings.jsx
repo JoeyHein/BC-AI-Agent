@@ -53,6 +53,7 @@ function DoorDrawings({
     liftType: configLiftType = null,
     highLiftInches = null,
     trackMount = 'bracket',
+    springCount = null,
   } = doorConfig
 
   // Convert string values
@@ -287,6 +288,7 @@ function DoorDrawings({
               mountType={trackMount || 'bracket'}
               scale={0.6}
               title={`FRAMING DRAWING - ${doorSeries}`}
+              springCount={springCount}
             />
           </div>
           <div className="mt-4 p-3 bg-blue-50 rounded-lg">

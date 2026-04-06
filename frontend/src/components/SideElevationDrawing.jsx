@@ -640,16 +640,44 @@ function SideElevationDrawing({
                 stroke="#000"
                 strokeWidth="1.5"
               />
-              {/* Radius label */}
-              <text
-                x={originX + s(DOOR_THICKNESS + 1 + g.radius * 0.3)}
-                y={vtTop - s(g.radius * 0.35) - baseUnit * 0.5}
-                fontSize={fontTiny}
-                fill="#333"
-                letterSpacing="0.5"
-              >
-                {g.radiusLabel}
-              </text>
+              {/* Radius dimension — dashed line from arc center to arc midpoint at 45° */}
+              {(() => {
+                // Arc center is at the corner where vertical and horizontal tracks meet
+                const arcCX = trackInnerX
+                const arcCY = hTrackTopY
+                // Midpoint of the quarter arc is at 45° from center
+                const midAngle = Math.PI / 4   // 45 degrees
+                const r = s(g.radius)
+                const arcMidX = arcCX + r * Math.cos(Math.PI - midAngle)
+                const arcMidY = arcCY + r * Math.sin(midAngle)
+                // Label positioned just beyond the arc midpoint
+                const labelOffset = baseUnit * 1.5
+                const labelX = arcMidX - labelOffset * 0.7
+                const labelY = arcMidY - labelOffset * 0.5
+                return (
+                  <>
+                    {/* Dashed radial line from center to arc midpoint */}
+                    <line
+                      x1={arcCX} y1={arcCY}
+                      x2={arcMidX} y2={arcMidY}
+                      stroke="#555" strokeWidth="0.75"
+                      strokeDasharray="3,2"
+                    />
+                    {/* Radius value label */}
+                    <text
+                      x={labelX}
+                      y={labelY}
+                      fontSize={fontTiny}
+                      fill="#000"
+                      textAnchor="middle"
+                      fontWeight="bold"
+                      letterSpacing="0.5"
+                    >
+                      R{g.radius}&quot;
+                    </text>
+                  </>
+                )
+              })()}
             </g>
           )}
 
@@ -837,10 +865,10 @@ function SideElevationDrawing({
           <line x1={originX + s(6) + drumR * 0.6} y1={sy - drumR * 0.6}
             x2={originX + s(6) - drumR * 0.6} y2={sy + drumR * 0.6}
             stroke="#000" strokeWidth="0.5" />
-          {/* Spring coils (zigzag) */}
+          {/* Spring coils — smooth sinusoidal coil */}
           <path
             d={generateSpringPath(originX + s(8), sy, originX + s(18), 12)}
-            fill="none" stroke="#000" strokeWidth="1"
+            fill="none" stroke="#000" strokeWidth="1.5"
           />
           {/* Cable from drum to bottom bracket */}
           <line x1={originX + s(6)} y1={sy + drumR}
@@ -901,17 +929,24 @@ function SideElevationDrawing({
           x2={curveEndX - s(1) - drumR * 0.65} y2={actualShaftY + drumR * 0.65}
           stroke="#000" strokeWidth="0.75" />
 
-        {/* Spring coils (zigzag) — running along the shaft toward the wall */}
+        {/* Spring coils — smooth sinusoidal coil running along the shaft toward the wall */}
         <path
           d={generateSpringPath(originX + s(4), actualShaftY, curveEndX - drumR - s(2), 14)}
           fill="none"
           stroke="#000"
-          strokeWidth="1.25"
+          strokeWidth="1.75"
         />
 
-        {/* Spring end caps */}
-        <circle cx={originX + s(4)} cy={actualShaftY} r={2} fill="#000" stroke="#000" strokeWidth="0.5" />
-        <circle cx={curveEndX - drumR - s(2)} cy={actualShaftY} r={2} fill="#000" stroke="#000" strokeWidth="0.5" />
+        {/* Winding cone (fixed end) — tapered rectangle at wall side */}
+        <polygon
+          points={`${originX + s(4)},${actualShaftY - baseUnit * 0.8} ${originX + s(4) + baseUnit * 1.2},${actualShaftY - baseUnit * 0.4} ${originX + s(4) + baseUnit * 1.2},${actualShaftY + baseUnit * 0.4} ${originX + s(4)},${actualShaftY + baseUnit * 0.8}`}
+          fill="#444" stroke="#000" strokeWidth="0.5"
+        />
+        {/* Winding cone (winding end) — tapered rectangle at drum side */}
+        <polygon
+          points={`${curveEndX - drumR - s(2)},${actualShaftY - baseUnit * 0.8} ${curveEndX - drumR - s(2) - baseUnit * 1.2},${actualShaftY - baseUnit * 0.4} ${curveEndX - drumR - s(2) - baseUnit * 1.2},${actualShaftY + baseUnit * 0.4} ${curveEndX - drumR - s(2)},${actualShaftY + baseUnit * 0.8}`}
+          fill="#444" stroke="#000" strokeWidth="0.5"
+        />
 
         {/* Cable from drum down to bottom bracket — thin solid line */}
         <line
@@ -971,18 +1006,20 @@ function SideElevationDrawing({
   }
 
   /**
-   * Generate a zigzag spring path with more pronounced coils
+   * Generate a smooth sinusoidal spring coil path using cubic bezier curves.
+   * Each coil is an S-curve that simulates a torsion spring viewed from the side.
    */
   function generateSpringPath(startX, centerY, endX, coilCount) {
-    const amplitude = baseUnit * 0.5
+    const amplitude = baseUnit * 0.6
     const segW = (endX - startX) / coilCount
     let d = `M ${startX} ${centerY}`
     for (let i = 0; i < coilCount; i++) {
-      const px = startX + segW * (i + 0.5)
-      const py = centerY + (i % 2 === 0 ? amplitude : -amplitude)
-      d += ` L ${px} ${py}`
+      const x1 = startX + segW * i
+      const x2 = startX + segW * (i + 1)
+      const xMid = (x1 + x2) / 2
+      const dir = i % 2 === 0 ? 1 : -1
+      d += ` C ${xMid} ${centerY + amplitude * dir}, ${xMid} ${centerY + amplitude * dir}, ${x2} ${centerY}`
     }
-    d += ` L ${endX} ${centerY}`
     return d
   }
 

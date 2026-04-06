@@ -31,6 +31,7 @@ function FramingDrawing({
   mountType = 'bracket',
   scale = 0.5,
   title = 'FRAMING DRAWING',
+  springCount: springCountProp = null,
 }) {
   // ---------------------------------------------------------------------------
   // Resolve geometry
@@ -718,18 +719,78 @@ function FramingDrawing({
           const drumRx = Math.max(10, s(5))   // horizontal radius
           const drumRy = Math.max(7, s(3.5))  // vertical radius
 
-          // Spring dimensions
-          const springW = Math.max(60, (drumRX - drumLX) * 0.22)
-          const springH = Math.max(12, s(5))
+          // Spring count: must be even, default 2, clamp to 2-8
+          const totalSprings = Math.max(2, Math.min(8, Math.round((springCountProp || 2) / 2) * 2))
+          const springsPerSide = totalSprings / 2
 
           // Center bearing plate
+          const springH = Math.max(12, s(5))
           const cbpW = Math.max(8, s(4))
           const cbpH = Math.max(18, springH * 1.5)
 
-          // Spring positions: between drums and center
-          const springGap = cbpW / 2 + 2
-          const springLX = midX - springGap - springW
-          const springRX = midX + springGap
+          // Inter-bearing plates (between pairs of springs on same side, thinner)
+          const ibpW = Math.max(5, cbpW * 0.6)
+          const ibpH = Math.max(14, springH * 1.2)
+
+          // Available space for springs on each side (between drum and center bearing plate)
+          const sideSpace = (midX - cbpW / 2) - (drumLX + drumRx + 4)
+
+          // Gap between springs (small)
+          const springGap = Math.max(2, s(0.8))
+
+          // Count inter-bearing plates per side: one after every 2nd spring (not after last)
+          // 1 per side: 0, 2 per side: 0, 3 per side: 1, 4 per side: 1
+          const bearingsPerSide = Math.max(0, Math.floor((springsPerSide - 1) / 2))
+
+          // Total space used by inter-bearing plates on one side
+          const bearingSpace = bearingsPerSide * ibpW
+          // Total gap space (between each spring/bearing element)
+          const numGaps = springsPerSide - 1 + bearingsPerSide
+          const gapSpace = numGaps * springGap
+          // Remaining space for springs
+          const springTotalSpace = sideSpace - bearingSpace - gapSpace
+          const springW = Math.max(20, springTotalSpace / springsPerSide)
+
+          // Build spring elements for one side
+          // Returns array of {type: 'spring'|'bearing', x, width}
+          function buildSideElements(startX, direction) {
+            // direction: 1 = left-to-right, -1 = right-to-left
+            const elements = []
+            let curX = startX
+            for (let i = 0; i < springsPerSide; i++) {
+              if (direction === 1) {
+                elements.push({ type: 'spring', x: curX, width: springW, idx: i })
+                curX += springW
+              } else {
+                curX -= springW
+                elements.push({ type: 'spring', x: curX, width: springW, idx: i })
+              }
+              // Add inter-bearing plate after every 2nd spring (not after last)
+              if (i < springsPerSide - 1) {
+                if ((i + 1) % 2 === 0) {
+                  // inter-bearing plate
+                  if (direction === 1) {
+                    elements.push({ type: 'bearing', x: curX, width: ibpW })
+                    curX += ibpW
+                  } else {
+                    curX -= ibpW
+                    elements.push({ type: 'bearing', x: curX, width: ibpW })
+                  }
+                }
+                // small gap
+                curX += direction * springGap
+              }
+            }
+            return elements
+          }
+
+          // Left side: springs go right-to-left from center bearing plate edge
+          const leftEdge = midX - cbpW / 2 - 2 // small gap from CBP
+          const leftElements = buildSideElements(leftEdge, -1)
+
+          // Right side: springs go left-to-right from center bearing plate edge
+          const rightEdge = midX + cbpW / 2 + 2 // small gap from CBP
+          const rightElements = buildSideElements(rightEdge, 1)
 
           return (
             <g className="spring-assembly">
@@ -760,32 +821,68 @@ function FramingDrawing({
                 x2={drumRX + drumRx * 0.55} y2={shaftYPx - drumRy * 0.55}
                 stroke="#000" strokeWidth="0.8" />
 
-              {/* Left spring — rectangle with coil lines */}
-              <rect x={springLX} y={shaftYPx - springH / 2}
-                width={springW} height={springH}
-                fill="none" stroke="#000" strokeWidth="1" />
-              {Array.from({ length: Math.max(6, Math.round(springW / 6)) }, (_, i) => {
-                const lx = springLX + (springW / (Math.max(6, Math.round(springW / 6)) + 1)) * (i + 1)
-                return (
-                  <line key={`scl-${i}`}
-                    x1={lx} y1={shaftYPx - springH / 2}
-                    x2={lx} y2={shaftYPx + springH / 2}
-                    stroke="#000" strokeWidth="0.4" />
-                )
+              {/* Left side springs and inter-bearing plates */}
+              {leftElements.map((el, idx) => {
+                if (el.type === 'spring') {
+                  const coilCount = Math.max(4, Math.round(el.width / 8))
+                  return (
+                    <g key={`ls-${idx}`}>
+                      <rect x={el.x} y={shaftYPx - springH / 2}
+                        width={el.width} height={springH}
+                        fill="none" stroke="#000" strokeWidth="1" />
+                      {Array.from({ length: coilCount }, (_, ci) => {
+                        const lx = el.x + (el.width / (coilCount + 1)) * (ci + 1)
+                        return (
+                          <line key={`lsc-${idx}-${ci}`}
+                            x1={lx} y1={shaftYPx - springH / 2}
+                            x2={lx} y2={shaftYPx + springH / 2}
+                            stroke="#000" strokeWidth="0.4" />
+                        )
+                      })}
+                    </g>
+                  )
+                } else {
+                  // Inter-bearing plate
+                  return (
+                    <g key={`lb-${idx}`}>
+                      <rect x={el.x} y={shaftYPx - ibpH / 2}
+                        width={el.width} height={ibpH}
+                        fill="#fff" stroke="#000" strokeWidth="0.8" />
+                    </g>
+                  )
+                }
               })}
 
-              {/* Right spring — rectangle with coil lines */}
-              <rect x={springRX} y={shaftYPx - springH / 2}
-                width={springW} height={springH}
-                fill="none" stroke="#000" strokeWidth="1" />
-              {Array.from({ length: Math.max(6, Math.round(springW / 6)) }, (_, i) => {
-                const lx = springRX + (springW / (Math.max(6, Math.round(springW / 6)) + 1)) * (i + 1)
-                return (
-                  <line key={`scr-${i}`}
-                    x1={lx} y1={shaftYPx - springH / 2}
-                    x2={lx} y2={shaftYPx + springH / 2}
-                    stroke="#000" strokeWidth="0.4" />
-                )
+              {/* Right side springs and inter-bearing plates */}
+              {rightElements.map((el, idx) => {
+                if (el.type === 'spring') {
+                  const coilCount = Math.max(4, Math.round(el.width / 8))
+                  return (
+                    <g key={`rs-${idx}`}>
+                      <rect x={el.x} y={shaftYPx - springH / 2}
+                        width={el.width} height={springH}
+                        fill="none" stroke="#000" strokeWidth="1" />
+                      {Array.from({ length: coilCount }, (_, ci) => {
+                        const lx = el.x + (el.width / (coilCount + 1)) * (ci + 1)
+                        return (
+                          <line key={`rsc-${idx}-${ci}`}
+                            x1={lx} y1={shaftYPx - springH / 2}
+                            x2={lx} y2={shaftYPx + springH / 2}
+                            stroke="#000" strokeWidth="0.4" />
+                        )
+                      })}
+                    </g>
+                  )
+                } else {
+                  // Inter-bearing plate
+                  return (
+                    <g key={`rb-${idx}`}>
+                      <rect x={el.x} y={shaftYPx - ibpH / 2}
+                        width={el.width} height={ibpH}
+                        fill="#fff" stroke="#000" strokeWidth="0.8" />
+                    </g>
+                  )
+                }
               })}
 
               {/* Center bearing plate — rectangle with mount bracket */}
