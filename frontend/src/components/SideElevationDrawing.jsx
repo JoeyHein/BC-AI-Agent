@@ -225,13 +225,13 @@ function SideElevationDrawing({
         style={{ fontFamily: "'Courier New', 'Lucida Console', monospace", width: '100%', aspectRatio: '11 / 8.5' }}
       >
         <defs>
-          {/* Cross-hatch pattern 1 (45 degrees) */}
-          <pattern id="sideHatch45" patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(45)">
-            <line x1="0" y1="0" x2="0" y2="5" stroke="#555" strokeWidth="0.4" />
+          {/* Cross-hatch pattern 1 (45 degrees) — denser, darker for professional look */}
+          <pattern id="sideHatch45" patternUnits="userSpaceOnUse" width="3.5" height="3.5" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="3.5" stroke="#333" strokeWidth="0.6" />
           </pattern>
           {/* Cross-hatch pattern 2 (-45 degrees) */}
-          <pattern id="sideHatch135" patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(-45)">
-            <line x1="0" y1="0" x2="0" y2="5" stroke="#555" strokeWidth="0.4" />
+          <pattern id="sideHatch135" patternUnits="userSpaceOnUse" width="3.5" height="3.5" patternTransform="rotate(-45)">
+            <line x1="0" y1="0" x2="0" y2="3.5" stroke="#333" strokeWidth="0.6" />
           </pattern>
           {/* Insulation pattern for panel callout */}
           <pattern id="insulFill" patternUnits="userSpaceOnUse" width="12" height="8">
@@ -365,25 +365,43 @@ function SideElevationDrawing({
           INTERIOR
         </text>
 
-        {/* ===== CEILING LINE (dashed) ===== */}
-        <line
-          x1={originX}
-          y1={originY - s(g.headroomMin)}
-          x2={originX + s(g.backroom) + 30}
-          y2={originY - s(g.headroomMin)}
-          stroke="#000"
-          strokeWidth="0.75"
-          strokeDasharray="8,4"
-        />
-        <text
-          x={originX + s(g.backroom) + 32}
-          y={originY - s(g.headroomMin) + fontTiny * 0.35}
-          fontSize={fontTiny}
-          fill="#333"
-          textAnchor="start"
-        >
-          CEILING
-        </text>
+        {/* ===== CEILING WITH CROSS-HATCHING ===== */}
+        {(() => {
+          const ceilY = originY - s(g.headroomMin)
+          const ceilThickness = 14
+          const ceilLeft = originX
+          const ceilRight = originX + s(g.backroom) + 30
+          return (
+            <g className="ceiling-section">
+              {/* Ceiling hatching fill */}
+              <rect
+                x={ceilLeft} y={ceilY - ceilThickness}
+                width={ceilRight - ceilLeft} height={ceilThickness}
+                fill="url(#sideHatch45)" stroke="none"
+              />
+              <rect
+                x={ceilLeft} y={ceilY - ceilThickness}
+                width={ceilRight - ceilLeft} height={ceilThickness}
+                fill="url(#sideHatch135)" stroke="none"
+              />
+              {/* Ceiling outline */}
+              <rect
+                x={ceilLeft} y={ceilY - ceilThickness}
+                width={ceilRight - ceilLeft} height={ceilThickness}
+                fill="none" stroke="#000" strokeWidth="1.5"
+              />
+              <text
+                x={ceilRight + 4}
+                y={ceilY - ceilThickness / 2 + fontTiny * 0.35}
+                fontSize={fontTiny}
+                fill="#333"
+                textAnchor="start"
+              >
+                CEILING
+              </text>
+            </g>
+          )
+        })()}
 
         {/* ===== DOOR IN CLOSED POSITION ===== */}
         <rect
@@ -584,15 +602,35 @@ function SideElevationDrawing({
           <line x1={trackOuterX} y1={floorY}
             x2={trackOuterX} y2={vtTop}
             stroke="#000" strokeWidth="1.5" />
-          {/* Track bracket tick marks every ~24" along vertical section */}
+          {/* Track mounting flags/brackets every ~24" along vertical track */}
           {Array.from({ length: Math.floor(s(g.doorH) / Math.max(s(24), 30)) }, (_, i) => {
             const ty = floorY - (i + 1) * Math.max(s(24), 30)
             if (ty < vtTop) return null
+            const flagW = Math.max(6, baseUnit * 0.8)
+            const flagH = Math.max(4, baseUnit * 0.5)
             return (
-              <line key={`bracket${i}`}
-                x1={trackOuterX} y1={ty}
-                x2={trackOuterX + 4} y2={ty}
-                stroke="#000" strokeWidth="0.75" />
+              <g key={`bracket${i}`}>
+                {/* Horizontal flag protruding from outer track toward wall */}
+                <rect
+                  x={trackOuterX}
+                  y={ty - flagH / 2}
+                  width={flagW}
+                  height={flagH}
+                  fill="#444"
+                  stroke="#000"
+                  strokeWidth="0.5"
+                />
+                {/* Small vertical plate (L-bracket foot) */}
+                <rect
+                  x={trackOuterX + flagW - 2}
+                  y={ty - flagH / 2 - 2}
+                  width={2}
+                  height={flagH + 4}
+                  fill="#444"
+                  stroke="#000"
+                  strokeWidth="0.5"
+                />
+              </g>
             )
           })}
 
@@ -850,28 +888,33 @@ function SideElevationDrawing({
 
     if (lift === 'lhr_front' || lift === 'lhr_rear') {
       const sy = originY - s(g.headroomMin - 3)
+      const drumCX = originX + s(6)
       return (
         <g className="shaft-assembly">
-          {/* Shaft line */}
-          <line x1={originX + s(2)} y1={sy} x2={originX + s(20)} y2={sy}
+          {/* Short shaft line — just enough to show drum mounting */}
+          <line x1={originX + s(3)} y1={sy} x2={originX + s(9)} y2={sy}
             stroke="#000" strokeWidth="2" />
           {/* Drum circle */}
-          <circle cx={originX + s(6)} cy={sy} r={drumR}
-            fill="none" stroke="#000" strokeWidth="1" />
+          <circle cx={drumCX} cy={sy} r={drumR}
+            fill="white" stroke="#000" strokeWidth="1.5" />
           {/* X inside drum */}
-          <line x1={originX + s(6) - drumR * 0.6} y1={sy - drumR * 0.6}
-            x2={originX + s(6) + drumR * 0.6} y2={sy + drumR * 0.6}
+          <line x1={drumCX - drumR * 0.6} y1={sy - drumR * 0.6}
+            x2={drumCX + drumR * 0.6} y2={sy + drumR * 0.6}
+            stroke="#000" strokeWidth="0.75" />
+          <line x1={drumCX + drumR * 0.6} y1={sy - drumR * 0.6}
+            x2={drumCX - drumR * 0.6} y2={sy + drumR * 0.6}
+            stroke="#000" strokeWidth="0.75" />
+          {/* DRUM label with leader line */}
+          <line x1={drumCX + drumR + 2} y1={sy - drumR - 2}
+            x2={drumCX + drumR + baseUnit * 2} y2={sy - drumR - baseUnit * 1.5}
             stroke="#000" strokeWidth="0.5" />
-          <line x1={originX + s(6) + drumR * 0.6} y1={sy - drumR * 0.6}
-            x2={originX + s(6) - drumR * 0.6} y2={sy + drumR * 0.6}
-            stroke="#000" strokeWidth="0.5" />
-          {/* Spring coils — smooth sinusoidal coil */}
-          <path
-            d={generateSpringPath(originX + s(8), sy, originX + s(18), 12)}
-            fill="none" stroke="#000" strokeWidth="1.5"
-          />
+          <circle cx={drumCX + drumR + 2} cy={sy - drumR - 2} r="1.5" fill="#000" />
+          <text x={drumCX + drumR + baseUnit * 2.2} y={sy - drumR - baseUnit * 1.5 + fontTiny * 0.35}
+            fontSize={fontTiny} fill="#000" textAnchor="start" fontWeight="bold" letterSpacing="0.5">
+            DRUM
+          </text>
           {/* Cable from drum to bottom bracket */}
-          <line x1={originX + s(6)} y1={sy + drumR}
+          <line x1={drumCX} y1={sy + drumR}
             x2={originX + s(4)} y2={floorY - s(4)}
             stroke="#000" strokeWidth="0.75" strokeDasharray="4,2" />
           {/* Bottom bracket */}
@@ -879,11 +922,15 @@ function SideElevationDrawing({
             x={originX + s(DOOR_THICKNESS) - 1}
             y={floorY - s(6)}
             width={4} height={s(4)}
-            fill="#000" stroke="#000" strokeWidth="0.5"
+            fill="#444" stroke="#000" strokeWidth="0.5"
           />
-          <text x={originX + s(13)} y={sy - baseUnit * 0.6} fontSize={fontTiny} fill="#333" textAnchor="middle" letterSpacing="0.5">
-            SHAFT &amp; SPRING
-          </text>
+          {/* Horizontal foot of L-bracket */}
+          <rect
+            x={originX + s(DOOR_THICKNESS) - 3}
+            y={floorY - 3}
+            width={8} height={3}
+            fill="#444" stroke="#000" strokeWidth="0.5"
+          />
         </g>
       )
     }
@@ -900,20 +947,22 @@ function SideElevationDrawing({
     const bracketW = 6
     const bracketH = s(5)
 
+    const drumCX = curveEndX - s(1)
+
     return (
       <g className="shaft-assembly">
-        {/* Shaft line — runs horizontally at the curve transition */}
+        {/* Short shaft line — just enough to show drum mounting (springs are behind drum, not visible in side elevation) */}
         <line
-          x1={originX + s(2)}
+          x1={drumCX - drumR - s(2)}
           y1={actualShaftY}
-          x2={curveEndX + s(g.tSize + 2)}
+          x2={drumCX + drumR + s(2)}
           y2={actualShaftY}
           stroke="#000"
           strokeWidth="2.5"
         />
         {/* Drum circle with X cross inside — positioned AT the curve junction */}
         <circle
-          cx={curveEndX - s(1)}
+          cx={drumCX}
           cy={actualShaftY}
           r={drumR}
           fill="white"
@@ -921,36 +970,36 @@ function SideElevationDrawing({
           strokeWidth="1.5"
         />
         <line
-          x1={curveEndX - s(1) - drumR * 0.65} y1={actualShaftY - drumR * 0.65}
-          x2={curveEndX - s(1) + drumR * 0.65} y2={actualShaftY + drumR * 0.65}
+          x1={drumCX - drumR * 0.65} y1={actualShaftY - drumR * 0.65}
+          x2={drumCX + drumR * 0.65} y2={actualShaftY + drumR * 0.65}
           stroke="#000" strokeWidth="0.75" />
         <line
-          x1={curveEndX - s(1) + drumR * 0.65} y1={actualShaftY - drumR * 0.65}
-          x2={curveEndX - s(1) - drumR * 0.65} y2={actualShaftY + drumR * 0.65}
+          x1={drumCX + drumR * 0.65} y1={actualShaftY - drumR * 0.65}
+          x2={drumCX - drumR * 0.65} y2={actualShaftY + drumR * 0.65}
           stroke="#000" strokeWidth="0.75" />
 
-        {/* Spring coils — smooth sinusoidal coil running along the shaft toward the wall */}
-        <path
-          d={generateSpringPath(originX + s(4), actualShaftY, curveEndX - drumR - s(2), 14)}
-          fill="none"
-          stroke="#000"
-          strokeWidth="1.75"
+        {/* DRUM label with leader line */}
+        <line
+          x1={drumCX + drumR + 2} y1={actualShaftY - drumR - 2}
+          x2={drumCX + drumR + baseUnit * 3} y2={actualShaftY - drumR - baseUnit * 2}
+          stroke="#000" strokeWidth="0.5"
         />
-
-        {/* Winding cone (fixed end) — tapered rectangle at wall side */}
-        <polygon
-          points={`${originX + s(4)},${actualShaftY - baseUnit * 0.8} ${originX + s(4) + baseUnit * 1.2},${actualShaftY - baseUnit * 0.4} ${originX + s(4) + baseUnit * 1.2},${actualShaftY + baseUnit * 0.4} ${originX + s(4)},${actualShaftY + baseUnit * 0.8}`}
-          fill="#444" stroke="#000" strokeWidth="0.5"
-        />
-        {/* Winding cone (winding end) — tapered rectangle at drum side */}
-        <polygon
-          points={`${curveEndX - drumR - s(2)},${actualShaftY - baseUnit * 0.8} ${curveEndX - drumR - s(2) - baseUnit * 1.2},${actualShaftY - baseUnit * 0.4} ${curveEndX - drumR - s(2) - baseUnit * 1.2},${actualShaftY + baseUnit * 0.4} ${curveEndX - drumR - s(2)},${actualShaftY + baseUnit * 0.8}`}
-          fill="#444" stroke="#000" strokeWidth="0.5"
-        />
+        <circle cx={drumCX + drumR + 2} cy={actualShaftY - drumR - 2} r="1.5" fill="#000" />
+        <text
+          x={drumCX + drumR + baseUnit * 3.2}
+          y={actualShaftY - drumR - baseUnit * 2 + fontTiny * 0.35}
+          fontSize={fontTiny}
+          fill="#000"
+          textAnchor="start"
+          fontWeight="bold"
+          letterSpacing="0.5"
+        >
+          DRUM
+        </text>
 
         {/* Cable from drum down to bottom bracket — thin solid line */}
         <line
-          x1={curveEndX - s(1)}
+          x1={drumCX}
           y1={actualShaftY + drumR}
           x2={bracketX + bracketW / 2}
           y2={floorY - bracketH + 2}
@@ -960,7 +1009,6 @@ function SideElevationDrawing({
         />
 
         {/* Bottom bracket — L-shaped: vertical plate + horizontal foot */}
-        {/* Vertical plate */}
         <rect
           x={bracketX}
           y={floorY - bracketH}
@@ -970,7 +1018,6 @@ function SideElevationDrawing({
           stroke="#000"
           strokeWidth="0.75"
         />
-        {/* Horizontal foot of L-bracket */}
         <rect
           x={bracketX - 2}
           y={floorY - 3}
@@ -983,16 +1030,16 @@ function SideElevationDrawing({
 
         {/* CL SHAFT centerline symbol */}
         <line
-          x1={curveEndX + s(g.tSize + 3)}
+          x1={drumCX + drumR + baseUnit * 4}
           y1={actualShaftY}
-          x2={curveEndX + s(g.tSize + 3) + baseUnit * 2}
+          x2={drumCX + drumR + baseUnit * 6}
           y2={actualShaftY}
           stroke="#000"
           strokeWidth="0.5"
           strokeDasharray="6,2,2,2"
         />
         <text
-          x={curveEndX + s(g.tSize + 3) + baseUnit * 2.5}
+          x={drumCX + drumR + baseUnit * 6.5}
           y={actualShaftY + fontTiny * 0.35}
           fontSize={fontTiny}
           fill="#333"
@@ -1003,24 +1050,6 @@ function SideElevationDrawing({
         </text>
       </g>
     )
-  }
-
-  /**
-   * Generate a smooth sinusoidal spring coil path using cubic bezier curves.
-   * Each coil is an S-curve that simulates a torsion spring viewed from the side.
-   */
-  function generateSpringPath(startX, centerY, endX, coilCount) {
-    const amplitude = baseUnit * 0.6
-    const segW = (endX - startX) / coilCount
-    let d = `M ${startX} ${centerY}`
-    for (let i = 0; i < coilCount; i++) {
-      const x1 = startX + segW * i
-      const x2 = startX + segW * (i + 1)
-      const xMid = (x1 + x2) / 2
-      const dir = i % 2 === 0 ? 1 : -1
-      d += ` C ${xMid} ${centerY + amplitude * dir}, ${xMid} ${centerY + amplitude * dir}, ${x2} ${centerY}`
-    }
-    return d
   }
 
   /**
@@ -1123,24 +1152,29 @@ function SideElevationDrawing({
 
     let stIdx = 0
 
-    // 1. Door Height
+    // 1. h = Door Height (floor to top of opening)
     dimLine('dim-doorH', dimBaseX, originY, dimBaseX, floorY,
-      `DOOR HEIGHT: ${formatDim(g.doorH)}`, 20 + stIdx * dimStagger)
+      `h = ${formatDim(g.doorH)}`, 20 + stIdx * dimStagger)
     stIdx++
 
-    // 2. Req. Headroom (all black now)
+    // 2. HEADROOM REQUIRED (d)
     dimLine('dim-headroom', dimBaseX, originY - s(g.headroomMin), dimBaseX, originY,
-      `REQ. HEADROOM: ${formatDim(g.headroomMin)}`, 20 + stIdx * dimStagger)
+      `HEADROOM REQ'D (d) = ${formatDim(g.headroomMin)}`, 20 + stIdx * dimStagger)
     stIdx++
 
-    // 3. UST dimension (if applicable)
+    // 3. H = h + d = total height (floor to ceiling)
+    dimLine('dim-totalH', dimBaseX, originY - s(g.headroomMin), dimBaseX, floorY,
+      `H = h + d = ${formatDim(g.doorH + g.headroomMin)}`, 20 + stIdx * dimStagger)
+    stIdx++
+
+    // 4. UST dimension (if applicable)
     if (lift !== 'lhr_front' && lift !== 'lhr_rear') {
       dimLine('dim-ust', dimBaseX, originY - s(g.ust), dimBaseX, originY,
         `U.S.T.: ${formatDim(g.ust)}`, 20 + stIdx * dimStagger)
       stIdx++
     }
 
-    // 4. CL Shaft dimension (if applicable)
+    // 5. CL Shaft dimension (if applicable)
     if (lift !== 'lhr_front' && lift !== 'lhr_rear') {
       dimLine('dim-clshaft', dimBaseX, originY - s(g.clShaft), dimBaseX, originY,
         `CL SHAFT: ${formatDim(g.clShaft)}`, 20 + stIdx * dimStagger)
@@ -1154,9 +1188,123 @@ function SideElevationDrawing({
         `HIGH LIFT: ${formatDim(g.hl)}`, 0)
     }
 
-    // Backroom dimension (horizontal, above ceiling)
+    // Backroom dimension (horizontal, above ceiling) — P = h + 24" Approx.
     dimLine('dim-backroom', originX, originY - s(g.headroomMin), originX + s(g.backroom), originY - s(g.headroomMin),
-      `MIN. REQ. BACKROOM: ${formatDim(g.backroom)}`, -(baseUnit * 3.5))
+      `P = ${formatDim(g.backroom)}`, -(baseUnit * 3.5))
+
+    // Vertical track length label — rotated text along the vertical track
+    {
+      const trackInnerX = originX + s(DOOR_THICKNESS + 1)
+      const trackOuterX = originX + s(DOOR_THICKNESS + 1 + g.tSize)
+      const vtTrackLabelX = (trackInnerX + trackOuterX) / 2 - baseUnit * 1.8
+      const vtTrackMidY = originY + s(g.doorH / 2)
+      const vtLen = g.verticalTrackLen || g.doorH
+      elements.push(
+        <text
+          key="dim-vtrack-label"
+          x={vtTrackLabelX}
+          y={vtTrackMidY}
+          fontSize={fontTiny}
+          fill="#000"
+          textAnchor="middle"
+          transform={`rotate(-90, ${vtTrackLabelX}, ${vtTrackMidY})`}
+          letterSpacing="0.5"
+        >
+          {`VERT. TRACK = ${formatDim(vtLen)} WITH 1/8" PITCH`}
+        </text>
+      )
+    }
+
+    // Bottom 12" dimension — clearance from floor to bottom of track
+    {
+      const trackInnerX = originX + s(DOOR_THICKNESS + 1)
+      const bottomClearance = 12
+      const dimX = trackInnerX - baseUnit * 2
+      elements.push(
+        <g key="dim-bottom-12">
+          <line x1={dimX} y1={floorY} x2={dimX} y2={floorY - s(bottomClearance)}
+            stroke="#000" strokeWidth="0.5" />
+          <DiagTick x={dimX} y={floorY} />
+          <DiagTick x={dimX} y={floorY - s(bottomClearance)} />
+          {/* Extension lines */}
+          <line x1={trackInnerX} y1={floorY - s(bottomClearance)}
+            x2={dimX + 2} y2={floorY - s(bottomClearance)}
+            stroke="#000" strokeWidth="0.3" strokeDasharray="2,2" />
+          <text
+            x={dimX - baseUnit * 0.8}
+            y={floorY - s(bottomClearance / 2)}
+            fontSize={fontTiny}
+            fill="#000"
+            textAnchor="middle"
+            transform={`rotate(-90, ${dimX - baseUnit * 0.8}, ${floorY - s(bottomClearance / 2)})`}
+            letterSpacing="0.5"
+          >
+            {formatDim(bottomClearance)}
+          </text>
+        </g>
+      )
+    }
+
+    // Sideroom (C) — small dimension at floor level
+    {
+      const sideroomDimY = floorY + baseUnit * 4
+      elements.push(
+        <g key="dim-sideroom">
+          <line x1={originX - WALL_DRAW_W} y1={sideroomDimY}
+            x2={originX} y2={sideroomDimY}
+            stroke="#000" strokeWidth="0.5" />
+          <DiagTick x={originX - WALL_DRAW_W} y={sideroomDimY} />
+          <DiagTick x={originX} y={sideroomDimY} />
+          <line x1={originX - WALL_DRAW_W} y1={floorY + 8}
+            x2={originX - WALL_DRAW_W} y2={sideroomDimY + 2}
+            stroke="#000" strokeWidth="0.3" strokeDasharray="2,2" />
+          <line x1={originX} y1={floorY + 8}
+            x2={originX} y2={sideroomDimY + 2}
+            stroke="#000" strokeWidth="0.3" strokeDasharray="2,2" />
+          <text
+            x={(originX - WALL_DRAW_W + originX) / 2}
+            y={sideroomDimY + baseUnit * 1.2}
+            fontSize={fontTiny}
+            fill="#000"
+            textAnchor="middle"
+            letterSpacing="0.5"
+          >
+            {`C = ${formatDim(g.sideroom)}`}
+          </text>
+        </g>
+      )
+    }
+
+    // 9" dimension from wall face to drum center
+    {
+      const wallFaceX = originX
+      const nineInchDimY = originY - s(g.clShaft) - baseUnit * 3
+      elements.push(
+        <g key="dim-9inch">
+          <line x1={wallFaceX} y1={nineInchDimY}
+            x2={wallFaceX + s(9)} y2={nineInchDimY}
+            stroke="#000" strokeWidth="0.5" />
+          <DiagTick x={wallFaceX} y={nineInchDimY} />
+          <DiagTick x={wallFaceX + s(9)} y={nineInchDimY} />
+          <line x1={wallFaceX} y1={originY - s(g.headroomMin)}
+            x2={wallFaceX} y2={nineInchDimY + 2}
+            stroke="#000" strokeWidth="0.3" strokeDasharray="2,2" />
+          <line x1={wallFaceX + s(9)} y1={originY - s(g.clShaft)}
+            x2={wallFaceX + s(9)} y2={nineInchDimY + 2}
+            stroke="#000" strokeWidth="0.3" strokeDasharray="2,2" />
+          <text
+            x={wallFaceX + s(4.5)}
+            y={nineInchDimY - baseUnit * 0.4}
+            fontSize={fontTiny}
+            fill="#000"
+            textAnchor="middle"
+            letterSpacing="0.5"
+          >
+            9&quot;
+          </text>
+        </g>
+      )
+    }
 
     return <g className="dimensions">{elements}</g>
   }
