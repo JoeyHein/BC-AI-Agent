@@ -414,6 +414,14 @@ function FramingDrawing({
         {(() => {
           // Track inset in pixels — used to offset panel lines from tracks
           const tInset = Math.max(8, s(ts + 3))
+          // Struts: shown for commercial doors OR doors wider than 10' (120")
+          // Strut is a horizontal angle spanning the panel, drawn as a double line
+          const showStruts = doorType === 'commercial' || dw > 120
+          // Struts appear on alternating panels or all panels for commercial
+          const strutPanels = doorType === 'commercial'
+            ? Array.from({ length: panelCount }, (_, i) => i)
+            : Array.from({ length: panelCount }, (_, i) => i).filter(i => i % 2 === 0)
+
           return (
             <g className="door-panels">
               {/* Panel divider lines */}
@@ -425,6 +433,22 @@ function FramingDrawing({
                     x2={ox + s(dw) - tInset} y2={py}
                     stroke="#000" strokeWidth="0.6"
                   />
+                )
+              })}
+
+              {/* Strut lines — horizontal reinforcement angles across panels */}
+              {showStruts && strutPanels.map(pi => {
+                const strutY = oy + s(panelHeight * pi + panelHeight * 0.5)
+                const strutT = Math.max(3, s(1.2))  // strut thickness (double line separation)
+                return (
+                  <g key={`strut-${pi}`}>
+                    <line x1={ox + tInset} y1={strutY}
+                      x2={ox + s(dw) - tInset} y2={strutY}
+                      stroke="#000" strokeWidth="1.4" />
+                    <line x1={ox + tInset} y1={strutY + strutT}
+                      x2={ox + s(dw) - tInset} y2={strutY + strutT}
+                      stroke="#000" strokeWidth="0.6" />
+                  </g>
                 )
               })}
               {/* Panel ribbing/texture lines */}
@@ -557,27 +581,47 @@ function FramingDrawing({
           // Right track center X
           const rtcx = ox + doorPxW - trackInset - trackW / 2
 
+          // Number of hinges per joint increases with door width
+          // Standard: 2 for <10', 3 for 10'-14', 4 for >14'
+          const hingesPerJoint = dw < 120 ? 2 : dw <= 168 ? 3 : 4
+
+          // Hinge dimensions: filled rectangles protruding from panel edge
+          const hingeW = Math.max(14, s(7))   // protrusion from track outward
+          const hingeH = Math.max(5, s(2.2))  // thickness of hinge leaf
+
+          // Compute hinge X positions along the door width (edge + center)
+          // Edge hinges sit just outside the track, center hinges spread across
+          const getHingePositions = () => {
+            // Always have left and right edge hinges
+            const positions = [ltcx + trackW / 2 + 1, rtcx - trackW / 2 - 1 - hingeW]
+            if (hingesPerJoint >= 3) {
+              // Add one center hinge (door mid-point)
+              positions.push(ox + doorPxW / 2 - hingeW / 2)
+            }
+            if (hingesPerJoint >= 4) {
+              // Add a second center hinge at 1/3 and 2/3 across instead of one at center
+              positions.splice(2, 1)
+              positions.push(ox + doorPxW / 3 - hingeW / 2)
+              positions.push(ox + doorPxW * 2 / 3 - hingeW / 2)
+            }
+            return positions
+          }
+          const hingeXPositions = getHingePositions()
+
           return (
             <g className="hinges-rollers">
               {Array.from({ length: panelCount - 1 }, (_, i) => {
                 const jointY = oy + s(panelHeight * (i + 1))
-                const hingeW = Math.max(16, s(8))
-                const hingeH = Math.max(4, s(1.5))
                 return (
                   <g key={`hinge-${i}`}>
-                    {/* Hinge bracket spanning the joint — centered on joint line */}
-                    {/* Left side hinge */}
-                    <rect
-                      x={ltcx + trackW / 2 + 2} y={jointY - hingeH / 2}
-                      width={hingeW} height={hingeH}
-                      fill="none" stroke="#000" strokeWidth="0.8"
-                    />
-                    {/* Right side hinge */}
-                    <rect
-                      x={rtcx - trackW / 2 - 2 - hingeW} y={jointY - hingeH / 2}
-                      width={hingeW} height={hingeH}
-                      fill="none" stroke="#000" strokeWidth="0.8"
-                    />
+                    {/* Filled hinge rectangles at each position */}
+                    {hingeXPositions.map((hx, hi) => (
+                      <rect key={`h-${i}-${hi}`}
+                        x={hx} y={jointY - hingeH / 2}
+                        width={hingeW} height={hingeH}
+                        fill="#333" stroke="#000" strokeWidth="0.5"
+                      />
+                    ))}
                     {/* Left roller — small circle in the track */}
                     <circle cx={ltcx} cy={jointY} r={rollerR}
                       fill="#fff" stroke="#000" strokeWidth="0.8" />
@@ -587,16 +631,70 @@ function FramingDrawing({
                   </g>
                 )
               })}
-              {/* Bottom bracket rollers (at floor level) */}
-              <circle cx={ltcx} cy={oy + s(dh) - Math.max(4, s(2))} r={rollerR}
-                fill="#fff" stroke="#000" strokeWidth="0.8" />
-              <circle cx={rtcx} cy={oy + s(dh) - Math.max(4, s(2))} r={rollerR}
-                fill="#fff" stroke="#000" strokeWidth="0.8" />
+
+              {/* ============================================================ */}
+              {/* BOTTOM BRACKET — L-shaped bracket at both bottom corners     */}
+              {/* Sits at the floor line where the bottom roller attaches      */}
+              {/* ============================================================ */}
+              {(() => {
+                const floorY = oy + s(dh)
+                const bbW = Math.max(14, s(7))    // horizontal arm of L
+                const bbH = Math.max(18, s(9))    // vertical arm of L
+                const bbT = Math.max(3, s(1.5))   // bracket thickness
+                // Left bottom bracket (L opens to the right / inward)
+                const lbx = ox + trackInset
+                // Right bottom bracket (L opens to the left / inward)
+                const rbx = ox + doorPxW - trackInset - bbW
+                return (
+                  <g className="bottom-brackets">
+                    {/* Left L-bracket */}
+                    {/* Vertical arm (going up from floor) */}
+                    <rect x={lbx} y={floorY - bbH} width={bbT} height={bbH}
+                      fill="#333" stroke="#000" strokeWidth="0.5" />
+                    {/* Horizontal arm (going inward along floor) */}
+                    <rect x={lbx} y={floorY - bbT} width={bbW} height={bbT}
+                      fill="#333" stroke="#000" strokeWidth="0.5" />
+                    {/* Roller at bottom of left track */}
+                    <circle cx={ltcx} cy={floorY - bbH / 2} r={rollerR}
+                      fill="#fff" stroke="#000" strokeWidth="0.8" />
+
+                    {/* Right L-bracket */}
+                    {/* Vertical arm */}
+                    <rect x={rbx + bbW - bbT} y={floorY - bbH} width={bbT} height={bbH}
+                      fill="#333" stroke="#000" strokeWidth="0.5" />
+                    {/* Horizontal arm */}
+                    <rect x={rbx} y={floorY - bbT} width={bbW} height={bbT}
+                      fill="#333" stroke="#000" strokeWidth="0.5" />
+                    {/* Roller at bottom of right track */}
+                    <circle cx={rtcx} cy={floorY - bbH / 2} r={rollerR}
+                      fill="#fff" stroke="#000" strokeWidth="0.8" />
+                  </g>
+                )
+              })()}
+
               {/* Top rollers (at top of door) */}
               <circle cx={ltcx} cy={oy + Math.max(4, s(2))} r={rollerR}
                 fill="#fff" stroke="#000" strokeWidth="0.8" />
               <circle cx={rtcx} cy={oy + Math.max(4, s(2))} r={rollerR}
                 fill="#fff" stroke="#000" strokeWidth="0.8" />
+
+              {/* ============================================================ */}
+              {/* WEATHERSEAL — thicker line / small flap at very bottom       */}
+              {/* ============================================================ */}
+              {(() => {
+                const floorY = oy + s(dh)
+                const sealH = Math.max(4, s(1.8))
+                return (
+                  <g className="weatherseal">
+                    {/* Seal body — slightly thicker line across full door width */}
+                    <rect x={ox} y={floorY} width={s(dw)} height={sealH}
+                      fill="#555" stroke="#000" strokeWidth="0.6" opacity="0.7" />
+                    {/* Small drip flap hanging below */}
+                    <rect x={ox + s(2)} y={floorY + sealH} width={s(dw) - s(4)} height={sealH * 0.5}
+                      fill="none" stroke="#000" strokeWidth="0.5" strokeDasharray="3,2" />
+                  </g>
+                )
+              })()}
             </g>
           )
         })()}
