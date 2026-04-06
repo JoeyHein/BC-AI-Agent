@@ -108,8 +108,6 @@ class PublicCORSMiddleware(BaseHTTPMiddleware):
             return response
         return await call_next(request)
 
-app.add_middleware(PublicCORSMiddleware)
-
 # CORS middleware — origins come from ALLOWED_ORIGINS env var
 app.add_middleware(
     CORSMiddleware,
@@ -118,6 +116,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Public CORS must be added AFTER CORSMiddleware (runs first in reverse order)
+# so it intercepts /api/public/ requests before the restricted CORS middleware
+app.add_middleware(PublicCORSMiddleware)
 
 # Include API routers
 # Mounting authentication and email connection routers
