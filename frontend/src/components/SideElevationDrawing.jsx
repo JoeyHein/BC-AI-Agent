@@ -411,9 +411,9 @@ function SideElevationDrawing({
           y={originY}
           width={s(DOOR_THICKNESS)}
           height={s(g.doorH)}
-          fill="#e8e8e8"
+          fill="#fff"
           stroke="#000"
-          strokeWidth="2"
+          strokeWidth="1.5"
         />
         {/* Panel section divider lines on closed door */}
         {Array.from({ length: panelCount - 1 }, (_, i) => {
