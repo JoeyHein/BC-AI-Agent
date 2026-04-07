@@ -1176,7 +1176,7 @@ function SideElevationDrawing({
     {
       const trackInnerX = originX + s(DOOR_THICKNESS + 1)
       const trackOuterX = originX + s(DOOR_THICKNESS + 1 + g.tSize)
-      const vtTrackLabelX = (trackInnerX + trackOuterX) / 2 - baseUnit * 1.8
+      const vtTrackLabelX = trackOuterX + baseUnit * 1.5
       const vtTrackMidY = originY + s(g.doorH / 2)
       const vtLen = g.verticalTrackLen || g.doorH
       elements.push(
