@@ -367,7 +367,9 @@ function SideElevationDrawing({
 
         {/* ===== CEILING WITH CROSS-HATCHING ===== */}
         {(() => {
-          const ceilY = originY - s(g.headroomMin)
+          // Ceiling must be above the drum and horizontal track
+          const trackTopY = (g.lift === 'high_lift' ? originY - s(g.hl) : originY) - s(g.radius)
+          const ceilY = Math.min(originY - s(g.headroomMin), trackTopY - s(g.tSize) - 16)
           const ceilThickness = 14
           const ceilLeft = originX
           const ceilRight = originX + s(g.backroom) + 30
@@ -659,64 +661,36 @@ function SideElevationDrawing({
           {/* Quarter-circle curve — clearly showing track channel curving */}
           {g.curveType !== 'none' && (
             <g key="curve">
-              {/* Outer (door-side) curve arc — sweeps from vertical track top into horizontal */}
+              {/* Quarter-circle curve using bezier for reliable direction control.
+                  Curve goes from top of vertical track, smoothly RIGHT into horizontal track.
+                  Control point at corner (trackInnerX, hTrackTopY) ensures concave-inward curve. */}
               <path
                 d={`M ${trackInnerX} ${vtTop}
-                    A ${s(g.radius)} ${s(g.radius)} 0 0 0
-                    ${curveEndX} ${hTrackTopY}`}
+                    Q ${trackInnerX} ${hTrackTopY} ${curveEndX} ${hTrackTopY}`}
                 fill="none"
                 stroke="#000"
                 strokeWidth="1.5"
               />
-              {/* Inner curve arc */}
+              {/* Inner curve — slightly smaller radius */}
               <path
                 d={`M ${trackOuterX} ${vtTop}
-                    A ${s(g.radius - g.tSize)} ${s(g.radius - g.tSize)} 0 0 0
-                    ${curveEndX} ${hTrackBotY}`}
+                    Q ${trackOuterX} ${hTrackBotY} ${curveEndX} ${hTrackBotY}`}
                 fill="none"
                 stroke="#000"
                 strokeWidth="1.5"
               />
-              {/* Radius dimension — dashed line from arc center to arc midpoint at 45° */}
-              {(() => {
-                // Arc center is at the corner where vertical and horizontal tracks would meet
-                const arcCX = trackInnerX
-                const arcCY = hTrackTopY
-                // Midpoint of the quarter arc is at 45° from center
-                const midAngle = Math.PI / 4   // 45 degrees
-                const r = s(g.radius)
-                // Arc goes from (trackInnerX, vtTop) curving right then up — CCW sweep
-                // 45° point on the arc from center (trackInnerX, hTrackTopY)
-                const arcMidX = arcCX + r * Math.sin(midAngle)
-                const arcMidY = arcCY + r * Math.cos(midAngle)
-                // Label positioned just outside the arc midpoint
-                const labelOffset = baseUnit * 1.5
-                const labelX = arcMidX + labelOffset * 0.5
-                const labelY = arcMidY + labelOffset * 0.5
-                return (
-                  <>
-                    {/* Dashed radial line from center to arc midpoint */}
-                    <line
-                      x1={arcCX} y1={arcCY}
-                      x2={arcMidX} y2={arcMidY}
-                      stroke="#555" strokeWidth="0.75"
-                      strokeDasharray="3,2"
-                    />
-                    {/* Radius value label */}
-                    <text
-                      x={labelX}
-                      y={labelY}
-                      fontSize={fontTiny}
-                      fill="#000"
-                      textAnchor="middle"
-                      fontWeight="bold"
-                      letterSpacing="0.5"
-                    >
-                      R{g.radius}&quot;
-                    </text>
-                  </>
-                )
-              })()}
+              {/* Radius label near the curve */}
+              <text
+                x={(trackInnerX + curveEndX) / 2 + baseUnit * 0.5}
+                y={(vtTop + hTrackTopY) / 2}
+                fontSize={fontTiny}
+                fill="#000"
+                textAnchor="start"
+                fontWeight="bold"
+                letterSpacing="0.5"
+              >
+                R{g.radius}&quot;
+              </text>
             </g>
           )}
 
@@ -936,14 +910,13 @@ function SideElevationDrawing({
       )
     }
 
-    // For standard/high_lift: drum sits at the TOP of the vertical track, near the wall
-    // The curve wraps around below the drum into the horizontal track
+    // For standard/high_lift: drum sits at the top of the curve, near the wall
     const vtTop = lift === 'high_lift' ? originY - s(g.hl) : originY
     const curveEndX = originX + s(DOOR_THICKNESS + 1 + g.radius)
     const hTrackTopY = vtTop - s(g.radius)
-    // Drum is near the wall at the top of the vertical track (like the reference drawing)
+    // Drum positioned just above the horizontal track top rail, near the wall side
     const trackMidX = originX + s(DOOR_THICKNESS + 1 + g.tSize / 2)
-    const actualShaftY = vtTop - s(g.radius) - s(g.tSize / 2) - drumR - 2
+    const actualShaftY = hTrackTopY - drumR - 3
 
     // Bottom bracket anchor X — on the track-side of the closed door
     const bracketX = originX + s(DOOR_THICKNESS + 1) + 1
