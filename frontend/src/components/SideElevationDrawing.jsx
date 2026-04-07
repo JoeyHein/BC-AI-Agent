@@ -660,10 +660,10 @@ function SideElevationDrawing({
           {/* Quarter-circle curve — clearly showing track channel curving */}
           {g.curveType !== 'none' && (
             <g key="curve">
-              {/* Outer (door-side) curve arc */}
+              {/* Outer (door-side) curve arc — sweeps from vertical track top into horizontal */}
               <path
                 d={`M ${trackInnerX} ${vtTop}
-                    A ${s(g.radius)} ${s(g.radius)} 0 0 0
+                    A ${s(g.radius)} ${s(g.radius)} 0 0 1
                     ${curveEndX} ${hTrackTopY}`}
                 fill="none"
                 stroke="#000"
@@ -672,7 +672,7 @@ function SideElevationDrawing({
               {/* Inner curve arc */}
               <path
                 d={`M ${trackOuterX} ${vtTop}
-                    A ${s(g.radius - g.tSize)} ${s(g.radius - g.tSize)} 0 0 0
+                    A ${s(g.radius - g.tSize)} ${s(g.radius - g.tSize)} 0 0 1
                     ${curveEndX} ${hTrackBotY}`}
                 fill="none"
                 stroke="#000"
@@ -680,18 +680,19 @@ function SideElevationDrawing({
               />
               {/* Radius dimension — dashed line from arc center to arc midpoint at 45° */}
               {(() => {
-                // Arc center is at the corner where vertical and horizontal tracks meet
+                // Arc center is at the corner where vertical and horizontal tracks would meet
                 const arcCX = trackInnerX
                 const arcCY = hTrackTopY
                 // Midpoint of the quarter arc is at 45° from center
                 const midAngle = Math.PI / 4   // 45 degrees
                 const r = s(g.radius)
-                const arcMidX = arcCX + r * Math.cos(Math.PI - midAngle)
-                const arcMidY = arcCY + r * Math.sin(midAngle)
+                // Arc goes from (trackInnerX, vtTop) curving right and up
+                const arcMidX = arcCX + r * Math.sin(midAngle)
+                const arcMidY = arcCY + r * Math.cos(midAngle)
                 // Label positioned just beyond the arc midpoint
                 const labelOffset = baseUnit * 1.5
-                const labelX = arcMidX - labelOffset * 0.7
-                const labelY = arcMidY - labelOffset * 0.5
+                const labelX = arcMidX + labelOffset * 0.7
+                const labelY = arcMidY + labelOffset * 0.3
                 return (
                   <>
                     {/* Dashed radial line from center to arc midpoint */}
@@ -935,19 +936,21 @@ function SideElevationDrawing({
       )
     }
 
-    // For standard/high_lift: shaft sits at the curve transition (where vertical meets horizontal)
+    // For standard/high_lift: drum sits at the TOP of the vertical track, near the wall
+    // The curve wraps around below the drum into the horizontal track
     const vtTop = lift === 'high_lift' ? originY - s(g.hl) : originY
     const curveEndX = originX + s(DOOR_THICKNESS + 1 + g.radius)
     const hTrackTopY = vtTop - s(g.radius)
-    // Shaft is centered at the top of the curve, right at the transition point
-    const actualShaftY = hTrackTopY - s(g.tSize / 2) - drumR - 2
+    // Drum is near the wall at the top of the vertical track (like the reference drawing)
+    const trackMidX = originX + s(DOOR_THICKNESS + 1 + g.tSize / 2)
+    const actualShaftY = vtTop - s(g.radius) - s(g.tSize / 2) - drumR - 2
 
     // Bottom bracket anchor X — on the track-side of the closed door
     const bracketX = originX + s(DOOR_THICKNESS + 1) + 1
     const bracketW = 6
     const bracketH = s(5)
 
-    const drumCX = curveEndX - s(1)
+    const drumCX = trackMidX
 
     return (
       <g className="shaft-assembly">

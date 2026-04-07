@@ -437,9 +437,9 @@ function FramingDrawing({
                 )
               })}
 
-              {/* Strut lines — horizontal reinforcement angles across panels */}
+              {/* Strut lines — horizontal reinforcement angles at panel joints (touching hinges) */}
               {showStruts && strutPanels.map(pi => {
-                const strutY = oy + s(panelHeight * pi + panelHeight * 0.5)
+                const strutY = oy + s(panelHeight * (pi + 1))
                 const strutT = Math.max(3, s(1.2))  // strut thickness (double line separation)
                 return (
                   <g key={`strut-${pi}`}>
@@ -533,41 +533,8 @@ function FramingDrawing({
           )
         })()}
 
-        {/* ================================================================ */}
-        {/* TRACK CURVES — from front view, curves go BACKWARD (into the   */}
-        {/* building) so we only see a small upward arc at the top of each */}
-        {/* track, then dashed lines going inward representing the         */}
-        {/* horizontal tracks receding into the ceiling overhead.           */}
-        {/* ================================================================ */}
-        {(() => {
-          const trackInset = Math.max(4, s(1.5))
-          const trackW = Math.max(6, s(ts))
-          const doorPxW = s(dw)
-          // Small visible arc height — the curve mostly goes into depth,
-          // so from the front we just see a small upward transition
-          const arcHeight = Math.max(8, s(tr * 0.4))
-          // Left track center X
-          const lcx = ox + trackInset + trackW / 2
-          // Right track center X
-          const rcx = ox + doorPxW - trackInset - trackW / 2
-          return (
-            <g className="track-curves">
-              {/* Left track top: small upward curve then dashed line going inward */}
-              <path d={`M ${lcx} ${oy} Q ${lcx} ${oy - arcHeight} ${lcx + arcHeight * 0.8} ${oy - arcHeight}`}
-                fill="none" stroke="#000" strokeWidth={Math.max(trackW * 0.6, 2)} />
-              <line x1={lcx + arcHeight * 0.8} y1={oy - arcHeight}
-                x2={ox + doorPxW * 0.4} y2={oy - arcHeight}
-                stroke="#000" strokeWidth="1.5" strokeDasharray="6,3" />
-
-              {/* Right track top: small upward curve then dashed line going inward */}
-              <path d={`M ${rcx} ${oy} Q ${rcx} ${oy - arcHeight} ${rcx - arcHeight * 0.8} ${oy - arcHeight}`}
-                fill="none" stroke="#000" strokeWidth={Math.max(trackW * 0.6, 2)} />
-              <line x1={rcx - arcHeight * 0.8} y1={oy - arcHeight}
-                x2={ox + doorPxW * 0.6} y2={oy - arcHeight}
-                stroke="#000" strokeWidth="1.5" strokeDasharray="6,3" />
-            </g>
-          )
-        })()}
+        {/* Track curves and horizontal tracks are NOT visible from the    */}
+        {/* front face view — they recede into the building behind the wall */}
 
         {/* ================================================================ */}
         {/* HINGES + ROLLERS at each panel joint                           */}
