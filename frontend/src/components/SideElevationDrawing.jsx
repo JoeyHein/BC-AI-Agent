@@ -458,9 +458,8 @@ function SideElevationDrawing({
           DOOR (CLOSED)
         </text>
 
-        {/* ===== TRACKS AND DOOR OPEN POSITION ===== */}
+        {/* ===== TRACKS AND SHAFT ASSEMBLY ===== */}
         {renderTracks()}
-        {renderDoorOpen()}
         {renderShaftAssembly()}
 
         {/* ===== DIMENSION LINES ===== */}
@@ -663,7 +662,7 @@ function SideElevationDrawing({
               {/* Outer (door-side) curve arc — sweeps from vertical track top into horizontal */}
               <path
                 d={`M ${trackInnerX} ${vtTop}
-                    A ${s(g.radius)} ${s(g.radius)} 0 0 1
+                    A ${s(g.radius)} ${s(g.radius)} 0 0 0
                     ${curveEndX} ${hTrackTopY}`}
                 fill="none"
                 stroke="#000"
@@ -672,7 +671,7 @@ function SideElevationDrawing({
               {/* Inner curve arc */}
               <path
                 d={`M ${trackOuterX} ${vtTop}
-                    A ${s(g.radius - g.tSize)} ${s(g.radius - g.tSize)} 0 0 1
+                    A ${s(g.radius - g.tSize)} ${s(g.radius - g.tSize)} 0 0 0
                     ${curveEndX} ${hTrackBotY}`}
                 fill="none"
                 stroke="#000"
@@ -686,13 +685,14 @@ function SideElevationDrawing({
                 // Midpoint of the quarter arc is at 45° from center
                 const midAngle = Math.PI / 4   // 45 degrees
                 const r = s(g.radius)
-                // Arc goes from (trackInnerX, vtTop) curving right and up
+                // Arc goes from (trackInnerX, vtTop) curving right then up — CCW sweep
+                // 45° point on the arc from center (trackInnerX, hTrackTopY)
                 const arcMidX = arcCX + r * Math.sin(midAngle)
                 const arcMidY = arcCY + r * Math.cos(midAngle)
-                // Label positioned just beyond the arc midpoint
+                // Label positioned just outside the arc midpoint
                 const labelOffset = baseUnit * 1.5
-                const labelX = arcMidX + labelOffset * 0.7
-                const labelY = arcMidY + labelOffset * 0.3
+                const labelX = arcMidX + labelOffset * 0.5
+                const labelY = arcMidY + labelOffset * 0.5
                 return (
                   <>
                     {/* Dashed radial line from center to arc midpoint */}

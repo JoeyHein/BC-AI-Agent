@@ -682,9 +682,8 @@ function FramingDrawing({
           const drumLX = ox + trackInset + trackW / 2
           const drumRX = ox + doorPxW - trackInset - trackW / 2
 
-          // Drum size: ellipse (side view — wider along shaft)
-          const drumRx = Math.max(10, s(5))   // horizontal radius
-          const drumRy = Math.max(7, s(3.5))  // vertical radius
+          // Drum size: small circle (front face view — we see the round end of the drum)
+          const drumR = Math.max(6, s(3))
 
           // Spring count: must be even, default 2, clamp to 2-8
           const totalSprings = Math.max(2, Math.min(8, Math.round((springCountProp || 2) / 2) * 2))
@@ -700,7 +699,7 @@ function FramingDrawing({
           const ibpH = Math.max(14, springH * 1.2)
 
           // Available space for springs on each side (between drum and center bearing plate)
-          const sideSpace = (midX - cbpW / 2) - (drumLX + drumRx + 4)
+          const sideSpace = (midX - cbpW / 2) - (drumLX + drumR + 4)
 
           // Gap between springs (small)
           const springGap = Math.max(2, s(0.8))
@@ -763,29 +762,29 @@ function FramingDrawing({
             <g className="spring-assembly">
               {/* Torsion shaft — bold line from drum to drum */}
               <line
-                x1={drumLX - drumRx - 2} y1={shaftYPx}
-                x2={drumRX + drumRx + 2} y2={shaftYPx}
+                x1={drumLX - drumR - 2} y1={shaftYPx}
+                x2={drumRX + drumR + 2} y2={shaftYPx}
                 stroke="#000" strokeWidth="2.5"
               />
 
-              {/* Left cable drum — side-view ellipse at track position */}
-              <ellipse cx={drumLX} cy={shaftYPx} rx={drumRx} ry={drumRy}
+              {/* Left cable drum — small circle (end-on view from front) */}
+              <circle cx={drumLX} cy={shaftYPx} r={drumR}
                 fill="#fff" stroke="#000" strokeWidth="1.5" />
-              <line x1={drumLX - drumRx * 0.55} y1={shaftYPx - drumRy * 0.55}
-                x2={drumLX + drumRx * 0.55} y2={shaftYPx + drumRy * 0.55}
+              <line x1={drumLX - drumR * 0.5} y1={shaftYPx - drumR * 0.5}
+                x2={drumLX + drumR * 0.5} y2={shaftYPx + drumR * 0.5}
                 stroke="#000" strokeWidth="0.8" />
-              <line x1={drumLX - drumRx * 0.55} y1={shaftYPx + drumRy * 0.55}
-                x2={drumLX + drumRx * 0.55} y2={shaftYPx - drumRy * 0.55}
+              <line x1={drumLX - drumR * 0.5} y1={shaftYPx + drumR * 0.5}
+                x2={drumLX + drumR * 0.5} y2={shaftYPx - drumR * 0.5}
                 stroke="#000" strokeWidth="0.8" />
 
-              {/* Right cable drum — side-view ellipse at track position */}
-              <ellipse cx={drumRX} cy={shaftYPx} rx={drumRx} ry={drumRy}
+              {/* Right cable drum — small circle (end-on view from front) */}
+              <circle cx={drumRX} cy={shaftYPx} r={drumR}
                 fill="#fff" stroke="#000" strokeWidth="1.5" />
-              <line x1={drumRX - drumRx * 0.55} y1={shaftYPx - drumRy * 0.55}
-                x2={drumRX + drumRx * 0.55} y2={shaftYPx + drumRy * 0.55}
+              <line x1={drumRX - drumR * 0.5} y1={shaftYPx - drumR * 0.5}
+                x2={drumRX + drumR * 0.5} y2={shaftYPx + drumR * 0.5}
                 stroke="#000" strokeWidth="0.8" />
-              <line x1={drumRX - drumRx * 0.55} y1={shaftYPx + drumRy * 0.55}
-                x2={drumRX + drumRx * 0.55} y2={shaftYPx - drumRy * 0.55}
+              <line x1={drumRX - drumR * 0.5} y1={shaftYPx + drumR * 0.5}
+                x2={drumRX + drumR * 0.5} y2={shaftYPx - drumR * 0.5}
                 stroke="#000" strokeWidth="0.8" />
 
               {/* Left side springs and inter-bearing plates */}
