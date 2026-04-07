@@ -603,31 +603,35 @@ function SideElevationDrawing({
           <line x1={trackOuterX} y1={floorY}
             x2={trackOuterX} y2={vtTop}
             stroke="#000" strokeWidth="1.5" />
-          {/* Track mounting flags/brackets every ~24" along vertical track */}
+          {/* Jamb brackets — L-shaped mounting flags every ~24" along vertical track
+              These mount from the back of the track to the wall/jamb */}
           {Array.from({ length: Math.floor(s(g.doorH) / Math.max(s(24), 30)) }, (_, i) => {
             const ty = floorY - (i + 1) * Math.max(s(24), 30)
             if (ty < vtTop) return null
-            const flagW = Math.max(6, baseUnit * 0.8)
-            const flagH = Math.max(4, baseUnit * 0.5)
+            const flagW = Math.max(5, baseUnit * 0.6)
+            const flagH = Math.max(3, baseUnit * 0.4)
+            // Bracket sits between track inner edge and the door/wall
+            // Horizontal plate from track inner edge toward the door face
+            const bracketX = trackInnerX - flagW
             return (
               <g key={`bracket${i}`}>
-                {/* Horizontal flag protruding from outer track toward wall */}
+                {/* Horizontal flag — from track toward door face */}
                 <rect
-                  x={trackOuterX}
+                  x={bracketX}
                   y={ty - flagH / 2}
                   width={flagW}
                   height={flagH}
-                  fill="#444"
+                  fill="#555"
                   stroke="#000"
                   strokeWidth="0.5"
                 />
-                {/* Small vertical plate (L-bracket foot) */}
+                {/* Vertical plate (L-bracket foot against wall) */}
                 <rect
-                  x={trackOuterX + flagW - 2}
+                  x={bracketX}
                   y={ty - flagH / 2 - 2}
                   width={2}
                   height={flagH + 4}
-                  fill="#444"
+                  fill="#555"
                   stroke="#000"
                   strokeWidth="0.5"
                 />
