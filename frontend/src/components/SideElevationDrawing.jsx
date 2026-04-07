@@ -977,15 +977,14 @@ function SideElevationDrawing({
           DRUM
         </text>
 
-        {/* Cable from drum down to bottom bracket — thin solid line */}
+        {/* Cable from drum down to bottom bracket — exits wall side of drum */}
         <line
-          x1={drumCX}
-          y1={actualShaftY + drumR}
+          x1={drumCX - drumR}
+          y1={actualShaftY}
           x2={bracketX + bracketW / 2}
           y2={floorY - bracketH + 2}
           stroke="#000"
           strokeWidth="0.75"
-          strokeDasharray="none"
         />
 
         {/* Bottom bracket — L-shaped: vertical plate + horizontal foot */}
