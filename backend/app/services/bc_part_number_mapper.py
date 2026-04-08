@@ -606,8 +606,16 @@ class BCPartNumberMapper:
         Returns:
             BCPartNumber for astragal
         """
+        # Aluminum doors use a dedicated aluminum astragal
+        if door_type == "aluminium":
+            return BCPartNumber(
+                part_number="PL10-00004-00",
+                description='ASTRAGAL, 3" ALUMINIUM DOOR BOTTOM RUBBER',
+                category="ASTRAGAL"
+            )
+
         # Commercial doors 12' or wider get 4" astragal
-        if door_type in ("commercial", "aluminium") and door_width_feet >= 12:
+        if door_type == "commercial" and door_width_feet >= 12:
             size = 4
         elif door_width_feet > 16:
             size = 4

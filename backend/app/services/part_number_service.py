@@ -1845,6 +1845,10 @@ class PartNumberService:
         door width and height. Small doors may need zero struts.
         CRAFT series: 0 struts without windows (except 16'=1), 1 strut with windows.
         """
+        # Aluminum doors have built-in struts — never add separate strut parts
+        if config.door_type == "aluminium":
+            return []
+
         # Residential doors (KANATA & CRAFT): always 1 x 20ga strut
         if config.door_type == "residential" and config.door_series in ("KANATA", "CRAFT"):
             door_width_feet = config.door_width // 12

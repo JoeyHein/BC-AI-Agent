@@ -720,7 +720,7 @@ def _format_door_description(door: DoorConfigRequest) -> str:
 
     # Determine lift type
     lift_type_raw = getattr(door, 'liftType', 'standard') or 'standard'
-    if lift_type_raw == "low_headroom" or door.trackRadius == "12":
+    if lift_type_raw == "low_headroom":
         lift_type = "LHR"
     elif lift_type_raw == "high_lift":
         lift_type = "HIGH LIFT"
