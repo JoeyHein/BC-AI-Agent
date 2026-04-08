@@ -79,6 +79,7 @@ class DoorSeries(Enum):
     TX450_20 = "TX450-20"
     TX500_20 = "TX500-20"
     AL976 = "AL976"
+    SWD = "SWD"
     KANATA_EXECUTIVE = "KANATA_EXECUTIVE"
 
 
@@ -2210,6 +2211,15 @@ class PartNumberService:
           hh = 21 or 24, f = 0(Clear Ano) or 1(Mill)
           p = 1-6 (same as PN97), s = 0(NO OPT), 1(DOUBLE), 3(THERM Y)
           wwww = door width + 2"
+
+        AL-SWD (PN70): PN70-{hh}{www}{f}{p}{s}-{wwww}
+          hh  = section height (21 or 24)
+          www = width group (100=6'-8'2", 200=8'3"-10'2", 300=10'3"-16'2", 400=16'3"-18'2", 500=18'3"-21'2")
+          f   = finish (0=Clear Ano, 1=Mill, 3=White, 8=Black Ano)
+          p   = position (1=TOP SEF, 2=INT SEF, 3=BOT SEF, 4=TOP DEF, 5=INT DEF, 6=BOT DEF)
+          s   = option (0=NO OPT for SEF; DEF: TOP=5, INT=2, BOT=1)
+          wwww = door width + 2" (e.g. 0802=8'2")
+          SEF only below 14'2" (170"), DEF available at 14'2"+
         """
         parts = []
         series = config.door_series.upper()
@@ -2357,27 +2367,33 @@ class PartNumberService:
                     notes=f"Solalite section {section_num} of {panel_count}"
                 ))
 
-        elif series == "AL-SWD" or series == "AL_SWD" or series == "ALSWD":
-            # PN70: {hh}{len}{f}{pp}-{wwww}
-            # Length codes based on door width range
-            if door_width_feet <= 8:
-                length_code = "1"
-            elif door_width_feet <= 10:
-                length_code = "2"
-            elif door_width_feet <= 16:
-                length_code = "3"
-            elif door_width_feet <= 18:
-                length_code = "4"
+        elif series in ("AL-SWD", "AL_SWD", "ALSWD", "SWD"):
+            # PN70: PN70-{hh}{www}{f}{p}{s}-{wwww}
+            # Width groups (different from AL976):
+            #   1 (100): 6'-8'2" (72-98")
+            #   2 (200): 8'3"-10'2" (99-122")
+            #   3 (300): 10'3"-16'2" (123-194")
+            #   4 (400): 16'3"-18'2" (195-218")
+            #   5 (500): 18'3"-21'2" (219-254")
+            door_width_in = config.door_width
+            if door_width_in <= 98:
+                www = "100"
+            elif door_width_in <= 122:
+                www = "200"
+            elif door_width_in <= 194:
+                www = "300"
+            elif door_width_in <= 218:
+                www = "400"
             else:
-                length_code = "5"
+                www = "500"
 
             finish_map = {"CLEAR_ANODIZED": "0", "MILL": "1", "WHITE": "3", "BLACK_ANODIZED": "8", "BLACK": "8"}
             finish_names = {"0": "CLEAR ANO", "1": "MILL", "3": "WHITE", "8": "BLACK ANODIZED"}
             f = finish_map.get(finish_color, "0")
             finish_name = finish_names.get(f, "CLEAR ANO")
 
-            # DEF for doors > 14'2" (same threshold as AL976)
-            use_def = door_width_feet > 14
+            # DEF for doors >= 14'2" (170"), SEF only below that
+            use_def = door_width_in >= 170
 
             for section_num in range(1, panel_count + 1):
                 if section_num == 1:
@@ -2388,18 +2404,24 @@ class PartNumberService:
                     pos_label = "INT"
 
                 if use_def:
-                    p_map = {"TOP": "45", "INT": "52", "BOT": "61"}
-                    pp = p_map[pos_label]
+                    p_map = {"TOP": "4", "INT": "5", "BOT": "6"}
+                    s_map = {"TOP": "5", "INT": "2", "BOT": "1"}  # TOP=DOUBLE&FR, INT=FR, BOT=DOUBLE
+                    p = p_map[pos_label]
+                    s = s_map[pos_label]
                     end_label = "DEF"
+                    opt_map = {"5": "DOUBLE & FR", "2": "FR", "1": "DOUBLE"}
+                    opt_label = opt_map.get(s, "")
                 else:
-                    p_map = {"TOP": "10", "INT": "20", "BOT": "30"}
-                    pp = p_map[pos_label]
+                    p_map = {"TOP": "1", "INT": "2", "BOT": "3"}
+                    p = p_map[pos_label]
+                    s = "0"
                     end_label = "SEF"
+                    opt_label = "NO OPT."
 
-                pn = f"PN70-{hh}{length_code}00{f}{pp}-{wwww}"
+                pn = f"PN70-{hh}{www}{f}{p}{s}-{wwww}"
                 parts.append(PartSelection(
                     part_number=pn,
-                    description=f"SECTION, AL-SWD, [{width_ft:02d}' {width_extra:02d}\"] X {section_height}\", {pos_label} {end_label}, {finish_name}",
+                    description=f"SECTION, AL-SWD, [{width_ft:02d}' {width_extra:02d}\"] X {section_height}\", {pos_label} {end_label}, {opt_label}, {finish_name}",
                     quantity=1,
                     category="aluminum_section",
                     notes=f"AL-SWD section {section_num} of {panel_count}"

@@ -159,6 +159,39 @@ DOOR_SERIES = {
             }
         },
         {
+            "id": "SWD",
+            "name": "AL-SWD (Separated Window Design)",
+            "description": "Separated Window Design — individual glass pockets per section",
+            "categoryValue": "67f7c1c39cf0ed4a3b00baea",
+            "partPrefix": "PN70",
+            "glazingType": "glass",
+            "glazingTypes": [
+                {"id": "glass", "name": "Glass"},
+            ],
+            "glazingOptions": [
+                {"id": "CLEAR", "name": "Clear"},
+                {"id": "ETCHED", "name": "Etched"},
+                {"id": "SUPER_GREY", "name": "Super Grey"},
+            ],
+            "paneTypes": [
+                {"id": "INSULATED", "name": "Insulated (Thermal)"},
+                {"id": "SINGLE", "name": "Single Pane"},
+            ],
+            "finishes": [
+                {"id": "CLEAR_ANODIZED", "name": "Clear Anodized", "code": "0"},
+                {"id": "MILL", "name": "Mill", "code": "1"},
+                {"id": "WHITE", "name": "White", "code": "3"},
+                {"id": "BLACK_ANODIZED", "name": "Black Anodized", "code": "8"},
+            ],
+            "specs": {
+                "thickness": "1 3/4\" (44.5mm)",
+                "material": "Extruded 6063-T6 Aluminum",
+                "maxWidth": 252,  # 21' in inches
+                "finishWarranty": "5 Year Limited",
+                "workmanshipWarranty": "1 Year Limited"
+            }
+        },
+        {
             "id": "PANORAMA",
             "name": "Panorama",
             "description": "Full-view aluminum door — polycarbonate panels",
@@ -522,6 +555,7 @@ async def get_colors(series_id: str):
         "TX450-20": "COMMERCIAL",
         "TX500-20": "COMMERCIAL",
         "AL976": "AL976",
+        "SWD": "AL976",
         "KANATA_EXECUTIVE": "EXECUTIVE_STAINS",
     }
     color_key = color_map.get(series_id, "KANATA")
@@ -775,9 +809,18 @@ LINE_ORDER = [
 
 
 def _sort_parts_by_category(parts: List[dict]) -> List[dict]:
-    """Sort parts list according to BC quote line ordering standard."""
+    """Sort parts list according to BC quote line ordering standard.
+
+    Uses a stable sort so items sharing the same category priority keep their
+    original relative order.  spring_accessory (cone sets) shares the same
+    priority as spring so that cones stay paired with their springs rather than
+    being grouped at the end of all spring lines.
+    """
     def sort_key(part):
         category = part.get("category", "other").lower()
+        # Cone sets should stay inline with their spring pair, not sort separately
+        if category == "spring_accessory":
+            category = "spring"
         try:
             return LINE_ORDER.index(category)
         except ValueError:
@@ -1297,6 +1340,12 @@ async def get_dimension_constraints(series_id: str):
         "AL976": {
             "minWidth": 60,
             "maxWidth": 288,
+            "minHeight": 72,
+            "maxHeight": 192,
+        },
+        "SWD": {
+            "minWidth": 96,
+            "maxWidth": 252,
             "minHeight": 72,
             "maxHeight": 192,
         },

@@ -464,7 +464,8 @@ function QuoteBuilder() {
             selected={currentDoor.doorSeries}
             onSelect={(series) => {
               const isCommercialSeries = ['TX380', 'TX450', 'TX500', 'TX450-20', 'TX500-20'].includes(series)
-              const isAluminumSeries = ['AL976', 'PANORAMA', 'SOLALITE'].includes(series)
+              const isAluminumSeries = ['AL976', 'SWD', 'PANORAMA', 'SOLALITE'].includes(series)
+              const isGlassSeries = ['AL976', 'SWD'].includes(series)
               updateCurrentDoor({
                 doorSeries: series,
                 panelColor: isAluminumSeries ? 'CLEAR_ANODIZED' : '',
@@ -478,7 +479,7 @@ function QuoteBuilder() {
                 glassColor: null,
                 ...(isCommercialSeries ? { trackThickness: '3' } : {}),
                 ...(isAluminumSeries ? {
-                  glassPaneType: series === 'AL976' ? 'INSULATED' : null,
+                  glassPaneType: isGlassSeries ? 'INSULATED' : null,
                   glassColor: 'CLEAR',
                 } : {}),
                 // Craft series includes windows as standard
@@ -946,6 +947,7 @@ function DesignStep({ door, colors, panelDesigns, config, onChange }) {
     'TX450-20': 'COMMERCIAL',
     'TX500-20': 'COMMERCIAL',
     'AL976': 'AL976',
+    'SWD': 'AL976',
     'KANATA_EXECUTIVE': 'EXECUTIVE_STAINS',
   }
   const colorKey = colorMap[door.doorSeries] || 'KANATA'
@@ -2539,6 +2541,7 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
       'TX450-20': 'COMMERCIAL',
       'TX500-20': 'COMMERCIAL',
       'AL976': 'AL976',
+      'SWD': 'AL976',
     }
     const colorKey = colorMap[seriesId] || 'KANATA'
     const color = config?.colors?.[colorKey]?.find(c => c.id === colorId)
