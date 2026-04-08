@@ -1342,12 +1342,30 @@ class PartNumberService:
                 f"{radius_inches}\"Radius"
             )
 
-        return [PartSelection(
+        parts = [PartSelection(
             part_number=track.part_number,
             description=track_desc,
             quantity=1,  # Track assembly is sold as a kit (pair)
             category="track"
         )]
+
+        # LHR doors need standard track assembly + LHR conversion kit
+        if lift_type == LiftType.LOW_HEADROOM:
+            std_track = mapper.get_track_assembly(
+                door_height_feet=part_height,
+                track_size=track_size,
+                lift_type=LiftType.STANDARD,
+                mount_type=mount_type,
+                radius_inches=radius_inches
+            )
+            parts.insert(0, PartSelection(
+                part_number=std_track.part_number,
+                description=f"{track_size}\" STANDARD LIFT {mount_label}; {height_display} High, {radius_inches}\"Radius",
+                quantity=1,
+                category="track"
+            ))
+
+        return parts
 
     def _get_spring_parts(self, config: DoorConfiguration) -> Tuple[List[PartSelection], int]:
         """

@@ -371,8 +371,12 @@ def _sort_parts_by_category(parts: List[dict]) -> List[dict]:
 def _format_door_description(door: dict) -> str:
     """Format door description for BC quote comment line."""
     width_ft = door.get("doorWidth", 0) // 12
+    width_in = door.get("doorWidth", 0) % 12
     height_ft = door.get("doorHeight", 0) // 12
-    track_display = f"{door.get('trackThickness', '2')}\" HW"
+    height_in = door.get("doorHeight", 0) % 12
+    width_str = f"{width_ft}'" if width_in == 0 else f"{width_ft}'{width_in}\""
+    height_str = f"{height_ft}'" if height_in == 0 else f"{height_ft}'{height_in}\""
+    track_display = f"{door.get('trackThickness', '2')}\" BRACKET MOUNT"
     lift_type_raw = door.get("liftType", "standard")
     if lift_type_raw == "low_headroom":
         lift_type = "LHR"
@@ -382,10 +386,16 @@ def _format_door_description(door: dict) -> str:
         lift_type = "VERTICAL"
     else:
         lift_type = "STD LIFT"
+    # For aluminum doors, panel design is irrelevant — show glazing info instead
+    door_type = door.get("doorType", "")
+    if door_type == "aluminium":
+        design_display = door.get("glazingType", "") or door.get("glassPaneType", "") or ""
+    else:
+        design_display = door.get("panelDesign", "")
     return (
-        f"({door.get('doorCount', 1)}) {width_ft}x{height_ft} "
+        f"({door.get('doorCount', 1)}) {width_str} x {height_str} "
         f"{door.get('doorSeries', '')}, {door.get('panelColor', '')}, "
-        f"{door.get('panelDesign', '')}, {track_display}, {lift_type}"
+        f"{design_display}, {track_display}, {lift_type}"
     )
 
 

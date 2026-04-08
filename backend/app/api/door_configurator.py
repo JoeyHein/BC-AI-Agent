@@ -393,7 +393,7 @@ TRACK_OPTIONS = {
     ],
     "liftType": [
         {"id": "standard", "name": "Standard Lift", "description": "Standard radius track"},
-        {"id": "low_headroom", "name": "Low Headroom (2\" Double Track)", "description": "2\" double track lowhead - for minimal headroom clearance", "forcedTrackSize": 2},
+        {"id": "low_headroom", "name": "Low Headroom", "description": "Double track low headroom — for minimal headroom clearance"},
         {"id": "high_lift", "name": "High Lift", "description": "Extra vertical track above door — specify inches of high lift"},
         {"id": "vertical", "name": "Vertical Lift", "description": "Full vertical track — door lifts straight up, no horizontal"},
     ],
@@ -711,12 +711,16 @@ def _format_door_description(door: DoorConfigRequest) -> str:
     Format: ({qty}) {width}'x{height}' {series}, {color}, {design}, {track}" HW, {lift}
     Example: (1) 10x9 TX450, WHITE, UDC, 2" HW, STD LIFT
     """
-    # Convert inches to feet for display
+    # Convert inches to feet-inches for display
     width_ft = door.doorWidth // 12
+    width_in = door.doorWidth % 12
     height_ft = door.doorHeight // 12
+    height_in = door.doorHeight % 12
+    width_str = f"{width_ft}'" if width_in == 0 else f"{width_ft}'{width_in}\""
+    height_str = f"{height_ft}'" if height_in == 0 else f"{height_ft}'{height_in}\""
 
-    # Get track size display
-    track_display = f"{door.trackThickness}\" HW" if door.trackThickness else "2\" HW"
+    # Get track size display — use BRACKET MOUNT instead of HW
+    track_display = f"{door.trackThickness}\" BRACKET MOUNT" if door.trackThickness else "2\" BRACKET MOUNT"
 
     # Determine lift type
     lift_type_raw = getattr(door, 'liftType', 'standard') or 'standard'
@@ -729,8 +733,15 @@ def _format_door_description(door: DoorConfigRequest) -> str:
     else:
         lift_type = "STD LIFT"
 
-    # Format: (qty) WxH SERIES, COLOR, DESIGN, TRACK HW, LIFT
-    return f"({door.doorCount}) {width_ft}x{height_ft} {door.doorSeries}, {door.panelColor}, {door.panelDesign}, {track_display}, {lift_type}"
+    # For aluminum doors, panel design is irrelevant — show glazing info instead
+    door_type = getattr(door, 'doorType', '') or ''
+    if door_type == 'aluminium':
+        design_display = getattr(door, 'glazingType', '') or getattr(door, 'glassPaneType', '') or ''
+    else:
+        design_display = door.panelDesign
+
+    # Format: (qty) WxH SERIES, COLOR, DESIGN, TRACK, LIFT
+    return f"({door.doorCount}) {width_str} x {height_str} {door.doorSeries}, {door.panelColor}, {design_display}, {track_display}, {lift_type}"
 
 
 # Define the standard line item ordering for BC quotes
