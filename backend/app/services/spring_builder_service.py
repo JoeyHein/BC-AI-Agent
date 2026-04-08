@@ -289,26 +289,20 @@ class SpringBuilderService:
 
     def _resolve_cone_sets(self, coil_diameter: float) -> dict:
         """Look up cone/winder set part numbers and pricing by coil diameter."""
-        lh_winder = mapper.get_winder_stationary_set(coil_diameter, bore_size=1.0, wind="LH")
-        rh_winder = mapper.get_winder_stationary_set(coil_diameter, bore_size=1.0, wind="RH")
+        winder = mapper.get_winder_stationary_set(coil_diameter, bore_size=1.0)
+        bc_item = mapper.bc_items.get(winder.part_number, {})
 
-        # Pull pricing from BC items
-        lh_item = mapper.bc_items.get(lh_winder.part_number, {})
-        rh_item = mapper.bc_items.get(rh_winder.part_number, {})
-
+        winder_data = {
+            "part_number": winder.part_number,
+            "description": winder.description,
+            "unit_cost": bc_item.get("unitCost", 0),
+            "unit_price": bc_item.get("unitPrice", 0),
+        }
+        # Return same universal part for both keys (backwards compat)
         return {
-            "lh": {
-                "part_number": lh_winder.part_number,
-                "description": lh_winder.description,
-                "unit_cost": lh_item.get("unitCost", 0),
-                "unit_price": lh_item.get("unitPrice", 0),
-            },
-            "rh": {
-                "part_number": rh_winder.part_number,
-                "description": rh_winder.description,
-                "unit_cost": rh_item.get("unitCost", 0),
-                "unit_price": rh_item.get("unitPrice", 0),
-            },
+            "lh": winder_data,
+            "rh": winder_data,
+            "universal": winder_data,
         }
 
     def lookup_by_specs(

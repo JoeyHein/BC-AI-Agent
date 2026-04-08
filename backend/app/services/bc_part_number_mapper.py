@@ -124,11 +124,13 @@ class SpringPartNumbers:
     """Spring-related part numbers for a door"""
     spring_lh: BCPartNumber
     spring_rh: BCPartNumber
-    winder_set_lh: BCPartNumber
-    winder_set_rh: BCPartNumber
+    winder_set: BCPartNumber  # Universal winder set (works for both LH/RH)
     spring_length_inches: int
     quantity_per_side: int
     notes: str = ""
+    # Legacy fields kept for backwards compatibility
+    winder_set_lh: BCPartNumber = None
+    winder_set_rh: BCPartNumber = None
 
 
 @dataclass
@@ -1371,14 +1373,14 @@ class BCPartNumberMapper:
             coil_id=spring_coil_id,
             wind="RH"
         )
-        winder_lh = self.get_winder_stationary_set(spring_coil_id, 1.0, "LH")
-        winder_rh = self.get_winder_stationary_set(spring_coil_id, 1.0, "RH")
+        winder_universal = self.get_winder_stationary_set(spring_coil_id, 1.0)
 
         springs = SpringPartNumbers(
             spring_lh=spring_lh,
             spring_rh=spring_rh,
-            winder_set_lh=winder_lh,
-            winder_set_rh=winder_rh,
+            winder_set=winder_universal,
+            winder_set_lh=winder_universal,  # backwards compat
+            winder_set_rh=winder_universal,  # backwards compat
             spring_length_inches=spring_length_inches,
             quantity_per_side=spring_quantity_per_side,
             notes=f"Spring spec: {spring_wire_size}\" x {spring_coil_id}\" x {spring_length_inches}\""
@@ -1553,17 +1555,11 @@ class BCPartNumberMapper:
             "category": "SPRING"
         })
 
-        # Winder sets
+        # Winder set (universal — one part for both LH and RH)
         lines.append({
-            "part_number": springs.winder_set_lh.part_number,
-            "description": springs.winder_set_lh.description,
-            "quantity": springs.quantity_per_side,
-            "category": "SPRING_ACCESSORY"
-        })
-        lines.append({
-            "part_number": springs.winder_set_rh.part_number,
-            "description": springs.winder_set_rh.description,
-            "quantity": springs.quantity_per_side,
+            "part_number": springs.winder_set.part_number,
+            "description": springs.winder_set.description,
+            "quantity": springs.quantity_per_side * 2,  # total springs (both sides)
             "category": "SPRING_ACCESSORY"
         })
 
