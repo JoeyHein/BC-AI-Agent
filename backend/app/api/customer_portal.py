@@ -358,9 +358,18 @@ LINE_ORDER = [
 
 
 def _sort_parts_by_category(parts: List[dict]) -> List[dict]:
-    """Sort parts list according to BC quote line ordering standard."""
+    """Sort parts list according to BC quote line ordering standard.
+
+    Uses a stable sort so items sharing the same category priority keep their
+    original relative order.  spring_accessory (cone sets) shares the same
+    priority as spring so that cones stay paired with their springs rather than
+    being grouped at the end of all spring lines.
+    """
     def sort_key(part):
         category = part.get("category", "other").lower()
+        # Cone sets should stay inline with their spring pair, not sort separately
+        if category == "spring_accessory":
+            category = "spring"
         try:
             return LINE_ORDER.index(category)
         except ValueError:
@@ -392,10 +401,18 @@ def _format_door_description(door: dict) -> str:
         design_display = door.get("glazingType", "") or door.get("glassPaneType", "") or ""
     else:
         design_display = door.get("panelDesign", "")
+    # Add glass pocket info for aluminum doors if customized
+    pocket_info = ""
+    glass_pockets = door.get("glassPocketsPerSection")
+    if glass_pockets and door_type == "aluminium":
+        pocket_counts = [str(glass_pockets.get(str(i), glass_pockets.get(i, ''))) for i in sorted(glass_pockets.keys(), key=lambda x: int(x))]
+        if pocket_counts:
+            pocket_info = f", POCKETS: {'/'.join(pocket_counts)}"
+
     return (
         f"({door.get('doorCount', 1)}) {width_str} x {height_str} "
         f"{door.get('doorSeries', '')}, {door.get('panelColor', '')}, "
-        f"{design_display}, {track_display}, {lift_type}"
+        f"{design_display}, {track_display}, {lift_type}{pocket_info}"
     )
 
 

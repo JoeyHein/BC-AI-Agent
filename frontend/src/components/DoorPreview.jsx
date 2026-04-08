@@ -240,6 +240,7 @@ function DoorPreview({
   highlightSection = null,  // Section to highlight (for hover effect)
   onStampHover = null,  // Callback when hovering over a stamp (section, col)
   onSectionHover = null,  // Legacy: Callback when hovering over a section
+  glassPocketsPerSection = null,  // Per-section glass pocket overrides: { 0: 4, 1: 3, ... } or null for defaults
 }) {
   const isCommercial = doorType === 'commercial'
   // Calculate display dimensions (max 400px width for preview)
@@ -573,14 +574,19 @@ function DoorPreview({
           fill="rgba(255,255,255,0.08)" />
       )
     } else {
-      // AL976: glass panes with vertical stiles (grid pattern)
-      const widthFeet = width / 12
+      // AL976/SWD: glass panes with vertical stiles (grid pattern)
+      // Use custom pocket count if provided, otherwise default by width
       let paneCount
-      if (widthFeet <= 10) paneCount = 3
-      else if (widthFeet <= 14) paneCount = 4
-      else if (widthFeet <= 18) paneCount = 5
-      else if (widthFeet <= 22) paneCount = 6
-      else paneCount = 7
+      if (glassPocketsPerSection && glassPocketsPerSection[sectionIndex] != null) {
+        paneCount = glassPocketsPerSection[sectionIndex]
+      } else {
+        const widthFeet = width / 12
+        if (widthFeet <= 10) paneCount = 3
+        else if (widthFeet <= 14) paneCount = 4
+        else if (widthFeet <= 18) paneCount = 5
+        else if (widthFeet <= 22) paneCount = 6
+        else paneCount = 7
+      }
 
       const totalMullionW = mullionW * (paneCount - 1)
       const paneW = (innerW - totalMullionW) / paneCount

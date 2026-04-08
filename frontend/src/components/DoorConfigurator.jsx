@@ -71,6 +71,7 @@ function DoorConfigurator() {
       windowSection: 1,  // Legacy fallback
       windowPanels: undefined,  // Per-panel window config: { "1": { qty: 3 }, "2": { qty: 2 } }
       glazingType: 'NONE',  // Legacy
+      glassPocketsPerSection: null,  // Per-section pocket overrides for AL976/SWD: { 0: 4, 1: 3, ... }
       // Hardware
       trackRadius: '15',
       trackThickness: '2',
@@ -825,7 +826,7 @@ function DimensionsStep({ door, onChange, series }) {
 function DesignStep({ door, colors, panelDesigns, config, onChange }) {
   const isAluminumDoor = door.doorType === 'aluminium'
 
-  // Aluminum doors: finish is the only design choice (panelDesign is always FLUSH)
+  // Aluminum doors: finish + glass pocket customization
   if (isAluminumDoor) {
     const seriesData = config?.doorSeries?.aluminium?.find(s => s.id === door.doorSeries)
     const finishes = seriesData?.finishes || [
@@ -833,33 +834,125 @@ function DesignStep({ door, colors, panelDesigns, config, onChange }) {
       { id: 'WHITE', name: 'White' },
       { id: 'BLACK_ANODIZED', name: 'Black Anodized' },
     ]
+
+    // Glass pocket customization for AL976/SWD
+    const isGlassDoor = ['AL976', 'SWD'].includes(door.doorSeries)
+    const doorWidthFeet = (door.doorWidth || 96) / 12
+    const defaultPockets = doorWidthFeet <= 10 ? 3 : doorWidthFeet <= 14 ? 4 : doorWidthFeet <= 18 ? 5 : doorWidthFeet <= 22 ? 6 : 7
+    const doorH = door.doorHeight || 84
+    const sectionHeight = 21  // aluminum sections are 21" or 24"
+    const sectionCount = Math.round(doorH / sectionHeight) || 4
+    const isSWD = door.doorSeries === 'SWD'
+    const maxAdjust = 3  // max +3 from default
+    const minAdjust = isSWD ? defaultPockets : 1  // SWD: any within range, AL976: -1 only
+
+    // Get current pocket config or build defaults
+    const pockets = door.glassPocketsPerSection || {}
+
+    const getPocketCount = (sectionIdx) => {
+      if (pockets[sectionIdx] != null) return pockets[sectionIdx]
+      return defaultPockets
+    }
+
+    const setPocketCount = (sectionIdx, count) => {
+      const min = Math.max(1, defaultPockets - minAdjust)
+      const max = defaultPockets + maxAdjust
+      const clamped = Math.max(min, Math.min(max, count))
+      const updated = { ...pockets, [sectionIdx]: clamped }
+      // If all sections match default, clear the override
+      const allDefault = Array.from({ length: sectionCount }, (_, i) => (updated[i] ?? defaultPockets) === defaultPockets).every(Boolean)
+      onChange({ glassPocketsPerSection: allDefault ? null : updated })
+    }
+
     return (
-      <div className="space-y-4">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Aluminum Finish
-        </label>
-        <div className="grid grid-cols-3 gap-3">
-          {finishes.map(f => {
-            const hexMap = { 'CLEAR_ANODIZED': '#C0C0C0', 'WHITE': '#FFFFFF', 'BLACK_ANODIZED': '#1a1a1a', 'MILL': '#D3D3D3' }
-            return (
-              <button
-                key={f.id}
-                onClick={() => onChange({ panelColor: f.id, panelDesign: 'FLUSH' })}
-                className={`p-3 rounded-lg border-2 text-center transition-all ${
-                  door.panelColor === f.id
-                    ? 'border-odc-500 ring-2 ring-odc-200'
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                <div
-                  className="w-10 h-10 rounded-full mx-auto border border-gray-300"
-                  style={{ backgroundColor: hexMap[f.id] || '#C0C0C0' }}
-                />
-                <span className="mt-1 block text-xs text-gray-700">{f.name}</span>
-              </button>
-            )
-          })}
+      <div className="space-y-6">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Aluminum Finish
+          </label>
+          <div className="grid grid-cols-3 gap-3">
+            {finishes.map(f => {
+              const hexMap = { 'CLEAR_ANODIZED': '#C0C0C0', 'WHITE': '#FFFFFF', 'BLACK_ANODIZED': '#1a1a1a', 'MILL': '#D3D3D3' }
+              return (
+                <button
+                  key={f.id}
+                  onClick={() => onChange({ panelColor: f.id, panelDesign: 'FLUSH' })}
+                  className={`p-3 rounded-lg border-2 text-center transition-all ${
+                    door.panelColor === f.id
+                      ? 'border-odc-500 ring-2 ring-odc-200'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <div
+                    className="w-10 h-10 rounded-full mx-auto border border-gray-300"
+                    style={{ backgroundColor: hexMap[f.id] || '#C0C0C0' }}
+                  />
+                  <span className="mt-1 block text-xs text-gray-700">{f.name}</span>
+                </button>
+              )
+            })}
+          </div>
         </div>
+
+        {/* Glass Pocket Customization — AL976 and SWD only */}
+        {isGlassDoor && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Glass Pockets Per Section
+            </label>
+            <p className="text-xs text-gray-500 mb-3">
+              Default: {defaultPockets} pockets. {isSWD ? 'Any count' : 'Adjust +/- 1'} per section (max +{maxAdjust}, min -{minAdjust > defaultPockets ? defaultPockets - 1 : minAdjust}).
+            </p>
+            <div className="space-y-2">
+              {Array.from({ length: sectionCount }, (_, i) => {
+                const count = getPocketCount(i)
+                const label = i === 0 ? 'Top' : i === sectionCount - 1 ? 'Bottom' : `Section ${i + 1}`
+                const isCustom = pockets[i] != null && pockets[i] !== defaultPockets
+                return (
+                  <div key={`pocket-${i}`} className={`flex items-center gap-3 p-2 rounded-md ${isCustom ? 'bg-odc-50 border border-odc-200' : 'bg-gray-50'}`}>
+                    <span className="text-sm text-gray-700 w-24">{label}</span>
+                    <button
+                      type="button"
+                      onClick={() => setPocketCount(i, count - 1)}
+                      disabled={count <= Math.max(1, defaultPockets - minAdjust)}
+                      className="w-8 h-8 flex items-center justify-center rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      -
+                    </button>
+                    <span className="text-sm font-semibold w-8 text-center">{count}</span>
+                    <button
+                      type="button"
+                      onClick={() => setPocketCount(i, count + 1)}
+                      disabled={count >= defaultPockets + maxAdjust}
+                      className="w-8 h-8 flex items-center justify-center rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      +
+                    </button>
+                    {isCustom && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = { ...pockets }
+                          delete updated[i]
+                          const allDefault = Object.keys(updated).length === 0
+                          onChange({ glassPocketsPerSection: allDefault ? null : updated })
+                        }}
+                        className="text-xs text-gray-400 hover:text-gray-600"
+                      >
+                        reset
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+            {defaultPockets - minAdjust < 1 && (
+              <p className="text-xs text-amber-600 mt-2">
+                For fewer than {Math.max(1, defaultPockets - minAdjust)} pockets, please contact the office.
+              </p>
+            )}
+          </div>
+        )}
       </div>
     )
   }
@@ -1391,6 +1484,7 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
                   windowQty={door.windowQty || 0}
                   windowSection={door.windowSection || 1}
                   windowPanels={door.windowPanels || null}
+                  glassPocketsPerSection={door.glassPocketsPerSection || null}
                   showDimensions={false}
                   scale={0.7}
                   interactive={!isCommercial}
@@ -1739,6 +1833,7 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
               windowQty={door.windowQty || 0}
               windowSection={door.windowSection || 1}
               windowPanels={door.windowPanels || null}
+              glassPocketsPerSection={door.glassPocketsPerSection || null}
               showDimensions={true}
               scale={0.6}
             />
@@ -2610,6 +2705,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
             windowPanels: door.windowPanels || undefined,
             windowFrameColor: door.windowFrameColor || (door.doorType === 'commercial' ? 'BLACK' : 'MATCH'),
             glazingType: door.glazingType !== 'NONE' ? door.glazingType : null,
+            glassPocketsPerSection: door.glassPocketsPerSection || null,
             trackRadius: door.trackRadius,
             trackThickness: door.liftType === 'low_headroom' ? '2' : door.trackThickness,
             liftType: door.liftType,

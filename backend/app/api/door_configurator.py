@@ -482,6 +482,7 @@ class DoorConfigRequest(BaseModel):
     glazingType: Optional[str] = None
     glassPaneType: Optional[str] = None  # 'INSULATED' or 'SINGLE'
     glassColor: Optional[str] = None     # 'CLEAR', 'ETCHED', 'SUPER_GREY'
+    glassPocketsPerSection: Optional[Dict[str, int]] = None  # Per-section pocket overrides: {"0": 4, "1": 3, ...}
     trackRadius: str = "15"
     trackThickness: str = "2"
     trackMount: str = "bracket"  # 'bracket' or 'angle'
@@ -774,8 +775,16 @@ def _format_door_description(door: DoorConfigRequest) -> str:
     else:
         design_display = door.panelDesign
 
-    # Format: (qty) WxH SERIES, COLOR, DESIGN, TRACK, LIFT
-    return f"({door.doorCount}) {width_str} x {height_str} {door.doorSeries}, {door.panelColor}, {design_display}, {track_display}, {lift_type}"
+    # Add glass pocket info for aluminum doors if customized
+    pocket_info = ""
+    glass_pockets = getattr(door, 'glassPocketsPerSection', None)
+    if glass_pockets and door_type == 'aluminium':
+        pocket_counts = [str(glass_pockets.get(str(i), glass_pockets.get(i, ''))) for i in sorted(glass_pockets.keys(), key=lambda x: int(x))]
+        if pocket_counts:
+            pocket_info = f", POCKETS: {'/'.join(pocket_counts)}"
+
+    # Format: (qty) WxH SERIES, COLOR, DESIGN, TRACK, LIFT [, POCKETS]
+    return f"({door.doorCount}) {width_str} x {height_str} {door.doorSeries}, {door.panelColor}, {design_display}, {track_display}, {lift_type}{pocket_info}"
 
 
 # Define the standard line item ordering for BC quotes
