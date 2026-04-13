@@ -32,6 +32,7 @@ function FramingDrawing({
   scale = 0.5,
   title = 'FRAMING DRAWING',
   springCount: springCountProp = null,
+  extras = null,
 }) {
   // ---------------------------------------------------------------------------
   // Resolve geometry
@@ -229,24 +230,32 @@ function FramingDrawing({
   // Right panel area start X
   const rightPanelX = ox + s(dw + fw + layout.wallThickness) + dimLineSpacing * 2.5 + fontSize.label * 3
 
-  // Optional extras list
-  const optionalExtras = [
-    `${ts}" TRACK APPLICATION`,
-    isSteel ? 'STEEL FRAME' : 'WOOD FRAME',
-    geo.mountType === 'bracket' ? 'BRACKET MOUNT' : 'CONTINUOUS ANGLE MOUNT',
-    'SINGLE END STILE/HINGE',
-    'DOUBLE END STILE/HINGE',
-    '20GA STRUTS',
-    'DOOR STRUTS (EXTRA)',
-    'DOUBLE LIFE SPRING',
-    'KEYED SIDE LOCK',
-    'DECORATIVE HARDWARE',
-    'ELECTRIC OPERATOR',
-    '1" TUBULAR SHAFT',
-    '11,000 / 50,000 CYCLE SPRING',
-    'TOP SEAL VINYL',
-    'RUBBER ASTRAGAL',
-  ]
+  // Optional extras: only items actually selected for this order.
+  // Caller can pass `extras` (string[]) to override; otherwise we derive
+  // the list from the geometry/config props that are known to be selected.
+  const optionalExtras = (() => {
+    if (Array.isArray(extras)) return extras
+
+    const items = []
+    items.push(`${ts}" TRACK APPLICATION`)
+    items.push(isSteel ? 'STEEL FRAME' : 'WOOD FRAME')
+    items.push(geo.mountType === 'bracket' ? 'BRACKET MOUNT' : 'CONTINUOUS ANGLE MOUNT')
+
+    const liftLabels = {
+      standard: 'STANDARD LIFT',
+      high_lift: 'HIGH LIFT',
+      vertical: 'VERTICAL LIFT',
+      low_headroom: 'LOW HEADROOM',
+    }
+    if (liftLabels[geo.liftType]) items.push(liftLabels[geo.liftType])
+
+    if (geo.trackRadius) items.push(`${geo.trackRadius}" RADIUS TRACK`)
+
+    if (springCountProp === 2) items.push('DOUBLE LIFE SPRING')
+    else if (springCountProp === 1) items.push('SINGLE SPRING')
+
+    return items
+  })()
 
   return (
     <div className="framing-drawing bg-white border border-gray-300 rounded-lg overflow-hidden">

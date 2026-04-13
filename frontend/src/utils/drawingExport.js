@@ -4,6 +4,7 @@
  */
 
 import { jsPDF } from 'jspdf'
+import { svg2pdf } from 'svg2pdf.js'
 
 /**
  * Export SVG element as SVG file
@@ -310,46 +311,83 @@ export function exportDrawingPackage(drawings, doorInfo) {
 /**
  * Export SVG element as PDF file (landscape, fits to page)
  */
-export function exportAsPDF(svgElement, filename = 'drawing.pdf', title = '') {
+export async function exportAsPDF(svgElement, filename = 'drawing.pdf', title = '', options = {}) {
   if (!svgElement) {
     console.error('No SVG element provided')
-    return Promise.reject('No SVG element provided')
+    throw new Error('No SVG element provided')
   }
 
-  return new Promise((resolve, reject) => {
-    // Get viewBox or bounding rect for aspect ratio
-    const viewBox = svgElement.getAttribute('viewBox')
-    let svgW, svgH
-    if (viewBox) {
-      const parts = viewBox.split(/\s+|,/)
-      svgW = parseFloat(parts[2])
-      svgH = parseFloat(parts[3])
-    } else {
-      const rect = svgElement.getBoundingClientRect()
-      svgW = rect.width
-      svgH = rect.height
+  const { vector = true } = options
+
+  // Get viewBox or bounding rect for aspect ratio
+  const viewBox = svgElement.getAttribute('viewBox')
+  let svgW, svgH
+  if (viewBox) {
+    const parts = viewBox.split(/\s+|,/)
+    svgW = parseFloat(parts[2])
+    svgH = parseFloat(parts[3])
+  } else {
+    const rect = svgElement.getBoundingClientRect()
+    svgW = rect.width
+    svgH = rect.height
+  }
+
+  const landscape = svgW >= svgH
+  const orientation = landscape ? 'landscape' : 'portrait'
+
+  // Page dimensions in mm (letter size)
+  const pageW = landscape ? 279.4 : 215.9
+  const pageH = landscape ? 215.9 : 279.4
+  const margin = 10
+  const usableW = pageW - margin * 2
+  const usableH = pageH - margin * 2 - (title ? 10 : 0)
+
+  const fitScale = Math.min(usableW / svgW, usableH / svgH)
+  const imgW = svgW * fitScale
+  const imgH = svgH * fitScale
+  const offsetX = margin + (usableW - imgW) / 2
+  const offsetY = margin + (title ? 10 : 0) + (usableH - imgH) / 2
+
+  const pdf = new jsPDF({ orientation, unit: 'mm', format: 'letter' })
+
+  if (title) {
+    pdf.setFontSize(12)
+    pdf.text(title, pageW / 2, margin + 4, { align: 'center' })
+  }
+
+  let usedVector = false
+  if (vector) {
+    try {
+      // svg2pdf needs the element attached to the DOM with width/height set.
+      // Clone so we don't mutate the live SVG.
+      const clone = svgElement.cloneNode(true)
+      clone.setAttribute('width', svgW)
+      clone.setAttribute('height', svgH)
+      await svg2pdf(clone, pdf, { x: offsetX, y: offsetY, width: imgW, height: imgH })
+      usedVector = true
+    } catch (err) {
+      console.warn('Vector PDF export failed, falling back to raster:', err)
     }
+  }
 
-    // Determine orientation from aspect ratio
-    const landscape = svgW >= svgH
-    const orientation = landscape ? 'landscape' : 'portrait'
+  if (!usedVector) {
+    const imgData = await rasterizeSvg(svgElement, svgW, svgH, 2)
+    pdf.addImage(imgData, 'PNG', offsetX, offsetY, imgW, imgH)
+  }
 
-    // Page dimensions in mm (letter size)
-    const pageW = landscape ? 279.4 : 215.9
-    const pageH = landscape ? 215.9 : 279.4
-    const margin = 10 // mm
-    const usableW = pageW - margin * 2
-    const usableH = pageH - margin * 2 - (title ? 10 : 0)
+  pdf.setFontSize(7)
+  pdf.setTextColor(150)
+  pdf.text(
+    `Open DC - Generated ${new Date().toLocaleDateString()}`,
+    pageW / 2, pageH - 5,
+    { align: 'center' }
+  )
 
-    // Scale SVG to fit page
-    const scaleX = usableW / svgW
-    const scaleY = usableH / svgH
-    const fitScale = Math.min(scaleX, scaleY)
-    const imgW = svgW * fitScale
-    const imgH = svgH * fitScale
+  pdf.save(filename)
+}
 
-    // Render SVG to canvas at 2x for quality
-    const renderScale = 2
+function rasterizeSvg(svgElement, svgW, svgH, renderScale = 2) {
+  return new Promise((resolve, reject) => {
     const canvas = document.createElement('canvas')
     canvas.width = svgW * renderScale
     canvas.height = svgH * renderScale
@@ -365,35 +403,12 @@ export function exportAsPDF(svgElement, filename = 'drawing.pdf', title = '') {
     img.onload = () => {
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
       URL.revokeObjectURL(url)
-
-      const imgData = canvas.toDataURL('image/png')
-
-      const pdf = new jsPDF({ orientation, unit: 'mm', format: 'letter' })
-
-      // Title
-      if (title) {
-        pdf.setFontSize(12)
-        pdf.text(title, pageW / 2, margin + 4, { align: 'center' })
-      }
-
-      // Center image on page
-      const offsetX = margin + (usableW - imgW) / 2
-      const offsetY = margin + (title ? 10 : 0) + (usableH - imgH) / 2
-      pdf.addImage(imgData, 'PNG', offsetX, offsetY, imgW, imgH)
-
-      // Footer
-      pdf.setFontSize(7)
-      pdf.setTextColor(150)
-      pdf.text(
-        `Open DC - Generated ${new Date().toLocaleDateString()}`,
-        pageW / 2, pageH - 5,
-        { align: 'center' }
-      )
-
-      pdf.save(filename)
-      resolve()
+      resolve(canvas.toDataURL('image/png'))
     }
-    img.onerror = reject
+    img.onerror = (e) => {
+      URL.revokeObjectURL(url)
+      reject(e)
+    }
     img.src = url
   })
 }

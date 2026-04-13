@@ -10,6 +10,7 @@ import FramingDrawing from './FramingDrawing'
 import SideElevationDrawing from './SideElevationDrawing'
 import { exportAsSVG, exportAsPNG, exportAsPDF, printDrawing, exportDrawingPackage, getSvgFromRef } from '../utils/drawingExport'
 import { doorConfigApi } from '../api/client'
+import { extrasFromConfig, extrasFromLineItems } from '../utils/doorExtras'
 
 const TABS = [
   { id: 'preview', label: 'Door Preview', icon: '\u{1F6AA}' },
@@ -21,7 +22,18 @@ function DoorDrawings({
   doorConfig = {},
   showExport = true,
   defaultTab = 'preview',
+  lineItems = null,
+  extras: extrasProp = null,
 }) {
+  // Resolve the optional-extras list for the framing drawing:
+  //   1. explicit `extras` prop wins
+  //   2. else derive from BC line items if provided
+  //   3. else derive from the live doorConfig selections
+  const resolvedExtras = Array.isArray(extrasProp)
+    ? extrasProp
+    : (Array.isArray(lineItems) && lineItems.length > 0
+      ? extrasFromLineItems(lineItems)
+      : extrasFromConfig(doorConfig))
   const [activeTab, setActiveTab] = useState(defaultTab)
   const [exportFormat, setExportFormat] = useState('pdf')
   const [geometry, setGeometry] = useState(null)
@@ -138,7 +150,7 @@ function DoorDrawings({
         exportAsPNG(svg, `${filename}.png`, 2)
         break
       case 'pdf':
-        exportAsPDF(svg, `${filename}.pdf`, `${doorSeries} ${Math.floor(widthInches / 12)}' x ${Math.floor(heightInches / 12)}'`)
+        exportAsPDF(svg, `${filename}.pdf`, `${doorSeries} ${Math.floor(widthInches / 12)}' x ${Math.floor(heightInches / 12)}'`, { vector: activeTab !== 'preview' })
         break
       case 'print':
         printDrawing(svg, `Door Drawing - ${doorSeries}`)
@@ -289,6 +301,7 @@ function DoorDrawings({
               scale={0.6}
               title={`FRAMING DRAWING - ${doorSeries}`}
               springCount={springCount}
+              extras={resolvedExtras}
             />
           </div>
           <div className="mt-4 p-3 bg-blue-50 rounded-lg">
