@@ -541,9 +541,10 @@ class BCPartNumberMapper:
 
         # Default to 2" universal set if not found
         default_pn = self.WINDER_SETS_UNIVERSAL.get((2.0, 1.0), "SP12-00231-01")
+        logger.warning(f"No winder set found for coil={coil_id}, bore={bore_size} — defaulting to 2\" universal")
         return BCPartNumber(
-            part_number=part_number,
-            description=f"SPRING, WINDERS & STATIONARY PLUGS SET, 2\", 1\" BORE, {wind.upper()}",
+            part_number=default_pn,
+            description=f"SPRING, WINDERS & STATIONARY PLUGS SET, 2\", 1\" BORE, UNIVERSAL",
             category="SPRING_ACCESSORY"
         )
 

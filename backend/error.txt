@@ -1,0 +1,49 @@
+2026-02-09 15:14:01,983 - app.main - INFO - Including auth router: /api/auth
+2026-02-09 15:14:01,988 - app.main - INFO - Including email_connections router: /api/email-connections
+2026-02-09 15:14:01,994 - app.main - INFO - Including feedback router: /api/quotes
+2026-02-09 15:14:02,002 - app.main - INFO - Including email_feedback router: /api/email-feedback
+2026-02-09 15:14:02,005 - app.main - INFO - Including quotes router: /api/quotes
+2026-02-09 15:14:02,012 - app.main - INFO - Including orders router: /api/orders
+2026-02-09 15:14:02,068 - app.main - INFO - Including analytics router: /api/analytics
+2026-02-09 15:14:02,074 - app.main - INFO - Including door_configurator router: /api/door-config
+2026-02-09 15:14:02,081 - app.main - INFO - Including customer_auth router: /api/customer
+2026-02-09 15:14:02,086 - app.main - INFO - Including customer_portal router: /api/customer/portal
+2026-02-09 15:14:02,095 - app.main - INFO - Including admin_customers router: /api/admin/customers
+2026-02-09 15:14:02,101 - app.main - INFO - Including inventory router: /inventory
+2026-02-09 15:14:02,103 - app.main - INFO - Including production router: /production
+2026-02-09 15:14:02,108 - app.main - INFO - Including production_tasks router: /production/tasks
+2026-02-09 15:14:02,117 - app.main - INFO - Including chat router: /api/chat
+2026-02-09 15:14:02,119 - app.main - INFO - Total routes after including routers: 176
+INFO:     Started server process [383060]
+INFO:     Waiting for application startup.
+2026-02-09 15:14:02,121 - app.main - INFO - ================================================================================
+2026-02-09 15:14:02,121 - app.main - INFO - BC AI Agent starting up...
+2026-02-09 15:14:02,121 - app.main - INFO - Phase 1: Email quote parsing + Quote generation
+2026-02-09 15:14:02,121 - app.main - INFO - ================================================================================
+2026-02-09 15:14:02,125 - app.services.scheduler_service - INFO - ================================================================================
+2026-02-09 15:14:02,125 - app.services.scheduler_service - INFO - Starting Background Scheduler
+2026-02-09 15:14:02,125 - app.services.scheduler_service - INFO - ================================================================================
+2026-02-09 15:14:02,125 - apscheduler.scheduler - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-02-09 15:14:02,125 - app.services.scheduler_service - INFO - \u2713 Scheduled: Email monitoring every 15 minutes
+2026-02-09 15:14:02,127 - apscheduler.scheduler - INFO - Added job "Email Monitor - Check for new quote requests" to job store "default"
+2026-02-09 15:14:02,127 - apscheduler.scheduler - INFO - Scheduler started
+2026-02-09 15:14:02,128 - app.services.scheduler_service - INFO - \u2713 Scheduler started at 2026-02-09 15:14:02.128217
+2026-02-09 15:14:02,128 - app.services.scheduler_service - INFO - \u2713 Next email check: 2026-02-09 15:29:02
+2026-02-09 15:14:02,128 - app.services.scheduler_service - INFO - ================================================================================
+2026-02-09 15:14:02,128 - app.services.scheduler_service - INFO - Running initial email check...
+2026-02-09 15:14:02,128 - app.services.email_monitor - INFO - Starting email monitoring cycle - checking last 1 hours
+2026-02-09 15:14:02,196 - app.services.email_monitor - INFO - Found 1 active email connections
+2026-02-09 15:14:02,197 - app.services.email_monitor - INFO - Checking inbox: joey@opendc.ca
+2026-02-09 15:14:02,342 - app.integrations.email.client - INFO - Successfully acquired Graph API access token
+2026-02-09 15:14:03,008 - app.services.email_monitor - INFO - Found 1 emails in joey@opendc.ca
+2026-02-09 15:14:03,015 - app.services.email_monitor - INFO - Processing new email from Rogers: Corneleus, your Save & Return term ends soon
+2026-02-09 15:14:03,230 - app.integrations.ai.client - INFO - Claude AI client initialized
+2026-02-09 15:14:03,236 - app.services.email_categorization_service - INFO - Retrieved 0 learning examples (0 quote requests, 0 non-quotes)
+2026-02-09 15:14:06,908 - httpx - INFO - HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
+2026-02-09 15:14:06,917 - app.services.email_monitor - INFO -   -> Categorized as 'other' (confidence: 1.00)
+2026-02-09 15:14:06,921 - app.services.email_monitor - INFO -   -> Categorized as 'other', not processing further
+2026-02-09 15:14:06,933 - app.services.email_monitor - INFO - Monitoring cycle complete. Found 1 new emails, parsed 0 quote requests
+2026-02-09 15:14:06,933 - app.services.scheduler_service - INFO - Email check complete: No new quotes
+2026-02-09 15:14:06,933 - app.main - INFO - \u2713 Scheduled email monitoring started (every 15 minutes)
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)

@@ -287,10 +287,45 @@ class SpringBuilderService:
 
         return None, None
 
-    def _resolve_cone_sets(self, coil_diameter: float) -> dict:
+    def _resolve_cone_sets(self, coil_diameter: float, bore_size: float = None) -> dict:
         """Look up cone/winder set part numbers and pricing by coil diameter."""
-        winder = mapper.get_winder_stationary_set(coil_diameter, bore_size=1.0)
+        # 6" coil springs on 1-1/4" shafts need 1.25" bore cones
+        if bore_size is None:
+            bore_size = 1.0
+        winder = mapper.get_winder_stationary_set(coil_diameter, bore_size=bore_size)
         bc_item = mapper.bc_items.get(winder.part_number, {})
+
+        # Validate the universal part exists in BC; fall back to legacy LH/RH if not
+        if not bc_item:
+            logger.warning(f"Universal cone {winder.part_number} not found in BC — trying legacy LH/RH parts")
+            lh_winder = mapper.get_winder_stationary_set(coil_diameter, bore_size=bore_size, wind="LH")
+            rh_winder = mapper.get_winder_stationary_set(coil_diameter, bore_size=bore_size, wind="RH")
+            # Force legacy lookup by checking WINDER_SETS directly
+            closest_coil = min(mapper.COIL_SIZE_CODES.keys(), key=lambda x: abs(x - coil_diameter))
+            lh_key = (closest_coil, bore_size, "LH")
+            rh_key = (closest_coil, bore_size, "RH")
+            if lh_key in mapper.WINDER_SETS and rh_key in mapper.WINDER_SETS:
+                lh_pn = mapper.WINDER_SETS[lh_key]
+                rh_pn = mapper.WINDER_SETS[rh_key]
+                lh_bc = mapper.bc_items.get(lh_pn, {})
+                rh_bc = mapper.bc_items.get(rh_pn, {})
+                coil_str = mapper._format_coil_size(closest_coil)
+                bore_str = '1"' if bore_size == 1.0 else '1-1/4"'
+                return {
+                    "lh": {
+                        "part_number": lh_pn,
+                        "description": f"SPRING, WINDERS & STATIONARY PLUGS SET, {coil_str}\", {bore_str} BORE, LH",
+                        "unit_cost": lh_bc.get("unitCost", 0),
+                        "unit_price": lh_bc.get("unitPrice", 0),
+                    },
+                    "rh": {
+                        "part_number": rh_pn,
+                        "description": f"SPRING, WINDERS & STATIONARY PLUGS SET, {coil_str}\", {bore_str} BORE, RH",
+                        "unit_cost": rh_bc.get("unitCost", 0),
+                        "unit_price": rh_bc.get("unitPrice", 0),
+                    },
+                    "universal": None,
+                }
 
         winder_data = {
             "part_number": winder.part_number,

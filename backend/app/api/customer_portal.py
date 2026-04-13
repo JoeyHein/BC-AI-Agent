@@ -760,34 +760,49 @@ def _generate_bc_quote_with_items(
                 except Exception as out_err:
                     logger.warning(f"Failed to set Output flag on line: {out_err}")
 
-            # BC's item price list overrides unitPrice on POST.
-            # PATCH the line afterward to lock in the customer-tier price.
-            if pricing_tier and db and line.get("lineType") != "Comment":
-                part_num = line["part_number"]
-                door_tp = line.get("door_type", "residential")
-                selling_price = calculate_selling_price(
-                    part_number=part_num,
-                    door_type=door_tp,
-                    tier=pricing_tier,
-                    db=db,
-                )
-                logger.info(f"PRICING DEBUG [{part_num}]: tier={pricing_tier}, door_type={door_tp}, selling_price={selling_price}")
-                if selling_price is not None:
+            # BC auto-populates description and unitPrice from the item card
+            # on POST, overriding what we send.  PATCH afterward to restore
+            # our intended description and lock in the customer-tier price.
+            if line.get("lineType") != "Comment":
+                patch_data = {}
+
+                # Always restore our description (BC overwrites it with item card displayName)
+                intended_desc = line.get("description", "")
+                if intended_desc:
+                    bc_desc = added_line.get("description", "")
+                    if bc_desc != intended_desc:
+                        patch_data["description"] = intended_desc[:100]
+
+                # Apply customer-tier pricing
+                if pricing_tier and db:
+                    part_num = line["part_number"]
+                    door_tp = line.get("door_type", "residential")
+                    selling_price = calculate_selling_price(
+                        part_number=part_num,
+                        door_type=door_tp,
+                        tier=pricing_tier,
+                        db=db,
+                    )
+                    logger.info(f"PRICING DEBUG [{part_num}]: tier={pricing_tier}, door_type={door_tp}, selling_price={selling_price}")
+                    if selling_price is not None:
+                        patch_data["unitPrice"] = selling_price
+                    else:
+                        logger.warning(f"PRICING DEBUG [{part_num}]: selling_price is None, SKIPPING PATCH")
+                else:
+                    logger.info(f"PRICING DEBUG: skip price PATCH - pricing_tier={pricing_tier}, db={db is not None}")
+
+                if patch_data:
                     etag = added_line.get("@odata.etag", "*")
                     try:
                         bc_client.update_quote_line(
                             bc_quote_id,
                             added_line["id"],
                             etag,
-                            {"unitPrice": selling_price},
+                            patch_data,
                         )
-                        logger.info(f"PRICING DEBUG [{part_num}]: PATCH SUCCESS unitPrice={selling_price}")
+                        logger.info(f"PATCH SUCCESS [{line['part_number']}]: {list(patch_data.keys())}")
                     except Exception as patch_err:
-                        logger.error(f"PRICING DEBUG [{part_num}]: PATCH FAILED: {patch_err}")
-                else:
-                    logger.warning(f"PRICING DEBUG [{part_num}]: selling_price is None, SKIPPING PATCH")
-            elif line.get("lineType") != "Comment":
-                logger.info(f"PRICING DEBUG: skip PATCH - pricing_tier={pricing_tier}, db={db is not None}")
+                        logger.error(f"PATCH FAILED [{line['part_number']}]: {patch_err}")
 
         except Exception as line_error:
             part_id = line.get("part_number", line.get("description", "unknown"))
@@ -805,20 +820,24 @@ def _generate_bc_quote_with_items(
                 )
                 if substitute and substitute.get("number"):
                     try:
+                        original_desc = line.get("description", "") or substitute.get('displayName', substitute['number'])
                         sub_line_data = {
                             "lineType": "Item",
                             "lineObjectNumber": substitute["number"],
-                            "description": (
-                                f"{substitute.get('displayName', substitute['number'])} "
-                                f"(sub for {line['part_number']})"
-                            ),
+                            "description": original_desc,
                             "quantity": line["quantity"],
                         }
                         added_sub = bc_client.add_quote_line(bc_quote_id, sub_line_data)
                         lines_added += 1
                         ai_used = True
 
-                        # Apply tier pricing to the substitute
+                        # BC overwrites description with substitute's item card.
+                        # PATCH to restore intended description + apply tier pricing.
+                        sub_patch = {}
+                        bc_sub_desc = added_sub.get("description", "")
+                        if original_desc and bc_sub_desc != original_desc:
+                            sub_patch["description"] = original_desc[:100]
+
                         if pricing_tier and db:
                             selling_price = calculate_selling_price(
                                 part_number=substitute["number"],
@@ -827,13 +846,16 @@ def _generate_bc_quote_with_items(
                                 db=db,
                             )
                             if selling_price is not None:
-                                etag = added_sub.get("@odata.etag", "*")
-                                bc_client.update_quote_line(
-                                    bc_quote_id,
-                                    added_sub["id"],
-                                    etag,
-                                    {"unitPrice": selling_price},
-                                )
+                                sub_patch["unitPrice"] = selling_price
+
+                        if sub_patch:
+                            etag = added_sub.get("@odata.etag", "*")
+                            bc_client.update_quote_line(
+                                bc_quote_id,
+                                added_sub["id"],
+                                etag,
+                                sub_patch,
+                            )
 
                         logger.info(
                             f"AI substitute added: {line['part_number']} → "
