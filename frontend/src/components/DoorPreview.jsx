@@ -994,6 +994,9 @@ function DoorPreview({
               const shadow = 'rgba(0,0,0,0.14)'
               return (
                 <>
+                  {/* Perimeter shadow ring — subtle darkening just outside the stamp */}
+                  <rect x={sx - 1.5} y={sy - 1.5} width={sw + 3} height={sh + 3}
+                    fill="none" stroke="rgba(0,0,0,0.18)" strokeWidth="1.5" />
                   {/* Stamp outer edge */}
                   <rect x={sx} y={sy} width={sw} height={sh}
                     fill="none" stroke={lineColor} strokeWidth="1" />
@@ -1689,28 +1692,36 @@ function DoorPreview({
             <stop offset="100%" stopColor="black" stopOpacity="0.08" />
           </linearGradient>
 
-          {/* Woodgrain pattern - horizontal grain direction, 240x60 tile */}
+          {/* Woodgrain pattern - horizontal grain, 480x120 tile (doubled to hide repeat seams) */}
           {isWoodgrain(color) && WOODGRAIN_COLORS[color] && (
-            <pattern id="woodgrainPattern" patternUnits="userSpaceOnUse" width="240" height="60">
-              <rect width="240" height="60" fill={WOODGRAIN_COLORS[color].base} />
-              {/* Dark grain streaks - primary layer */}
-              <path d="M0,7 Q60,5 120,7 T240,6" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="1.1" fill="none" opacity="0.85" />
-              <path d="M0,13 Q90,11 180,13 T240,12" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.5" fill="none" opacity="0.55" />
-              <path d="M0,17 Q80,16 160,18 T240,17" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.7" fill="none" opacity="0.6" />
-              <path d="M0,22 Q55,21 115,22 T230,21" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.4" fill="none" opacity="0.45" />
-              <path d="M0,27 Q40,25 100,27 T200,28 T240,27" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="1.3" fill="none" opacity="0.9" />
-              <path d="M0,32 Q70,31 140,32 T240,31" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.5" fill="none" opacity="0.5" />
-              <path d="M0,38 Q70,37 140,38 T240,37" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.6" fill="none" opacity="0.55" />
-              <path d="M0,43 Q60,42 120,43 T240,42" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.4" fill="none" opacity="0.45" />
-              <path d="M0,48 Q50,47 110,48 T220,47 T240,48" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.9" fill="none" opacity="0.75" />
-              <path d="M0,54 Q100,53 190,54 T240,53" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.5" fill="none" opacity="0.5" />
+            <pattern id="woodgrainPattern" patternUnits="userSpaceOnUse" width="480" height="120">
+              <rect width="480" height="120" fill={WOODGRAIN_COLORS[color].base} />
+              {/* Dark grain streaks */}
+              <path d="M0,8 Q120,6 240,9 T480,7" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="1.1" fill="none" opacity="0.85" />
+              <path d="M0,15 Q90,14 180,16 T360,15 T480,14" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.5" fill="none" opacity="0.55" />
+              <path d="M0,21 Q160,19 320,22 T480,20" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.7" fill="none" opacity="0.6" />
+              <path d="M0,28 Q110,27 220,28 T440,27 T480,28" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.4" fill="none" opacity="0.45" />
+              <path d="M0,35 Q80,33 160,35 T320,36 T480,34" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="1.3" fill="none" opacity="0.9" />
+              <path d="M0,43 Q140,42 280,43 T480,42" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.5" fill="none" opacity="0.5" />
+              <path d="M0,50 Q100,49 200,51 T400,50 T480,51" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.6" fill="none" opacity="0.55" />
+              <path d="M0,57 Q120,56 240,57 T480,56" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.4" fill="none" opacity="0.45" />
+              <path d="M0,65 Q90,63 180,65 T360,66 T480,64" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="1.0" fill="none" opacity="0.8" />
+              <path d="M0,72 Q150,71 300,72 T480,71" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.5" fill="none" opacity="0.5" />
+              <path d="M0,80 Q100,79 200,81 T400,80 T480,81" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.7" fill="none" opacity="0.6" />
+              <path d="M0,88 Q110,87 220,88 T440,87 T480,88" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.4" fill="none" opacity="0.45" />
+              <path d="M0,96 Q140,94 280,96 T480,95" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.9" fill="none" opacity="0.75" />
+              <path d="M0,104 Q90,103 180,104 T360,105 T480,104" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.5" fill="none" opacity="0.5" />
+              <path d="M0,112 Q120,111 240,113 T480,112" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.6" fill="none" opacity="0.55" />
               {/* Light highlight streaks */}
-              <path d="M0,10 Q80,9 160,11 T240,10" stroke={WOODGRAIN_COLORS[color].light} strokeWidth="0.4" fill="none" opacity="0.55" />
-              <path d="M0,35 Q60,34 130,35 T240,35" stroke={WOODGRAIN_COLORS[color].light} strokeWidth="0.5" fill="none" opacity="0.55" />
-              <path d="M0,52 Q100,51 190,52 T240,51" stroke={WOODGRAIN_COLORS[color].light} strokeWidth="0.4" fill="none" opacity="0.45" />
-              {/* Occasional elongated knots */}
+              <path d="M0,12 Q160,11 320,13 T480,12" stroke={WOODGRAIN_COLORS[color].light} strokeWidth="0.4" fill="none" opacity="0.55" />
+              <path d="M0,40 Q120,39 240,40 T480,40" stroke={WOODGRAIN_COLORS[color].light} strokeWidth="0.5" fill="none" opacity="0.55" />
+              <path d="M0,68 Q180,67 360,68 T480,68" stroke={WOODGRAIN_COLORS[color].light} strokeWidth="0.4" fill="none" opacity="0.45" />
+              <path d="M0,100 Q100,99 200,100 T400,100 T480,100" stroke={WOODGRAIN_COLORS[color].light} strokeWidth="0.4" fill="none" opacity="0.5" />
+              {/* Elongated knots scattered across the larger tile */}
               <ellipse cx="75" cy="25" rx="9" ry="2" fill={WOODGRAIN_COLORS[color].dark} opacity="0.32" />
-              <ellipse cx="185" cy="45" rx="11" ry="2.5" fill={WOODGRAIN_COLORS[color].dark} opacity="0.28" />
+              <ellipse cx="185" cy="85" rx="11" ry="2.5" fill={WOODGRAIN_COLORS[color].dark} opacity="0.28" />
+              <ellipse cx="340" cy="45" rx="10" ry="2.2" fill={WOODGRAIN_COLORS[color].dark} opacity="0.3" />
+              <ellipse cx="420" cy="105" rx="8" ry="1.8" fill={WOODGRAIN_COLORS[color].dark} opacity="0.26" />
             </pattern>
           )}
         </defs>
