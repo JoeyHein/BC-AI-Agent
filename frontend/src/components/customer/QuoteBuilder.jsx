@@ -2259,7 +2259,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
       {isLowHeadroom && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
           <p className="text-sm text-blue-800">
-            <span className="font-medium">2" Double Track Low Headroom</span> - Uses 2" track with double track configuration for minimal headroom clearance.
+            <span className="font-medium">{door.trackThickness || '2'}" Double Track Low Headroom</span> - Uses {door.trackThickness || '2'}" track with double track configuration for minimal headroom clearance.
           </p>
         </div>
       )}
@@ -2727,7 +2727,7 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
                     <span className="text-gray-500">Track:</span>
                     <span className="ml-2 text-gray-900">
                       {door.liftType === 'low_headroom'
-                        ? '2" Double Track Low Headroom'
+                        ? `${door.trackThickness || '2'}" Double Track Low Headroom`
                         : `${door.trackRadius}" radius / ${door.trackThickness}" track`}
                       {door.liftType === 'high_lift' && ' (High Lift)'}
                       {door.liftType === 'vertical' && ' (Vertical Lift)'}

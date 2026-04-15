@@ -495,6 +495,7 @@ class DoorConfigRequest(BaseModel):
     targetCycles: int = 10000
     shaftType: str = "auto"  # 'auto', 'single', 'split'
     includeTopSeal: bool = False  # optional upgrade for commercial doors
+    includePusherSprings: bool = False  # optional upgrade: adds TR13-00031-00 + TR13-00032-00
 
 
 class QuoteGenerationRequest(BaseModel):
@@ -932,6 +933,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "targetCycles": door.targetCycles,
                 "shaftType": door.shaftType,
                 "includeTopSeal": getattr(door, 'includeTopSeal', False),
+                "includePusherSprings": getattr(door, 'includePusherSprings', False),
             }
 
             door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inventory)
@@ -1441,6 +1443,7 @@ async def get_part_numbers(config: DoorConfigRequest, db: Session = Depends(get_
             "operator": config.operator,
             "targetCycles": config.targetCycles,
             "includeTopSeal": getattr(config, 'includeTopSeal', False),
+            "includePusherSprings": getattr(config, 'includePusherSprings', False),
         }
 
         # Get parts from service (with BC spring inventory for consistency with specs tab)
@@ -1502,6 +1505,7 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "targetCycles": door.targetCycles,
                 "shaftType": door.shaftType,
                 "includeTopSeal": getattr(door, 'includeTopSeal', False),
+                "includePusherSprings": getattr(door, 'includePusherSprings', False),
             }
 
             spring_inv = get_bc_spring_inventory()

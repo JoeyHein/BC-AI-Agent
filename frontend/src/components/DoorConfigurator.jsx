@@ -94,6 +94,7 @@ function DoorConfigurator() {
       endCapType: 'auto', // 'auto', 'SEC', or 'DEC'
       // Upgrades
       includeTopSeal: false, // optional upgrade for commercial doors below auto-threshold
+      includePusherSprings: false, // optional upgrade: adds TR13-00031-00 + TR13-00032-00
       // High lift inches (only used for high_lift)
       highLiftInches: null,  // extra inches above door opening
     }
@@ -210,6 +211,7 @@ function DoorConfigurator() {
         trackMount: door.trackMount || 'bracket',
         endCapType: door.endCapType || 'auto',
         includeTopSeal: door.includeTopSeal || false,
+        includePusherSprings: door.includePusherSprings || false,
       })),
       tagName: `Configurator Quote - ${doors.length} door(s)`,
       customerId: selectedCustomer?.bc_customer_id || null,
@@ -894,65 +896,63 @@ function DesignStep({ door, colors, panelDesigns, config, onChange }) {
           </div>
         </div>
 
-        {/* Glass Pocket Customization — AL976 and SWD only */}
-        {isGlassDoor && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Glass Pockets Per Section
-            </label>
-            <p className="text-xs text-gray-500 mb-3">
-              Default: {defaultPockets} pockets. {isSWD ? 'Any count' : 'Adjust +/- 1'} per section (max +{maxAdjust}, min -{minAdjust > defaultPockets ? defaultPockets - 1 : minAdjust}).
-            </p>
-            <div className="space-y-2">
-              {Array.from({ length: sectionCount }, (_, i) => {
-                const count = getPocketCount(i)
-                const label = i === 0 ? 'Top' : i === sectionCount - 1 ? 'Bottom' : `Section ${i + 1}`
-                const isCustom = pockets[i] != null && pockets[i] !== defaultPockets
-                return (
-                  <div key={`pocket-${i}`} className={`flex items-center gap-3 p-2 rounded-md ${isCustom ? 'bg-odc-50 border border-odc-200' : 'bg-gray-50'}`}>
-                    <span className="text-sm text-gray-700 w-24">{label}</span>
-                    <button
-                      type="button"
-                      onClick={() => setPocketCount(i, count - 1)}
-                      disabled={count <= Math.max(1, defaultPockets - minAdjust)}
-                      className="w-8 h-8 flex items-center justify-center rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      -
-                    </button>
-                    <span className="text-sm font-semibold w-8 text-center">{count}</span>
-                    <button
-                      type="button"
-                      onClick={() => setPocketCount(i, count + 1)}
-                      disabled={count >= defaultPockets + maxAdjust}
-                      className="w-8 h-8 flex items-center justify-center rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      +
-                    </button>
-                    {isCustom && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const updated = { ...pockets }
-                          delete updated[i]
-                          const allDefault = Object.keys(updated).length === 0
-                          onChange({ glassPocketsPerSection: allDefault ? null : updated })
-                        }}
-                        className="text-xs text-gray-400 hover:text-gray-600"
-                      >
-                        reset
-                      </button>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-            {defaultPockets - minAdjust < 1 && (
-              <p className="text-xs text-amber-600 mt-2">
-                For fewer than {Math.max(1, defaultPockets - minAdjust)} pockets, please contact the office.
+        {/* Glass Pocket Customization — AL976 and SWD only (single door-wide count) */}
+        {isGlassDoor && (() => {
+          const firstCount = pockets[0]
+          const currentCount = firstCount != null ? firstCount : defaultPockets
+          const minCount = Math.max(1, defaultPockets - minAdjust)
+          const maxCount = defaultPockets + maxAdjust
+          const setAll = (count) => {
+            const clamped = Math.max(minCount, Math.min(maxCount, count))
+            if (clamped === defaultPockets) {
+              onChange({ glassPocketsPerSection: null })
+              return
+            }
+            const updated = {}
+            for (let i = 0; i < sectionCount; i++) updated[i] = clamped
+            onChange({ glassPocketsPerSection: updated })
+          }
+          const isCustom = currentCount !== defaultPockets
+          return (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Glass Pockets (applies to all sections)
+              </label>
+              <p className="text-xs text-gray-500 mb-3">
+                Default: {defaultPockets} pockets. Range: {minCount}–{maxCount}.
               </p>
-            )}
-          </div>
-        )}
+              <div className={`flex items-center gap-3 p-2 rounded-md ${isCustom ? 'bg-odc-50 border border-odc-200' : 'bg-gray-50'}`}>
+                <span className="text-sm text-gray-700 w-24">Pockets</span>
+                <button
+                  type="button"
+                  onClick={() => setAll(currentCount - 1)}
+                  disabled={currentCount <= minCount}
+                  className="w-8 h-8 flex items-center justify-center rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  -
+                </button>
+                <span className="text-sm font-semibold w-8 text-center">{currentCount}</span>
+                <button
+                  type="button"
+                  onClick={() => setAll(currentCount + 1)}
+                  disabled={currentCount >= maxCount}
+                  className="w-8 h-8 flex items-center justify-center rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  +
+                </button>
+                {isCustom && (
+                  <button
+                    type="button"
+                    onClick={() => onChange({ glassPocketsPerSection: null })}
+                    className="text-xs text-gray-400 hover:text-gray-600"
+                  >
+                    reset
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        })()}
       </div>
     )
   }
@@ -2371,7 +2371,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
       {isLowHeadroom && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
           <p className="text-sm text-blue-800">
-            <span className="font-medium">2" Double Track Low Headroom</span> - Uses 2" track with double track configuration for minimal headroom clearance.
+            <span className="font-medium">{door.trackThickness || '2'}" Double Track Low Headroom</span> - Uses {door.trackThickness || '2'}" track with double track configuration for minimal headroom clearance.
           </p>
         </div>
       )}
@@ -2484,7 +2484,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         </div>
       </div>
 
-      {/* Top Seal Upgrade — commercial doors below auto-threshold */}
+      {/* Upgrades — commercial doors */}
       {door.doorType === 'commercial' && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -2514,6 +2514,18 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
               </label>
             )
           })()}
+          <label className="mt-2 flex items-start p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+            <input
+              type="checkbox"
+              checked={!!door.includePusherSprings}
+              onChange={(e) => onChange({ includePusherSprings: e.target.checked })}
+              className="h-4 w-4 mt-0.5 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
+            />
+            <div className="ml-2">
+              <span className="text-sm font-medium text-gray-700">Pusher Springs (LH + RH)</span>
+              <p className="text-xs text-gray-500">Adds TR13-00031-00 and TR13-00032-00</p>
+            </div>
+          </label>
         </div>
       )}
 
@@ -2707,7 +2719,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
             glazingType: door.glazingType !== 'NONE' ? door.glazingType : null,
             glassPocketsPerSection: door.glassPocketsPerSection || null,
             trackRadius: door.trackRadius,
-            trackThickness: door.liftType === 'low_headroom' ? '2' : door.trackThickness,
+            trackThickness: door.trackThickness,
             liftType: door.liftType,
             highLiftInches: door.liftType === 'high_lift' ? door.highLiftInches : null,
             endCapType: door.endCapType || 'auto',
@@ -2715,6 +2727,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
             operator: door.operator !== 'NONE' ? door.operator : null,
             operatorAccessories: (door.operatorAccessories || []).length > 0 ? door.operatorAccessories : undefined,
             includeTopSeal: door.includeTopSeal || false,
+        includePusherSprings: door.includePusherSprings || false,
           }))
         }
         const response = await doorConfigApi.getPartsForQuote(request)
@@ -2742,7 +2755,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
                 : door.liftType === 'high_lift' ? 'high_lift'
                 : door.liftType === 'vertical' ? 'vertical'
                 : door.trackRadius === '12' ? 'standard_12' : 'standard_15',
-              trackSize: door.liftType === 'low_headroom' ? 2 : parseInt(door.trackThickness),
+              trackSize: parseInt(door.trackThickness),
               windowType: door.windowInsert !== 'NONE' ? '24x12' : null,
               windowQty: door.windowInsert !== 'NONE' ? 1 : 0,
               doubleEndCaps: false,
@@ -2871,7 +2884,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
                 <span className="text-gray-500">Track:</span>
                 <span className="ml-2 text-gray-900">
                   {door.liftType === 'low_headroom'
-                    ? '2" Double Track Low Headroom'
+                    ? `${door.trackThickness || '2'}" Double Track Low Headroom`
                     : `${door.trackRadius}" radius / ${door.trackThickness}" track`}
                   {door.liftType === 'high_lift' && ' (High Lift)'}
                   {door.liftType === 'vertical' && ' (Vertical Lift)'}

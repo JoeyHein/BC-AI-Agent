@@ -131,6 +131,7 @@ class DoorConfiguration:
     glass_pockets_per_section: int = 1  # Number of glass pockets per V130G/V230G section
     spring_inventory: Optional[Dict[str, list]] = None  # stocked coil/wire combos from settings
     include_top_seal: Optional[bool] = None  # None=auto (apply rules), True=force include, False=exclude
+    include_pusher_springs: bool = False  # Upgrade: adds TR13-00031-00 + TR13-00032-00
 
 
 # ============================================================================
@@ -698,6 +699,21 @@ class PartNumberService:
         if hardware.get("hardwareKits", True):
             hw_parts = self._get_hardware_kit_parts(config)
             parts.extend(hw_parts)
+
+        # 8a. PUSHER SPRINGS (optional upgrade)
+        if config.include_pusher_springs:
+            parts.append(PartSelection(
+                part_number="TR13-00031-00",
+                description="TRACK HARDWARE, SPRING, PUSHER SPRING, LH",
+                quantity=1,
+                category="accessory",
+            ))
+            parts.append(PartSelection(
+                part_number="TR13-00032-00",
+                description="TRACK HARDWARE, SPRING, PUSHER SPRING, RH",
+                quantity=1,
+                category="accessory",
+            ))
 
         # 8b. DECORATIVE HARDWARE (residential only, if selected)
         if config.door_type == "residential" and hardware.get("decorativeHardware", False):
@@ -3204,6 +3220,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         window_positions=config_dict.get("windowPositions") if config_dict.get("hasWindows", True) else None,
         spring_inventory=spring_inventory,
         include_top_seal=config_dict.get("includeTopSeal"),
+        include_pusher_springs=bool(config_dict.get("includePusherSprings", False)),
     )
 
     parts = part_number_service.get_parts_for_configuration(config)
