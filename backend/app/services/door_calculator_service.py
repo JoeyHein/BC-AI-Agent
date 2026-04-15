@@ -1080,15 +1080,16 @@ class DoorCalculatorService:
             logger.warning("No stocked spring found, falling back to unfiltered calculation")
 
         # Unfiltered calculation (no inventory, or inventory had no match)
-        # Try stocked coil sizes in order of preference, scaling up spring count
+        # Collect ALL valid candidates across qty/coil options and pick the cheapest
+        # (smallest material footprint). Previously returned first match, which often
+        # missed cheaper alternatives (bug #49).
         stocked_coils = STOCKED_COIL_DIAMETERS
-
-        # Try requested qty first (usually 2), then scale up, then 1 as last resort
-        # Doors >= 150 lbs must use 2+ springs
         if door_weight >= 150:
             unfiltered_progression = list(dict.fromkeys([spring_qty, 2, 4, 6, 8]))
         else:
             unfiltered_progression = list(dict.fromkeys([spring_qty, 2, 4, 6, 8, 1]))
+
+        all_candidates = []
         for qty in unfiltered_progression:
             for coil_diam in stocked_coils:
                 result = spring_calculator.calculate_spring(
@@ -1101,29 +1102,51 @@ class DoorCalculatorService:
                     drum_model=drum_model,
                     high_lift_inches=high_lift_inches,
                 )
-                if result is not None:
-                    # Verify springs physically fit on the shaft
-                    if not _springs_fit_on_shaft(width_inches, result.length, qty, coil_diam, drum_model):
-                        logger.info(
-                            f"Skipping {qty}x {coil_diam}\" coil / {result.wire_diameter}\" wire "
-                            f"({result.length}\" long) — doesn't fit on {width_inches}\" wide door"
-                        )
-                        continue
-                    return SpringSelection(
-                        quantity=result.spring_quantity,
-                        coil_diameter=result.coil_diameter,
-                        wire_diameter=result.wire_diameter,
-                        length=result.length,
-                        cycles=result.cycle_life,
-                        turns=result.turns,
-                        galvanized=False
+                if result is None:
+                    continue
+                if not _springs_fit_on_shaft(width_inches, result.length, qty, coil_diam, drum_model):
+                    logger.info(
+                        f"Skipping {qty}x {coil_diam}\" coil / {result.wire_diameter}\" wire "
+                        f"({result.length}\" long) — doesn't fit on {width_inches}\" wide door"
                     )
+                    continue
+                all_candidates.append(result)
 
-        logger.warning(
-            f"No spring found for {door_weight} lbs, {height_inches}\" height, "
-            f"{target_cycles} cycles"
+        if not all_candidates:
+            logger.warning(
+                f"No spring found for {door_weight} lbs, {height_inches}\" height, "
+                f"{target_cycles} cycles"
+            )
+            return None
+
+        MAX_PRACTICAL_LENGTH = 75.0
+
+        def sort_key(r):
+            is_reasonable = r.length <= MAX_PRACTICAL_LENGTH
+            material = (r.wire_diameter ** 2) * r.length * r.spring_quantity
+            return (
+                0 if is_reasonable else 1,
+                r.spring_quantity,
+                r.coil_diameter,
+                material,
+                r.length,
+            )
+
+        best = min(all_candidates, key=sort_key)
+        logger.info(
+            f"Selected spring (cheapest valid): {best.spring_quantity}x "
+            f"{best.coil_diameter}\" coil / {best.wire_diameter}\" wire "
+            f"({best.length}\" long)"
         )
-        return None
+        return SpringSelection(
+            quantity=best.spring_quantity,
+            coil_diameter=best.coil_diameter,
+            wire_diameter=best.wire_diameter,
+            length=best.length,
+            cycles=best.cycle_life,
+            turns=best.turns,
+            galvanized=False
+        )
 
     def _calculate_springs_from_inventory(
         self,
