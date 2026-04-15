@@ -936,8 +936,25 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "includePusherSprings": getattr(door, 'includePusherSprings', False),
             }
 
-            door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inventory)
-            parts_list = door_parts.get("parts_list", [])
+            try:
+                door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inventory)
+                parts_list = door_parts.get("parts_list", [])
+            except Exception as door_err:
+                logger.exception(f"Door {door_index} part generation failed — skipping: {door_err}")
+                all_lines.append({
+                    "lineType": "Comment",
+                    "description": f"[ERROR] Door {door_index}: part generation failed ({door_err}). Contact support.",
+                    "category": "COMMENT",
+                    "door_index": door_index,
+                    "is_note": True,
+                })
+                parts_by_door.append({
+                    "door_index": door_index,
+                    "door_description": door_desc,
+                    "error": str(door_err),
+                    "parts": {"parts_list": []},
+                })
+                continue
 
             # Sort parts by standard line ordering
             sorted_parts = _sort_parts_by_category(parts_list)
@@ -1509,7 +1526,17 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
             }
 
             spring_inv = get_bc_spring_inventory()
-            door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inv)
+            try:
+                door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inv)
+            except Exception as door_err:
+                logger.exception(f"Door {i+1} part generation failed — skipping: {door_err}")
+                parts_by_door.append({
+                    "door_index": i + 1,
+                    "door_description": f"{door.doorSeries} {door.doorWidth}\"x{door.doorHeight}\" {door.panelColor}",
+                    "error": str(door_err),
+                    "parts": {"parts_list": []},
+                })
+                continue
 
             parts_by_door.append({
                 "door_index": i + 1,
