@@ -61,7 +61,7 @@ const PANEL_PATTERNS = {
 }
 
 const COLOR_MAP = {
-  WHITE: '#F4F4F4',
+  WHITE: '#E2E2E2',
   BRIGHT_WHITE: '#F4F4F4',
   ALMOND: '#DCCBB3',
   BLACK: '#282828',
@@ -69,11 +69,11 @@ const COLOR_MAP = {
   NEW_BROWN: '#4C4842',
   HAZELWOOD: '#756F61',
   BRONZE: '#6C6961',
-  STEEL_GREY: '#7D7F7D',
-  SANDTONE: '#A4957D',
+  STEEL_GREY: '#6B6B6B',
+  SANDTONE: '#A89E94',
   IRON_ORE: '#2F3234',
-  NEW_ALMOND: '#D6C6A8',
-  WALNUT: '#4A3728',
+  NEW_ALMOND: '#E3DCCA',
+  WALNUT: '#673D27',
   ENGLISH_CHESTNUT: '#6B4423',
   FRENCH_OAK: '#C2B078',
   CANYON: '#8B6F47',
@@ -83,12 +83,14 @@ const COLOR_MAP = {
 }
 
 const WOODGRAIN_COLORS = {
-  WALNUT: { base: '#4A3728', light: '#5D432C', dark: '#3D2B1F' },
+  WALNUT: { base: '#673D27', light: '#75452D', dark: '#5D341F' },
   ENGLISH_CHESTNUT: { base: '#6B4423', light: '#8B5A2B', dark: '#5C3317' },
   FRENCH_OAK: { base: '#C2B078', light: '#C2B078', dark: '#8A6642' },
 }
 
 const isWoodgrain = (colorId) => ['WALNUT', 'ENGLISH_CHESTNUT', 'FRENCH_OAK'].includes(colorId)
+
+const hasMetallicSheen = (colorId) => ['STEEL_GREY', 'BLACK', 'IRON_ORE', 'ONYX_BLACK', 'CLEAR_ANODIZED', 'BLACK_ANODIZED', 'MILL'].includes(colorId)
 
 const darkenHex = (hex, factor = 0.75) => {
   const r = parseInt(hex.slice(1, 3), 16)
@@ -194,6 +196,7 @@ function DoorPreview({
   const sectionHeightScale = height / totalSectionHeight
 
   const doorColor = COLOR_MAP[color] || COLOR_MAP.WHITE
+  const surfaceFill = isWoodgrain(color) ? `url(#woodgrainPattern-${instanceId})` : doorColor
   const isDark = ['BLACK', 'WALNUT', 'IRON_ORE', 'NEW_BROWN', 'ENGLISH_CHESTNUT'].includes(color)
   const lineColor = isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.2)'
   const shadowColor = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.15)'
@@ -493,7 +496,7 @@ function DoorPreview({
         <g key={`commercial-window-${sectionIdx}-${i}`}>
           <rect x={windowX - frameThickness - 1} y={windowY - frameThickness - 1}
             width={scaledWindowWidth + (frameThickness + 1) * 2} height={scaledWindowHeight + (frameThickness + 1) * 2}
-            fill={doorColor} stroke="none" />
+            fill={surfaceFill} stroke="none" />
           <rect x={windowX - frameThickness} y={windowY - frameThickness}
             width={scaledWindowWidth + frameThickness * 2} height={scaledWindowHeight + frameThickness * 2}
             fill={frameColor} stroke={frameStroke} strokeWidth="1.5" rx="1" />
@@ -522,11 +525,34 @@ function DoorPreview({
     const windowY = y + windowPadding
 
     const elements = []
+    const frameLight = resolvedFrame.fill
+    const frameDark = resolvedFrame.stroke
+    const frameT = Math.min(windowWidth, windowHeight) * 0.06
 
     elements.push(
-      <rect key={`window-frame-${colIndex}`}
+      <rect key={`glass-${colIndex}`}
         x={windowX} y={windowY} width={windowWidth} height={windowHeight}
-        fill={glassFill} stroke={frameColor} strokeWidth="2" rx="2" ry="2" />
+        fill={glassFill} />
+    )
+    elements.push(
+      <rect key={`glass-sheen-${colIndex}`}
+        x={windowX} y={windowY} width={windowWidth} height={windowHeight}
+        fill={`url(#glassReflection-${instanceId})`} opacity="0.28" />
+    )
+    const fx = windowX, fy = windowY, fw = windowWidth, fh = windowHeight
+    elements.push(
+      <polygon key={`frame-top-${colIndex}`}
+        points={`${fx},${fy} ${fx + fw},${fy} ${fx + fw - frameT},${fy + frameT} ${fx + frameT},${fy + frameT}`}
+        fill={frameLight} />,
+      <polygon key={`frame-left-${colIndex}`}
+        points={`${fx},${fy} ${fx + frameT},${fy + frameT} ${fx + frameT},${fy + fh - frameT} ${fx},${fy + fh}`}
+        fill={frameLight} />,
+      <polygon key={`frame-right-${colIndex}`}
+        points={`${fx + fw},${fy} ${fx + fw},${fy + fh} ${fx + fw - frameT},${fy + fh - frameT} ${fx + fw - frameT},${fy + frameT}`}
+        fill={frameDark} />,
+      <polygon key={`frame-bottom-${colIndex}`}
+        points={`${fx},${fy + fh} ${fx + frameT},${fy + fh - frameT} ${fx + fw - frameT},${fy + fh - frameT} ${fx + fw},${fy + fh}`}
+        fill={frameDark} />
     )
 
     if (!hasInserts || windowShape.type === 'plain') {
@@ -661,24 +687,25 @@ function DoorPreview({
                 fill="rgba(201, 169, 110, 0.2)" stroke="rgba(201, 169, 110, 0.8)"
                 strokeWidth="2" strokeDasharray="4,2" rx="2" />
             )}
-            <rect x={x + outerInset} y={cellY + outerInset}
-              width={cellW - outerInset * 2} height={cellH - outerInset * 2}
-              fill="none" stroke={lineColor} strokeWidth="1.5" />
-            <rect x={x + outerInset + innerInset} y={cellY + outerInset + innerInset}
-              width={cellW - (outerInset + innerInset) * 2} height={cellH - (outerInset + innerInset) * 2}
-              fill="none" stroke={lineColor} strokeWidth="1" />
-            <line x1={x + outerInset + innerInset} y1={cellY + cellH - outerInset - innerInset}
-              x2={x + cellW - outerInset - innerInset} y2={cellY + cellH - outerInset - innerInset}
-              stroke={shadowColor} strokeWidth="2" />
-            <line x1={x + cellW - outerInset - innerInset} y1={cellY + outerInset + innerInset}
-              x2={x + cellW - outerInset - innerInset} y2={cellY + cellH - outerInset - innerInset}
-              stroke={shadowColor} strokeWidth="2" />
-            <line x1={x + outerInset + innerInset} y1={cellY + outerInset + innerInset}
-              x2={x + cellW - outerInset - innerInset} y2={cellY + outerInset + innerInset}
-              stroke={isDark ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.7)'} strokeWidth="1" />
-            <line x1={x + outerInset + innerInset} y1={cellY + outerInset + innerInset}
-              x2={x + outerInset + innerInset} y2={cellY + cellH - outerInset - innerInset}
-              stroke={isDark ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.7)'} strokeWidth="1" />
+            {(() => {
+              const sx = x + outerInset, sy = cellY + outerInset
+              const sw = cellW - outerInset * 2, sh = cellH - outerInset * 2
+              const bx = sw * 0.13, by = sh * 0.17
+              const px = sx + bx, py = sy + by
+              const pw = sw - bx * 2, ph = sh - by * 2
+              const highlight = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.32)'
+              const shadow = 'rgba(0,0,0,0.22)'
+              return (
+                <>
+                  <rect x={sx} y={sy} width={sw} height={sh} fill="none" stroke={lineColor} strokeWidth="1" />
+                  <polygon points={`${sx},${sy} ${sx + sw},${sy} ${px + pw},${py} ${px},${py}`} fill={highlight} />
+                  <polygon points={`${sx},${sy} ${px},${py} ${px},${py + ph} ${sx},${sy + sh}`} fill={highlight} />
+                  <polygon points={`${sx + sw},${sy} ${sx + sw},${sy + sh} ${px + pw},${py + ph} ${px + pw},${py}`} fill={shadow} />
+                  <polygon points={`${sx},${sy + sh} ${px},${py + ph} ${px + pw},${py + ph} ${sx + sw},${sy + sh}`} fill={shadow} />
+                  <rect x={px} y={py} width={pw} height={ph} fill="none" stroke={lineColor} strokeWidth="0.6" opacity="0.5" />
+                </>
+              )
+            })()}
           </g>
         )
       }
@@ -822,7 +849,7 @@ function DoorPreview({
   }
 
   const renderFlushPanel = (y, w, h, padding) => {
-    return <rect x={padding} y={y} width={w} height={h} fill={doorColor} />
+    return <rect x={padding} y={y} width={w} height={h} fill={surfaceFill} />
   }
 
   const renderCraftSection = (sectionIndex, sectionY, sectionHeight, pattern) => {
@@ -840,7 +867,7 @@ function DoorPreview({
         <rect key="craft-top-flush"
           x={padding} y={sectionY + padding}
           width={panelWidth} height={panelHeight}
-          fill={doorColor} />
+          fill={surfaceFill} />
       )
       const windowInset = panelHeight * 0.1
       const windowH = panelHeight - windowInset * 2
@@ -1012,23 +1039,37 @@ function DoorPreview({
           <filter id={`doorShadow-${instanceId}`} x="-20%" y="-20%" width="140%" height="140%">
             <feDropShadow dx="3" dy="3" stdDeviation="4" floodOpacity="0.3"/>
           </filter>
+          <linearGradient id={`metallicSheen-${instanceId}`} x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="white" stopOpacity="0.12" />
+            <stop offset="35%" stopColor="white" stopOpacity="0.02" />
+            <stop offset="65%" stopColor="black" stopOpacity="0.02" />
+            <stop offset="100%" stopColor="black" stopOpacity="0.08" />
+          </linearGradient>
           {isWoodgrain(color) && WOODGRAIN_COLORS[color] && (
-            <pattern id={`woodgrainPattern-${instanceId}`} patternUnits="userSpaceOnUse" width="100" height="8">
-              <rect width="100" height="8" fill={WOODGRAIN_COLORS[color].base} />
-              <path d={`M0,2 Q25,0 50,2 T100,2`}
-                stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.5" fill="none" opacity="0.6" />
-              <path d={`M0,5 Q30,3 60,5 T100,5`}
-                stroke={WOODGRAIN_COLORS[color].light} strokeWidth="0.3" fill="none" opacity="0.4" />
-              <path d={`M0,7 Q20,6 40,7 T80,6.5 T100,7`}
-                stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.4" fill="none" opacity="0.5" />
+            <pattern id={`woodgrainPattern-${instanceId}`} patternUnits="userSpaceOnUse" width="240" height="60">
+              <rect width="240" height="60" fill={WOODGRAIN_COLORS[color].base} />
+              <path d="M0,7 Q60,5 120,7 T240,6" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.7" fill="none" opacity="0.55" />
+              <path d="M0,17 Q80,16 160,18 T240,17" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.4" fill="none" opacity="0.35" />
+              <path d="M0,27 Q40,25 100,27 T200,28 T240,27" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.9" fill="none" opacity="0.6" />
+              <path d="M0,38 Q70,37 140,38 T240,37" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.3" fill="none" opacity="0.3" />
+              <path d="M0,48 Q50,47 110,48 T220,47 T240,48" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.5" fill="none" opacity="0.5" />
+              <path d="M0,12 Q90,11 180,13 T240,12" stroke={WOODGRAIN_COLORS[color].light} strokeWidth="0.3" fill="none" opacity="0.4" />
+              <path d="M0,33 Q60,32 130,33 T240,33" stroke={WOODGRAIN_COLORS[color].light} strokeWidth="0.4" fill="none" opacity="0.4" />
+              <path d="M0,54 Q100,53 190,54 T240,53" stroke={WOODGRAIN_COLORS[color].light} strokeWidth="0.3" fill="none" opacity="0.3" />
+              <ellipse cx="75" cy="25" rx="9" ry="2" fill={WOODGRAIN_COLORS[color].dark} opacity="0.22" />
+              <ellipse cx="185" cy="45" rx="11" ry="2.5" fill={WOODGRAIN_COLORS[color].dark} opacity="0.2" />
             </pattern>
           )}
         </defs>
 
         <rect x="0" y="0" width={displayWidth} height={displayHeight}
-          fill={isWoodgrain(color) ? `url(#woodgrainPattern-${instanceId})` : doorColor}
+          fill={surfaceFill}
           stroke="#333" strokeWidth="2"
           filter={`url(#doorShadow-${instanceId})`} />
+        {hasMetallicSheen(color) && (
+          <rect x="0" y="0" width={displayWidth} height={displayHeight}
+            fill={`url(#metallicSheen-${instanceId})`} pointerEvents="none" />
+        )}
 
         {sections.map((section) => (
           <g key={`section-${section.index}`}>

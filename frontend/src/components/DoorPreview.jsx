@@ -132,17 +132,18 @@ const PANEL_PATTERNS = {
 // Color hex values - RAL codes for accurate representation
 const COLOR_MAP = {
   // Solid colors (RAL)
-  WHITE: '#F4F4F4',           // RAL 9003 Signal White
+  WHITE: '#E2E2E2',           // measured from catalogue (matte finish reads darker than RAL 9003)
   BRIGHT_WHITE: '#F4F4F4',    // RAL 9003
   BLACK: '#282828',           // RAL 9004 Signal Black
   NEW_BROWN: '#4C4842',       // RAL 7022 Umbra Grey
-  HAZELWOOD: '#756F61',       // RAL 7006 Beige Grey
+  HAZELWOOD: '#756F61',       // RAL 7006 Beige Grey (solid, not woodgrain)
   BRONZE: '#6C6961',          // RAL 7039 Quartz Grey
-  STEEL_GREY: '#7D7F7D',      // RAL 7037 Dusty Grey
-  SANDTONE: '#A4957D',        // RAL 1019 Grey Beige
+  STEEL_GREY: '#6B6B6B',      // measured from catalogue
+  SANDTONE: '#A89E94',        // measured from catalogue (more neutral than RAL 1019)
   IRON_ORE: '#2F3234',        // RAL 7021 Black Grey
+  NEW_ALMOND: '#E3DCCA',      // measured from catalogue
   // Woodgrain colors (base color for pattern)
-  WALNUT: '#4A3728',
+  WALNUT: '#673D27',          // measured from catalogue
   ENGLISH_CHESTNUT: '#6B4423',
   FRENCH_OAK: '#C2B078',          // RAL 1001 Beige (light base)
   // Aluminum finishes
@@ -153,7 +154,7 @@ const COLOR_MAP = {
 
 // Woodgrain patterns - colors for grain effect
 const WOODGRAIN_COLORS = {
-  WALNUT: { base: '#4A3728', light: '#5D432C', dark: '#3D2B1F' },
+  WALNUT: { base: '#673D27', light: '#75452D', dark: '#5D341F' },
   ENGLISH_CHESTNUT: { base: '#6B4423', light: '#8B5A2B', dark: '#5C3317' },
   FRENCH_OAK: { base: '#C2B078', light: '#C2B078', dark: '#8A6642' },  // RAL 1001 light, RAL 1011 dark
 }
@@ -161,6 +162,11 @@ const WOODGRAIN_COLORS = {
 // Check if a color is a woodgrain finish
 const isWoodgrain = (colorId) => {
   return ['WALNUT', 'ENGLISH_CHESTNUT', 'FRENCH_OAK'].includes(colorId)
+}
+
+// Colors that get a subtle metallic sheen overlay (darker greys and blacks + aluminum finishes)
+const hasMetallicSheen = (colorId) => {
+  return ['STEEL_GREY', 'BLACK', 'IRON_ORE', 'ONYX_BLACK', 'CLEAR_ANODIZED', 'BLACK_ANODIZED', 'MILL'].includes(colorId)
 }
 
 // Darken a hex color by a factor (0-1, where 0.8 = 80% brightness)
@@ -297,6 +303,7 @@ function DoorPreview({
 
   // Get colors
   const doorColor = COLOR_MAP[color] || COLOR_MAP.WHITE
+  const surfaceFill = isWoodgrain(color) ? 'url(#woodgrainPattern)' : doorColor
   const isDark = ['BLACK', 'WALNUT', 'IRON_ORE', 'NEW_BROWN', 'ENGLISH_CHESTNUT'].includes(color)
   const lineColor = isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.2)'
   const shadowColor = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.15)'
@@ -669,7 +676,7 @@ function DoorPreview({
             y={windowY - frameThickness - 1}
             width={scaledWindowWidth + (frameThickness + 1) * 2}
             height={scaledWindowHeight + (frameThickness + 1) * 2}
-            fill={doorColor}
+            fill={surfaceFill}
             stroke="none"
           />
           {/* Window frame */}
@@ -730,21 +737,48 @@ function DoorPreview({
     const windowY = y + windowPadding
 
     const elements = []
+    const frameLight = resolvedFrame.fill
+    const frameDark = resolvedFrame.stroke
+    const frameT = Math.min(windowWidth, windowHeight) * 0.06
 
-    // Window frame with glass
+    // Glass backdrop
     elements.push(
       <rect
-        key={`window-frame-${colIndex}`}
+        key={`glass-${colIndex}`}
         x={windowX}
         y={windowY}
         width={windowWidth}
         height={windowHeight}
         fill={glassFill}
-        stroke={frameColor}
-        strokeWidth="2"
-        rx="2"
-        ry="2"
       />
+    )
+    // Diagonal reflection gradient across glass surface
+    elements.push(
+      <rect
+        key={`glass-sheen-${colIndex}`}
+        x={windowX}
+        y={windowY}
+        width={windowWidth}
+        height={windowHeight}
+        fill="url(#glassReflection)"
+        opacity="0.28"
+      />
+    )
+    // Mitered frame - 4 trapezoid polygons (top/left lighter, bottom/right darker)
+    const fx = windowX, fy = windowY, fw = windowWidth, fh = windowHeight
+    elements.push(
+      <polygon key={`frame-top-${colIndex}`}
+        points={`${fx},${fy} ${fx + fw},${fy} ${fx + fw - frameT},${fy + frameT} ${fx + frameT},${fy + frameT}`}
+        fill={frameLight} />,
+      <polygon key={`frame-left-${colIndex}`}
+        points={`${fx},${fy} ${fx + frameT},${fy + frameT} ${fx + frameT},${fy + fh - frameT} ${fx},${fy + fh}`}
+        fill={frameLight} />,
+      <polygon key={`frame-right-${colIndex}`}
+        points={`${fx + fw},${fy} ${fx + fw},${fy + fh} ${fx + fw - frameT},${fy + fh - frameT} ${fx + fw - frameT},${fy + frameT}`}
+        fill={frameDark} />,
+      <polygon key={`frame-bottom-${colIndex}`}
+        points={`${fx},${fy + fh} ${fx + frameT},${fy + fh - frameT} ${fx + fw - frameT},${fy + fh - frameT} ${fx + fw},${fy + fh}`}
+        fill={frameDark} />
     )
 
     // Only render insert pattern if hasInserts is true
@@ -945,60 +979,35 @@ function DoorPreview({
                 rx="2"
               />
             )}
-            {/* Outer rectangle border */}
-            <rect
-              x={x + outerInset}
-              y={cellY + outerInset}
-              width={cellW - outerInset * 2}
-              height={cellH - outerInset * 2}
-              fill="none"
-              stroke={lineColor}
-              strokeWidth="1.5"
-            />
-            {/* Inner raised rectangle */}
-            <rect
-              x={x + outerInset + innerInset}
-              y={cellY + outerInset + innerInset}
-              width={cellW - (outerInset + innerInset) * 2}
-              height={cellH - (outerInset + innerInset) * 2}
-              fill="none"
-              stroke={lineColor}
-              strokeWidth="1"
-            />
-            {/* 3D effect - shadow on bottom/right of inner panel */}
-            <line
-              x1={x + outerInset + innerInset}
-              y1={cellY + cellH - outerInset - innerInset}
-              x2={x + cellW - outerInset - innerInset}
-              y2={cellY + cellH - outerInset - innerInset}
-              stroke={shadowColor}
-              strokeWidth="2"
-            />
-            <line
-              x1={x + cellW - outerInset - innerInset}
-              y1={cellY + outerInset + innerInset}
-              x2={x + cellW - outerInset - innerInset}
-              y2={cellY + cellH - outerInset - innerInset}
-              stroke={shadowColor}
-              strokeWidth="2"
-            />
-            {/* 3D effect - highlight on top/left of inner panel */}
-            <line
-              x1={x + outerInset + innerInset}
-              y1={cellY + outerInset + innerInset}
-              x2={x + cellW - outerInset - innerInset}
-              y2={cellY + outerInset + innerInset}
-              stroke={isDark ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.7)'}
-              strokeWidth="1"
-            />
-            <line
-              x1={x + outerInset + innerInset}
-              y1={cellY + outerInset + innerInset}
-              x2={x + outerInset + innerInset}
-              y2={cellY + cellH - outerInset - innerInset}
-              stroke={isDark ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.7)'}
-              strokeWidth="1"
-            />
+            {(() => {
+              // Stamp outer rect + 4 bevel polygons meeting at mitered corners.
+              // Bevel ratios measured from catalogue photos: ~13% horizontal, ~17% vertical of stamp dims.
+              const sx = x + outerInset
+              const sy = cellY + outerInset
+              const sw = cellW - outerInset * 2
+              const sh = cellH - outerInset * 2
+              const bx = sw * 0.13
+              const by = sh * 0.17
+              const px = sx + bx, py = sy + by
+              const pw = sw - bx * 2, ph = sh - by * 2
+              const highlight = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.32)'
+              const shadow = 'rgba(0,0,0,0.22)'
+              return (
+                <>
+                  {/* Stamp outer edge */}
+                  <rect x={sx} y={sy} width={sw} height={sh}
+                    fill="none" stroke={lineColor} strokeWidth="1" />
+                  {/* Bevel polygons: top/left lit, bottom/right shaded */}
+                  <polygon points={`${sx},${sy} ${sx + sw},${sy} ${px + pw},${py} ${px},${py}`} fill={highlight} />
+                  <polygon points={`${sx},${sy} ${px},${py} ${px},${py + ph} ${sx},${sy + sh}`} fill={highlight} />
+                  <polygon points={`${sx + sw},${sy} ${sx + sw},${sy + sh} ${px + pw},${py + ph} ${px + pw},${py}`} fill={shadow} />
+                  <polygon points={`${sx},${sy + sh} ${px},${py + ph} ${px + pw},${py + ph} ${sx + sw},${sy + sh}`} fill={shadow} />
+                  {/* Inner plateau edge */}
+                  <rect x={px} y={py} width={pw} height={ph}
+                    fill="none" stroke={lineColor} strokeWidth="0.6" opacity="0.5" />
+                </>
+              )
+            })()}
           </g>
         )
       }
@@ -1251,7 +1260,7 @@ function DoorPreview({
         y={y}
         width={w}
         height={h}
-        fill={doorColor}
+        fill={surfaceFill}
       />
     )
   }
@@ -1288,7 +1297,7 @@ function DoorPreview({
         <rect key="craft-top-flush"
           x={padding} y={sectionY + padding}
           width={panelWidth} height={panelHeight}
-          fill={doorColor} />
+          fill={surfaceFill} />
       )
       // Windows: one per stamp column, aligned to stamp positions
       const windowInset = panelHeight * 0.1
@@ -1672,31 +1681,31 @@ function DoorPreview({
             <feDropShadow dx="3" dy="3" stdDeviation="4" floodOpacity="0.3"/>
           </filter>
 
-          {/* Woodgrain pattern */}
+          {/* Metallic sheen - vertical gradient overlay for steel/black finishes */}
+          <linearGradient id="metallicSheen" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="white" stopOpacity="0.12" />
+            <stop offset="35%" stopColor="white" stopOpacity="0.02" />
+            <stop offset="65%" stopColor="black" stopOpacity="0.02" />
+            <stop offset="100%" stopColor="black" stopOpacity="0.08" />
+          </linearGradient>
+
+          {/* Woodgrain pattern - horizontal grain direction, 240x60 tile */}
           {isWoodgrain(color) && WOODGRAIN_COLORS[color] && (
-            <pattern id="woodgrainPattern" patternUnits="userSpaceOnUse" width="100" height="8">
-              <rect width="100" height="8" fill={WOODGRAIN_COLORS[color].base} />
-              <path
-                d={`M0,2 Q25,0 50,2 T100,2`}
-                stroke={WOODGRAIN_COLORS[color].dark}
-                strokeWidth="0.5"
-                fill="none"
-                opacity="0.6"
-              />
-              <path
-                d={`M0,5 Q30,3 60,5 T100,5`}
-                stroke={WOODGRAIN_COLORS[color].light}
-                strokeWidth="0.3"
-                fill="none"
-                opacity="0.4"
-              />
-              <path
-                d={`M0,7 Q20,6 40,7 T80,6.5 T100,7`}
-                stroke={WOODGRAIN_COLORS[color].dark}
-                strokeWidth="0.4"
-                fill="none"
-                opacity="0.5"
-              />
+            <pattern id="woodgrainPattern" patternUnits="userSpaceOnUse" width="240" height="60">
+              <rect width="240" height="60" fill={WOODGRAIN_COLORS[color].base} />
+              {/* Dark grain streaks */}
+              <path d="M0,7 Q60,5 120,7 T240,6" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.7" fill="none" opacity="0.55" />
+              <path d="M0,17 Q80,16 160,18 T240,17" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.4" fill="none" opacity="0.35" />
+              <path d="M0,27 Q40,25 100,27 T200,28 T240,27" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.9" fill="none" opacity="0.6" />
+              <path d="M0,38 Q70,37 140,38 T240,37" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.3" fill="none" opacity="0.3" />
+              <path d="M0,48 Q50,47 110,48 T220,47 T240,48" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.5" fill="none" opacity="0.5" />
+              {/* Light highlight streaks */}
+              <path d="M0,12 Q90,11 180,13 T240,12" stroke={WOODGRAIN_COLORS[color].light} strokeWidth="0.3" fill="none" opacity="0.4" />
+              <path d="M0,33 Q60,32 130,33 T240,33" stroke={WOODGRAIN_COLORS[color].light} strokeWidth="0.4" fill="none" opacity="0.4" />
+              <path d="M0,54 Q100,53 190,54 T240,53" stroke={WOODGRAIN_COLORS[color].light} strokeWidth="0.3" fill="none" opacity="0.3" />
+              {/* Occasional elongated knots */}
+              <ellipse cx="75" cy="25" rx="9" ry="2" fill={WOODGRAIN_COLORS[color].dark} opacity="0.22" />
+              <ellipse cx="185" cy="45" rx="11" ry="2.5" fill={WOODGRAIN_COLORS[color].dark} opacity="0.2" />
             </pattern>
           )}
         </defs>
@@ -1707,11 +1716,22 @@ function DoorPreview({
           y="0"
           width={displayWidth}
           height={displayHeight}
-          fill={isWoodgrain(color) ? 'url(#woodgrainPattern)' : doorColor}
+          fill={surfaceFill}
           stroke="#333"
           strokeWidth="2"
           filter="url(#doorShadow)"
         />
+        {/* Metallic sheen overlay - only for steel/black/aluminum finishes */}
+        {hasMetallicSheen(color) && (
+          <rect
+            x="0"
+            y="0"
+            width={displayWidth}
+            height={displayHeight}
+            fill="url(#metallicSheen)"
+            pointerEvents="none"
+          />
+        )}
 
         {/* Render each section */}
         {sections.map((section) => (

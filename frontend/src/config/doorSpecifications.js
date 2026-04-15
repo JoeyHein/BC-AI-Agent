@@ -26,14 +26,14 @@ export const COLOR_SPECIFICATIONS = {
     description: 'Bright traffic white'
   },
   NEW_ALMOND: {
-    hex: '#EFDECD',
+    hex: '#E3DCCA',
     ral: 'RAL 1015',
     name: 'Light Ivory',
     type: 'solid',
     description: 'Light almond/ivory tone'
   },
   SANDTONE: {
-    hex: '#C2B280',
+    hex: '#A89E94',
     ral: 'RAL 1001',
     name: 'Beige',
     type: 'solid',
@@ -56,7 +56,7 @@ export const COLOR_SPECIFICATIONS = {
     description: 'Dark iron/graphite grey'
   },
   STEEL_GREY: {
-    hex: '#71797E',
+    hex: '#6B6B6B',
     ral: 'RAL 7046',
     name: 'Telegrey 2',
     type: 'solid',
@@ -81,22 +81,20 @@ export const COLOR_SPECIFICATIONS = {
 
   // Wood Grain Laminates
   WALNUT: {
-    hex: '#5D432C',
+    hex: '#673D27',
     ral: null,
     name: 'Walnut Woodgrain',
     type: 'woodgrain',
-    baseColor: '#5D432C',
-    grainColor: '#3D2A1A',
+    baseColor: '#673D27',
+    grainColor: '#5D341F',
     description: 'Walnut wood laminate'
   },
   HAZELWOOD: {
-    hex: '#8E7618',
-    ral: null,
-    name: 'Hazelwood Woodgrain',
-    type: 'woodgrain',
-    baseColor: '#8E7618',
-    grainColor: '#6D5A12',
-    description: 'Hazelwood laminate'
+    hex: '#756F61',
+    ral: 'RAL 7006',
+    name: 'Hazelwood',
+    type: 'solid',
+    description: 'Hazelwood solid finish (steel stamped, not a woodgrain)'
   },
   ENGLISH_CHESTNUT: {
     hex: '#954535',
