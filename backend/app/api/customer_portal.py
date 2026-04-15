@@ -379,32 +379,28 @@ def _sort_parts_by_category(parts: List[dict]) -> List[dict]:
 
 def _format_door_description(door: dict) -> str:
     """Format door description for BC quote comment line."""
-    width_ft = door.get("doorWidth", 0) // 12
-    width_in = door.get("doorWidth", 0) % 12
-    height_ft = door.get("doorHeight", 0) // 12
-    height_in = door.get("doorHeight", 0) % 12
-    width_str = f"{width_ft}'" if width_in == 0 else f"{width_ft}'{width_in}\""
-    height_str = f"{height_ft}'" if height_in == 0 else f"{height_ft}'{height_in}\""
-    track_display = f"{door.get('trackThickness', '2')}\" BRACKET MOUNT"
-    lift_type_raw = door.get("liftType", "standard")
-    if lift_type_raw == "low_headroom":
-        lift_type = "LHR"
-    elif lift_type_raw == "high_lift":
-        lift_type = "HIGH LIFT"
-    elif lift_type_raw == "vertical":
-        lift_type = "VERTICAL"
-    else:
-        lift_type = "STD LIFT"
-    # For aluminum doors, panel design is irrelevant — show glazing info instead
+    from app.api.door_configurator import (
+        _format_lift_label, _format_mount_label, _format_design_for_comment,
+    )
+    width_ft, width_in = divmod(door.get("doorWidth", 0), 12)
+    height_ft, height_in = divmod(door.get("doorHeight", 0), 12)
+    width_str = f"{width_ft}'{width_in}\""
+    height_str = f"{height_ft}'{height_in}\""
+
+    track_display = _format_mount_label(door.get("trackMount", "bracket"), door.get("trackThickness", "2"))
+    lift_type = _format_lift_label(door.get("liftType", "standard"), door.get("highLiftInches"))
+
     door_type = door.get("doorType", "")
-    if door_type == "aluminium":
-        design_display = door.get("glazingType", "") or door.get("glassPaneType", "") or ""
-    else:
-        design_display = door.get("panelDesign", "")
-    # Add glass pocket info for aluminum doors if customized
+    design_display = _format_design_for_comment(
+        door_type,
+        door.get("panelDesign", ""),
+        door.get("glazingType", ""),
+        door.get("glassPaneType", ""),
+    )
+
     pocket_info = ""
     glass_pockets = door.get("glassPocketsPerSection")
-    if glass_pockets and door_type == "aluminium":
+    if door_type == "aluminium" and glass_pockets:
         pocket_counts = [str(glass_pockets.get(str(i), glass_pockets.get(i, ''))) for i in sorted(glass_pockets.keys(), key=lambda x: int(x))]
         if pocket_counts:
             pocket_info = f", POCKETS: {'/'.join(pocket_counts)}"

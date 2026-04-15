@@ -136,8 +136,8 @@ class TestCommentLine:
     def test_comment_includes_angle_mount(self):
         parts = _get_parts({"trackMount": "angle"})
         comments = _by_category(parts, "comment")
-        assert any("CONTINUOUS ANGLE" in c.get("description", "") for c in comments), \
-            "Comment should include CONTINUOUS ANGLE"
+        assert any("ANGLE MOUNT" in c.get("description", "") for c in comments), \
+            "Comment should include ANGLE MOUNT"
 
     def test_comment_includes_high_lift(self):
         parts = _get_parts({"liftType": "high_lift", "highLiftInches": 24})

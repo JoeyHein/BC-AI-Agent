@@ -739,51 +739,64 @@ async def calculate_struts(door_width: int, door_height: int = 84, window: str =
     }
 
 
+def _format_lift_label(raw, high_lift_inches=None) -> str:
+    r = (raw or 'standard').lower().replace('-', '_').replace(' ', '_')
+    if r in ('low_headroom', 'lhr', 'low_head_room', 'lhr_front', 'lhr_rear'):
+        return 'LHR'
+    if r in ('high_lift', 'highlift'):
+        try:
+            n = int(high_lift_inches) if high_lift_inches else 0
+        except (TypeError, ValueError):
+            n = 0
+        return f'HIGH LIFT {n}"' if n else 'HIGH LIFT'
+    if r == 'vertical':
+        return 'VERTICAL'
+    return 'STD LIFT'
+
+
+def _format_mount_label(track_mount, track_thickness) -> str:
+    mount = 'ANGLE MOUNT' if str(track_mount or 'bracket').lower() == 'angle' else 'BRACKET MOUNT'
+    size = track_thickness or '2'
+    return f'{size}" {mount}'
+
+
+def _format_design_for_comment(door_type, panel_design, glazing_type, glass_pane_type) -> str:
+    if door_type == 'aluminium':
+        return (glazing_type or glass_pane_type or '').strip()
+    glaz = (glazing_type or '').strip()
+    if glaz and (not panel_design or str(panel_design).upper() == 'FLUSH'):
+        return glaz
+    return panel_design or ''
+
+
 def _format_door_description(door: DoorConfigRequest) -> str:
     """
     Format door description for BC quote comment line.
-
-    Format: ({qty}) {width}'x{height}' {series}, {color}, {design}, {track}" HW, {lift}
-    Example: (1) 10x9 TX450, WHITE, UDC, 2" HW, STD LIFT
+    Format: ({qty}) {W'I"} x {H'I"} {series}, {color}, {design}, {track}" {MOUNT}, {lift}[, POCKETS: ...]
     """
-    # Convert inches to feet-inches for display
-    width_ft = door.doorWidth // 12
-    width_in = door.doorWidth % 12
-    height_ft = door.doorHeight // 12
-    height_in = door.doorHeight % 12
-    width_str = f"{width_ft}'" if width_in == 0 else f"{width_ft}'{width_in}\""
-    height_str = f"{height_ft}'" if height_in == 0 else f"{height_ft}'{height_in}\""
+    width_ft, width_in = divmod(door.doorWidth, 12)
+    height_ft, height_in = divmod(door.doorHeight, 12)
+    width_str = f"{width_ft}'{width_in}\""
+    height_str = f"{height_ft}'{height_in}\""
 
-    # Get track size display — use BRACKET MOUNT instead of HW
-    track_display = f"{door.trackThickness}\" BRACKET MOUNT" if door.trackThickness else "2\" BRACKET MOUNT"
+    track_display = _format_mount_label(getattr(door, 'trackMount', 'bracket'), door.trackThickness)
+    lift_type = _format_lift_label(getattr(door, 'liftType', 'standard'), getattr(door, 'highLiftInches', None))
 
-    # Determine lift type
-    lift_type_raw = getattr(door, 'liftType', 'standard') or 'standard'
-    if lift_type_raw == "low_headroom":
-        lift_type = "LHR"
-    elif lift_type_raw == "high_lift":
-        lift_type = "HIGH LIFT"
-    elif lift_type_raw == "vertical":
-        lift_type = "VERTICAL"
-    else:
-        lift_type = "STD LIFT"
-
-    # For aluminum doors, panel design is irrelevant — show glazing info instead
     door_type = getattr(door, 'doorType', '') or ''
-    if door_type == 'aluminium':
-        design_display = getattr(door, 'glazingType', '') or getattr(door, 'glassPaneType', '') or ''
-    else:
-        design_display = door.panelDesign
+    design_display = _format_design_for_comment(
+        door_type,
+        getattr(door, 'panelDesign', ''),
+        getattr(door, 'glazingType', ''),
+        getattr(door, 'glassPaneType', ''),
+    )
 
-    # Add glass pocket info for aluminum doors if customized
     pocket_info = ""
     glass_pockets = getattr(door, 'glassPocketsPerSection', None)
-    if glass_pockets and door_type == 'aluminium':
+    if door_type == 'aluminium' and glass_pockets:
         pocket_counts = [str(glass_pockets.get(str(i), glass_pockets.get(i, ''))) for i in sorted(glass_pockets.keys(), key=lambda x: int(x))]
         if pocket_counts:
             pocket_info = f", POCKETS: {'/'.join(pocket_counts)}"
 
-    # Format: (qty) WxH SERIES, COLOR, DESIGN, TRACK, LIFT [, POCKETS]
     return f"({door.doorCount}) {width_str} x {height_str} {door.doorSeries}, {door.panelColor}, {design_display}, {track_display}, {lift_type}{pocket_info}"
 
 

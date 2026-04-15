@@ -624,7 +624,7 @@ class PartNumberService:
 
         # Add track/mount details to comment
         track_size = int(config.track_thickness) if config.track_thickness else 2
-        mount_label = "CONTINUOUS ANGLE" if config.track_mount == 'angle' else "BRACKET MOUNT"
+        mount_label = "ANGLE MOUNT" if config.track_mount == 'angle' else "BRACKET MOUNT"
         comment_desc += f" | {track_size}\" {mount_label}"
 
         # Add lift type details
