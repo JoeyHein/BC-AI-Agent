@@ -97,13 +97,22 @@ export const COLOR_SPECIFICATIONS = {
     description: 'Hazelwood solid finish (steel stamped, not a woodgrain)'
   },
   ENGLISH_CHESTNUT: {
-    hex: '#954535',
+    hex: '#7F583F',
     ral: null,
     name: 'English Chestnut',
     type: 'woodgrain',
-    baseColor: '#954535',
-    grainColor: '#6B3025',
-    description: 'Rich chestnut wood laminate'
+    baseColor: '#7F583F',
+    grainColor: '#653D29',
+    description: 'English Chestnut wood laminate'
+  },
+  FRENCH_OAK: {
+    hex: '#A48468',
+    ral: null,
+    name: 'French Oak',
+    type: 'woodgrain',
+    baseColor: '#A48468',
+    grainColor: '#836A4F',
+    description: 'French Oak wood laminate'
   },
   MEDIUM_OAK: {
     hex: '#B5833E',

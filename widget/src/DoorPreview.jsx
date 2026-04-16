@@ -74,8 +74,8 @@ const COLOR_MAP = {
   IRON_ORE: '#2F3234',
   NEW_ALMOND: '#E3DCCA',
   WALNUT: '#673D27',
-  ENGLISH_CHESTNUT: '#6B4423',
-  FRENCH_OAK: '#C2B078',
+  ENGLISH_CHESTNUT: '#7F583F',
+  FRENCH_OAK: '#A48468',
   CANYON: '#8B6F47',
   CLEAR_ANODIZED: '#C0C0C0',
   BLACK_ANODIZED: '#1a1a1a',
@@ -84,8 +84,8 @@ const COLOR_MAP = {
 
 const WOODGRAIN_COLORS = {
   WALNUT: { base: '#673D27', light: '#75452D', dark: '#5D341F' },
-  ENGLISH_CHESTNUT: { base: '#6B4423', light: '#8B5A2B', dark: '#5C3317' },
-  FRENCH_OAK: { base: '#C2B078', light: '#C2B078', dark: '#8A6642' },
+  ENGLISH_CHESTNUT: { base: '#7F583F', light: '#A77E6B', dark: '#653D29' },
+  FRENCH_OAK: { base: '#A48468', light: '#B5997B', dark: '#836A4F' },
 }
 
 const isWoodgrain = (colorId) => ['WALNUT', 'ENGLISH_CHESTNUT', 'FRENCH_OAK'].includes(colorId)
