@@ -607,8 +607,10 @@ class BCPartNumberMapper:
         Returns:
             BCPartNumber for astragal
         """
-        # Aluminum doors use a dedicated aluminum astragal
-        if door_type == "aluminium":
+        # Aluminum doors use a dedicated aluminum astragal.
+        # Accept both British ("aluminium") and American ("aluminum") spellings
+        # to tolerate drift in upstream door_type normalization.
+        if door_type and door_type.lower() in ("aluminium", "aluminum"):
             return BCPartNumber(
                 part_number="PL10-00004-00",
                 description='ASTRAGAL, 3" ALUMINIUM DOOR BOTTOM RUBBER',
