@@ -83,9 +83,9 @@ const COLOR_MAP = {
 }
 
 const WOODGRAIN_COLORS = {
-  WALNUT: { base: '#673D27', light: '#75452D', dark: '#5D341F' },
-  ENGLISH_CHESTNUT: { base: '#7F583F', light: '#A77E6B', dark: '#653D29' },
-  FRENCH_OAK: { base: '#A48468', light: '#B5997B', dark: '#836A4F' },
+  WALNUT: { base: '#673D27', light: '#8A5A40', dark: '#3D2010', knot: '#1F0A03' },
+  ENGLISH_CHESTNUT: { base: '#7F583F', light: '#B88A72', dark: '#4A2D1A', knot: '#2A1005' },
+  FRENCH_OAK: { base: '#A48468', light: '#C8AA8D', dark: '#6C523C', knot: '#3D2A1A' },
 }
 
 const isWoodgrain = (colorId) => ['WALNUT', 'ENGLISH_CHESTNUT', 'FRENCH_OAK'].includes(colorId)
@@ -1046,34 +1046,59 @@ function DoorPreview({
             <stop offset="65%" stopColor="black" stopOpacity="0.02" />
             <stop offset="100%" stopColor="black" stopOpacity="0.08" />
           </linearGradient>
-          {isWoodgrain(color) && WOODGRAIN_COLORS[color] && (
-            <pattern id={`woodgrainPattern-${instanceId}`} patternUnits="userSpaceOnUse" width="480" height="120">
-              <rect width="480" height="120" fill={WOODGRAIN_COLORS[color].base} />
-              <path d="M0,8 Q120,6 240,9 T480,7" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="1.1" fill="none" opacity="0.85" />
-              <path d="M0,15 Q90,14 180,16 T360,15 T480,14" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.5" fill="none" opacity="0.55" />
-              <path d="M0,21 Q160,19 320,22 T480,20" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.7" fill="none" opacity="0.6" />
-              <path d="M0,28 Q110,27 220,28 T440,27 T480,28" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.4" fill="none" opacity="0.45" />
-              <path d="M0,35 Q80,33 160,35 T320,36 T480,34" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="1.3" fill="none" opacity="0.9" />
-              <path d="M0,43 Q140,42 280,43 T480,42" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.5" fill="none" opacity="0.5" />
-              <path d="M0,50 Q100,49 200,51 T400,50 T480,51" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.6" fill="none" opacity="0.55" />
-              <path d="M0,57 Q120,56 240,57 T480,56" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.4" fill="none" opacity="0.45" />
-              <path d="M0,65 Q90,63 180,65 T360,66 T480,64" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="1.0" fill="none" opacity="0.8" />
-              <path d="M0,72 Q150,71 300,72 T480,71" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.5" fill="none" opacity="0.5" />
-              <path d="M0,80 Q100,79 200,81 T400,80 T480,81" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.7" fill="none" opacity="0.6" />
-              <path d="M0,88 Q110,87 220,88 T440,87 T480,88" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.4" fill="none" opacity="0.45" />
-              <path d="M0,96 Q140,94 280,96 T480,95" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.9" fill="none" opacity="0.75" />
-              <path d="M0,104 Q90,103 180,104 T360,105 T480,104" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.5" fill="none" opacity="0.5" />
-              <path d="M0,112 Q120,111 240,113 T480,112" stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.6" fill="none" opacity="0.55" />
-              <path d="M0,12 Q160,11 320,13 T480,12" stroke={WOODGRAIN_COLORS[color].light} strokeWidth="0.4" fill="none" opacity="0.55" />
-              <path d="M0,40 Q120,39 240,40 T480,40" stroke={WOODGRAIN_COLORS[color].light} strokeWidth="0.5" fill="none" opacity="0.55" />
-              <path d="M0,68 Q180,67 360,68 T480,68" stroke={WOODGRAIN_COLORS[color].light} strokeWidth="0.4" fill="none" opacity="0.45" />
-              <path d="M0,100 Q100,99 200,100 T400,100 T480,100" stroke={WOODGRAIN_COLORS[color].light} strokeWidth="0.4" fill="none" opacity="0.5" />
-              <ellipse cx="75" cy="25" rx="9" ry="2" fill={WOODGRAIN_COLORS[color].dark} opacity="0.32" />
-              <ellipse cx="185" cy="85" rx="11" ry="2.5" fill={WOODGRAIN_COLORS[color].dark} opacity="0.28" />
-              <ellipse cx="340" cy="45" rx="10" ry="2.2" fill={WOODGRAIN_COLORS[color].dark} opacity="0.3" />
-              <ellipse cx="420" cy="105" rx="8" ry="1.8" fill={WOODGRAIN_COLORS[color].dark} opacity="0.26" />
-            </pattern>
-          )}
+          {isWoodgrain(color) && WOODGRAIN_COLORS[color] && (() => {
+            const g = WOODGRAIN_COLORS[color]
+            return (
+              <pattern id={`woodgrainPattern-${instanceId}`} patternUnits="userSpaceOnUse" width="480" height="120">
+                <rect width="480" height="120" fill={g.base} />
+                <path d="M0,6 Q120,4 240,7 T480,5" stroke={g.dark} strokeWidth="1.2" fill="none" opacity="0.9" />
+                <path d="M0,11 Q90,10 180,12 T360,11 T480,10" stroke={g.dark} strokeWidth="0.5" fill="none" opacity="0.6" />
+                <path d="M0,16 Q160,14 320,17 T480,15" stroke={g.dark} strokeWidth="0.8" fill="none" opacity="0.7" />
+                <path d="M0,23 Q110,22 220,23 T440,22 T480,23" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.5" />
+                <path d="M0,30 Q80,28 160,30 T320,31 T480,29" stroke={g.dark} strokeWidth="1.4" fill="none" opacity="0.95" />
+                <path d="M0,37 Q140,36 280,37 T480,36" stroke={g.dark} strokeWidth="0.5" fill="none" opacity="0.55" />
+                <path d="M0,43 Q100,42 200,44 T400,43 T480,44" stroke={g.dark} strokeWidth="0.7" fill="none" opacity="0.65" />
+                <path d="M0,50 Q120,49 240,50 T480,49" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.5" />
+                <path d="M0,57 Q90,55 180,57 T360,58 T480,56" stroke={g.dark} strokeWidth="1.1" fill="none" opacity="0.85" />
+                <path d="M0,63 Q150,62 300,63 T480,62" stroke={g.dark} strokeWidth="0.5" fill="none" opacity="0.55" />
+                <path d="M0,70 Q100,69 200,71 T400,70 T480,71" stroke={g.dark} strokeWidth="0.7" fill="none" opacity="0.65" />
+                <path d="M0,77 Q110,76 220,77 T440,76 T480,77" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.5" />
+                <path d="M0,84 Q140,82 280,84 T480,83" stroke={g.dark} strokeWidth="1.3" fill="none" opacity="0.9" />
+                <path d="M0,91 Q90,90 180,91 T360,92 T480,91" stroke={g.dark} strokeWidth="0.5" fill="none" opacity="0.55" />
+                <path d="M0,98 Q120,97 240,99 T480,98" stroke={g.dark} strokeWidth="0.8" fill="none" opacity="0.7" />
+                <path d="M0,105 Q100,104 200,105 T400,106 T480,105" stroke={g.dark} strokeWidth="0.5" fill="none" opacity="0.55" />
+                <path d="M0,112 Q150,111 300,113 T480,112" stroke={g.dark} strokeWidth="1.0" fill="none" opacity="0.75" />
+                <path d="M0,8 Q160,7 320,9 T480,8" stroke={g.light} strokeWidth="0.5" fill="none" opacity="0.7" />
+                <path d="M0,20 Q120,19 240,20 T480,19" stroke={g.light} strokeWidth="0.4" fill="none" opacity="0.55" />
+                <path d="M0,34 Q100,33 200,34 T400,34 T480,34" stroke={g.light} strokeWidth="0.5" fill="none" opacity="0.65" />
+                <path d="M0,47 Q180,46 360,47 T480,47" stroke={g.light} strokeWidth="0.4" fill="none" opacity="0.55" />
+                <path d="M0,60 Q120,59 240,61 T480,60" stroke={g.light} strokeWidth="0.6" fill="none" opacity="0.7" />
+                <path d="M0,74 Q150,73 300,74 T480,73" stroke={g.light} strokeWidth="0.4" fill="none" opacity="0.55" />
+                <path d="M0,88 Q100,87 200,88 T400,88 T480,88" stroke={g.light} strokeWidth="0.5" fill="none" opacity="0.65" />
+                <path d="M0,102 Q160,101 320,102 T480,102" stroke={g.light} strokeWidth="0.4" fill="none" opacity="0.55" />
+                <ellipse cx="95" cy="33" rx="28" ry="9" fill={g.dark} opacity="0.35" />
+                <ellipse cx="95" cy="33" rx="14" ry="5" fill={g.knot} opacity="0.75" />
+                <ellipse cx="95" cy="33" rx="6" ry="2.5" fill={g.knot} opacity="0.95" />
+                <path d="M40,33 Q70,26 95,33 Q120,40 150,33" stroke={g.dark} strokeWidth="0.6" fill="none" opacity="0.5" />
+                <path d="M40,31 Q70,24 95,31 Q120,38 150,31" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
+                <path d="M40,35 Q70,28 95,35 Q120,42 150,35" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
+                <ellipse cx="300" cy="86" rx="32" ry="10" fill={g.dark} opacity="0.35" />
+                <ellipse cx="300" cy="86" rx="16" ry="6" fill={g.knot} opacity="0.75" />
+                <ellipse cx="300" cy="86" rx="7" ry="3" fill={g.knot} opacity="0.95" />
+                <path d="M240,86 Q270,78 300,86 Q330,94 360,86" stroke={g.dark} strokeWidth="0.6" fill="none" opacity="0.5" />
+                <path d="M240,83 Q270,75 300,83 Q330,91 360,83" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
+                <path d="M240,89 Q270,81 300,89 Q330,97 360,89" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
+                <ellipse cx="410" cy="52" rx="22" ry="7" fill={g.dark} opacity="0.35" />
+                <ellipse cx="410" cy="52" rx="11" ry="4" fill={g.knot} opacity="0.75" />
+                <ellipse cx="410" cy="52" rx="5" ry="2" fill={g.knot} opacity="0.95" />
+                <path d="M370,52 Q390,46 410,52 Q430,58 455,52" stroke={g.dark} strokeWidth="0.5" fill="none" opacity="0.45" />
+                <path d="M370,50 Q390,44 410,50 Q430,56 455,50" stroke={g.dark} strokeWidth="0.3" fill="none" opacity="0.35" />
+                <ellipse cx="180" cy="110" rx="16" ry="5" fill={g.dark} opacity="0.3" />
+                <ellipse cx="180" cy="110" rx="7" ry="2.5" fill={g.knot} opacity="0.7" />
+                <ellipse cx="180" cy="110" rx="3" ry="1.2" fill={g.knot} opacity="0.9" />
+              </pattern>
+            )
+          })()}
         </defs>
 
         <rect x="0" y="0" width={displayWidth} height={displayHeight}
