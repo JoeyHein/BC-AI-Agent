@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { metricsApi } from '../api/client'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend,
+  ComposedChart, Line,
 } from 'recharts'
 
 const COLORS = ['#4F46E5', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16', '#F97316', '#6366F1']
@@ -193,17 +194,25 @@ export default function QuotingAnalytics() {
         )}
       </div>
 
-      {/* 7. Quote volume over time */}
+      {/* 7. Quote volume and value over time */}
       <div className="bg-white rounded-lg shadow p-6 mb-8">
-        <h3 className="text-sm font-semibold text-gray-900 mb-4">Quote Volume (12 Months)</h3>
+        <h3 className="text-sm font-semibold text-gray-900 mb-4">Quote Volume & Value (12 Months)</h3>
         {loading ? <Skeleton className="h-64 w-full" /> : (
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={data?.volume_over_time || []}>
+          <ResponsiveContainer width="100%" height={280}>
+            <ComposedChart data={data?.volume_over_time || []}>
               <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="count" name="Quotes" fill="#4F46E5" radius={[4, 4, 0, 0]} />
-            </BarChart>
+              <YAxis yAxisId="count" orientation="left" tick={{ fontSize: 11 }}
+                label={{ value: 'Quotes', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: '#4F46E5' } }} />
+              <YAxis yAxisId="value" orientation="right" tick={{ fontSize: 11 }}
+                tickFormatter={(v) => '$' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v)}
+                label={{ value: 'Value', angle: 90, position: 'insideRight', style: { fontSize: 11, fill: '#10B981' } }} />
+              <Tooltip
+                formatter={(val, name) => name === 'Value' ? fmt(val) : val}
+              />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Bar yAxisId="count" dataKey="count" name="Quotes" fill="#4F46E5" radius={[4, 4, 0, 0]} />
+              <Line yAxisId="value" dataKey="value" name="Value" stroke="#10B981" strokeWidth={2} dot={{ r: 3 }} />
+            </ComposedChart>
           </ResponsiveContainer>
         )}
       </div>

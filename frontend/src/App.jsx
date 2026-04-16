@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -40,21 +41,43 @@ function Navigation() {
     return location.pathname === path
   }
 
-  const navItems = [
-    { path: '/', label: 'Dashboard' },
+  const reportItems = [
     { path: '/business', label: 'Business' },
-    { path: '/reviews', label: 'Reviews' },
     { path: '/analytics', label: 'Analytics' },
     { path: '/analytics/quoting', label: 'Quoting' },
+    { path: '/weekly-email', label: 'Weekly Email' },
+  ]
+
+  const navItems = [
+    { path: '/', label: 'Dashboard' },
+    { path: '/reviews', label: 'Reviews' },
     { path: '/door-configurator', label: 'Configurator' },
     { path: '/customers', label: 'Customers' },
     { path: '/orders', label: 'Orders' },
     { path: '/leads', label: 'Leads' },
     { path: '/install-referrals', label: 'Installs' },
     { path: '/production', label: 'Production' },
-    { path: '/weekly-email', label: 'Email' },
     { path: '/settings', label: 'Settings' },
   ]
+
+  const [reportsOpen, setReportsOpen] = useState(false)
+  const reportsRef = useRef(null)
+  const reportsActive = reportItems.some((r) => isActive(r.path))
+
+  useEffect(() => {
+    if (!reportsOpen) return
+    const onClick = (e) => {
+      if (reportsRef.current && !reportsRef.current.contains(e.target)) {
+        setReportsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [reportsOpen])
+
+  useEffect(() => {
+    setReportsOpen(false)
+  }, [location.pathname])
 
   return (
     <nav className="bg-white shadow-sm">
@@ -65,7 +88,53 @@ function Navigation() {
               <img src="/assets/opendc-logo.jpg" alt="OpenDC" className="h-8" />
             </Link>
             <div className="hidden sm:flex sm:ml-8">
-              {navItems.map((item) => (
+              {navItems.slice(0, 1).map((item) => (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  className={`inline-flex items-center px-3 h-14 border-b-2 text-sm font-medium transition-colors ${
+                    isActive(item.path)
+                      ? 'border-odc-600 text-odc-700'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              ))}
+              <div ref={reportsRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setReportsOpen((o) => !o)}
+                  className={`inline-flex items-center px-3 h-14 border-b-2 text-sm font-medium transition-colors ${
+                    reportsActive
+                      ? 'border-odc-600 text-odc-700'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  Reports
+                  <svg className={`ml-1 h-4 w-4 transition-transform ${reportsOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {reportsOpen && (
+                  <div className="absolute left-0 top-14 z-50 w-48 bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 py-1">
+                    {reportItems.map((item) => (
+                      <Link
+                        key={item.path}
+                        to={item.path}
+                        className={`block px-4 py-2 text-sm ${
+                          isActive(item.path)
+                            ? 'bg-odc-50 text-odc-700 font-medium'
+                            : 'text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        {item.label}
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {navItems.slice(1).map((item) => (
                 <Link
                   key={item.path}
                   to={item.path}

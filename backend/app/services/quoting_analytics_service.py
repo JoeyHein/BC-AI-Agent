@@ -238,18 +238,24 @@ class QuotingAnalyticsService:
 
         # ── 7. Quote volume over time (12 months) ─────────────────────
         twelve_months_ago = date.today() - timedelta(days=365)
-        monthly = defaultdict(int)
+        monthly_count = defaultdict(int)
+        monthly_value = defaultdict(float)
         for q in quotes:
             qd = q["_date"]
             if qd and qd >= twelve_months_ago:
                 key = qd.strftime("%Y-%m")
-                monthly[key] += 1
+                monthly_count[key] += 1
+                monthly_value[key] += float(q.get("totalAmountIncludingTax") or 0)
 
         volume_over_time = []
         for i in range(12):
             d = date.today() - timedelta(days=30 * (11 - i))
             key = d.strftime("%Y-%m")
-            volume_over_time.append({"month": key, "count": monthly.get(key, 0)})
+            volume_over_time.append({
+                "month": key,
+                "count": monthly_count.get(key, 0),
+                "value": round(monthly_value.get(key, 0), 2),
+            })
 
         # ── 8. Quote revision frequency ────────────────────────────────
         # Use line count as a proxy — quotes with more lines have likely been revised
