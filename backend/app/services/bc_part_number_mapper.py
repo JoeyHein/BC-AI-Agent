@@ -552,15 +552,24 @@ class BCPartNumberMapper:
         self,
         door_height_feet: int,
         color: str = "WHITE",
-        commercial: bool = True
+        commercial: bool = True,
+        door_type: str = "residential",
+        door_series: str = "",
     ) -> BCPartNumber:
         """
         Get weather stripping part number.
 
+        PL11 (dual fin) is used ONLY for:
+          - Clear anodized aluminum doors
+          - Kanata residential doors when a PL11 part exists for that color
+        PL10 (galv steel / flexible vinyl) is used for all other doors.
+
         Args:
             door_height_feet: Door height in feet
             color: Color name
-            commercial: True for commercial, False for residential
+            commercial: True for commercial, False for residential (legacy, overridden by door_type)
+            door_type: "residential", "commercial", or "aluminium"
+            door_series: e.g. "KANATA", "CRAFT", "TX450", "AL976"
 
         Returns:
             BCPartNumber for weather stripping
@@ -571,23 +580,24 @@ class BCPartNumberMapper:
         if heights_at_or_above:
             height = min(heights_at_or_above)
         else:
-            # Door is taller than all available strips — use the largest
             height = max(available_heights)
 
-        # Get color code
         color_code = self.COLOR_CODES.get(color.upper(), "00")
+        color_upper = color.upper()
 
-        # Commercial: ALL colors use PL11-22{size}2-{color} per rulebook
-        # Residential: specialty colors (woodgrain) use PL11-12, others use PL10
-        if commercial:
-            part_number = f"PL11-22{height:02d}2-{color_code}"
-            desc = f"WEATHER STRIP, DUAL FIN, COMM, {height:02d}' 2\", {color.upper()}"
-        elif color_code in self.PL11_COLOR_CODES:
-            part_number = f"PL11-12{height:02d}2-{color_code}"
-            desc = f"WEATHER STRIP, DUAL FIN, RESI, {height:02d}' 2\", {color.upper()}"
+        # Determine if this door qualifies for PL11 (dual fin)
+        is_aluminum = door_type and door_type.lower() in ("aluminium", "aluminum")
+        is_clear_ano_aluminum = is_aluminum and color_upper in ("CLEAR ANODIZED", "CLEAR_ANODIZED")
+        is_kanata = door_series.upper() in ("KANATA",) if door_series else False
+        use_pl11 = is_clear_ano_aluminum or (is_kanata and color_code in self.PL11_COLOR_CODES)
+
+        if use_pl11:
+            prefix = "22" if commercial or is_aluminum else "12"
+            part_number = f"PL11-{prefix}{height:02d}2-{color_code}"
+            desc = f"WEATHER STRIP, DUAL FIN, {height:02d}' 2\", {color_upper}"
         else:
             part_number = f"PL10-{height:02d}203-{color_code}"
-            desc = f"PLASTICS, WEATHER STRIP, GALVANIZED STEEL/FLEXIBLE VINYL, {color.upper()}, {height:02d}'"
+            desc = f"PLASTICS, WEATHER STRIP, GALVANIZED STEEL/FLEXIBLE VINYL, {color_upper}, {height:02d}'"
 
         return BCPartNumber(
             part_number=part_number,

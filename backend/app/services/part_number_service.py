@@ -2015,7 +2015,9 @@ class PartNumberService:
         height_strip = mapper.get_weather_stripping(
             door_height_feet=door_height_feet,
             color=color,
-            commercial=is_commercial
+            commercial=is_commercial,
+            door_type=config.door_type,
+            door_series=config.door_series or "",
         )
         parts.append(PartSelection(
             part_number=height_strip.part_number,
@@ -2034,7 +2036,9 @@ class PartNumberService:
             width_strip = mapper.get_weather_stripping(
                 door_height_feet=half_feet,
                 color=color,
-                commercial=is_commercial
+                commercial=is_commercial,
+                door_type=config.door_type,
+                door_series=config.door_series or "",
             )
             parts.append(PartSelection(
                 part_number=width_strip.part_number,
@@ -2049,7 +2053,9 @@ class PartNumberService:
             width_strip = mapper.get_weather_stripping(
                 door_height_feet=door_width_feet,
                 color=color,
-                commercial=is_commercial
+                commercial=is_commercial,
+                door_type=config.door_type,
+                door_series=config.door_series or "",
             )
             parts.append(PartSelection(
                 part_number=width_strip.part_number,
