@@ -1771,14 +1771,12 @@ function DoorPreview({
             )}
             {/* Section divider line */}
             {section.index > 0 && (
-              <line
-                x1="0"
-                y1={section.y}
-                x2={displayWidth}
-                y2={section.y}
-                stroke={lineColor}
-                strokeWidth="2"
-              />
+              <g>
+                <line x1="0" y1={section.y} x2={displayWidth} y2={section.y}
+                  stroke="rgba(0,0,0,0.45)" strokeWidth="2" />
+                <line x1="0" y1={section.y + 1.5} x2={displayWidth} y2={section.y + 1.5}
+                  stroke={isDark ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.25)'} strokeWidth="0.5" />
+              </g>
             )}
             {/* Panel design - stamps handle their own interaction */}
             {renderPanelDesign(section.index, section.y, section.height)}
