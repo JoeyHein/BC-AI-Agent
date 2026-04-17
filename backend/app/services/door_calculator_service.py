@@ -1080,10 +1080,11 @@ class DoorCalculatorService:
             logger.warning("No stocked spring found, falling back to unfiltered calculation")
 
         # Unfiltered calculation (no inventory, or inventory had no match)
-        # Collect ALL valid candidates across qty/coil options and pick the cheapest
-        # (smallest material footprint). Previously returned first match, which often
-        # missed cheaper alternatives (bug #49).
-        stocked_coils = STOCKED_COIL_DIAMETERS
+        # For each qty, let the calculator auto-select wire/coil via its built-in
+        # Canimex escalation (2" → 2.625" → 3.75" → 6") rather than brute-forcing
+        # all coil sizes and picking cheapest. The cheapest-material approach
+        # (bug #49) caused undersized springs — e.g. .218 x 2" instead of .312 x 2-5/8"
+        # when the smaller combo barely met MIP but would fail prematurely.
         if door_weight >= 150:
             unfiltered_progression = list(dict.fromkeys([spring_qty, 2, 4, 6, 8]))
         else:
@@ -1091,26 +1092,28 @@ class DoorCalculatorService:
 
         all_candidates = []
         for qty in unfiltered_progression:
-            for coil_diam in stocked_coils:
-                result = spring_calculator.calculate_spring(
-                    door_weight=door_weight,
-                    door_height=height_inches,
-                    track_radius=track_radius,
-                    spring_qty=qty,
-                    coil_diameter=coil_diam,
-                    target_cycles=target_cycles,
-                    drum_model=drum_model,
-                    high_lift_inches=high_lift_inches,
+            # Let calculator auto-select wire and coil — starts at 2" coil,
+            # escalates to larger coils only when MIP requires it.
+            # This preserves the proper Canimex wire/coil pairing.
+            result = spring_calculator.calculate_spring(
+                door_weight=door_weight,
+                door_height=height_inches,
+                track_radius=track_radius,
+                spring_qty=qty,
+                coil_diameter=2.0,  # default start; auto-escalates inside calculate_spring
+                target_cycles=target_cycles,
+                drum_model=drum_model,
+                high_lift_inches=high_lift_inches,
+            )
+            if result is None:
+                continue
+            if not _springs_fit_on_shaft(width_inches, result.length, qty, result.coil_diameter, drum_model):
+                logger.info(
+                    f"Skipping {qty}x {result.coil_diameter}\" coil / {result.wire_diameter}\" wire "
+                    f"({result.length}\" long) — doesn't fit on {width_inches}\" wide door"
                 )
-                if result is None:
-                    continue
-                if not _springs_fit_on_shaft(width_inches, result.length, qty, coil_diam, drum_model):
-                    logger.info(
-                        f"Skipping {qty}x {coil_diam}\" coil / {result.wire_diameter}\" wire "
-                        f"({result.length}\" long) — doesn't fit on {width_inches}\" wide door"
-                    )
-                    continue
-                all_candidates.append(result)
+                continue
+            all_candidates.append(result)
 
         if not all_candidates:
             logger.warning(
@@ -1123,18 +1126,15 @@ class DoorCalculatorService:
 
         def sort_key(r):
             is_reasonable = r.length <= MAX_PRACTICAL_LENGTH
-            material = (r.wire_diameter ** 2) * r.length * r.spring_quantity
             return (
                 0 if is_reasonable else 1,
                 r.spring_quantity,
-                r.coil_diameter,
-                material,
                 r.length,
             )
 
         best = min(all_candidates, key=sort_key)
         logger.info(
-            f"Selected spring (cheapest valid): {best.spring_quantity}x "
+            f"Selected spring: {best.spring_quantity}x "
             f"{best.coil_diameter}\" coil / {best.wire_diameter}\" wire "
             f"({best.length}\" long)"
         )
