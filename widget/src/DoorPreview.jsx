@@ -83,9 +83,9 @@ const COLOR_MAP = {
 }
 
 const WOODGRAIN_COLORS = {
-  WALNUT: { base: '#673D27', light: '#8A5A40', dark: '#3D2010', knot: '#1F0A03' },
-  ENGLISH_CHESTNUT: { base: '#7F583F', light: '#B88A72', dark: '#4A2D1A', knot: '#2A1005' },
-  FRENCH_OAK: { base: '#A48468', light: '#C8AA8D', dark: '#6C523C', knot: '#3D2A1A' },
+  WALNUT: { base: '#673D27', light: '#8A5A40', dark: '#3D2010' },
+  ENGLISH_CHESTNUT: { base: '#7F583F', light: '#B88A72', dark: '#4A2D1A' },
+  FRENCH_OAK: { base: '#A48468', light: '#C8AA8D', dark: '#6C523C' },
 }
 
 const isWoodgrain = (colorId) => ['WALNUT', 'ENGLISH_CHESTNUT', 'FRENCH_OAK'].includes(colorId)
@@ -1076,26 +1076,6 @@ function DoorPreview({
                 <path d="M0,74 Q150,73 300,74 T480,73" stroke={g.light} strokeWidth="0.4" fill="none" opacity="0.55" />
                 <path d="M0,88 Q100,87 200,88 T400,88 T480,88" stroke={g.light} strokeWidth="0.5" fill="none" opacity="0.65" />
                 <path d="M0,102 Q160,101 320,102 T480,102" stroke={g.light} strokeWidth="0.4" fill="none" opacity="0.55" />
-                <ellipse cx="95" cy="33" rx="28" ry="9" fill={g.dark} opacity="0.35" />
-                <ellipse cx="95" cy="33" rx="14" ry="5" fill={g.knot} opacity="0.75" />
-                <ellipse cx="95" cy="33" rx="6" ry="2.5" fill={g.knot} opacity="0.95" />
-                <path d="M40,33 Q70,26 95,33 Q120,40 150,33" stroke={g.dark} strokeWidth="0.6" fill="none" opacity="0.5" />
-                <path d="M40,31 Q70,24 95,31 Q120,38 150,31" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
-                <path d="M40,35 Q70,28 95,35 Q120,42 150,35" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
-                <ellipse cx="300" cy="86" rx="32" ry="10" fill={g.dark} opacity="0.35" />
-                <ellipse cx="300" cy="86" rx="16" ry="6" fill={g.knot} opacity="0.75" />
-                <ellipse cx="300" cy="86" rx="7" ry="3" fill={g.knot} opacity="0.95" />
-                <path d="M240,86 Q270,78 300,86 Q330,94 360,86" stroke={g.dark} strokeWidth="0.6" fill="none" opacity="0.5" />
-                <path d="M240,83 Q270,75 300,83 Q330,91 360,83" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
-                <path d="M240,89 Q270,81 300,89 Q330,97 360,89" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
-                <ellipse cx="410" cy="52" rx="22" ry="7" fill={g.dark} opacity="0.35" />
-                <ellipse cx="410" cy="52" rx="11" ry="4" fill={g.knot} opacity="0.75" />
-                <ellipse cx="410" cy="52" rx="5" ry="2" fill={g.knot} opacity="0.95" />
-                <path d="M370,52 Q390,46 410,52 Q430,58 455,52" stroke={g.dark} strokeWidth="0.5" fill="none" opacity="0.45" />
-                <path d="M370,50 Q390,44 410,50 Q430,56 455,50" stroke={g.dark} strokeWidth="0.3" fill="none" opacity="0.35" />
-                <ellipse cx="180" cy="110" rx="16" ry="5" fill={g.dark} opacity="0.3" />
-                <ellipse cx="180" cy="110" rx="7" ry="2.5" fill={g.knot} opacity="0.7" />
-                <ellipse cx="180" cy="110" rx="3" ry="1.2" fill={g.knot} opacity="0.9" />
               </pattern>
             )
           })()}
