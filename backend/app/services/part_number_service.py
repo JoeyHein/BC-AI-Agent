@@ -131,6 +131,11 @@ class DoorConfiguration:
     glass_pockets_per_section: int = 1  # Number of glass pockets per V130G/V230G section
     spring_inventory: Optional[Dict[str, list]] = None  # stocked coil/wire combos from settings
     include_top_seal: Optional[bool] = None  # None=auto (apply rules), True=force include, False=exclude
+
+    def __post_init__(self):
+        # Enforce minimum 10,000 cycle standard on all springs
+        if self.target_cycles < 10000:
+            self.target_cycles = 10000
     include_pusher_springs: bool = False  # Upgrade: adds TR13-00031-00 + TR13-00032-00
 
 

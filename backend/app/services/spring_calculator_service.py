@@ -629,6 +629,10 @@ class SpringCalculatorService:
         Returns:
             SpringResult with complete spring specifications
         """
+        # Enforce minimum 10,000 cycle standard
+        if target_cycles < 10000:
+            target_cycles = 10000
+
         # Get drum data
         drum_data = self.get_drum_data(door_height, track_radius, drum_model, high_lift_inches=high_lift_inches)
         if drum_data is None:

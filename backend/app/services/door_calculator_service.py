@@ -1060,6 +1060,10 @@ class DoorCalculatorService:
         Returns:
             SpringSelection with complete spring specifications
         """
+        # Enforce minimum 10,000 cycle standard
+        if target_cycles < 10000:
+            target_cycles = 10000
+
         if door_weight <= 0:
             logger.warning("Door weight must be greater than 0")
             return None
