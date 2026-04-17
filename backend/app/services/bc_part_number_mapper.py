@@ -519,15 +519,20 @@ class BCPartNumberMapper:
         coil_str = self._format_coil_size(closest_coil)
         bore_str = '1"' if bore_size == 1.0 else '1-1/4"'
 
-        # Try universal part first (SP12-xxxxx-01 — works for both LH and RH)
+        # Try universal part first (SP12-xxxxx-01 — works for both LH and RH),
+        # but only if it actually exists in the BC catalog. If not, fall back to
+        # legacy LH/RH parts to avoid bad substitutions at quote time.
         universal_key = (closest_coil, bore_size)
         if universal_key in self.WINDER_SETS_UNIVERSAL:
             part_number = self.WINDER_SETS_UNIVERSAL[universal_key]
-            return BCPartNumber(
-                part_number=part_number,
-                description=f"SPRING, WINDERS & STATIONARY PLUGS SET, {coil_str}\", {bore_str} BORE, UNIVERSAL",
-                category="SPRING_ACCESSORY"
-            )
+            if part_number in self.bc_items:
+                return BCPartNumber(
+                    part_number=part_number,
+                    description=f"SPRING, WINDERS & STATIONARY PLUGS SET, {coil_str}\", {bore_str} BORE, UNIVERSAL",
+                    category="SPRING_ACCESSORY"
+                )
+            else:
+                logger.info(f"Universal cone {part_number} not in BC catalog — falling back to legacy LH/RH")
 
         # Fall back to legacy LH/RH parts
         key = (closest_coil, bore_size, wind.upper())
