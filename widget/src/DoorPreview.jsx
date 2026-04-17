@@ -196,7 +196,6 @@ function DoorPreview({
   const sectionHeightScale = height / totalSectionHeight
 
   const doorColor = COLOR_MAP[color] || COLOR_MAP.WHITE
-  const surfaceFill = isWoodgrain(color) ? `url(#woodgrainPattern-${instanceId})` : doorColor
   const isDark = ['BLACK', 'WALNUT', 'IRON_ORE', 'NEW_BROWN', 'ENGLISH_CHESTNUT'].includes(color)
   const lineColor = isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.2)'
   const shadowColor = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.15)'
@@ -206,6 +205,7 @@ function DoorPreview({
 
   // Unique ID for this instance to avoid SVG id collisions when multiple previews on page
   const instanceId = useMemo(() => Math.random().toString(36).substr(2, 9), [])
+  const surfaceFill = isWoodgrain(color) ? `url(#woodgrainPattern-${instanceId})` : doorColor
 
   const renderWindowOverlays = (y, w, h, padding, sectionIndex) => {
     const absoluteSection = sectionIndex + 1
