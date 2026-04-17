@@ -25,6 +25,23 @@ function Navigation() {
   const { user, logout, isAuthenticated } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const [reportsOpen, setReportsOpen] = useState(false)
+  const reportsRef = useRef(null)
+
+  useEffect(() => {
+    if (!reportsOpen) return
+    const onClick = (e) => {
+      if (reportsRef.current && !reportsRef.current.contains(e.target)) {
+        setReportsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [reportsOpen])
+
+  useEffect(() => {
+    setReportsOpen(false)
+  }, [location.pathname])
 
   const handleLogout = () => {
     logout()
@@ -60,24 +77,7 @@ function Navigation() {
     { path: '/settings', label: 'Settings' },
   ]
 
-  const [reportsOpen, setReportsOpen] = useState(false)
-  const reportsRef = useRef(null)
   const reportsActive = reportItems.some((r) => isActive(r.path))
-
-  useEffect(() => {
-    if (!reportsOpen) return
-    const onClick = (e) => {
-      if (reportsRef.current && !reportsRef.current.contains(e.target)) {
-        setReportsOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', onClick)
-    return () => document.removeEventListener('mousedown', onClick)
-  }, [reportsOpen])
-
-  useEffect(() => {
-    setReportsOpen(false)
-  }, [location.pathname])
 
   return (
     <nav className="bg-white shadow-sm">
