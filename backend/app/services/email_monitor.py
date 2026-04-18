@@ -268,7 +268,11 @@ class EmailMonitorService:
         # Step 3: If quote request or modification, parse with AI
         if is_quote_request:
             logger.info(f"  -> Identified as NEW quote request, parsing...")
-            self._parse_quote_request(db, email_log, subject, body, from_name, from_address)
+            try:
+                self._parse_quote_request(db, email_log, subject, body, from_name, from_address)
+            except Exception as e:
+                logger.error(f"  -> _parse_quote_request FAILED: {e}", exc_info=True)
+                email_log.status = "parse_error"
             return "quote_request"
 
         if is_quote_modification:
@@ -288,24 +292,25 @@ class EmailMonitorService:
 
         sender_info = {"name": from_name, "email": from_address}
 
-        # MEMORY SYSTEM: Retrieve similar examples for RAG
-        memory_service = get_memory_service(db)
+        # MEMORY SYSTEM: Retrieve similar examples for RAG (non-critical — continue without if it fails)
+        example_context = None
+        try:
+            memory_service = get_memory_service(db)
+            examples = memory_service.retrieve_similar_examples(
+                subject, body, max_examples=3, customer_email=from_address
+            )
+            example_context = memory_service.format_examples_for_prompt(examples)
 
-        # Get examples with customer-specific matching
-        examples = memory_service.retrieve_similar_examples(
-            subject, body, max_examples=3, customer_email=from_address
-        )
-        example_context = memory_service.format_examples_for_prompt(examples)
+            customer_context = memory_service.get_customer_context(from_address)
+            if customer_context:
+                example_context = (example_context or "") + customer_context
+                logger.info(f"  -> Known customer, using preferences for parsing")
 
-        # Get customer-specific context if we know this customer
-        customer_context = memory_service.get_customer_context(from_address)
-        if customer_context:
-            example_context = (example_context or "") + customer_context
-            logger.info(f"  -> Known customer, using preferences for parsing")
+            logger.info(f"  -> Using {len(examples)} examples for enhanced parsing")
+        except Exception as e:
+            logger.warning(f"  -> Memory/example retrieval failed (continuing without): {e}")
 
-        logger.info(f"  -> Using {len(examples)} examples for enhanced parsing")
-
-        # Parse with Claude AI (with RAG context)
+        # Parse with Claude AI (with RAG context if available)
         parse_result = self.ai_client.parse_email_for_quote(
             subject, body, sender_info, example_context=example_context
         )
