@@ -197,13 +197,33 @@ class EmailMonitorService:
         message_id = email.get("id")
         internet_message_id = email.get("internetMessageId")
 
-        # Check if already processed
+        # Check if already processed — use DB-level insert guard to prevent
+        # duplicate AI calls from concurrent workers / scheduler instances.
         existing = db.query(EmailLog).filter(
             EmailLog.message_id == internet_message_id
         ).first()
 
         if existing:
             logger.debug(f"Email {internet_message_id} already processed, skipping")
+            return None
+
+        # Claim this email BEFORE calling AI — insert a placeholder row so
+        # concurrent workers see it and skip. This prevents the TOCTOU race
+        # where multiple workers all see "not processed" and each call the API.
+        placeholder = EmailLog(
+            message_id=internet_message_id,
+            received_at=email.get("receivedDateTime"),
+            from_address=email.get("from", {}).get("emailAddress", {}).get("address", ""),
+            subject=email.get("subject", ""),
+            body=email.get("body", {}).get("content", ""),
+            status="processing",
+        )
+        try:
+            db.add(placeholder)
+            db.flush()  # attempt INSERT — will fail on duplicate key if another worker claimed it
+        except Exception:
+            db.rollback()
+            logger.debug(f"Email {internet_message_id} claimed by another worker, skipping")
             return None
 
         # Extract email data
@@ -233,26 +253,17 @@ class EmailMonitorService:
         if reasoning:
             logger.debug(f"  -> Reasoning: {reasoning[:100]}")
 
-        # Step 2: Log email in database with AI categorization fields
-        email_log = EmailLog(
-            message_id=internet_message_id,
-            received_at=datetime.fromisoformat(received_at.replace('Z', '+00:00')) if received_at else datetime.utcnow(),
-            from_address=from_address,
-            subject=subject,
-            body=body,
-            attachments=None,  # TODO: Handle attachments in future
-            status="pending" if (is_quote_request or is_quote_modification) else "informational",
-            # AI Categorization Learning Fields
-            ai_category=category,
-            ai_category_confidence=confidence,
-            ai_category_reasoning=reasoning,
-            # Quote Modification Detection Fields
-            is_modification=is_quote_modification,
-            referenced_quote_number=referenced_quote_number,
-            modification_type=modification_type
-        )
-        db.add(email_log)
-        db.flush()  # Get the ID
+        # Step 2: Update placeholder with AI categorization results
+        email_log = placeholder
+        email_log.received_at = datetime.fromisoformat(received_at.replace('Z', '+00:00')) if received_at else datetime.utcnow()
+        email_log.status = "pending" if (is_quote_request or is_quote_modification) else "informational"
+        email_log.ai_category = category
+        email_log.ai_category_confidence = confidence
+        email_log.ai_category_reasoning = reasoning
+        email_log.is_modification = is_quote_modification
+        email_log.referenced_quote_number = referenced_quote_number
+        email_log.modification_type = modification_type
+        db.flush()
 
         # Step 3: If quote request or modification, parse with AI
         if is_quote_request:

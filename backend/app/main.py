@@ -48,12 +48,23 @@ async def lifespan(app: FastAPI):
     # TODO: Initialize Graph API client
     # TODO: Initialize Anthropic client
 
-    # Start scheduled email monitoring
+    # Start scheduled email monitoring — only in ONE Gunicorn worker.
+    # With -w 4, each worker runs lifespan independently. Use a file lock
+    # so only the first worker starts the scheduler; the rest skip it.
+    import os
+    _scheduler_lock = "/tmp/bc_scheduler_lock"
+    _owns_scheduler = False
     if settings.ENABLE_EMAIL_MONITORING:
         try:
+            fd = os.open(_scheduler_lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode())
+            os.close(fd)
+            _owns_scheduler = True
             scheduler = get_scheduler()
             scheduler.start(email_check_interval_minutes=settings.EMAIL_CHECK_INTERVAL_MINUTES)
-            logger.info(f"✓ Scheduled email monitoring started (every {settings.EMAIL_CHECK_INTERVAL_MINUTES} minutes)")
+            logger.info(f"✓ Scheduler started in worker PID {os.getpid()} (every {settings.EMAIL_CHECK_INTERVAL_MINUTES} min)")
+        except FileExistsError:
+            logger.info(f"Scheduler already running in another worker — skipping in PID {os.getpid()}")
         except Exception as e:
             logger.error(f"Failed to start scheduler: {e}", exc_info=True)
     else:
@@ -66,13 +77,15 @@ async def lifespan(app: FastAPI):
     logger.info("BC AI Agent shutting down...")
     logger.info("=" * 80)
 
-    # Stop background scheduler
-    try:
-        scheduler = get_scheduler()
-        scheduler.stop()
-        logger.info("Scheduler stopped")
-    except Exception as e:
-        logger.error(f"Error stopping scheduler: {e}", exc_info=True)
+    # Stop background scheduler (only in the worker that owns it)
+    if _owns_scheduler:
+        try:
+            scheduler = get_scheduler()
+            scheduler.stop()
+            logger.info("Scheduler stopped")
+            os.unlink(_scheduler_lock)
+        except Exception as e:
+            logger.error(f"Error stopping scheduler: {e}", exc_info=True)
 
     # TODO: Close database connections
 
