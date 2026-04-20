@@ -676,44 +676,17 @@ class DoorCalculatorService:
                     f"Contact office for custom spring quote."
                 )
             # Check if this wire/coil combo exists in BC inventory
+            # Uses the shared resolve_spring_in_bc() — same logic as quote generator
             if spring_inventory:
                 from app.services.bc_part_number_mapper import get_bc_mapper
                 mapper = get_bc_mapper()
-                test_pn = mapper.get_spring_part_number(springs.wire_diameter, springs.coil_diameter, "LH")
-                if test_pn.part_number not in mapper.spring_items:
-                    found = False
-                    # Try stepping up wire on same coil
-                    for bc_wire in sorted(mapper.WIRE_SIZE_CODES.keys()):
-                        if bc_wire >= springs.wire_diameter:
-                            test = mapper.get_spring_part_number(bc_wire, springs.coil_diameter, "LH")
-                            if test.part_number in mapper.spring_items:
-                                found = True
-                                break
-                    # Try same wire then larger wires on next coil up
-                    if not found:
-                        for next_coil in STOCKED_COIL_DIAMETERS:
-                            if next_coil <= springs.coil_diameter:
-                                continue
-                            # Same wire at bigger coil
-                            test = mapper.get_spring_part_number(springs.wire_diameter, next_coil, "LH")
-                            if test.part_number in mapper.spring_items:
-                                found = True
-                                break
-                            # Step up wire at bigger coil
-                            for bc_wire in sorted(mapper.WIRE_SIZE_CODES.keys()):
-                                if bc_wire > springs.wire_diameter:
-                                    test = mapper.get_spring_part_number(bc_wire, next_coil, "LH")
-                                    if test.part_number in mapper.spring_items:
-                                        found = True
-                                        break
-                            if found:
-                                break
-                    if not found:
-                        warnings.append(
-                            f"Calculated spring ({springs.wire_diameter}\" wire x {springs.coil_diameter}\" coil) "
-                            f"is not available in standard inventory for {target_cycles:,} cycles. "
-                            f"Contact office for custom spring quote."
-                        )
+                found, _, _ = mapper.resolve_spring_in_bc(springs.wire_diameter, springs.coil_diameter)
+                if not found:
+                    warnings.append(
+                        f"Calculated spring ({springs.wire_diameter}\" wire x {springs.coil_diameter}\" coil) "
+                        f"is not available in standard inventory for {target_cycles:,} cycles. "
+                        f"Contact office for custom spring quote."
+                    )
 
         # 7. Calculate shaft (spring count drives shaft count)
         is_residential = door_type == "residential"

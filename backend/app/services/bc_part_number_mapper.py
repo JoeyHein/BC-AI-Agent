@@ -494,6 +494,60 @@ class BCPartNumberMapper:
         else:
             return str(coil_id)
 
+    # Coil progression for spring step-up (shared by all callers)
+    COIL_PROGRESSION = [2.0, 2.625, 3.75, 6.0]
+
+    def resolve_spring_in_bc(
+        self,
+        wire_size: float,
+        coil_id: float,
+    ) -> tuple:
+        """
+        Find the closest BC-available spring for a given wire/coil combo.
+
+        Single source of truth for spring resolution. Used by both the
+        Door Specifications panel (warning display) and the quote generator
+        (part number selection).
+
+        Strategy:
+        1. Check exact wire/coil — if in BC, return as-is
+        2. Step up wire on same coil
+        3. Try same wire at next coil up (2.0 → 2.625 → 3.75 → 6.0)
+        4. Step up wire at next coil up
+
+        Returns:
+            (found: bool, resolved_wire: float, resolved_coil: float)
+        """
+        # 1. Exact match
+        test = self.get_spring_part_number(wire_size, coil_id, "LH")
+        if test.part_number in self.spring_items:
+            return (True, wire_size, coil_id)
+
+        # 2. Step up wire on same coil
+        for bc_wire in sorted(self.WIRE_SIZE_CODES.keys()):
+            if bc_wire >= wire_size:
+                test = self.get_spring_part_number(bc_wire, coil_id, "LH")
+                if test.part_number in self.spring_items:
+                    return (True, bc_wire, coil_id)
+
+        # 3 & 4. Try next coil diameters up
+        current_idx = next(
+            (i for i, c in enumerate(self.COIL_PROGRESSION) if c >= coil_id), -1
+        )
+        for next_coil in self.COIL_PROGRESSION[current_idx + 1:]:
+            # Same wire at bigger coil
+            test = self.get_spring_part_number(wire_size, next_coil, "LH")
+            if test.part_number in self.spring_items:
+                return (True, wire_size, next_coil)
+            # Step up wire at bigger coil
+            for bc_wire in sorted(self.WIRE_SIZE_CODES.keys()):
+                if bc_wire > wire_size:
+                    test = self.get_spring_part_number(bc_wire, next_coil, "LH")
+                    if test.part_number in self.spring_items:
+                        return (True, bc_wire, next_coil)
+
+        return (False, wire_size, coil_id)
+
     def get_winder_stationary_set(
         self,
         coil_id: float,
