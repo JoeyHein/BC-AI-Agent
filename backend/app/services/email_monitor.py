@@ -328,16 +328,21 @@ class EmailMonitorService:
         doors = parsed_data.get("doors", [])
         project = parsed_data.get("project", {})
 
-        # CONFIDENCE CALIBRATION: Adjust based on historical performance
-        door_model = doors[0].get("model") if doors else None
-        confidence = memory_service.get_calibrated_confidence(
-            raw_confidence,
-            door_model=door_model,
-            customer_email=from_address
-        )
-
-        if confidence != raw_confidence:
-            logger.info(f"  -> Confidence calibrated: {raw_confidence:.2f} -> {confidence:.2f}")
+        # CONFIDENCE CALIBRATION: Adjust based on historical performance (non-critical)
+        confidence = raw_confidence
+        try:
+            door_model = doors[0].get("model") if doors else None
+            calibrated = memory_service.get_calibrated_confidence(
+                raw_confidence,
+                door_model=door_model,
+                customer_email=from_address
+            )
+            if calibrated != raw_confidence:
+                confidence = calibrated
+                logger.info(f"  -> Confidence calibrated: {raw_confidence:.2f} -> {confidence:.2f}")
+        except Exception as cal_err:
+            logger.warning(f"  -> Confidence calibration failed (using raw): {cal_err}")
+            db.rollback()  # Clear aborted transaction so subsequent DB ops work
 
         # Create QuoteRequest record
         quote_request = QuoteRequest(
@@ -376,8 +381,8 @@ class EmailMonitorService:
         email_log.status = "parsed"
         email_log.parsed_at = datetime.utcnow()
 
-        # MEMORY SYSTEM: Auto-add high-confidence parses to example library
-        if confidence >= 0.8:  # High confidence threshold
+        # MEMORY SYSTEM: Auto-add high-confidence parses to example library (non-critical)
+        if confidence >= 0.8:
             try:
                 memory_service._add_to_example_library(
                     quote_request, email_log, verified=False, quality_boost=0.1
@@ -385,6 +390,10 @@ class EmailMonitorService:
                 logger.info(f"  -> Auto-added to example library (high confidence)")
             except Exception as e:
                 logger.warning(f"Failed to add to example library: {e}")
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
 
         logger.info(f"  -> Quote request parsed. Confidence: {confidence:.2f}, "
                    f"Customer: {quote_request.customer_name}, "
