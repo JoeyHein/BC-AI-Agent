@@ -243,6 +243,37 @@ WINDOW_CUTOUT_WEIGHTS = {
 # Stocked spring coil diameters (inches) — these are the only coils we carry
 STOCKED_COIL_DIAMETERS = [2.0, 2.625, 3.75, 6.0]
 
+# Shaft component widths (inches) — used for fitment validation
+_DRUM_WIDTH_DEFAULT = 5.0
+_BEARING_END_PLATE_WIDTH = 2.5
+_COUPLER_WIDTH = 3.5
+_CENTER_BEARING_WIDTH = 2.5
+_CLEARANCE_PER_GAP = 0.25
+_WINDER_CONE_WIDTHS = {2.0: 3.0, 2.625: 3.5, 3.75: 4.5, 6.0: 6.0}
+
+
+def _springs_fit_on_shaft(
+    door_width_inches: int,
+    spring_length: float,
+    spring_qty: int,
+    coil_diameter: float,
+    drum_model: str = None,
+) -> bool:
+    """Quick check: do the springs + shaft components fit within the door width?"""
+    winder_w = _WINDER_CONE_WIDTHS.get(coil_diameter, 3.0)
+    num_couplers = max(0, (spring_qty // 2) - 1)
+    required = (
+        2 * _DRUM_WIDTH_DEFAULT +           # 2 drums
+        2 * _BEARING_END_PLATE_WIDTH +       # 2 end plates
+        num_couplers * _COUPLER_WIDTH +       # shaft couplers
+        num_couplers * _CENTER_BEARING_WIDTH + # center bearing plates
+        spring_qty * winder_w +               # winder cones
+        spring_qty * spring_length +          # springs
+        (2 + 2 + spring_qty + spring_qty + num_couplers) * _CLEARANCE_PER_GAP  # gaps
+    )
+    return required <= door_width_inches
+
+
 # Drum selection table
 # Format: {drum_model: {max_height: int, max_weight: int, offset: float, cable_diameters: [small, large]}}
 DRUM_TABLE = {
@@ -644,26 +675,41 @@ class DoorCalculatorService:
                     f"Wire size ({springs.wire_diameter}\") exceeds standard maximum ({MAX_WIRE_SIZE}\"). "
                     f"Contact office for custom spring quote."
                 )
-            # Check if this wire/coil combo exists in BC inventory
-            if spring_inventory:
-                from app.services.bc_part_number_mapper import get_bc_mapper
-                mapper = get_bc_mapper()
-                test_pn = mapper.get_spring_part_number(springs.wire_diameter, springs.coil_diameter, "LH")
-                if test_pn.part_number not in mapper.spring_items:
-                    # Try stepping up
-                    found = False
-                    for bc_wire in sorted(mapper.WIRE_SIZE_CODES.keys()):
-                        if bc_wire >= springs.wire_diameter:
-                            test = mapper.get_spring_part_number(bc_wire, springs.coil_diameter, "LH")
-                            if test.part_number in mapper.spring_items:
-                                found = True
-                                break
-                    if not found:
-                        warnings.append(
-                            f"Calculated spring ({springs.wire_diameter}\" wire x {springs.coil_diameter}\" coil) "
-                            f"is not available in standard inventory for {target_cycles:,} cycles. "
-                            f"Contact office for custom spring quote."
-                        )
+            # Check if this wire/coil combo exists in BC inventory.
+            # If not, UPDATE the spring specs to match what the quote generator
+            # will actually use, so specs and quoted parts always agree.
+            from app.services.bc_part_number_mapper import get_bc_mapper
+            mapper = get_bc_mapper()
+            found, resolved_wire, resolved_coil = mapper.resolve_spring_in_bc(
+                springs.wire_diameter, springs.coil_diameter
+            )
+            if not found:
+                warnings.append(
+                    f"Calculated spring ({springs.wire_diameter}\" wire x {springs.coil_diameter}\" coil) "
+                    f"is not available in standard inventory for {target_cycles:,} cycles. "
+                    f"Contact office for custom spring quote."
+                )
+            elif resolved_wire != springs.wire_diameter or resolved_coil != springs.coil_diameter:
+                # Update spring specs to show the resolved (quotable) values
+                logger.info(
+                    f"Spring specs updated: {springs.wire_diameter}\" x {springs.coil_diameter}\" "
+                    f"→ {resolved_wire}\" x {resolved_coil}\" (BC resolved)"
+                )
+                springs = SpringSelection(
+                    quantity=springs.quantity,
+                    coil_diameter=resolved_coil,
+                    wire_diameter=resolved_wire,
+                    length=springs.length,
+                    active_coils=springs.active_coils,
+                    dead_coil_factor=springs.dead_coil_factor,
+                    ippt=springs.ippt,
+                    mip_per_spring=springs.mip_per_spring,
+                    turns=springs.turns,
+                    spring_quantity=springs.spring_quantity,
+                    cycle_life=springs.cycle_life,
+                    drum_model=springs.drum_model,
+                    multiplier=springs.multiplier,
+                )
 
         # 7. Calculate shaft (spring count drives shaft count)
         is_residential = door_type == "residential"
@@ -1029,6 +1075,10 @@ class DoorCalculatorService:
         Returns:
             SpringSelection with complete spring specifications
         """
+        # Enforce minimum 10,000 cycle standard
+        if target_cycles < 10000:
+            target_cycles = 10000
+
         if door_weight <= 0:
             logger.warning("Door weight must be greater than 0")
             return None
@@ -1049,43 +1099,73 @@ class DoorCalculatorService:
             logger.warning("No stocked spring found, falling back to unfiltered calculation")
 
         # Unfiltered calculation (no inventory, or inventory had no match)
-        # Try stocked coil sizes in order of preference, scaling up spring count
-        stocked_coils = STOCKED_COIL_DIAMETERS
-
-        # Try requested qty first (usually 2), then scale up, then 1 as last resort
-        # Doors >= 150 lbs must use 2+ springs
+        # For each qty, let the calculator auto-select wire/coil via its built-in
+        # Canimex escalation (2" → 2.625" → 3.75" → 6") rather than brute-forcing
+        # all coil sizes and picking cheapest. The cheapest-material approach
+        # (bug #49) caused undersized springs — e.g. .218 x 2" instead of .312 x 2-5/8"
+        # when the smaller combo barely met MIP but would fail prematurely.
         if door_weight >= 150:
             unfiltered_progression = list(dict.fromkeys([spring_qty, 2, 4, 6, 8]))
         else:
             unfiltered_progression = list(dict.fromkeys([spring_qty, 2, 4, 6, 8, 1]))
-        for qty in unfiltered_progression:
-            for coil_diam in stocked_coils:
-                result = spring_calculator.calculate_spring(
-                    door_weight=door_weight,
-                    door_height=height_inches,
-                    track_radius=track_radius,
-                    spring_qty=qty,
-                    coil_diameter=coil_diam,
-                    target_cycles=target_cycles,
-                    drum_model=drum_model,
-                    high_lift_inches=high_lift_inches,
-                )
-                if result is not None:
-                    return SpringSelection(
-                        quantity=result.spring_quantity,
-                        coil_diameter=result.coil_diameter,
-                        wire_diameter=result.wire_diameter,
-                        length=result.length,
-                        cycles=result.cycle_life,
-                        turns=result.turns,
-                        galvanized=False
-                    )
 
-        logger.warning(
-            f"No spring found for {door_weight} lbs, {height_inches}\" height, "
-            f"{target_cycles} cycles"
+        all_candidates = []
+        for qty in unfiltered_progression:
+            # Let calculator auto-select wire and coil — starts at 2" coil,
+            # escalates to larger coils only when MIP requires it.
+            # This preserves the proper Canimex wire/coil pairing.
+            result = spring_calculator.calculate_spring(
+                door_weight=door_weight,
+                door_height=height_inches,
+                track_radius=track_radius,
+                spring_qty=qty,
+                coil_diameter=2.0,  # default start; auto-escalates inside calculate_spring
+                target_cycles=target_cycles,
+                drum_model=drum_model,
+                high_lift_inches=high_lift_inches,
+            )
+            if result is None:
+                continue
+            if not _springs_fit_on_shaft(width_inches, result.length, qty, result.coil_diameter, drum_model):
+                logger.info(
+                    f"Skipping {qty}x {result.coil_diameter}\" coil / {result.wire_diameter}\" wire "
+                    f"({result.length}\" long) — doesn't fit on {width_inches}\" wide door"
+                )
+                continue
+            all_candidates.append(result)
+
+        if not all_candidates:
+            logger.warning(
+                f"No spring found for {door_weight} lbs, {height_inches}\" height, "
+                f"{target_cycles} cycles"
+            )
+            return None
+
+        MAX_PRACTICAL_LENGTH = 75.0
+
+        def sort_key(r):
+            is_reasonable = r.length <= MAX_PRACTICAL_LENGTH
+            return (
+                0 if is_reasonable else 1,
+                r.spring_quantity,
+                r.length,
+            )
+
+        best = min(all_candidates, key=sort_key)
+        logger.info(
+            f"Selected spring: {best.spring_quantity}x "
+            f"{best.coil_diameter}\" coil / {best.wire_diameter}\" wire "
+            f"({best.length}\" long)"
         )
-        return None
+        return SpringSelection(
+            quantity=best.spring_quantity,
+            coil_diameter=best.coil_diameter,
+            wire_diameter=best.wire_diameter,
+            length=best.length,
+            cycles=best.cycle_life,
+            turns=best.turns,
+            galvanized=False
+        )
 
     def _calculate_springs_from_inventory(
         self,
@@ -1162,6 +1242,13 @@ class DoorCalculatorService:
                     # Verify MIP capacity is sufficient
                     mip_capacity = spring_calculator.get_mip_capacity(wire_diam, target_cycles)
                     if mip_capacity and mip_capacity >= result.mip_per_spring:
+                        # Verify springs physically fit on the shaft
+                        if not _springs_fit_on_shaft(width_inches, result.length, spring_qty, coil_diam, drum_model):
+                            logger.info(
+                                f"Skipping stocked {spring_qty}x {coil_diam}\"/{wire_diam}\" "
+                                f"({result.length}\" long) — doesn't fit on {width_inches}\" wide door"
+                            )
+                            continue
                         qty_candidates.append(result)
 
             if qty_candidates:
@@ -1211,20 +1298,21 @@ class DoorCalculatorService:
         def candidate_sort_key(c):
             is_reasonable = c.length <= MAX_PRACTICAL_LENGTH
 
-            # Estimate total material cost: wire_volume ∝ wire_diameter² × length × quantity
-            # For duplex, add inner spring material too
+            # Fewer springs is always better — simpler install, fewer failure points
+            # Then prefer reasonable length, then smaller coil (cheaper), then shorter
             outer_material = (c.wire_diameter ** 2) * c.length * c.quantity
             inner_material = 0
             if c.is_duplex and c.inner_wire_diameter and c.inner_length:
                 inner_material = (c.inner_wire_diameter ** 2) * c.inner_length * c.quantity
             total_material = outer_material + inner_material
 
-            if is_reasonable:
-                # Best price = least material, then smaller coil, then shorter
-                return (0, total_material, c.coil_diameter, c.length)
-            else:
-                # Overlong: penalize, then least material
-                return (1, total_material, c.length, c.coil_diameter)
+            return (
+                0 if is_reasonable else 1,  # reasonable length first
+                c.quantity,                  # fewer springs always preferred
+                c.coil_diameter,             # smaller coil (cheaper)
+                c.length,                    # shorter spring
+                total_material,              # less material as tiebreaker
+            )
 
         best = min(all_candidates, key=candidate_sort_key)
 

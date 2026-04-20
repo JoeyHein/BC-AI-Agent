@@ -1,0 +1,87 @@
+BC AI Agent — DigitalOcean Droplet Setup Commands
+Server IP: 159.203.3.173
+Domain:    portal.opendc.ca
+===========================================================
+
+INSTRUCTIONS:
+- Run Block 1 in your SSH terminal (the server)
+- Run Block 2 in a NEW terminal on your Windows machine
+- Run Block 3 back in the SSH terminal
+- Wait for each block to finish before moving to the next
+
+
+===========================================================
+BLOCK 1 — Run on server (SSH terminal)
+===========================================================
+
+apt-get update -y && apt-get upgrade -y && apt-get install -y git curl ufw certbot
+
+ufw allow OpenSSH && ufw allow 80/tcp && ufw allow 443/tcp && ufw --force enable
+
+curl -fsSL https://get.docker.com | sh && systemctl enable --now docker
+
+COMPOSE_VER=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep '"tag_name"' | cut -d'"' -f4) && mkdir -p /usr/local/lib/docker/cli-plugins && curl -SL "https://github.com/docker/compose/releases/download/${COMPOSE_VER}/docker-compose-linux-x86_64" -o /usr/local/lib/docker/cli-plugins/docker-compose && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+git clone https://github.com/JoeyHein/BC-AI-Agent.git /opt/bc-ai-agent
+
+
+===========================================================
+BLOCK 2 — Run on YOUR WINDOWS MACHINE (new terminal, not SSH)
+===========================================================
+
+Git Bash:
+scp /c/Users/jhein/bc-ai-agent/backend/.env root@159.203.3.173:/opt/bc-ai-agent/.env
+
+PowerShell:
+scp C:\Users\jhein\bc-ai-agent\backend\.env root@159.203.3.173:/opt/bc-ai-agent/.env
+
+
+===========================================================
+BLOCK 3 — Run on server (SSH terminal) — configure + launch
+===========================================================
+
+NOTE: Before running certbot, verify DNS is live:
+  nslookup portal.opendc.ca
+  (should return 159.203.3.173 — if not, wait a few minutes)
+
+cd /opt/bc-ai-agent
+
+DB_PASS=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
+echo "Save this DB password: $DB_PASS"
+
+sed -i 's/ENVIRONMENT=development/ENVIRONMENT=production/' .env
+sed -i 's/DEBUG=True/DEBUG=False/' .env
+sed -i 's|DATABASE_URL=sqlite:///./bc_ai_agent.db|DATABASE_URL=postgresql://bcagent:'"$DB_PASS"'@db:5432/bc_agent|' .env
+
+cat >> .env << EOF
+POSTGRES_DB=bc_agent
+POSTGRES_USER=bcagent
+POSTGRES_PASSWORD=$DB_PASS
+ALLOWED_ORIGINS=https://portal.opendc.ca
+CUSTOMER_PORTAL_URL=https://portal.opendc.ca/customer.html
+ADMIN_PORTAL_URL=https://portal.opendc.ca
+EOF
+
+sed -i 's/DOMAIN_PLACEHOLDER/portal.opendc.ca/g' nginx/nginx.conf
+
+certbot certonly --standalone --non-interactive --agree-tos --email joey@opendc.ca -d portal.opendc.ca
+
+docker compose build --no-cache
+
+docker compose up -d
+
+(crontab -l 2>/dev/null; echo "0 3 * * * certbot renew --quiet --post-hook 'docker exec \$(docker ps -qf name=bc-ai-agent-nginx-1) nginx -s reload'") | crontab -
+
+echo "Done! Visit: https://portal.opendc.ca"
+
+
+===========================================================
+WHEN COMPLETE
+===========================================================
+
+Admin dashboard:   https://portal.opendc.ca
+Customer portal:   https://portal.opendc.ca/customer.html
+
+View logs:         docker compose -f /opt/bc-ai-agent/docker-compose.yml logs -f
+Restart app:       docker compose -f /opt/bc-ai-agent/docker-compose.yml restart
+Deploy update:     cd /opt/bc-ai-agent && ./scripts/deploy.sh

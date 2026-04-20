@@ -13,11 +13,12 @@ from datetime import datetime
 from app.db.database import SessionLocal
 from app.db.models import (
     QuoteRequest, ParseFeedback, ParseExample,
-    FeedbackType, EmailLog
+    FeedbackType, EmailLog, User
 )
 from app.services.memory_service import get_memory_service
 from app.services.upwardor_service import generate_upwardor_quote_from_request, UpwardorAPIError
 from app.services.bc_quote_service import bc_quote_service
+from app.api.auth import get_current_user
 
 router = APIRouter(prefix="/api/quotes", tags=["feedback"])
 logger = logging.getLogger(__name__)
@@ -220,8 +221,8 @@ def get_quote(quote_id: int, db: Session = Depends(get_db)):
 def submit_feedback(
     quote_id: int,
     feedback: FeedbackRequest,
-    user_id: str = "system",  # TODO: Get from auth
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Submit feedback on a quote parse
 
@@ -262,6 +263,7 @@ def submit_feedback(
         )
 
     # Record feedback using memory service
+    user_id = current_user.email
     memory_service = get_memory_service(db)
     parse_feedback = memory_service.record_feedback(
         quote_request_id=quote_id,
@@ -326,8 +328,8 @@ def submit_feedback(
 def approve_quote(
     quote_id: int,
     notes: Optional[str] = None,
-    user_id: str = "system",  # TODO: Get from auth
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Quick approve a quote parse
 
@@ -336,7 +338,6 @@ def approve_quote(
     Args:
         quote_id: Quote request ID
         notes: Optional approval notes
-        user_id: User approving (from auth)
 
     Returns:
         Feedback confirmation
@@ -345,15 +346,15 @@ def approve_quote(
         feedback_type="approve",
         notes=notes
     )
-    return submit_feedback(quote_id, feedback, user_id, db)
+    return submit_feedback(quote_id, feedback, db, current_user)
 
 
 @router.post("/{quote_id}/correct", response_model=FeedbackResponse)
 def correct_quote(
     quote_id: int,
     correction: CorrectionRequest,
-    user_id: str = "system",  # TODO: Get from auth
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Correct a quote parse
 
@@ -363,7 +364,6 @@ def correct_quote(
     Args:
         quote_id: Quote request ID
         correction: Corrected parse data
-        user_id: User correcting (from auth)
 
     Returns:
         Feedback confirmation
@@ -373,15 +373,15 @@ def correct_quote(
         corrected_data=correction.corrected_data,
         notes=correction.notes
     )
-    return submit_feedback(quote_id, feedback, user_id, db)
+    return submit_feedback(quote_id, feedback, db, current_user)
 
 
 @router.post("/{quote_id}/reject", response_model=FeedbackResponse)
 def reject_quote(
     quote_id: int,
     notes: Optional[str] = None,
-    user_id: str = "system",  # TODO: Get from auth
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Reject a quote parse
 
@@ -390,7 +390,6 @@ def reject_quote(
     Args:
         quote_id: Quote request ID
         notes: Optional rejection reason
-        user_id: User rejecting (from auth)
 
     Returns:
         Feedback confirmation
@@ -399,7 +398,7 @@ def reject_quote(
         feedback_type="reject",
         notes=notes
     )
-    return submit_feedback(quote_id, feedback, user_id, db)
+    return submit_feedback(quote_id, feedback, db, current_user)
 
 
 @router.get("/{quote_id}/examples-used", response_model=List[dict])

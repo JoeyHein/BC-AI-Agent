@@ -30,6 +30,7 @@ class KnowledgeType(enum.Enum):
     CUSTOMER_PREFERENCE = "customer_preference"
     COMMON_PATTERN = "common_pattern"
     SPECIFICATION = "specification"
+    PARSING_PATTERN = "parsing_pattern"
 
 
 class UserRole(enum.Enum):

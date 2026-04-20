@@ -557,11 +557,19 @@ class BCSyncService:
         if not bc_id:
             return
 
-        # BC may expose the multiplier as priceMultiplierPercent or similar
-        multiplier = (
-            bc_cust.get("priceMultiplierPercent")
-            or bc_cust.get("priceMultiplier")
-            or bc_cust.get("price_multiplier_percent")
+        # BC may expose the multiplier as priceMultiplierPercent or similar.
+        # Use `is not None` checks so a legitimate 0 value is not skipped by
+        # Python's falsy `or` evaluation.
+        def _first_not_none(*vals):
+            for v in vals:
+                if v is not None:
+                    return v
+            return None
+
+        multiplier = _first_not_none(
+            bc_cust.get("priceMultiplierPercent"),
+            bc_cust.get("priceMultiplier"),
+            bc_cust.get("price_multiplier_percent"),
         )
 
         # Capture BC customer price group.

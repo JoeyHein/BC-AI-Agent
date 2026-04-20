@@ -159,6 +159,39 @@ DOOR_SERIES = {
             }
         },
         {
+            "id": "SWD",
+            "name": "AL-SWD (Separated Window Design)",
+            "description": "Separated Window Design — individual glass pockets per section",
+            "categoryValue": "67f7c1c39cf0ed4a3b00baea",
+            "partPrefix": "PN70",
+            "glazingType": "glass",
+            "glazingTypes": [
+                {"id": "glass", "name": "Glass"},
+            ],
+            "glazingOptions": [
+                {"id": "CLEAR", "name": "Clear"},
+                {"id": "ETCHED", "name": "Etched"},
+                {"id": "SUPER_GREY", "name": "Super Grey"},
+            ],
+            "paneTypes": [
+                {"id": "INSULATED", "name": "Insulated (Thermal)"},
+                {"id": "SINGLE", "name": "Single Pane"},
+            ],
+            "finishes": [
+                {"id": "CLEAR_ANODIZED", "name": "Clear Anodized", "code": "0"},
+                {"id": "MILL", "name": "Mill", "code": "1"},
+                {"id": "WHITE", "name": "White", "code": "3"},
+                {"id": "BLACK_ANODIZED", "name": "Black Anodized", "code": "8"},
+            ],
+            "specs": {
+                "thickness": "1 3/4\" (44.5mm)",
+                "material": "Extruded 6063-T6 Aluminum",
+                "maxWidth": 252,  # 21' in inches
+                "finishWarranty": "5 Year Limited",
+                "workmanshipWarranty": "1 Year Limited"
+            }
+        },
+        {
             "id": "PANORAMA",
             "name": "Panorama",
             "description": "Full-view aluminum door — polycarbonate panels",
@@ -402,7 +435,7 @@ TRACK_OPTIONS = {
     ],
     "liftType": [
         {"id": "standard", "name": "Standard Lift", "description": "Standard radius track"},
-        {"id": "low_headroom", "name": "Low Headroom (2\" Double Track)", "description": "2\" double track lowhead - for minimal headroom clearance", "forcedTrackSize": 2},
+        {"id": "low_headroom", "name": "Low Headroom", "description": "Double track low headroom — for minimal headroom clearance"},
         {"id": "high_lift", "name": "High Lift", "description": "Extra vertical track above door — specify inches of high lift"},
         {"id": "vertical", "name": "Vertical Lift", "description": "Full vertical track — door lifts straight up, no horizontal"},
     ],
@@ -458,6 +491,7 @@ class DoorConfigRequest(BaseModel):
     glazingType: Optional[str] = None
     glassPaneType: Optional[str] = None  # 'INSULATED' or 'SINGLE'
     glassColor: Optional[str] = None     # 'CLEAR', 'ETCHED', 'SUPER_GREY'
+    glassPocketsPerSection: Optional[Dict[str, int]] = None  # Per-section pocket overrides: {"0": 4, "1": 3, ...}
     trackRadius: str = "15"
     trackThickness: str = "2"
     trackMount: str = "bracket"  # 'bracket' or 'angle'
@@ -470,6 +504,7 @@ class DoorConfigRequest(BaseModel):
     targetCycles: int = 10000
     shaftType: str = "auto"  # 'auto', 'single', 'split'
     includeTopSeal: bool = False  # optional upgrade for commercial doors
+    includePusherSprings: bool = False  # optional upgrade: adds TR13-00031-00 + TR13-00032-00
 
 
 class QuoteGenerationRequest(BaseModel):
@@ -532,6 +567,7 @@ async def get_colors(series_id: str):
         "TX450-20": "COMMERCIAL_20",
         "TX500-20": "COMMERCIAL_20",
         "AL976": "AL976",
+        "SWD": "AL976",
         "KANATA_EXECUTIVE": "EXECUTIVE_STAINS",
     }
     color_key = color_map.get(series_id, "KANATA")
@@ -714,33 +750,65 @@ async def calculate_struts(door_width: int, door_height: int = 84, window: str =
     }
 
 
+def _format_lift_label(raw, high_lift_inches=None) -> str:
+    r = (raw or 'standard').lower().replace('-', '_').replace(' ', '_')
+    if r in ('low_headroom', 'lhr', 'low_head_room', 'lhr_front', 'lhr_rear'):
+        return 'LHR'
+    if r in ('high_lift', 'highlift'):
+        try:
+            n = int(high_lift_inches) if high_lift_inches else 0
+        except (TypeError, ValueError):
+            n = 0
+        return f'HIGH LIFT {n}"' if n else 'HIGH LIFT'
+    if r == 'vertical':
+        return 'VERTICAL'
+    return 'STD LIFT'
+
+
+def _format_mount_label(track_mount, track_thickness) -> str:
+    mount = 'ANGLE MOUNT' if str(track_mount or 'bracket').lower() == 'angle' else 'BRACKET MOUNT'
+    size = track_thickness or '2'
+    return f'{size}" {mount}'
+
+
+def _format_design_for_comment(door_type, panel_design, glazing_type, glass_pane_type) -> str:
+    if door_type == 'aluminium':
+        return (glazing_type or glass_pane_type or '').strip()
+    glaz = (glazing_type or '').strip()
+    if glaz and (not panel_design or str(panel_design).upper() == 'FLUSH'):
+        return glaz
+    return panel_design or ''
+
+
 def _format_door_description(door: DoorConfigRequest) -> str:
     """
     Format door description for BC quote comment line.
-
-    Format: ({qty}) {width}'x{height}' {series}, {color}, {design}, {track}" HW, {lift}
-    Example: (1) 10x9 TX450, WHITE, UDC, 2" HW, STD LIFT
+    Format: ({qty}) {W'I"} x {H'I"} {series}, {color}, {design}, {track}" {MOUNT}, {lift}[, POCKETS: ...]
     """
-    # Convert inches to feet for display
-    width_ft = door.doorWidth // 12
-    height_ft = door.doorHeight // 12
+    width_ft, width_in = divmod(door.doorWidth, 12)
+    height_ft, height_in = divmod(door.doorHeight, 12)
+    width_str = f"{width_ft}'{width_in}\""
+    height_str = f"{height_ft}'{height_in}\""
 
-    # Get track size display
-    track_display = f"{door.trackThickness}\" HW" if door.trackThickness else "2\" HW"
+    track_display = _format_mount_label(getattr(door, 'trackMount', 'bracket'), door.trackThickness)
+    lift_type = _format_lift_label(getattr(door, 'liftType', 'standard'), getattr(door, 'highLiftInches', None))
 
-    # Determine lift type
-    lift_type_raw = getattr(door, 'liftType', 'standard') or 'standard'
-    if lift_type_raw == "low_headroom" or door.trackRadius == "12":
-        lift_type = "LHR"
-    elif lift_type_raw == "high_lift":
-        lift_type = "HIGH LIFT"
-    elif lift_type_raw == "vertical":
-        lift_type = "VERTICAL"
-    else:
-        lift_type = "STD LIFT"
+    door_type = getattr(door, 'doorType', '') or ''
+    design_display = _format_design_for_comment(
+        door_type,
+        getattr(door, 'panelDesign', ''),
+        getattr(door, 'glazingType', ''),
+        getattr(door, 'glassPaneType', ''),
+    )
 
-    # Format: (qty) WxH SERIES, COLOR, DESIGN, TRACK HW, LIFT
-    return f"({door.doorCount}) {width_ft}x{height_ft} {door.doorSeries}, {door.panelColor}, {door.panelDesign}, {track_display}, {lift_type}"
+    pocket_info = ""
+    glass_pockets = getattr(door, 'glassPocketsPerSection', None)
+    if door_type == 'aluminium' and glass_pockets:
+        pocket_counts = [str(glass_pockets.get(str(i), glass_pockets.get(i, ''))) for i in sorted(glass_pockets.keys(), key=lambda x: int(x))]
+        if pocket_counts:
+            pocket_info = f", POCKETS: {'/'.join(pocket_counts)}"
+
+    return f"({door.doorCount}) {width_str} x {height_str} {door.doorSeries}, {door.panelColor}, {design_display}, {track_display}, {lift_type}{pocket_info}"
 
 
 # Define the standard line item ordering for BC quotes
@@ -774,9 +842,18 @@ LINE_ORDER = [
 
 
 def _sort_parts_by_category(parts: List[dict]) -> List[dict]:
-    """Sort parts list according to BC quote line ordering standard."""
+    """Sort parts list according to BC quote line ordering standard.
+
+    Uses a stable sort so items sharing the same category priority keep their
+    original relative order.  spring_accessory (cone sets) shares the same
+    priority as spring so that cones stay paired with their springs rather than
+    being grouped at the end of all spring lines.
+    """
     def sort_key(part):
         category = part.get("category", "other").lower()
+        # Cone sets should stay inline with their spring pair, not sort separately
+        if category == "spring_accessory":
+            category = "spring"
         try:
             return LINE_ORDER.index(category)
         except ValueError:
@@ -876,10 +953,28 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "targetCycles": door.targetCycles,
                 "shaftType": door.shaftType,
                 "includeTopSeal": getattr(door, 'includeTopSeal', False),
+                "includePusherSprings": getattr(door, 'includePusherSprings', False),
             }
 
-            door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inventory)
-            parts_list = door_parts.get("parts_list", [])
+            try:
+                door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inventory)
+                parts_list = door_parts.get("parts_list", [])
+            except Exception as door_err:
+                logger.exception(f"Door {door_index} part generation failed — skipping: {door_err}")
+                all_lines.append({
+                    "lineType": "Comment",
+                    "description": f"[ERROR] Door {door_index}: part generation failed ({door_err}). Contact support.",
+                    "category": "COMMENT",
+                    "door_index": door_index,
+                    "is_note": True,
+                })
+                parts_by_door.append({
+                    "door_index": door_index,
+                    "door_description": door_desc,
+                    "error": str(door_err),
+                    "parts": {"parts_list": []},
+                })
+                continue
 
             # Sort parts by standard line ordering
             sorted_parts = _sort_parts_by_category(parts_list)
@@ -973,7 +1068,20 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
             pn = line["part_number"]
             if pn in mapper.bc_items:
                 continue
-            # Part doesn't exist in BC — find closest match
+
+            # PANEL HARD FAIL: if a panel part can't be found, abort the quote.
+            if line.get("category") == "panel":
+                logger.error(f"PANEL PART NOT IN BC — aborting quote {bc_quote_number}. Part: {pn}")
+                try:
+                    bc_client.delete_sales_quote(bc_quote_id)
+                except Exception:
+                    pass
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Panel part {pn} not found in BC inventory. Please contact the office."
+                )
+
+            # Non-panel part doesn't exist — find closest match
             prefix = pn.split("-")[0] if "-" in pn else pn[:4]
             candidates = [
                 (bc_pn, item.get("displayName", ""))
@@ -1005,6 +1113,8 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
         # Step 4: Add line items to the quote in proper order
         lines_added = 0
         lines_failed = []
+        # Track tier prices per BC line ID for escalating margin (avoids re-fetch race)
+        tier_prices_by_line_id = {}  # { bc_line_id: { "price": float, "qty": float } }
 
         for line in all_lines:
             try:
@@ -1061,6 +1171,11 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                                 etag,
                                 {"unitPrice": selling_price},
                             )
+                            # Track for escalating margin
+                            tier_prices_by_line_id[added_line["id"]] = {
+                                "price": selling_price,
+                                "qty": line.get("quantity", 1),
+                            }
                             logger.info(f"PRICING DEBUG [{part_num}]: PATCH SUCCESS unitPrice={selling_price}")
                         except Exception as patch_err:
                             logger.error(f"PRICING DEBUG [{part_num}]: PATCH FAILED: {patch_err}")
@@ -1143,6 +1258,96 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
 
         except Exception as pricing_error:
             logger.warning(f"Could not fetch pricing for quote {bc_quote_number}: {pricing_error}")
+
+        # Step 4b: Escalating margin adjustment (client-specific volume discount)
+        # Calculates final price directly FROM COST at the target GM%.
+        # Does NOT multiply the tier price — computes from scratch so the
+        # discount is always relative to the actual product cost.
+        escalating_result = None
+        if tier_prices_by_line_id and request.customerId:
+            try:
+                from app.services.escalating_margin_service import get_escalating_margin
+                from app.services.pricing_service import calculate_selling_price_at_margin
+                bc_cust_esc = db.query(BCCustomer).filter(
+                    BCCustomer.bc_customer_id == request.customerId
+                ).first()
+                cust_name = bc_cust_esc.company_name if bc_cust_esc else ""
+                esc_profile = get_escalating_margin(cust_name)
+
+                if esc_profile:
+                    tier_subtotal = sum(
+                        lp["price"] * lp["qty"]
+                        for lp in tier_prices_by_line_id.values()
+                    )
+                    esc_calc = esc_profile.calculate(tier_subtotal)
+                    target_gm = esc_calc["target_gm"]
+
+                    if target_gm < esc_profile.base_gm_pct:
+                        logger.info(
+                            f"Applying escalating margin [{esc_profile.name}]: "
+                            f"tier subtotal ${tier_subtotal:,.0f} → {target_gm:.1f}% GM from cost"
+                        )
+
+                        esc_lines = bc_client.get_quote_lines(bc_quote_id)
+                        patched_count = 0
+                        for ql in esc_lines:
+                            line_id = ql.get("id")
+                            part_num = ql.get("lineObjectNumber", "")
+                            if line_id in tier_prices_by_line_id and part_num:
+                                tier_price = tier_prices_by_line_id[line_id]["price"]
+                                esc_price = calculate_selling_price_at_margin(part_num, target_gm, db)
+                                if esc_price is not None:
+                                    etag = ql.get("@odata.etag", "*")
+                                    try:
+                                        bc_client.update_quote_line(
+                                            bc_quote_id, line_id, etag,
+                                            {"unitPrice": esc_price},
+                                        )
+                                        patched_count += 1
+                                        logger.info(
+                                            f"ESC PATCH: {part_num} "
+                                            f"30%GM=${tier_price} → {target_gm:.1f}%GM=${esc_price}"
+                                        )
+                                    except Exception as esc_err:
+                                        logger.error(f"ESC PATCH FAILED [{part_num}]: {esc_err}")
+                        logger.info(f"Escalating margin: {patched_count} lines re-priced at {target_gm:.1f}% GM")
+
+                        try:
+                            bc_client.add_quote_line(bc_quote_id, {
+                                "lineType": "Comment",
+                                "description": (
+                                    f"** VOLUME PRICING: {esc_profile.name} - "
+                                    f"{esc_calc['discount_pct']:.1f}% volume discount applied **"
+                                ),
+                            })
+                        except Exception:
+                            pass
+
+                        # Re-fetch totals AND line pricing from BC
+                        try:
+                            updated = bc_client.get_sales_quote(bc_quote_id)
+                            pricing["subtotal"] = round(updated.get("totalAmountExcludingTax", 0), 2)
+                            pricing["total"] = round(updated.get("totalAmountIncludingTax", 0), 2)
+                            pricing["tax"] = round(pricing["total"] - pricing["subtotal"], 2)
+
+                            # Rebuild line_pricing with discounted prices
+                            updated_lines = bc_client.get_quote_lines(bc_quote_id)
+                            line_pricing = []
+                            for ul in updated_lines:
+                                if ul.get("lineType") == "Item":
+                                    line_pricing.append({
+                                        "part_number": ul.get("lineObjectNumber"),
+                                        "description": ul.get("description", ""),
+                                        "quantity": ul.get("quantity", 0),
+                                        "unit_price": ul.get("unitPrice", 0),
+                                        "line_total": ul.get("netAmount", 0),
+                                    })
+                        except Exception:
+                            pass
+
+                        escalating_result = esc_calc
+            except Exception as esc_err:
+                logger.warning(f"Escalating margin check failed: {esc_err}")
 
         # Step 5: Add freight line if delivery
         freight_info = None
@@ -1284,9 +1489,13 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "line_pricing": line_pricing if line_pricing else None,
                 "freight": freight_info,
                 "part_warnings": part_warnings if part_warnings else None,
+                "escalating_margin": escalating_result,
             },
             "message": f"BC Quote {bc_quote_number} created with {lines_added} line items" + (
                 f" ({len(part_warnings)} part(s) substituted — review in BC)" if part_warnings else ""
+            ) + (
+                f" | Volume pricing: {escalating_result['target_gm']:.1f}% GM ({escalating_result['discount_pct']:.1f}% discount)"
+                if escalating_result else ""
             )
         }
 
@@ -1317,6 +1526,12 @@ async def get_dimension_constraints(series_id: str):
         "AL976": {
             "minWidth": 60,
             "maxWidth": 288,
+            "minHeight": 72,
+            "maxHeight": 192,
+        },
+        "SWD": {
+            "minWidth": 96,
+            "maxWidth": 252,
             "minHeight": 72,
             "maxHeight": 192,
         },
@@ -1390,6 +1605,7 @@ async def get_part_numbers(config: DoorConfigRequest, db: Session = Depends(get_
             "operator": config.operator,
             "targetCycles": config.targetCycles,
             "includeTopSeal": getattr(config, 'includeTopSeal', False),
+            "includePusherSprings": getattr(config, 'includePusherSprings', False),
         }
 
         # Get parts from service (with BC spring inventory for consistency with specs tab)
@@ -1451,10 +1667,21 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "targetCycles": door.targetCycles,
                 "shaftType": door.shaftType,
                 "includeTopSeal": getattr(door, 'includeTopSeal', False),
+                "includePusherSprings": getattr(door, 'includePusherSprings', False),
             }
 
             spring_inv = get_bc_spring_inventory()
-            door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inv)
+            try:
+                door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inv)
+            except Exception as door_err:
+                logger.exception(f"Door {i+1} part generation failed — skipping: {door_err}")
+                parts_by_door.append({
+                    "door_index": i + 1,
+                    "door_description": f"{door.doorSeries} {door.doorWidth}\"x{door.doorHeight}\" {door.panelColor}",
+                    "error": str(door_err),
+                    "parts": {"parts_list": []},
+                })
+                continue
 
             parts_by_door.append({
                 "door_index": i + 1,

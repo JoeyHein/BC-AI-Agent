@@ -31,6 +31,8 @@ function FramingDrawing({
   mountType = 'bracket',
   scale = 0.5,
   title = 'FRAMING DRAWING',
+  springCount: springCountProp = null,
+  extras = null,
 }) {
   // ---------------------------------------------------------------------------
   // Resolve geometry
@@ -228,24 +230,32 @@ function FramingDrawing({
   // Right panel area start X
   const rightPanelX = ox + s(dw + fw + layout.wallThickness) + dimLineSpacing * 2.5 + fontSize.label * 3
 
-  // Optional extras list
-  const optionalExtras = [
-    `${ts}" TRACK APPLICATION`,
-    isSteel ? 'STEEL FRAME' : 'WOOD FRAME',
-    geo.mountType === 'bracket' ? 'BRACKET MOUNT' : 'CONTINUOUS ANGLE MOUNT',
-    'SINGLE END STILE/HINGE',
-    'DOUBLE END STILE/HINGE',
-    '20GA STRUTS',
-    'DOOR STRUTS (EXTRA)',
-    'DOUBLE LIFE SPRING',
-    'KEYED SIDE LOCK',
-    'DECORATIVE HARDWARE',
-    'ELECTRIC OPERATOR',
-    '1" TUBULAR SHAFT',
-    '11,000 / 50,000 CYCLE SPRING',
-    'TOP SEAL VINYL',
-    'RUBBER ASTRAGAL',
-  ]
+  // Optional extras: only items actually selected for this order.
+  // Caller can pass `extras` (string[]) to override; otherwise we derive
+  // the list from the geometry/config props that are known to be selected.
+  const optionalExtras = (() => {
+    if (Array.isArray(extras)) return extras
+
+    const items = []
+    items.push(`${ts}" TRACK APPLICATION`)
+    items.push(isSteel ? 'STEEL FRAME' : 'WOOD FRAME')
+    items.push(geo.mountType === 'bracket' ? 'BRACKET MOUNT' : 'CONTINUOUS ANGLE MOUNT')
+
+    const liftLabels = {
+      standard: 'STANDARD LIFT',
+      high_lift: 'HIGH LIFT',
+      vertical: 'VERTICAL LIFT',
+      low_headroom: 'LOW HEADROOM',
+    }
+    if (liftLabels[geo.liftType]) items.push(liftLabels[geo.liftType])
+
+    if (geo.trackRadius) items.push(`${geo.trackRadius}" RADIUS TRACK`)
+
+    if (springCountProp === 2) items.push('DOUBLE LIFE SPRING')
+    else if (springCountProp === 1) items.push('SINGLE SPRING')
+
+    return items
+  })()
 
   return (
     <div className="framing-drawing bg-white border border-gray-300 rounded-lg overflow-hidden">
@@ -414,6 +424,14 @@ function FramingDrawing({
         {(() => {
           // Track inset in pixels — used to offset panel lines from tracks
           const tInset = Math.max(8, s(ts + 3))
+          // Struts: shown for commercial doors OR doors wider than 10' (120")
+          // Strut is a horizontal angle spanning the panel, drawn as a double line
+          const showStruts = doorType === 'commercial' || dw > 120
+          // Struts appear on alternating panels or all panels for commercial
+          const strutPanels = doorType === 'commercial'
+            ? Array.from({ length: panelCount }, (_, i) => i)
+            : Array.from({ length: panelCount }, (_, i) => i).filter(i => i % 2 === 0)
+
           return (
             <g className="door-panels">
               {/* Panel divider lines */}
@@ -425,6 +443,22 @@ function FramingDrawing({
                     x2={ox + s(dw) - tInset} y2={py}
                     stroke="#000" strokeWidth="0.6"
                   />
+                )
+              })}
+
+              {/* Strut lines — horizontal reinforcement angles at panel joints (touching hinges) */}
+              {showStruts && strutPanels.map(pi => {
+                const strutY = oy + s(panelHeight * (pi + 1))
+                const strutT = Math.max(3, s(1.2))  // strut thickness (double line separation)
+                return (
+                  <g key={`strut-${pi}`}>
+                    <line x1={ox + tInset} y1={strutY}
+                      x2={ox + s(dw) - tInset} y2={strutY}
+                      stroke="#000" strokeWidth="1.4" />
+                    <line x1={ox + tInset} y1={strutY + strutT}
+                      x2={ox + s(dw) - tInset} y2={strutY + strutT}
+                      stroke="#000" strokeWidth="0.6" />
+                  </g>
                 )
               })}
               {/* Panel ribbing/texture lines */}
@@ -508,41 +542,8 @@ function FramingDrawing({
           )
         })()}
 
-        {/* ================================================================ */}
-        {/* TRACK CURVES — from front view, curves go BACKWARD (into the   */}
-        {/* building) so we only see a small upward arc at the top of each */}
-        {/* track, then dashed lines going inward representing the         */}
-        {/* horizontal tracks receding into the ceiling overhead.           */}
-        {/* ================================================================ */}
-        {(() => {
-          const trackInset = Math.max(4, s(1.5))
-          const trackW = Math.max(6, s(ts))
-          const doorPxW = s(dw)
-          // Small visible arc height — the curve mostly goes into depth,
-          // so from the front we just see a small upward transition
-          const arcHeight = Math.max(8, s(tr * 0.4))
-          // Left track center X
-          const lcx = ox + trackInset + trackW / 2
-          // Right track center X
-          const rcx = ox + doorPxW - trackInset - trackW / 2
-          return (
-            <g className="track-curves">
-              {/* Left track top: small upward curve then dashed line going inward */}
-              <path d={`M ${lcx} ${oy} Q ${lcx} ${oy - arcHeight} ${lcx + arcHeight * 0.8} ${oy - arcHeight}`}
-                fill="none" stroke="#000" strokeWidth={Math.max(trackW * 0.6, 2)} />
-              <line x1={lcx + arcHeight * 0.8} y1={oy - arcHeight}
-                x2={ox + doorPxW * 0.4} y2={oy - arcHeight}
-                stroke="#000" strokeWidth="1.5" strokeDasharray="6,3" />
-
-              {/* Right track top: small upward curve then dashed line going inward */}
-              <path d={`M ${rcx} ${oy} Q ${rcx} ${oy - arcHeight} ${rcx - arcHeight * 0.8} ${oy - arcHeight}`}
-                fill="none" stroke="#000" strokeWidth={Math.max(trackW * 0.6, 2)} />
-              <line x1={rcx - arcHeight * 0.8} y1={oy - arcHeight}
-                x2={ox + doorPxW * 0.6} y2={oy - arcHeight}
-                stroke="#000" strokeWidth="1.5" strokeDasharray="6,3" />
-            </g>
-          )
-        })()}
+        {/* Track curves and horizontal tracks are NOT visible from the    */}
+        {/* front face view — they recede into the building behind the wall */}
 
         {/* ================================================================ */}
         {/* HINGES + ROLLERS at each panel joint                           */}
@@ -557,27 +558,47 @@ function FramingDrawing({
           // Right track center X
           const rtcx = ox + doorPxW - trackInset - trackW / 2
 
+          // Number of hinges per joint increases with door width
+          // Standard: 2 for <10', 3 for 10'-14', 4 for >14'
+          const hingesPerJoint = dw < 120 ? 2 : dw <= 168 ? 3 : 4
+
+          // Hinge dimensions: filled rectangles protruding from panel edge
+          const hingeW = Math.max(14, s(7))   // protrusion from track outward
+          const hingeH = Math.max(5, s(2.2))  // thickness of hinge leaf
+
+          // Compute hinge X positions along the door width (edge + center)
+          // Edge hinges sit just outside the track, center hinges spread across
+          const getHingePositions = () => {
+            // Always have left and right edge hinges
+            const positions = [ltcx + trackW / 2 + 1, rtcx - trackW / 2 - 1 - hingeW]
+            if (hingesPerJoint >= 3) {
+              // Add one center hinge (door mid-point)
+              positions.push(ox + doorPxW / 2 - hingeW / 2)
+            }
+            if (hingesPerJoint >= 4) {
+              // Add a second center hinge at 1/3 and 2/3 across instead of one at center
+              positions.splice(2, 1)
+              positions.push(ox + doorPxW / 3 - hingeW / 2)
+              positions.push(ox + doorPxW * 2 / 3 - hingeW / 2)
+            }
+            return positions
+          }
+          const hingeXPositions = getHingePositions()
+
           return (
             <g className="hinges-rollers">
               {Array.from({ length: panelCount - 1 }, (_, i) => {
                 const jointY = oy + s(panelHeight * (i + 1))
-                const hingeW = Math.max(16, s(8))
-                const hingeH = Math.max(4, s(1.5))
                 return (
                   <g key={`hinge-${i}`}>
-                    {/* Hinge bracket spanning the joint — centered on joint line */}
-                    {/* Left side hinge */}
-                    <rect
-                      x={ltcx + trackW / 2 + 2} y={jointY - hingeH / 2}
-                      width={hingeW} height={hingeH}
-                      fill="none" stroke="#000" strokeWidth="0.8"
-                    />
-                    {/* Right side hinge */}
-                    <rect
-                      x={rtcx - trackW / 2 - 2 - hingeW} y={jointY - hingeH / 2}
-                      width={hingeW} height={hingeH}
-                      fill="none" stroke="#000" strokeWidth="0.8"
-                    />
+                    {/* Filled hinge rectangles at each position */}
+                    {hingeXPositions.map((hx, hi) => (
+                      <rect key={`h-${i}-${hi}`}
+                        x={hx} y={jointY - hingeH / 2}
+                        width={hingeW} height={hingeH}
+                        fill="#333" stroke="#000" strokeWidth="0.5"
+                      />
+                    ))}
                     {/* Left roller — small circle in the track */}
                     <circle cx={ltcx} cy={jointY} r={rollerR}
                       fill="#fff" stroke="#000" strokeWidth="0.8" />
@@ -587,16 +608,70 @@ function FramingDrawing({
                   </g>
                 )
               })}
-              {/* Bottom bracket rollers (at floor level) */}
-              <circle cx={ltcx} cy={oy + s(dh) - Math.max(4, s(2))} r={rollerR}
-                fill="#fff" stroke="#000" strokeWidth="0.8" />
-              <circle cx={rtcx} cy={oy + s(dh) - Math.max(4, s(2))} r={rollerR}
-                fill="#fff" stroke="#000" strokeWidth="0.8" />
+
+              {/* ============================================================ */}
+              {/* BOTTOM BRACKET — L-shaped bracket at both bottom corners     */}
+              {/* Sits at the floor line where the bottom roller attaches      */}
+              {/* ============================================================ */}
+              {(() => {
+                const floorY = oy + s(dh)
+                const bbW = Math.max(14, s(7))    // horizontal arm of L
+                const bbH = Math.max(18, s(9))    // vertical arm of L
+                const bbT = Math.max(3, s(1.5))   // bracket thickness
+                // Left bottom bracket (L opens to the right / inward)
+                const lbx = ox + trackInset
+                // Right bottom bracket (L opens to the left / inward)
+                const rbx = ox + doorPxW - trackInset - bbW
+                return (
+                  <g className="bottom-brackets">
+                    {/* Left L-bracket */}
+                    {/* Vertical arm (going up from floor) */}
+                    <rect x={lbx} y={floorY - bbH} width={bbT} height={bbH}
+                      fill="#333" stroke="#000" strokeWidth="0.5" />
+                    {/* Horizontal arm (going inward along floor) */}
+                    <rect x={lbx} y={floorY - bbT} width={bbW} height={bbT}
+                      fill="#333" stroke="#000" strokeWidth="0.5" />
+                    {/* Roller at bottom of left track */}
+                    <circle cx={ltcx} cy={floorY - bbH / 2} r={rollerR}
+                      fill="#fff" stroke="#000" strokeWidth="0.8" />
+
+                    {/* Right L-bracket */}
+                    {/* Vertical arm */}
+                    <rect x={rbx + bbW - bbT} y={floorY - bbH} width={bbT} height={bbH}
+                      fill="#333" stroke="#000" strokeWidth="0.5" />
+                    {/* Horizontal arm */}
+                    <rect x={rbx} y={floorY - bbT} width={bbW} height={bbT}
+                      fill="#333" stroke="#000" strokeWidth="0.5" />
+                    {/* Roller at bottom of right track */}
+                    <circle cx={rtcx} cy={floorY - bbH / 2} r={rollerR}
+                      fill="#fff" stroke="#000" strokeWidth="0.8" />
+                  </g>
+                )
+              })()}
+
               {/* Top rollers (at top of door) */}
               <circle cx={ltcx} cy={oy + Math.max(4, s(2))} r={rollerR}
                 fill="#fff" stroke="#000" strokeWidth="0.8" />
               <circle cx={rtcx} cy={oy + Math.max(4, s(2))} r={rollerR}
                 fill="#fff" stroke="#000" strokeWidth="0.8" />
+
+              {/* ============================================================ */}
+              {/* WEATHERSEAL — thicker line / small flap at very bottom       */}
+              {/* ============================================================ */}
+              {(() => {
+                const floorY = oy + s(dh)
+                const sealH = Math.max(4, s(1.8))
+                return (
+                  <g className="weatherseal">
+                    {/* Seal body — slightly thicker line across full door width */}
+                    <rect x={ox} y={floorY} width={s(dw)} height={sealH}
+                      fill="#555" stroke="#000" strokeWidth="0.6" opacity="0.7" />
+                    {/* Small drip flap hanging below */}
+                    <rect x={ox + s(2)} y={floorY + sealH} width={s(dw) - s(4)} height={sealH * 0.5}
+                      fill="none" stroke="#000" strokeWidth="0.5" strokeDasharray="3,2" />
+                  </g>
+                )
+              })()}
             </g>
           )
         })()}
@@ -616,78 +691,173 @@ function FramingDrawing({
           const drumLX = ox + trackInset + trackW / 2
           const drumRX = ox + doorPxW - trackInset - trackW / 2
 
-          // Drum size: ellipse (side view — wider along shaft)
-          const drumRx = Math.max(10, s(5))   // horizontal radius
-          const drumRy = Math.max(7, s(3.5))  // vertical radius
+          // Drum size: small circle (front face view — we see the round end of the drum)
+          const drumR = Math.max(6, s(3))
 
-          // Spring dimensions
-          const springW = Math.max(60, (drumRX - drumLX) * 0.22)
-          const springH = Math.max(12, s(5))
+          // Spring count: must be even, default 2, clamp to 2-8
+          const totalSprings = Math.max(2, Math.min(8, Math.round((springCountProp || 2) / 2) * 2))
+          const springsPerSide = totalSprings / 2
 
           // Center bearing plate
+          const springH = Math.max(12, s(5))
           const cbpW = Math.max(8, s(4))
           const cbpH = Math.max(18, springH * 1.5)
 
-          // Spring positions: between drums and center
-          const springGap = cbpW / 2 + 2
-          const springLX = midX - springGap - springW
-          const springRX = midX + springGap
+          // Inter-bearing plates (between pairs of springs on same side, thinner)
+          const ibpW = Math.max(5, cbpW * 0.6)
+          const ibpH = Math.max(14, springH * 1.2)
+
+          // Available space for springs on each side (between drum and center bearing plate)
+          const sideSpace = (midX - cbpW / 2) - (drumLX + drumR + 4)
+
+          // Gap between springs (small)
+          const springGap = Math.max(2, s(0.8))
+
+          // Count inter-bearing plates per side: one after every 2nd spring (not after last)
+          // 1 per side: 0, 2 per side: 0, 3 per side: 1, 4 per side: 1
+          const bearingsPerSide = Math.max(0, Math.floor((springsPerSide - 1) / 2))
+
+          // Total space used by inter-bearing plates on one side
+          const bearingSpace = bearingsPerSide * ibpW
+          // Total gap space (between each spring/bearing element)
+          const numGaps = springsPerSide - 1 + bearingsPerSide
+          const gapSpace = numGaps * springGap
+          // Remaining space for springs
+          const springTotalSpace = sideSpace - bearingSpace - gapSpace
+          const springW = Math.max(20, springTotalSpace / springsPerSide)
+
+          // Build spring elements for one side
+          // Returns array of {type: 'spring'|'bearing', x, width}
+          function buildSideElements(startX, direction) {
+            // direction: 1 = left-to-right, -1 = right-to-left
+            const elements = []
+            let curX = startX
+            for (let i = 0; i < springsPerSide; i++) {
+              if (direction === 1) {
+                elements.push({ type: 'spring', x: curX, width: springW, idx: i })
+                curX += springW
+              } else {
+                curX -= springW
+                elements.push({ type: 'spring', x: curX, width: springW, idx: i })
+              }
+              // Add inter-bearing plate after every 2nd spring (not after last)
+              if (i < springsPerSide - 1) {
+                if ((i + 1) % 2 === 0) {
+                  // inter-bearing plate
+                  if (direction === 1) {
+                    elements.push({ type: 'bearing', x: curX, width: ibpW })
+                    curX += ibpW
+                  } else {
+                    curX -= ibpW
+                    elements.push({ type: 'bearing', x: curX, width: ibpW })
+                  }
+                }
+                // small gap
+                curX += direction * springGap
+              }
+            }
+            return elements
+          }
+
+          // Left side: springs go right-to-left from center bearing plate edge
+          const leftEdge = midX - cbpW / 2 - 2 // small gap from CBP
+          const leftElements = buildSideElements(leftEdge, -1)
+
+          // Right side: springs go left-to-right from center bearing plate edge
+          const rightEdge = midX + cbpW / 2 + 2 // small gap from CBP
+          const rightElements = buildSideElements(rightEdge, 1)
 
           return (
             <g className="spring-assembly">
               {/* Torsion shaft — bold line from drum to drum */}
               <line
-                x1={drumLX - drumRx - 2} y1={shaftYPx}
-                x2={drumRX + drumRx + 2} y2={shaftYPx}
+                x1={drumLX - drumR - 2} y1={shaftYPx}
+                x2={drumRX + drumR + 2} y2={shaftYPx}
                 stroke="#000" strokeWidth="2.5"
               />
 
-              {/* Left cable drum — side-view ellipse at track position */}
-              <ellipse cx={drumLX} cy={shaftYPx} rx={drumRx} ry={drumRy}
+              {/* Left cable drum — small circle (end-on view from front) */}
+              <circle cx={drumLX} cy={shaftYPx} r={drumR}
                 fill="#fff" stroke="#000" strokeWidth="1.5" />
-              <line x1={drumLX - drumRx * 0.55} y1={shaftYPx - drumRy * 0.55}
-                x2={drumLX + drumRx * 0.55} y2={shaftYPx + drumRy * 0.55}
+              <line x1={drumLX - drumR * 0.5} y1={shaftYPx - drumR * 0.5}
+                x2={drumLX + drumR * 0.5} y2={shaftYPx + drumR * 0.5}
                 stroke="#000" strokeWidth="0.8" />
-              <line x1={drumLX - drumRx * 0.55} y1={shaftYPx + drumRy * 0.55}
-                x2={drumLX + drumRx * 0.55} y2={shaftYPx - drumRy * 0.55}
+              <line x1={drumLX - drumR * 0.5} y1={shaftYPx + drumR * 0.5}
+                x2={drumLX + drumR * 0.5} y2={shaftYPx - drumR * 0.5}
                 stroke="#000" strokeWidth="0.8" />
 
-              {/* Right cable drum — side-view ellipse at track position */}
-              <ellipse cx={drumRX} cy={shaftYPx} rx={drumRx} ry={drumRy}
+              {/* Right cable drum — small circle (end-on view from front) */}
+              <circle cx={drumRX} cy={shaftYPx} r={drumR}
                 fill="#fff" stroke="#000" strokeWidth="1.5" />
-              <line x1={drumRX - drumRx * 0.55} y1={shaftYPx - drumRy * 0.55}
-                x2={drumRX + drumRx * 0.55} y2={shaftYPx + drumRy * 0.55}
+              <line x1={drumRX - drumR * 0.5} y1={shaftYPx - drumR * 0.5}
+                x2={drumRX + drumR * 0.5} y2={shaftYPx + drumR * 0.5}
                 stroke="#000" strokeWidth="0.8" />
-              <line x1={drumRX - drumRx * 0.55} y1={shaftYPx + drumRy * 0.55}
-                x2={drumRX + drumRx * 0.55} y2={shaftYPx - drumRy * 0.55}
+              <line x1={drumRX - drumR * 0.5} y1={shaftYPx + drumR * 0.5}
+                x2={drumRX + drumR * 0.5} y2={shaftYPx - drumR * 0.5}
                 stroke="#000" strokeWidth="0.8" />
 
-              {/* Left spring — rectangle with coil lines */}
-              <rect x={springLX} y={shaftYPx - springH / 2}
-                width={springW} height={springH}
-                fill="none" stroke="#000" strokeWidth="1" />
-              {Array.from({ length: Math.max(6, Math.round(springW / 6)) }, (_, i) => {
-                const lx = springLX + (springW / (Math.max(6, Math.round(springW / 6)) + 1)) * (i + 1)
-                return (
-                  <line key={`scl-${i}`}
-                    x1={lx} y1={shaftYPx - springH / 2}
-                    x2={lx} y2={shaftYPx + springH / 2}
-                    stroke="#000" strokeWidth="0.4" />
-                )
+              {/* Left side springs and inter-bearing plates */}
+              {leftElements.map((el, idx) => {
+                if (el.type === 'spring') {
+                  const coilCount = Math.max(4, Math.round(el.width / 8))
+                  return (
+                    <g key={`ls-${idx}`}>
+                      <rect x={el.x} y={shaftYPx - springH / 2}
+                        width={el.width} height={springH}
+                        fill="none" stroke="#000" strokeWidth="1" />
+                      {Array.from({ length: coilCount }, (_, ci) => {
+                        const lx = el.x + (el.width / (coilCount + 1)) * (ci + 1)
+                        return (
+                          <line key={`lsc-${idx}-${ci}`}
+                            x1={lx} y1={shaftYPx - springH / 2}
+                            x2={lx} y2={shaftYPx + springH / 2}
+                            stroke="#000" strokeWidth="0.4" />
+                        )
+                      })}
+                    </g>
+                  )
+                } else {
+                  // Inter-bearing plate
+                  return (
+                    <g key={`lb-${idx}`}>
+                      <rect x={el.x} y={shaftYPx - ibpH / 2}
+                        width={el.width} height={ibpH}
+                        fill="#fff" stroke="#000" strokeWidth="0.8" />
+                    </g>
+                  )
+                }
               })}
 
-              {/* Right spring — rectangle with coil lines */}
-              <rect x={springRX} y={shaftYPx - springH / 2}
-                width={springW} height={springH}
-                fill="none" stroke="#000" strokeWidth="1" />
-              {Array.from({ length: Math.max(6, Math.round(springW / 6)) }, (_, i) => {
-                const lx = springRX + (springW / (Math.max(6, Math.round(springW / 6)) + 1)) * (i + 1)
-                return (
-                  <line key={`scr-${i}`}
-                    x1={lx} y1={shaftYPx - springH / 2}
-                    x2={lx} y2={shaftYPx + springH / 2}
-                    stroke="#000" strokeWidth="0.4" />
-                )
+              {/* Right side springs and inter-bearing plates */}
+              {rightElements.map((el, idx) => {
+                if (el.type === 'spring') {
+                  const coilCount = Math.max(4, Math.round(el.width / 8))
+                  return (
+                    <g key={`rs-${idx}`}>
+                      <rect x={el.x} y={shaftYPx - springH / 2}
+                        width={el.width} height={springH}
+                        fill="none" stroke="#000" strokeWidth="1" />
+                      {Array.from({ length: coilCount }, (_, ci) => {
+                        const lx = el.x + (el.width / (coilCount + 1)) * (ci + 1)
+                        return (
+                          <line key={`rsc-${idx}-${ci}`}
+                            x1={lx} y1={shaftYPx - springH / 2}
+                            x2={lx} y2={shaftYPx + springH / 2}
+                            stroke="#000" strokeWidth="0.4" />
+                        )
+                      })}
+                    </g>
+                  )
+                } else {
+                  // Inter-bearing plate
+                  return (
+                    <g key={`rb-${idx}`}>
+                      <rect x={el.x} y={shaftYPx - ibpH / 2}
+                        width={el.width} height={ibpH}
+                        fill="#fff" stroke="#000" strokeWidth="0.8" />
+                    </g>
+                  )
+                }
               })}
 
               {/* Center bearing plate — rectangle with mount bracket */}

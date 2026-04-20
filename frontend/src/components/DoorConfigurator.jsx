@@ -71,6 +71,7 @@ function DoorConfigurator() {
       windowSection: 1,  // Legacy fallback
       windowPanels: undefined,  // Per-panel window config: { "1": { qty: 3 }, "2": { qty: 2 } }
       glazingType: 'NONE',  // Legacy
+      glassPocketsPerSection: null,  // Per-section pocket overrides for AL976/SWD: { 0: 4, 1: 3, ... }
       // Hardware
       trackRadius: '15',
       trackThickness: '2',
@@ -93,6 +94,7 @@ function DoorConfigurator() {
       endCapType: 'auto', // 'auto', 'SEC', or 'DEC'
       // Upgrades
       includeTopSeal: false, // optional upgrade for commercial doors below auto-threshold
+      includePusherSprings: false, // optional upgrade: adds TR13-00031-00 + TR13-00032-00
       // High lift inches (only used for high_lift)
       highLiftInches: null,  // extra inches above door opening
     }
@@ -209,6 +211,7 @@ function DoorConfigurator() {
         trackMount: door.trackMount || 'bracket',
         endCapType: door.endCapType || 'auto',
         includeTopSeal: door.includeTopSeal || false,
+        includePusherSprings: door.includePusherSprings || false,
       })),
       tagName: `Configurator Quote - ${doors.length} door(s)`,
       customerId: selectedCustomer?.bc_customer_id || null,
@@ -350,7 +353,8 @@ function DoorConfigurator() {
             selected={currentDoor.doorSeries}
             onSelect={(series) => {
               const isCommercialSeries = ['TX380', 'TX450', 'TX500', 'TX450-20', 'TX500-20'].includes(series)
-              const isAluminumSeries = ['AL976', 'PANORAMA', 'SOLALITE'].includes(series)
+              const isAluminumSeries = ['AL976', 'SWD', 'PANORAMA', 'SOLALITE'].includes(series)
+              const isGlassSeries = ['AL976', 'SWD'].includes(series)
               updateCurrentDoor({
                 doorSeries: series,
                 panelColor: isAluminumSeries ? 'CLEAR_ANODIZED' : '',
@@ -364,8 +368,8 @@ function DoorConfigurator() {
                 glassColor: null,
                 ...(isCommercialSeries ? { trackThickness: '3' } : {}),
                 ...(isAluminumSeries ? {
-                  glazingType: series === 'AL976' ? 'glass' : 'polycarbonate',
-                  glassPaneType: series === 'AL976' ? 'INSULATED' : null,
+                  glazingType: isGlassSeries ? 'glass' : 'polycarbonate',
+                  glassPaneType: isGlassSeries ? 'INSULATED' : null,
                   glassColor: 'CLEAR',
                 } : {}),
                 // Craft series includes windows as standard
@@ -569,6 +573,29 @@ function DoorSeriesStep({ series, selected, onSelect }) {
 
 function DimensionsStep({ door, onChange, series }) {
   const specs = series?.specs || {}
+  const [unitMode, setUnitMode] = useState('imperial') // 'imperial' or 'mm'
+  const [mmWidth, setMmWidth] = useState(() => Math.round(door.doorWidth * 25.4))
+  const [mmHeight, setMmHeight] = useState(() => Math.round(door.doorHeight * 25.4))
+
+  // Sync mm fields when door dimensions change from outside (e.g. quick select)
+  useEffect(() => {
+    if (unitMode === 'imperial') {
+      setMmWidth(Math.round(door.doorWidth * 25.4))
+      setMmHeight(Math.round(door.doorHeight * 25.4))
+    }
+  }, [door.doorWidth, door.doorHeight, unitMode])
+
+  const handleMmWidthChange = (mm) => {
+    setMmWidth(mm)
+    const inches = Math.round(mm / 25.4)
+    if (inches > 0) onChange({ doorWidth: inches })
+  }
+
+  const handleMmHeightChange = (mm) => {
+    setMmHeight(mm)
+    const inches = Math.round(mm / 25.4)
+    if (inches > 0) onChange({ doorHeight: inches })
+  }
 
   // Dimension limit warnings
   const maxWidth = specs.maxWidth || 288
@@ -578,22 +605,51 @@ function DimensionsStep({ door, onChange, series }) {
 
   // Common door sizes
   const commonSizes = [
-    { width: 96, height: 84, label: "8' x 7'" },
-    { width: 108, height: 84, label: "9' x 7'" },
-    { width: 144, height: 84, label: "12' x 7'" },
-    { width: 192, height: 84, label: "16' x 7'" },
-    { width: 96, height: 96, label: "8' x 8'" },
-    { width: 108, height: 96, label: "9' x 8'" },
-    { width: 144, height: 96, label: "12' x 8'" },
-    { width: 192, height: 96, label: "16' x 8'" },
+    { width: 96, height: 84, label: unitMode === 'mm' ? "2438 x 2134" : "8' x 7'" },
+    { width: 108, height: 84, label: unitMode === 'mm' ? "2743 x 2134" : "9' x 7'" },
+    { width: 144, height: 84, label: unitMode === 'mm' ? "3658 x 2134" : "12' x 7'" },
+    { width: 192, height: 84, label: unitMode === 'mm' ? "4877 x 2134" : "16' x 7'" },
+    { width: 96, height: 96, label: unitMode === 'mm' ? "2438 x 2438" : "8' x 8'" },
+    { width: 108, height: 96, label: unitMode === 'mm' ? "2743 x 2438" : "9' x 8'" },
+    { width: 144, height: 96, label: unitMode === 'mm' ? "3658 x 2438" : "12' x 8'" },
+    { width: 192, height: 96, label: unitMode === 'mm' ? "4877 x 2438" : "16' x 8'" },
   ]
 
   return (
     <div className="space-y-6">
+      {/* Unit Toggle */}
+      <div className="flex items-center justify-between">
+        <label className="block text-sm font-medium text-gray-700">Unit of Measure</label>
+        <div className="inline-flex rounded-md shadow-sm">
+          <button
+            type="button"
+            onClick={() => setUnitMode('imperial')}
+            className={`px-3 py-1.5 text-sm font-medium rounded-l-md border ${
+              unitMode === 'imperial'
+                ? 'bg-odc-600 text-white border-odc-600'
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            Feet / Inches
+          </button>
+          <button
+            type="button"
+            onClick={() => setUnitMode('mm')}
+            className={`px-3 py-1.5 text-sm font-medium rounded-r-md border-t border-r border-b ${
+              unitMode === 'mm'
+                ? 'bg-odc-600 text-white border-odc-600'
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            Millimetres
+          </button>
+        </div>
+      </div>
+
       {/* Quick Select */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          Common Sizes
+          Common Sizes {unitMode === 'mm' && <span className="text-gray-400 font-normal">(mm)</span>}
         </label>
         <div className="grid grid-cols-4 gap-2">
           {commonSizes.map((size) => (
@@ -612,7 +668,8 @@ function DimensionsStep({ door, onChange, series }) {
         </div>
       </div>
 
-      {/* Custom Dimensions — Feet + Inches */}
+      {/* Custom Dimensions */}
+      {unitMode === 'imperial' ? (
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Width</label>
@@ -648,7 +705,7 @@ function DimensionsStep({ door, onChange, series }) {
               <p className="mt-1 text-xs text-gray-500">inches</p>
             </div>
           </div>
-          <p className="mt-1 text-xs text-gray-400">{door.doorWidth}" total</p>
+          <p className="mt-1 text-xs text-gray-400">{door.doorWidth}" total ({Math.round(door.doorWidth * 25.4)} mm)</p>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Height</label>
@@ -684,7 +741,7 @@ function DimensionsStep({ door, onChange, series }) {
               <p className="mt-1 text-xs text-gray-500">inches</p>
             </div>
           </div>
-          <p className="mt-1 text-xs text-gray-400">{door.doorHeight}" total</p>
+          <p className="mt-1 text-xs text-gray-400">{door.doorHeight}" total ({Math.round(door.doorHeight * 25.4)} mm)</p>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -700,6 +757,49 @@ function DimensionsStep({ door, onChange, series }) {
           />
         </div>
       </div>
+      ) : (
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Width (mm)</label>
+          <input
+            type="number"
+            value={mmWidth}
+            onChange={(e) => handleMmWidthChange(parseInt(e.target.value) || 0)}
+            min={Math.round((specs.minWidth || 60) * 25.4)}
+            max={Math.round((specs.maxWidth || 288) * 25.4)}
+            step={1}
+            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
+          />
+          <p className="mt-1 text-xs text-gray-400">= {Math.floor(door.doorWidth / 12)}' {door.doorWidth % 12}" ({door.doorWidth}" total)</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Height (mm)</label>
+          <input
+            type="number"
+            value={mmHeight}
+            onChange={(e) => handleMmHeightChange(parseInt(e.target.value) || 0)}
+            min={Math.round((specs.minHeight || 72) * 25.4)}
+            max={Math.round((specs.maxHeight || 384) * 25.4)}
+            step={1}
+            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
+          />
+          <p className="mt-1 text-xs text-gray-400">= {Math.floor(door.doorHeight / 12)}' {door.doorHeight % 12}" ({door.doorHeight}" total)</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Quantity
+          </label>
+          <input
+            type="number"
+            value={door.doorCount}
+            onChange={(e) => onChange({ doorCount: parseInt(e.target.value) || 1 })}
+            min={1}
+            max={100}
+            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
+          />
+        </div>
+      </div>
+      )}
 
       {/* Constraints Info */}
       {(specs.maxWidth || specs.maxHeight) && (
@@ -728,7 +828,7 @@ function DimensionsStep({ door, onChange, series }) {
 function DesignStep({ door, colors, panelDesigns, config, onChange }) {
   const isAluminumDoor = door.doorType === 'aluminium'
 
-  // Aluminum doors: finish is the only design choice (panelDesign is always FLUSH)
+  // Aluminum doors: finish + glass pocket customization
   if (isAluminumDoor) {
     const seriesData = config?.doorSeries?.aluminium?.find(s => s.id === door.doorSeries)
     const finishes = seriesData?.finishes || [
@@ -736,33 +836,123 @@ function DesignStep({ door, colors, panelDesigns, config, onChange }) {
       { id: 'WHITE', name: 'White' },
       { id: 'BLACK_ANODIZED', name: 'Black Anodized' },
     ]
+
+    // Glass pocket customization for AL976/SWD
+    const isGlassDoor = ['AL976', 'SWD'].includes(door.doorSeries)
+    const doorWidthFeet = (door.doorWidth || 96) / 12
+    const defaultPockets = doorWidthFeet <= 10 ? 3 : doorWidthFeet <= 14 ? 4 : doorWidthFeet <= 18 ? 5 : doorWidthFeet <= 22 ? 6 : 7
+    const doorH = door.doorHeight || 84
+    const sectionHeight = 21  // aluminum sections are 21" or 24"
+    const sectionCount = Math.round(doorH / sectionHeight) || 4
+    const isSWD = door.doorSeries === 'SWD'
+    const maxAdjust = 3  // max +3 from default
+    const minAdjust = isSWD ? defaultPockets : 1  // SWD: any within range, AL976: -1 only
+
+    // Get current pocket config or build defaults
+    const pockets = door.glassPocketsPerSection || {}
+
+    const getPocketCount = (sectionIdx) => {
+      if (pockets[sectionIdx] != null) return pockets[sectionIdx]
+      return defaultPockets
+    }
+
+    const setPocketCount = (sectionIdx, count) => {
+      const min = Math.max(1, defaultPockets - minAdjust)
+      const max = defaultPockets + maxAdjust
+      const clamped = Math.max(min, Math.min(max, count))
+      const updated = { ...pockets, [sectionIdx]: clamped }
+      // If all sections match default, clear the override
+      const allDefault = Array.from({ length: sectionCount }, (_, i) => (updated[i] ?? defaultPockets) === defaultPockets).every(Boolean)
+      onChange({ glassPocketsPerSection: allDefault ? null : updated })
+    }
+
     return (
-      <div className="space-y-4">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Aluminum Finish
-        </label>
-        <div className="grid grid-cols-3 gap-3">
-          {finishes.map(f => {
-            const hexMap = { 'CLEAR_ANODIZED': '#C0C0C0', 'WHITE': '#FFFFFF', 'BLACK_ANODIZED': '#1a1a1a', 'MILL': '#D3D3D3' }
-            return (
-              <button
-                key={f.id}
-                onClick={() => onChange({ panelColor: f.id, panelDesign: 'FLUSH' })}
-                className={`p-3 rounded-lg border-2 text-center transition-all ${
-                  door.panelColor === f.id
-                    ? 'border-odc-500 ring-2 ring-odc-200'
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                <div
-                  className="w-10 h-10 rounded-full mx-auto border border-gray-300"
-                  style={{ backgroundColor: hexMap[f.id] || '#C0C0C0' }}
-                />
-                <span className="mt-1 block text-xs text-gray-700">{f.name}</span>
-              </button>
-            )
-          })}
+      <div className="space-y-6">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Aluminum Finish
+          </label>
+          <div className="grid grid-cols-3 gap-3">
+            {finishes.map(f => {
+              const hexMap = { 'CLEAR_ANODIZED': '#C0C0C0', 'WHITE': '#FFFFFF', 'BLACK_ANODIZED': '#1a1a1a', 'MILL': '#D3D3D3' }
+              return (
+                <button
+                  key={f.id}
+                  onClick={() => onChange({ panelColor: f.id, panelDesign: 'FLUSH' })}
+                  className={`p-3 rounded-lg border-2 text-center transition-all ${
+                    door.panelColor === f.id
+                      ? 'border-odc-500 ring-2 ring-odc-200'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <div
+                    className="w-10 h-10 rounded-full mx-auto border border-gray-300"
+                    style={{ backgroundColor: hexMap[f.id] || '#C0C0C0' }}
+                  />
+                  <span className="mt-1 block text-xs text-gray-700">{f.name}</span>
+                </button>
+              )
+            })}
+          </div>
         </div>
+
+        {/* Glass Pocket Customization — AL976 and SWD only (single door-wide count) */}
+        {isGlassDoor && (() => {
+          const firstCount = pockets[0]
+          const currentCount = firstCount != null ? firstCount : defaultPockets
+          const minCount = Math.max(1, defaultPockets - minAdjust)
+          const maxCount = defaultPockets + maxAdjust
+          const setAll = (count) => {
+            const clamped = Math.max(minCount, Math.min(maxCount, count))
+            if (clamped === defaultPockets) {
+              onChange({ glassPocketsPerSection: null })
+              return
+            }
+            const updated = {}
+            for (let i = 0; i < sectionCount; i++) updated[i] = clamped
+            onChange({ glassPocketsPerSection: updated })
+          }
+          const isCustom = currentCount !== defaultPockets
+          return (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Glass Pockets (applies to all sections)
+              </label>
+              <p className="text-xs text-gray-500 mb-3">
+                Default: {defaultPockets} pockets. Range: {minCount}–{maxCount}.
+              </p>
+              <div className={`flex items-center gap-3 p-2 rounded-md ${isCustom ? 'bg-odc-50 border border-odc-200' : 'bg-gray-50'}`}>
+                <span className="text-sm text-gray-700 w-24">Pockets</span>
+                <button
+                  type="button"
+                  onClick={() => setAll(currentCount - 1)}
+                  disabled={currentCount <= minCount}
+                  className="w-8 h-8 flex items-center justify-center rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  -
+                </button>
+                <span className="text-sm font-semibold w-8 text-center">{currentCount}</span>
+                <button
+                  type="button"
+                  onClick={() => setAll(currentCount + 1)}
+                  disabled={currentCount >= maxCount}
+                  className="w-8 h-8 flex items-center justify-center rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  +
+                </button>
+                {isCustom && (
+                  <button
+                    type="button"
+                    onClick={() => onChange({ glassPocketsPerSection: null })}
+                    className="text-xs text-gray-400 hover:text-gray-600"
+                  >
+                    reset
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        })()}
       </div>
     )
   }
@@ -778,6 +968,7 @@ function DesignStep({ door, colors, panelDesigns, config, onChange }) {
     'TX450-20': 'COMMERCIAL_20',
     'TX500-20': 'COMMERCIAL_20',
     'AL976': 'AL976',
+    'SWD': 'AL976',
     'KANATA_EXECUTIVE': 'EXECUTIVE_STAINS',
   }
   const colorKey = colorMap[door.doorSeries] || 'KANATA'
@@ -1294,6 +1485,7 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
                   windowQty={door.windowQty || 0}
                   windowSection={door.windowSection || 1}
                   windowPanels={door.windowPanels || null}
+                  glassPocketsPerSection={door.glassPocketsPerSection || null}
                   showDimensions={false}
                   scale={0.7}
                   interactive={!isCommercial}
@@ -1642,6 +1834,7 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
               windowQty={door.windowQty || 0}
               windowSection={door.windowSection || 1}
               windowPanels={door.windowPanels || null}
+              glassPocketsPerSection={door.glassPocketsPerSection || null}
               showDimensions={true}
               scale={0.6}
             />
@@ -2179,7 +2372,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
       {isLowHeadroom && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
           <p className="text-sm text-blue-800">
-            <span className="font-medium">2" Double Track Low Headroom</span> - Uses 2" track with double track configuration for minimal headroom clearance.
+            <span className="font-medium">{door.trackThickness || '2'}" Double Track Low Headroom</span> - Uses {door.trackThickness || '2'}" track with double track configuration for minimal headroom clearance.
           </p>
         </div>
       )}
@@ -2292,7 +2485,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         </div>
       </div>
 
-      {/* Top Seal Upgrade — commercial doors below auto-threshold */}
+      {/* Upgrades — commercial doors */}
       {door.doorType === 'commercial' && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -2322,6 +2515,18 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
               </label>
             )
           })()}
+          <label className="mt-2 flex items-start p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+            <input
+              type="checkbox"
+              checked={!!door.includePusherSprings}
+              onChange={(e) => onChange({ includePusherSprings: e.target.checked })}
+              className="h-4 w-4 mt-0.5 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
+            />
+            <div className="ml-2">
+              <span className="text-sm font-medium text-gray-700">Pusher Springs (LH + RH)</span>
+              <p className="text-xs text-gray-500">Adds TR13-00031-00 and TR13-00032-00</p>
+            </div>
+          </label>
         </div>
       )}
 
@@ -2513,8 +2718,9 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
             windowPanels: door.windowPanels || undefined,
             windowFrameColor: door.windowFrameColor || (door.doorType === 'commercial' ? 'BLACK' : 'MATCH'),
             glazingType: door.glazingType !== 'NONE' ? door.glazingType : null,
+            glassPocketsPerSection: door.glassPocketsPerSection || null,
             trackRadius: door.trackRadius,
-            trackThickness: door.liftType === 'low_headroom' ? '2' : door.trackThickness,
+            trackThickness: door.trackThickness,
             liftType: door.liftType,
             highLiftInches: door.liftType === 'high_lift' ? door.highLiftInches : null,
             endCapType: door.endCapType || 'auto',
@@ -2522,6 +2728,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
             operator: door.operator !== 'NONE' ? door.operator : null,
             operatorAccessories: (door.operatorAccessories || []).length > 0 ? door.operatorAccessories : undefined,
             includeTopSeal: door.includeTopSeal || false,
+        includePusherSprings: door.includePusherSprings || false,
           }))
         }
         const response = await doorConfigApi.getPartsForQuote(request)
@@ -2549,7 +2756,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
                 : door.liftType === 'high_lift' ? 'high_lift'
                 : door.liftType === 'vertical' ? 'vertical'
                 : door.trackRadius === '12' ? 'standard_12' : 'standard_15',
-              trackSize: door.liftType === 'low_headroom' ? 2 : parseInt(door.trackThickness),
+              trackSize: parseInt(door.trackThickness),
               windowType: door.windowInsert !== 'NONE' ? '24x12' : null,
               windowQty: door.windowInsert !== 'NONE' ? 1 : 0,
               doubleEndCaps: false,
@@ -2602,6 +2809,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
       'TX450-20': 'COMMERCIAL',
       'TX500-20': 'COMMERCIAL',
       'AL976': 'AL976',
+      'SWD': 'AL976',
     }
     const colorKey = colorMap[seriesId] || 'KANATA'
     const color = config?.colors[colorKey]?.find(c => c.id === colorId)
@@ -2677,7 +2885,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
                 <span className="text-gray-500">Track:</span>
                 <span className="ml-2 text-gray-900">
                   {door.liftType === 'low_headroom'
-                    ? '2" Double Track Low Headroom'
+                    ? `${door.trackThickness || '2'}" Double Track Low Headroom`
                     : `${door.trackRadius}" radius / ${door.trackThickness}" track`}
                   {door.liftType === 'high_lift' && ' (High Lift)'}
                   {door.liftType === 'vertical' && ' (Vertical Lift)'}

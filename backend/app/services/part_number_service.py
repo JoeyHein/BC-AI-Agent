@@ -79,6 +79,7 @@ class DoorSeries(Enum):
     TX450_20 = "TX450-20"
     TX500_20 = "TX500-20"
     AL976 = "AL976"
+    SWD = "SWD"
     KANATA_EXECUTIVE = "KANATA_EXECUTIVE"
 
 
@@ -130,6 +131,12 @@ class DoorConfiguration:
     glass_pockets_per_section: int = 1  # Number of glass pockets per V130G/V230G section
     spring_inventory: Optional[Dict[str, list]] = None  # stocked coil/wire combos from settings
     include_top_seal: Optional[bool] = None  # None=auto (apply rules), True=force include, False=exclude
+
+    def __post_init__(self):
+        # Enforce minimum 10,000 cycle standard on all springs
+        if self.target_cycles < 10000:
+            self.target_cycles = 10000
+    include_pusher_springs: bool = False  # Upgrade: adds TR13-00031-00 + TR13-00032-00
 
 
 # ============================================================================
@@ -623,7 +630,7 @@ class PartNumberService:
 
         # Add track/mount details to comment
         track_size = int(config.track_thickness) if config.track_thickness else 2
-        mount_label = "CONTINUOUS ANGLE" if config.track_mount == 'angle' else "BRACKET MOUNT"
+        mount_label = "ANGLE MOUNT" if config.track_mount == 'angle' else "BRACKET MOUNT"
         comment_desc += f" | {track_size}\" {mount_label}"
 
         # Add lift type details
@@ -697,6 +704,21 @@ class PartNumberService:
         if hardware.get("hardwareKits", True):
             hw_parts = self._get_hardware_kit_parts(config)
             parts.extend(hw_parts)
+
+        # 8a. PUSHER SPRINGS (optional upgrade)
+        if config.include_pusher_springs:
+            parts.append(PartSelection(
+                part_number="TR13-00031-00",
+                description="TRACK HARDWARE, SPRING, PUSHER SPRING, LH",
+                quantity=1,
+                category="accessory",
+            ))
+            parts.append(PartSelection(
+                part_number="TR13-00032-00",
+                description="TRACK HARDWARE, SPRING, PUSHER SPRING, RH",
+                quantity=1,
+                category="accessory",
+            ))
 
         # 8b. DECORATIVE HARDWARE (residential only, if selected)
         if config.door_type == "residential" and hardware.get("decorativeHardware", False):
@@ -829,12 +851,13 @@ class PartNumberService:
         }
         door_model = model_map.get(config.door_series, DoorModel.TX450)
 
-        # Actual door width — keep precise value for description
-        actual_width_in = config.door_width          # e.g., 150 for 12'6"
-        actual_width_feet = actual_width_in / 12     # e.g., 12.5
-
-        # Round UP to next whole foot for BC part number (no panel exists for fractional widths)
-        panel_width_feet = math.ceil(actual_width_feet)   # e.g., 13
+        # Actual door width — keep precise value for part number and description.
+        # Panel part numbers use FFII format (e.g. 1402 = 14'2"), so we pass
+        # the exact fractional feet to the mapper. Do NOT round up to the next
+        # whole foot — that generates a wrong width code (e.g. 1500 instead of 1402).
+        actual_width_in = config.door_width          # e.g., 170 for 14'2"
+        actual_width_feet = actual_width_in / 12     # e.g., 14.1667
+        panel_width_feet = actual_width_feet          # exact — mapper formats FFII
 
         # Determine end cap type — user override or width-based auto
         if config.end_cap_type == 'SEC':
@@ -1342,12 +1365,30 @@ class PartNumberService:
                 f"{radius_inches}\"Radius"
             )
 
-        return [PartSelection(
+        parts = [PartSelection(
             part_number=track.part_number,
             description=track_desc,
             quantity=1,  # Track assembly is sold as a kit (pair)
             category="track"
         )]
+
+        # LHR doors need standard track assembly + LHR conversion kit
+        if lift_type == LiftType.LOW_HEADROOM:
+            std_track = mapper.get_track_assembly(
+                door_height_feet=part_height,
+                track_size=track_size,
+                lift_type=LiftType.STANDARD,
+                mount_type=mount_type,
+                radius_inches=radius_inches
+            )
+            parts.insert(0, PartSelection(
+                part_number=std_track.part_number,
+                description=f"{track_size}\" STANDARD LIFT {mount_label}; {height_display} High, {radius_inches}\"Radius",
+                quantity=1,
+                category="track"
+            ))
+
+        return parts
 
     def _get_spring_parts(self, config: DoorConfiguration) -> Tuple[List[PartSelection], int]:
         """
@@ -1522,22 +1563,22 @@ class PartNumberService:
         spring_lh = mapper.get_spring_part_number(wire_size, coil_id, "LH")
         spring_rh = mapper.get_spring_part_number(wire_size, coil_id, "RH")
 
-        # Validate spring exists in BC — if not, step up wire until we find one
+        # Validate spring exists in BC — uses shared resolver that tries:
+        # same wire/coil → step up wire → next coil up → step up wire at next coil
         spring_found_in_bc = spring_lh.part_number in mapper.spring_items
         if not spring_found_in_bc:
-            for bc_wire in sorted(mapper.WIRE_SIZE_CODES.keys()):
-                if bc_wire >= wire_size:
-                    test_lh = mapper.get_spring_part_number(bc_wire, coil_id, "LH")
-                    if test_lh.part_number in mapper.spring_items:
-                        logger.info(
-                            f"Spring {spring_lh.part_number} not in BC — "
-                            f"stepped up wire from {wire_size}\" to {bc_wire}\""
-                        )
-                        wire_size = bc_wire
-                        spring_lh = test_lh
-                        spring_rh = mapper.get_spring_part_number(bc_wire, coil_id, "RH")
-                        spring_found_in_bc = True
-                        break
+            found, resolved_wire, resolved_coil = mapper.resolve_spring_in_bc(wire_size, coil_id)
+            if found:
+                if resolved_wire != wire_size or resolved_coil != coil_id:
+                    logger.info(
+                        f"Spring {wire_size}\" x {coil_id}\" not in BC — "
+                        f"resolved to {resolved_wire}\" x {resolved_coil}\""
+                    )
+                wire_size = resolved_wire
+                coil_id = resolved_coil
+                spring_lh = mapper.get_spring_part_number(wire_size, coil_id, "LH")
+                spring_rh = mapper.get_spring_part_number(wire_size, coil_id, "RH")
+                spring_found_in_bc = True
 
         # If no BC part number found after step-up, warn but still include the calculated specs
         # so the line can be edited in BC with the correct part number
@@ -1644,67 +1685,23 @@ class PartNumberService:
                 notes=f"Inner spring: {inner_wire}\" x {inner_coil}\" x {inner_length}\" RH × {duplex_pairs}"
             ))
 
-            # Winder/stationary sets for inner coil size
-            # Same logic: universal if in BC, else legacy LH/RH
-            inner_winder = mapper.get_winder_stationary_set(inner_coil, 1.0, "LH")
-            if inner_winder.part_number in mapper.bc_items:
-                parts.append(PartSelection(
-                    part_number=inner_winder.part_number,
-                    description=inner_winder.description,
-                    quantity=1,
-                    category="spring_accessory"
-                ))
-            else:
-                closest_inner = min(BCPartNumberMapper.COIL_SIZE_CODES.keys(), key=lambda x: abs(x - inner_coil))
-                inner_lh_pn = BCPartNumberMapper.WINDER_SETS.get((closest_inner, 1.0, "LH"), "SP12-00233-00")
-                inner_rh_pn = BCPartNumberMapper.WINDER_SETS.get((closest_inner, 1.0, "RH"), "SP12-00239-00")
-                inner_coil_str = mapper._format_coil_size(closest_inner)
-                parts.append(PartSelection(
-                    part_number=inner_lh_pn,
-                    description=f"SPRING, WINDERS & STATIONARY PLUGS SET, {inner_coil_str}\", 1\" BORE, LH",
-                    quantity=1,
-                    category="spring_accessory"
-                ))
-                parts.append(PartSelection(
-                    part_number=inner_rh_pn,
-                    description=f"SPRING, WINDERS & STATIONARY PLUGS SET, {inner_coil_str}\", 1\" BORE, RH",
-                    quantity=1,
-                    category="spring_accessory"
-                ))
+            # Winder/stationary sets for inner coil size — universal
+            inner_winder = mapper.get_winder_stationary_set(inner_coil, 1.0)
+            parts.append(PartSelection(
+                part_number=inner_winder.part_number,
+                description=inner_winder.description,
+                quantity=spring_qty,
+                category="spring_accessory"
+            ))
 
-        # Add winder/stationary cone sets
-        # Try universal part first (SP12-xxxxx-01), fall back to separate LH/RH
-        winder_universal = mapper.get_winder_stationary_set(coil_id, 1.0, "LH")
-        if winder_universal.part_number in mapper.bc_items:
-            # Universal part exists in BC — use single line
-            parts.append(PartSelection(
-                part_number=winder_universal.part_number,
-                description=winder_universal.description,
-                quantity=1,
-                category="spring_accessory"
-            ))
-        else:
-            # Universal not in BC yet — use legacy separate LH/RH parts
-            # Force legacy lookup by checking the old WINDER_SETS directly
-            from app.services.bc_part_number_mapper import BCPartNumberMapper
-            closest_coil = min(BCPartNumberMapper.COIL_SIZE_CODES.keys(), key=lambda x: abs(x - coil_id))
-            lh_key = (closest_coil, 1.0, "LH")
-            rh_key = (closest_coil, 1.0, "RH")
-            lh_pn = BCPartNumberMapper.WINDER_SETS.get(lh_key, "SP12-00231-00")
-            rh_pn = BCPartNumberMapper.WINDER_SETS.get(rh_key, "SP12-00237-00")
-            coil_str = mapper._format_coil_size(closest_coil)
-            parts.append(PartSelection(
-                part_number=lh_pn,
-                description=f"SPRING, WINDERS & STATIONARY PLUGS SET, {coil_str}\", 1\" BORE, LH",
-                quantity=1,
-                category="spring_accessory"
-            ))
-            parts.append(PartSelection(
-                part_number=rh_pn,
-                description=f"SPRING, WINDERS & STATIONARY PLUGS SET, {coil_str}\", 1\" BORE, RH",
-                quantity=1,
-                category="spring_accessory"
-            ))
+        # Add winder/stationary cone sets — universal parts (work for both LH/RH)
+        winder_universal = mapper.get_winder_stationary_set(coil_id, 1.0)
+        parts.append(PartSelection(
+            part_number=winder_universal.part_number,
+            description=winder_universal.description,
+            quantity=spring_qty,  # one set per spring
+            category="spring_accessory"
+        ))
 
         return parts, spring_qty
 
@@ -1938,6 +1935,10 @@ class PartNumberService:
         door width and height. Small doors may need zero struts.
         CRAFT series: 0 struts without windows (except 16'=1), 1 strut with windows.
         """
+        # Aluminum doors have built-in struts — never add separate strut parts
+        if config.door_type == "aluminium":
+            return []
+
         # Residential doors (KANATA & CRAFT): always 1 x 20ga strut
         if config.door_type == "residential" and config.door_series in ("KANATA", "CRAFT"):
             door_width_feet = config.door_width // 12
@@ -2069,7 +2070,9 @@ class PartNumberService:
         height_strip = mapper.get_weather_stripping(
             door_height_feet=door_height_feet,
             color=color,
-            commercial=is_commercial
+            commercial=is_commercial,
+            door_type=config.door_type,
+            door_series=config.door_series or "",
         )
         parts.append(PartSelection(
             part_number=height_strip.part_number,
@@ -2088,7 +2091,9 @@ class PartNumberService:
             width_strip = mapper.get_weather_stripping(
                 door_height_feet=half_feet,
                 color=color,
-                commercial=is_commercial
+                commercial=is_commercial,
+                door_type=config.door_type,
+                door_series=config.door_series or "",
             )
             parts.append(PartSelection(
                 part_number=width_strip.part_number,
@@ -2103,7 +2108,9 @@ class PartNumberService:
             width_strip = mapper.get_weather_stripping(
                 door_height_feet=door_width_feet,
                 color=color,
-                commercial=is_commercial
+                commercial=is_commercial,
+                door_type=config.door_type,
+                door_series=config.door_series or "",
             )
             parts.append(PartSelection(
                 part_number=width_strip.part_number,
@@ -2281,6 +2288,15 @@ class PartNumberService:
           hh = 21 or 24, f = 0(Clear Ano) or 1(Mill)
           p = 1-6 (same as PN97), s = 0(NO OPT), 1(DOUBLE), 3(THERM Y)
           wwww = door width + 2"
+
+        AL-SWD (PN70): PN70-{hh}{www}{f}{p}{s}-{wwww}
+          hh  = section height (21 or 24)
+          www = width group (100=6'-8'2", 200=8'3"-10'2", 300=10'3"-16'2", 400=16'3"-18'2", 500=18'3"-21'2")
+          f   = finish (0=Clear Ano, 1=Mill, 3=White, 8=Black Ano)
+          p   = position (1=TOP SEF, 2=INT SEF, 3=BOT SEF, 4=TOP DEF, 5=INT DEF, 6=BOT DEF)
+          s   = option (0=NO OPT for SEF; DEF: TOP=5, INT=2, BOT=1)
+          wwww = door width + 2" (e.g. 0802=8'2")
+          SEF only below 14'2" (170"), DEF available at 14'2"+
         """
         parts = []
         series = config.door_series.upper()
@@ -2428,27 +2444,33 @@ class PartNumberService:
                     notes=f"Solalite section {section_num} of {panel_count}"
                 ))
 
-        elif series == "AL-SWD" or series == "AL_SWD" or series == "ALSWD":
-            # PN70: {hh}{len}{f}{pp}-{wwww}
-            # Length codes based on door width range
-            if door_width_feet <= 8:
-                length_code = "1"
-            elif door_width_feet <= 10:
-                length_code = "2"
-            elif door_width_feet <= 16:
-                length_code = "3"
-            elif door_width_feet <= 18:
-                length_code = "4"
+        elif series in ("AL-SWD", "AL_SWD", "ALSWD", "SWD"):
+            # PN70: PN70-{hh}{www}{f}{p}{s}-{wwww}
+            # Width groups (different from AL976):
+            #   1 (100): 6'-8'2" (72-98")
+            #   2 (200): 8'3"-10'2" (99-122")
+            #   3 (300): 10'3"-16'2" (123-194")
+            #   4 (400): 16'3"-18'2" (195-218")
+            #   5 (500): 18'3"-21'2" (219-254")
+            door_width_in = config.door_width
+            if door_width_in <= 98:
+                www = "100"
+            elif door_width_in <= 122:
+                www = "200"
+            elif door_width_in <= 194:
+                www = "300"
+            elif door_width_in <= 218:
+                www = "400"
             else:
-                length_code = "5"
+                www = "500"
 
             finish_map = {"CLEAR_ANODIZED": "0", "MILL": "1", "WHITE": "3", "BLACK_ANODIZED": "8", "BLACK": "8"}
             finish_names = {"0": "CLEAR ANO", "1": "MILL", "3": "WHITE", "8": "BLACK ANODIZED"}
             f = finish_map.get(finish_color, "0")
             finish_name = finish_names.get(f, "CLEAR ANO")
 
-            # DEF for doors > 14'2" (same threshold as AL976)
-            use_def = door_width_feet > 14
+            # DEF for doors >= 14'2" (170"), SEF only below that
+            use_def = door_width_in >= 170
 
             for section_num in range(1, panel_count + 1):
                 if section_num == 1:
@@ -2459,18 +2481,24 @@ class PartNumberService:
                     pos_label = "INT"
 
                 if use_def:
-                    p_map = {"TOP": "45", "INT": "52", "BOT": "61"}
-                    pp = p_map[pos_label]
+                    p_map = {"TOP": "4", "INT": "5", "BOT": "6"}
+                    s_map = {"TOP": "5", "INT": "2", "BOT": "1"}  # TOP=DOUBLE&FR, INT=FR, BOT=DOUBLE
+                    p = p_map[pos_label]
+                    s = s_map[pos_label]
                     end_label = "DEF"
+                    opt_map = {"5": "DOUBLE & FR", "2": "FR", "1": "DOUBLE"}
+                    opt_label = opt_map.get(s, "")
                 else:
-                    p_map = {"TOP": "10", "INT": "20", "BOT": "30"}
-                    pp = p_map[pos_label]
+                    p_map = {"TOP": "1", "INT": "2", "BOT": "3"}
+                    p = p_map[pos_label]
+                    s = "0"
                     end_label = "SEF"
+                    opt_label = "NO OPT."
 
-                pn = f"PN70-{hh}{length_code}00{f}{pp}-{wwww}"
+                pn = f"PN70-{hh}{www}{f}{p}{s}-{wwww}"
                 parts.append(PartSelection(
                     part_number=pn,
-                    description=f"SECTION, AL-SWD, [{width_ft:02d}' {width_extra:02d}\"] X {section_height}\", {pos_label} {end_label}, {finish_name}",
+                    description=f"SECTION, AL-SWD, [{width_ft:02d}' {width_extra:02d}\"] X {section_height}\", {pos_label} {end_label}, {opt_label}, {finish_name}",
                     quantity=1,
                     category="aluminum_section",
                     notes=f"AL-SWD section {section_num} of {panel_count}"
@@ -3253,6 +3281,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         window_positions=config_dict.get("windowPositions") if config_dict.get("hasWindows", True) else None,
         spring_inventory=spring_inventory,
         include_top_seal=config_dict.get("includeTopSeal"),
+        include_pusher_springs=bool(config_dict.get("includePusherSprings", False)),
     )
 
     parts = part_number_service.get_parts_for_configuration(config)

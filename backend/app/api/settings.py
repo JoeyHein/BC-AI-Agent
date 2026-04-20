@@ -602,12 +602,31 @@ async def update_bc_group_mapping(
     db.refresh(setting)
     logger.info(f"BC group tier mapping updated: {normalized}")
 
+    # Retroactively apply mapping to existing customers whose bc_price_group
+    # matches a mapping entry and whose tier is currently NULL or outdated
+    from app.db.models import BCCustomer
+    updated_count = 0
+    customers = db.query(BCCustomer).filter(
+        BCCustomer.bc_price_group.isnot(None),
+        BCCustomer.bc_price_group != "",
+    ).all()
+    for cust in customers:
+        group_key = cust.bc_price_group.upper().strip()
+        mapped_tier = normalized.get(group_key)
+        if mapped_tier and cust.pricing_tier != mapped_tier:
+            cust.pricing_tier = mapped_tier
+            updated_count += 1
+    if updated_count:
+        db.commit()
+        logger.info(f"Retroactively updated pricing tier for {updated_count} customers")
+
     return {
         "success": True,
-        "message": "BC group tier mapping updated successfully",
+        "message": f"BC group tier mapping updated successfully. {updated_count} customer(s) updated.",
         "data": {
             "mapping": setting.setting_value,
             "updatedAt": setting.updated_at.isoformat() if setting.updated_at else None,
+            "customersUpdated": updated_count,
         }
     }
 

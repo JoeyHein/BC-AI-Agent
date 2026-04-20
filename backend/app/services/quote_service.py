@@ -264,6 +264,9 @@ class QuoteGenerationService:
             "AL976": "AL976",
             "ALUMINUM": "AL976",
             "ALUMINIUM": "AL976",
+            "SWD": "SWD",
+            "AL-SWD": "SWD",
+            "ALSWD": "SWD",
             "KANATA": "KANATA",
             "CRAFT": "CRAFT",
             "SOLALITE": "AL976",  # Solalite is aluminum series
@@ -291,7 +294,7 @@ class QuoteGenerationService:
             return "commercial"
 
         # Aluminum
-        if any(x in model_upper for x in ["AL976", "ALUMINUM", "ALUMINIUM", "SOLALITE"]):
+        if any(x in model_upper for x in ["AL976", "ALUMINUM", "ALUMINIUM", "SOLALITE", "SWD"]):
             return "aluminium"
 
         # Size-based heuristic: very large doors are likely commercial

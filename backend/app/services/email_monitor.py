@@ -197,13 +197,33 @@ class EmailMonitorService:
         message_id = email.get("id")
         internet_message_id = email.get("internetMessageId")
 
-        # Check if already processed
+        # Check if already processed — use DB-level insert guard to prevent
+        # duplicate AI calls from concurrent workers / scheduler instances.
         existing = db.query(EmailLog).filter(
             EmailLog.message_id == internet_message_id
         ).first()
 
         if existing:
             logger.debug(f"Email {internet_message_id} already processed, skipping")
+            return None
+
+        # Claim this email BEFORE calling AI — insert a placeholder row so
+        # concurrent workers see it and skip. This prevents the TOCTOU race
+        # where multiple workers all see "not processed" and each call the API.
+        placeholder = EmailLog(
+            message_id=internet_message_id,
+            received_at=email.get("receivedDateTime"),
+            from_address=email.get("from", {}).get("emailAddress", {}).get("address", ""),
+            subject=email.get("subject", ""),
+            body=email.get("body", {}).get("content", ""),
+            status="processing",
+        )
+        try:
+            db.add(placeholder)
+            db.flush()  # attempt INSERT — will fail on duplicate key if another worker claimed it
+        except Exception:
+            db.rollback()
+            logger.debug(f"Email {internet_message_id} claimed by another worker, skipping")
             return None
 
         # Extract email data
@@ -233,31 +253,26 @@ class EmailMonitorService:
         if reasoning:
             logger.debug(f"  -> Reasoning: {reasoning[:100]}")
 
-        # Step 2: Log email in database with AI categorization fields
-        email_log = EmailLog(
-            message_id=internet_message_id,
-            received_at=datetime.fromisoformat(received_at.replace('Z', '+00:00')) if received_at else datetime.utcnow(),
-            from_address=from_address,
-            subject=subject,
-            body=body,
-            attachments=None,  # TODO: Handle attachments in future
-            status="pending" if (is_quote_request or is_quote_modification) else "informational",
-            # AI Categorization Learning Fields
-            ai_category=category,
-            ai_category_confidence=confidence,
-            ai_category_reasoning=reasoning,
-            # Quote Modification Detection Fields
-            is_modification=is_quote_modification,
-            referenced_quote_number=referenced_quote_number,
-            modification_type=modification_type
-        )
-        db.add(email_log)
-        db.flush()  # Get the ID
+        # Step 2: Update placeholder with AI categorization results
+        email_log = placeholder
+        email_log.received_at = datetime.fromisoformat(received_at.replace('Z', '+00:00')) if received_at else datetime.utcnow()
+        email_log.status = "pending" if (is_quote_request or is_quote_modification) else "informational"
+        email_log.ai_category = category
+        email_log.ai_category_confidence = confidence
+        email_log.ai_category_reasoning = reasoning
+        email_log.is_modification = is_quote_modification
+        email_log.referenced_quote_number = referenced_quote_number
+        email_log.modification_type = modification_type
+        db.flush()
 
         # Step 3: If quote request or modification, parse with AI
         if is_quote_request:
             logger.info(f"  -> Identified as NEW quote request, parsing...")
-            self._parse_quote_request(db, email_log, subject, body, from_name, from_address)
+            try:
+                self._parse_quote_request(db, email_log, subject, body, from_name, from_address)
+            except Exception as e:
+                logger.error(f"  -> _parse_quote_request FAILED: {e}", exc_info=True)
+                email_log.status = "parse_error"
             return "quote_request"
 
         if is_quote_modification:
@@ -277,24 +292,25 @@ class EmailMonitorService:
 
         sender_info = {"name": from_name, "email": from_address}
 
-        # MEMORY SYSTEM: Retrieve similar examples for RAG
-        memory_service = get_memory_service(db)
+        # MEMORY SYSTEM: Retrieve similar examples for RAG (non-critical — continue without if it fails)
+        example_context = None
+        try:
+            memory_service = get_memory_service(db)
+            examples = memory_service.retrieve_similar_examples(
+                subject, body, max_examples=3, customer_email=from_address
+            )
+            example_context = memory_service.format_examples_for_prompt(examples)
 
-        # Get examples with customer-specific matching
-        examples = memory_service.retrieve_similar_examples(
-            subject, body, max_examples=3, customer_email=from_address
-        )
-        example_context = memory_service.format_examples_for_prompt(examples)
+            customer_context = memory_service.get_customer_context(from_address)
+            if customer_context:
+                example_context = (example_context or "") + customer_context
+                logger.info(f"  -> Known customer, using preferences for parsing")
 
-        # Get customer-specific context if we know this customer
-        customer_context = memory_service.get_customer_context(from_address)
-        if customer_context:
-            example_context = (example_context or "") + customer_context
-            logger.info(f"  -> Known customer, using preferences for parsing")
+            logger.info(f"  -> Using {len(examples)} examples for enhanced parsing")
+        except Exception as e:
+            logger.warning(f"  -> Memory/example retrieval failed (continuing without): {e}")
 
-        logger.info(f"  -> Using {len(examples)} examples for enhanced parsing")
-
-        # Parse with Claude AI (with RAG context)
+        # Parse with Claude AI (with RAG context if available)
         parse_result = self.ai_client.parse_email_for_quote(
             subject, body, sender_info, example_context=example_context
         )
@@ -312,16 +328,21 @@ class EmailMonitorService:
         doors = parsed_data.get("doors", [])
         project = parsed_data.get("project", {})
 
-        # CONFIDENCE CALIBRATION: Adjust based on historical performance
-        door_model = doors[0].get("model") if doors else None
-        confidence = memory_service.get_calibrated_confidence(
-            raw_confidence,
-            door_model=door_model,
-            customer_email=from_address
-        )
-
-        if confidence != raw_confidence:
-            logger.info(f"  -> Confidence calibrated: {raw_confidence:.2f} -> {confidence:.2f}")
+        # CONFIDENCE CALIBRATION: Adjust based on historical performance (non-critical)
+        confidence = raw_confidence
+        try:
+            door_model = doors[0].get("model") if doors else None
+            calibrated = memory_service.get_calibrated_confidence(
+                raw_confidence,
+                door_model=door_model,
+                customer_email=from_address
+            )
+            if calibrated != raw_confidence:
+                confidence = calibrated
+                logger.info(f"  -> Confidence calibrated: {raw_confidence:.2f} -> {confidence:.2f}")
+        except Exception as cal_err:
+            logger.warning(f"  -> Confidence calibration failed (using raw): {cal_err}")
+            db.rollback()  # Clear aborted transaction so subsequent DB ops work
 
         # Create QuoteRequest record
         quote_request = QuoteRequest(
@@ -360,8 +381,18 @@ class EmailMonitorService:
         email_log.status = "parsed"
         email_log.parsed_at = datetime.utcnow()
 
-        # MEMORY SYSTEM: Auto-add high-confidence parses to example library
-        if confidence >= 0.8:  # High confidence threshold
+        # COMMIT critical data before non-critical steps.
+        # QuoteRequest + AIDecision + email status must persist even if
+        # the example library or auto-generation steps fail.
+        try:
+            db.commit()
+        except Exception as commit_err:
+            logger.error(f"  -> Failed to commit QuoteRequest: {commit_err}")
+            db.rollback()
+            return
+
+        # MEMORY SYSTEM: Auto-add high-confidence parses to example library (non-critical)
+        if confidence >= 0.8:
             try:
                 memory_service._add_to_example_library(
                     quote_request, email_log, verified=False, quality_boost=0.1
@@ -369,6 +400,10 @@ class EmailMonitorService:
                 logger.info(f"  -> Auto-added to example library (high confidence)")
             except Exception as e:
                 logger.warning(f"Failed to add to example library: {e}")
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
 
         logger.info(f"  -> Quote request parsed. Confidence: {confidence:.2f}, "
                    f"Customer: {quote_request.customer_name}, "

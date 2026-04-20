@@ -124,11 +124,13 @@ class SpringPartNumbers:
     """Spring-related part numbers for a door"""
     spring_lh: BCPartNumber
     spring_rh: BCPartNumber
-    winder_set_lh: BCPartNumber
-    winder_set_rh: BCPartNumber
+    winder_set: BCPartNumber  # Universal winder set (works for both LH/RH)
     spring_length_inches: int
     quantity_per_side: int
     notes: str = ""
+    # Legacy fields kept for backwards compatibility
+    winder_set_lh: BCPartNumber = None
+    winder_set_rh: BCPartNumber = None
 
 
 @dataclass
@@ -492,6 +494,60 @@ class BCPartNumberMapper:
         else:
             return str(coil_id)
 
+    # Coil progression for spring step-up (shared by all callers)
+    COIL_PROGRESSION = [2.0, 2.625, 3.75, 6.0]
+
+    def resolve_spring_in_bc(
+        self,
+        wire_size: float,
+        coil_id: float,
+    ) -> tuple:
+        """
+        Find the closest BC-available spring for a given wire/coil combo.
+
+        Single source of truth for spring resolution. Used by both the
+        Door Specifications panel (warning display) and the quote generator
+        (part number selection).
+
+        Strategy:
+        1. Check exact wire/coil — if in BC, return as-is
+        2. Step up wire on same coil
+        3. Try same wire at next coil up (2.0 → 2.625 → 3.75 → 6.0)
+        4. Step up wire at next coil up
+
+        Returns:
+            (found: bool, resolved_wire: float, resolved_coil: float)
+        """
+        # 1. Exact match
+        test = self.get_spring_part_number(wire_size, coil_id, "LH")
+        if test.part_number in self.spring_items:
+            return (True, wire_size, coil_id)
+
+        # 2. Step up wire on same coil
+        for bc_wire in sorted(self.WIRE_SIZE_CODES.keys()):
+            if bc_wire >= wire_size:
+                test = self.get_spring_part_number(bc_wire, coil_id, "LH")
+                if test.part_number in self.spring_items:
+                    return (True, bc_wire, coil_id)
+
+        # 3 & 4. Try next coil diameters up
+        current_idx = next(
+            (i for i, c in enumerate(self.COIL_PROGRESSION) if c >= coil_id), -1
+        )
+        for next_coil in self.COIL_PROGRESSION[current_idx + 1:]:
+            # Same wire at bigger coil
+            test = self.get_spring_part_number(wire_size, next_coil, "LH")
+            if test.part_number in self.spring_items:
+                return (True, wire_size, next_coil)
+            # Step up wire at bigger coil
+            for bc_wire in sorted(self.WIRE_SIZE_CODES.keys()):
+                if bc_wire > wire_size:
+                    test = self.get_spring_part_number(bc_wire, next_coil, "LH")
+                    if test.part_number in self.spring_items:
+                        return (True, bc_wire, next_coil)
+
+        return (False, wire_size, coil_id)
+
     def get_winder_stationary_set(
         self,
         coil_id: float,
@@ -517,15 +573,20 @@ class BCPartNumberMapper:
         coil_str = self._format_coil_size(closest_coil)
         bore_str = '1"' if bore_size == 1.0 else '1-1/4"'
 
-        # Try universal part first (SP12-xxxxx-01 — works for both LH and RH)
+        # Try universal part first (SP12-xxxxx-01 — works for both LH and RH),
+        # but only if it actually exists in the BC catalog. If not, fall back to
+        # legacy LH/RH parts to avoid bad substitutions at quote time.
         universal_key = (closest_coil, bore_size)
         if universal_key in self.WINDER_SETS_UNIVERSAL:
             part_number = self.WINDER_SETS_UNIVERSAL[universal_key]
-            return BCPartNumber(
-                part_number=part_number,
-                description=f"SPRING, WINDERS & STATIONARY PLUGS SET, {coil_str}\", {bore_str} BORE, UNIVERSAL",
-                category="SPRING_ACCESSORY"
-            )
+            if part_number in self.bc_items:
+                return BCPartNumber(
+                    part_number=part_number,
+                    description=f"SPRING, WINDERS & STATIONARY PLUGS SET, {coil_str}\", {bore_str} BORE, UNIVERSAL",
+                    category="SPRING_ACCESSORY"
+                )
+            else:
+                logger.info(f"Universal cone {part_number} not in BC catalog — falling back to legacy LH/RH")
 
         # Fall back to legacy LH/RH parts
         key = (closest_coil, bore_size, wind.upper())
@@ -539,9 +600,10 @@ class BCPartNumberMapper:
 
         # Default to 2" universal set if not found
         default_pn = self.WINDER_SETS_UNIVERSAL.get((2.0, 1.0), "SP12-00231-01")
+        logger.warning(f"No winder set found for coil={coil_id}, bore={bore_size} — defaulting to 2\" universal")
         return BCPartNumber(
-            part_number=part_number,
-            description=f"SPRING, WINDERS & STATIONARY PLUGS SET, 2\", 1\" BORE, {wind.upper()}",
+            part_number=default_pn,
+            description=f"SPRING, WINDERS & STATIONARY PLUGS SET, 2\", 1\" BORE, UNIVERSAL",
             category="SPRING_ACCESSORY"
         )
 
@@ -549,15 +611,24 @@ class BCPartNumberMapper:
         self,
         door_height_feet: int,
         color: str = "WHITE",
-        commercial: bool = True
+        commercial: bool = True,
+        door_type: str = "residential",
+        door_series: str = "",
     ) -> BCPartNumber:
         """
         Get weather stripping part number.
 
+        PL11 (dual fin) is used ONLY for:
+          - Clear anodized aluminum doors
+          - Kanata residential doors when a PL11 part exists for that color
+        PL10 (galv steel / flexible vinyl) is used for all other doors.
+
         Args:
             door_height_feet: Door height in feet
             color: Color name
-            commercial: True for commercial, False for residential
+            commercial: True for commercial, False for residential (legacy, overridden by door_type)
+            door_type: "residential", "commercial", or "aluminium"
+            door_series: e.g. "KANATA", "CRAFT", "TX450", "AL976"
 
         Returns:
             BCPartNumber for weather stripping
@@ -568,23 +639,24 @@ class BCPartNumberMapper:
         if heights_at_or_above:
             height = min(heights_at_or_above)
         else:
-            # Door is taller than all available strips — use the largest
             height = max(available_heights)
 
-        # Get color code
         color_code = self.COLOR_CODES.get(color.upper(), "00")
+        color_upper = color.upper()
 
-        # Commercial: ALL colors use PL11-22{size}2-{color} per rulebook
-        # Residential: specialty colors (woodgrain) use PL11-12, others use PL10
-        if commercial:
-            part_number = f"PL11-22{height:02d}2-{color_code}"
-            desc = f"WEATHER STRIP, DUAL FIN, COMM, {height:02d}' 2\", {color.upper()}"
-        elif color_code in self.PL11_COLOR_CODES:
-            part_number = f"PL11-12{height:02d}2-{color_code}"
-            desc = f"WEATHER STRIP, DUAL FIN, RESI, {height:02d}' 2\", {color.upper()}"
+        # Determine if this door qualifies for PL11 (dual fin)
+        is_aluminum = door_type and door_type.lower() in ("aluminium", "aluminum")
+        is_clear_ano_aluminum = is_aluminum and color_upper in ("CLEAR ANODIZED", "CLEAR_ANODIZED")
+        is_kanata = door_series.upper() in ("KANATA",) if door_series else False
+        use_pl11 = is_clear_ano_aluminum or (is_kanata and color_code in self.PL11_COLOR_CODES)
+
+        if use_pl11:
+            prefix = "22" if commercial or is_aluminum else "12"
+            part_number = f"PL11-{prefix}{height:02d}2-{color_code}"
+            desc = f"WEATHER STRIP, DUAL FIN, {height:02d}' 2\", {color_upper}"
         else:
             part_number = f"PL10-{height:02d}203-{color_code}"
-            desc = f"PLASTICS, WEATHER STRIP, GALVANIZED STEEL/FLEXIBLE VINYL, {color.upper()}, {height:02d}'"
+            desc = f"PLASTICS, WEATHER STRIP, GALVANIZED STEEL/FLEXIBLE VINYL, {color_upper}, {height:02d}'"
 
         return BCPartNumber(
             part_number=part_number,
@@ -604,8 +676,18 @@ class BCPartNumberMapper:
         Returns:
             BCPartNumber for astragal
         """
+        # Aluminum doors use a dedicated aluminum astragal.
+        # Accept both British ("aluminium") and American ("aluminum") spellings
+        # to tolerate drift in upstream door_type normalization.
+        if door_type and door_type.lower() in ("aluminium", "aluminum"):
+            return BCPartNumber(
+                part_number="PL10-00004-00",
+                description='ASTRAGAL, 3" ALUMINIUM DOOR BOTTOM RUBBER',
+                category="ASTRAGAL"
+            )
+
         # Commercial doors 12' or wider get 4" astragal
-        if door_type in ("commercial", "aluminium") and door_width_feet >= 12:
+        if door_type == "commercial" and door_width_feet >= 12:
             size = 4
         elif door_width_feet > 16:
             size = 4
@@ -923,8 +1005,13 @@ class BCPartNumberMapper:
 
         # Width code: FFII format (feet + inches)
         # E.g., 9' = 0900, 16' = 1600, 9'6" = 0906
+        # Use round() not int() to avoid floating-point truncation
+        # (e.g. 170/12 = 14.1666... → 0.1666*12 = 1.9999 → int()=1, round()=2)
         feet = int(width_feet)
-        inches = int((width_feet % 1) * 12)
+        inches = round((width_feet % 1) * 12)
+        if inches >= 12:
+            feet += 1
+            inches = 0
         width_code = f"{feet:02d}{inches:02d}"
 
         # Build part number: PN{series}-{height}{stamp}{color}-{width}
@@ -1371,14 +1458,14 @@ class BCPartNumberMapper:
             coil_id=spring_coil_id,
             wind="RH"
         )
-        winder_lh = self.get_winder_stationary_set(spring_coil_id, 1.0, "LH")
-        winder_rh = self.get_winder_stationary_set(spring_coil_id, 1.0, "RH")
+        winder_universal = self.get_winder_stationary_set(spring_coil_id, 1.0)
 
         springs = SpringPartNumbers(
             spring_lh=spring_lh,
             spring_rh=spring_rh,
-            winder_set_lh=winder_lh,
-            winder_set_rh=winder_rh,
+            winder_set=winder_universal,
+            winder_set_lh=winder_universal,  # backwards compat
+            winder_set_rh=winder_universal,  # backwards compat
             spring_length_inches=spring_length_inches,
             quantity_per_side=spring_quantity_per_side,
             notes=f"Spring spec: {spring_wire_size}\" x {spring_coil_id}\" x {spring_length_inches}\""
@@ -1553,17 +1640,11 @@ class BCPartNumberMapper:
             "category": "SPRING"
         })
 
-        # Winder sets
+        # Winder set (universal — one part for both LH and RH)
         lines.append({
-            "part_number": springs.winder_set_lh.part_number,
-            "description": springs.winder_set_lh.description,
-            "quantity": springs.quantity_per_side,
-            "category": "SPRING_ACCESSORY"
-        })
-        lines.append({
-            "part_number": springs.winder_set_rh.part_number,
-            "description": springs.winder_set_rh.description,
-            "quantity": springs.quantity_per_side,
+            "part_number": springs.winder_set.part_number,
+            "description": springs.winder_set.description,
+            "quantity": springs.quantity_per_side * 2,  # total springs (both sides)
             "category": "SPRING_ACCESSORY"
         })
 

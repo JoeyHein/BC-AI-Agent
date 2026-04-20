@@ -136,11 +136,26 @@ class BusinessCentralClient:
 
     # ==================== Customers ====================
 
-    def get_customers(self, company_id: Optional[str] = None, top: int = 100) -> List[Dict[str, Any]]:
-        """Get list of customers"""
+    def get_customers(self, company_id: Optional[str] = None, top: int = 1000) -> List[Dict[str, Any]]:
+        """Get list of customers, paginated through all results."""
         cid = company_id or self.company_id
-        result = self._make_request("GET", f"companies({cid})/customers?$top={top}")
-        return result.get("value", [])
+        all_customers: List[Dict[str, Any]] = []
+        url = f"{self.base_url}/companies({cid})/customers?$top={top}"
+
+        while url:
+            token = self._get_access_token()
+            resp = requests.get(url, headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            })
+            if resp.status_code >= 400:
+                logger.error(f"BC API error {resp.status_code}: {resp.text[:300]}")
+                break
+            data = resp.json()
+            all_customers.extend(data.get("value", []))
+            url = data.get("@odata.nextLink")
+
+        return all_customers
 
     def get_customer(self, customer_id: str, company_id: Optional[str] = None) -> Dict[str, Any]:
         """Get specific customer"""
@@ -166,11 +181,27 @@ class BusinessCentralClient:
                                        top: int = 1000) -> List[Dict[str, Any]]:
         """
         Get all customers including priceMultiplierPercent field.
-        Falls back to standard customers endpoint if custom field isn't available.
+        Follows @odata.nextLink to paginate through all results.
         """
         cid = company_id or self.company_id
-        result = self._make_request("GET", f"companies({cid})/customers?$top={top}")
-        return result.get("value", [])
+        all_customers: List[Dict[str, Any]] = []
+        url = f"{self.base_url}/companies({cid})/customers?$top={top}"
+
+        while url:
+            token = self._get_access_token()
+            resp = requests.get(url, headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            })
+            if resp.status_code >= 400:
+                logger.error(f"BC API error {resp.status_code}: {resp.text[:300]}")
+                break
+            data = resp.json()
+            all_customers.extend(data.get("value", []))
+            url = data.get("@odata.nextLink")
+
+        logger.info(f"Fetched {len(all_customers)} customers from BC (paginated)")
+        return all_customers
 
     def get_customer_with_multiplier(self, customer_id: str,
                                       company_id: Optional[str] = None) -> Dict[str, Any]:
@@ -331,6 +362,9 @@ class BusinessCentralClient:
     def add_quote_line(self, quote_id: str, line_data: Dict[str, Any], company_id: Optional[str] = None) -> Dict[str, Any]:
         """Add line to sales quote"""
         cid = company_id or self.company_id
+        # BC enforces a 100-character limit on line descriptions — truncate if needed
+        if "description" in line_data and line_data["description"] and len(line_data["description"]) > 100:
+            line_data = {**line_data, "description": line_data["description"][:97] + "..."}
         result = self._make_request(
             "POST",
             f"companies({cid})/salesQuotes({quote_id})/salesQuoteLines",

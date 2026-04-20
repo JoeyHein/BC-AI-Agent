@@ -23,7 +23,7 @@ const OpenDCDesigner = {
     root.render(
       <App
         options={doorOptions}
-        quoteWebhook={quoteWebhook || '/api/public/quote-request'}
+        quoteWebhook={quoteWebhook || 'https://portal.opendc.ca/api/public/quote-request'}
         dealerLocatorUrl={dealerLocatorUrl || '/find-a-dealer'}
       />
     )

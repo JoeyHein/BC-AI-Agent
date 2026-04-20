@@ -358,9 +358,18 @@ LINE_ORDER = [
 
 
 def _sort_parts_by_category(parts: List[dict]) -> List[dict]:
-    """Sort parts list according to BC quote line ordering standard."""
+    """Sort parts list according to BC quote line ordering standard.
+
+    Uses a stable sort so items sharing the same category priority keep their
+    original relative order.  spring_accessory (cone sets) shares the same
+    priority as spring so that cones stay paired with their springs rather than
+    being grouped at the end of all spring lines.
+    """
     def sort_key(part):
         category = part.get("category", "other").lower()
+        # Cone sets should stay inline with their spring pair, not sort separately
+        if category == "spring_accessory":
+            category = "spring"
         try:
             return LINE_ORDER.index(category)
         except ValueError:
@@ -370,22 +379,36 @@ def _sort_parts_by_category(parts: List[dict]) -> List[dict]:
 
 def _format_door_description(door: dict) -> str:
     """Format door description for BC quote comment line."""
-    width_ft = door.get("doorWidth", 0) // 12
-    height_ft = door.get("doorHeight", 0) // 12
-    track_display = f"{door.get('trackThickness', '2')}\" HW"
-    lift_type_raw = door.get("liftType", "standard")
-    if lift_type_raw == "low_headroom":
-        lift_type = "LHR"
-    elif lift_type_raw == "high_lift":
-        lift_type = "HIGH LIFT"
-    elif lift_type_raw == "vertical":
-        lift_type = "VERTICAL"
-    else:
-        lift_type = "STD LIFT"
+    from app.api.door_configurator import (
+        _format_lift_label, _format_mount_label, _format_design_for_comment,
+    )
+    width_ft, width_in = divmod(door.get("doorWidth", 0), 12)
+    height_ft, height_in = divmod(door.get("doorHeight", 0), 12)
+    width_str = f"{width_ft}'{width_in}\""
+    height_str = f"{height_ft}'{height_in}\""
+
+    track_display = _format_mount_label(door.get("trackMount", "bracket"), door.get("trackThickness", "2"))
+    lift_type = _format_lift_label(door.get("liftType", "standard"), door.get("highLiftInches"))
+
+    door_type = door.get("doorType", "")
+    design_display = _format_design_for_comment(
+        door_type,
+        door.get("panelDesign", ""),
+        door.get("glazingType", ""),
+        door.get("glassPaneType", ""),
+    )
+
+    pocket_info = ""
+    glass_pockets = door.get("glassPocketsPerSection")
+    if door_type == "aluminium" and glass_pockets:
+        pocket_counts = [str(glass_pockets.get(str(i), glass_pockets.get(i, ''))) for i in sorted(glass_pockets.keys(), key=lambda x: int(x))]
+        if pocket_counts:
+            pocket_info = f", POCKETS: {'/'.join(pocket_counts)}"
+
     return (
-        f"({door.get('doorCount', 1)}) {width_ft}x{height_ft} "
+        f"({door.get('doorCount', 1)}) {width_str} x {height_str} "
         f"{door.get('doorSeries', '')}, {door.get('panelColor', '')}, "
-        f"{door.get('panelDesign', '')}, {track_display}, {lift_type}"
+        f"{design_display}, {track_display}, {lift_type}{pocket_info}"
     )
 
 
@@ -700,6 +723,7 @@ def _generate_bc_quote_with_items(
     lines_added = 0
     lines_failed = []
     bc_items_cache: dict = {}  # category prefix → list of BC items (populated lazily)
+    tier_prices_by_line_id = {}  # Track tier prices for escalating margin
 
     for line in all_lines:
         try:
@@ -733,38 +757,90 @@ def _generate_bc_quote_with_items(
                 except Exception as out_err:
                     logger.warning(f"Failed to set Output flag on line: {out_err}")
 
-            # BC's item price list overrides unitPrice on POST.
-            # PATCH the line afterward to lock in the customer-tier price.
-            if pricing_tier and db and line.get("lineType") != "Comment":
-                part_num = line["part_number"]
-                door_tp = line.get("door_type", "residential")
-                selling_price = calculate_selling_price(
-                    part_number=part_num,
-                    door_type=door_tp,
-                    tier=pricing_tier,
-                    db=db,
-                )
-                logger.info(f"PRICING DEBUG [{part_num}]: tier={pricing_tier}, door_type={door_tp}, selling_price={selling_price}")
-                if selling_price is not None:
+            # BC auto-populates description and unitPrice from the item card
+            # on POST, overriding what we send.  PATCH afterward to restore
+            # our intended description and lock in the customer-tier price.
+            if line.get("lineType") != "Comment":
+                patch_data = {}
+
+                # Always restore our description (BC overwrites it with item card displayName)
+                intended_desc = line.get("description", "")
+                if intended_desc:
+                    bc_desc = added_line.get("description", "")
+                    if bc_desc != intended_desc:
+                        patch_data["description"] = intended_desc[:100]
+
+                # Apply customer-tier pricing
+                if pricing_tier and db:
+                    part_num = line["part_number"]
+                    door_tp = line.get("door_type", "residential")
+                    selling_price = calculate_selling_price(
+                        part_number=part_num,
+                        door_type=door_tp,
+                        tier=pricing_tier,
+                        db=db,
+                    )
+                    logger.info(f"PRICING DEBUG [{part_num}]: tier={pricing_tier}, door_type={door_tp}, selling_price={selling_price}")
+                    if selling_price is not None:
+                        patch_data["unitPrice"] = selling_price
+                        tier_prices_by_line_id[added_line["id"]] = {
+                            "price": selling_price,
+                            "qty": line.get("quantity", 1),
+                        }
+                    else:
+                        logger.warning(f"PRICING DEBUG [{part_num}]: selling_price is None, SKIPPING PATCH")
+                else:
+                    logger.info(f"PRICING DEBUG: skip price PATCH - pricing_tier={pricing_tier}, db={db is not None}")
+
+                if patch_data:
                     etag = added_line.get("@odata.etag", "*")
                     try:
                         bc_client.update_quote_line(
                             bc_quote_id,
                             added_line["id"],
                             etag,
-                            {"unitPrice": selling_price},
+                            patch_data,
                         )
-                        logger.info(f"PRICING DEBUG [{part_num}]: PATCH SUCCESS unitPrice={selling_price}")
+                        logger.info(f"PATCH SUCCESS [{line['part_number']}]: {list(patch_data.keys())}")
                     except Exception as patch_err:
-                        logger.error(f"PRICING DEBUG [{part_num}]: PATCH FAILED: {patch_err}")
-                else:
-                    logger.warning(f"PRICING DEBUG [{part_num}]: selling_price is None, SKIPPING PATCH")
-            elif line.get("lineType") != "Comment":
-                logger.info(f"PRICING DEBUG: skip PATCH - pricing_tier={pricing_tier}, db={db is not None}")
+                        logger.error(f"PATCH FAILED [{line['part_number']}]: {patch_err}")
 
         except Exception as line_error:
             part_id = line.get("part_number", line.get("description", "unknown"))
             logger.warning(f"Failed to add line {part_id}: {line_error}")
+
+            # ── PANEL HARD FAIL: if a panel part number can't be resolved,
+            # abort the entire quote. Panels are the core product — a quote
+            # without correct panels is worse than no quote. ────────────────
+            line_category = line.get("category", "")
+            if line_category == "panel":
+                logger.error(
+                    f"PANEL PART FAILED — aborting quote {bc_quote_number}. "
+                    f"Part: {part_id}, Error: {line_error}"
+                )
+                # Delete the incomplete BC quote
+                try:
+                    bc_client.delete_sales_quote(bc_quote_id)
+                    logger.info(f"Deleted incomplete quote {bc_quote_number}")
+                except Exception as del_err:
+                    logger.warning(f"Could not delete incomplete quote: {del_err}")
+
+                return {
+                    "success": False,
+                    "error": (
+                        f"Panel part number {part_id} could not be resolved in BC. "
+                        f"Please contact the office to complete this quote."
+                    ),
+                    "bc_quote_id": None,
+                    "bc_quote_number": None,
+                    "lines_added": 0,
+                    "lines_failed": [{"part_number": part_id, "error": str(line_error), "category": "panel"}],
+                    "pricing": None,
+                    "line_pricing": None,
+                    "door_results": None,
+                    "freight": None,
+                    "escalating_margin": None,
+                }
 
             # ── AI substitute lookup ────────────────────────────────────────
             # Before falling back to a comment, ask Claude to find the closest
@@ -778,20 +854,24 @@ def _generate_bc_quote_with_items(
                 )
                 if substitute and substitute.get("number"):
                     try:
+                        original_desc = line.get("description", "") or substitute.get('displayName', substitute['number'])
                         sub_line_data = {
                             "lineType": "Item",
                             "lineObjectNumber": substitute["number"],
-                            "description": (
-                                f"{substitute.get('displayName', substitute['number'])} "
-                                f"(sub for {line['part_number']})"
-                            ),
+                            "description": original_desc,
                             "quantity": line["quantity"],
                         }
                         added_sub = bc_client.add_quote_line(bc_quote_id, sub_line_data)
                         lines_added += 1
                         ai_used = True
 
-                        # Apply tier pricing to the substitute
+                        # BC overwrites description with substitute's item card.
+                        # PATCH to restore intended description + apply tier pricing.
+                        sub_patch = {}
+                        bc_sub_desc = added_sub.get("description", "")
+                        if original_desc and bc_sub_desc != original_desc:
+                            sub_patch["description"] = original_desc[:100]
+
                         if pricing_tier and db:
                             selling_price = calculate_selling_price(
                                 part_number=substitute["number"],
@@ -800,13 +880,16 @@ def _generate_bc_quote_with_items(
                                 db=db,
                             )
                             if selling_price is not None:
-                                etag = added_sub.get("@odata.etag", "*")
-                                bc_client.update_quote_line(
-                                    bc_quote_id,
-                                    added_sub["id"],
-                                    etag,
-                                    {"unitPrice": selling_price},
-                                )
+                                sub_patch["unitPrice"] = selling_price
+
+                        if sub_patch:
+                            etag = added_sub.get("@odata.etag", "*")
+                            bc_client.update_quote_line(
+                                bc_quote_id,
+                                added_sub["id"],
+                                etag,
+                                sub_patch,
+                            )
 
                         logger.info(
                             f"AI substitute added: {line['part_number']} → "
@@ -912,6 +995,73 @@ def _generate_bc_quote_with_items(
 
     except Exception as pricing_error:
         logger.warning(f"Could not fetch pricing for quote {bc_quote_number}: {pricing_error}")
+
+    # Step 4c: Escalating margin adjustment (client-specific volume discount)
+    # Uses tracked tier prices so multiplier applies to GOLD TIER price, not list price.
+    escalating_result = None
+    if tier_prices_by_line_id and db:
+        try:
+            from app.services.escalating_margin_service import get_escalating_margin
+            bc_cust_for_esc = db.query(BCCustomer).filter(
+                BCCustomer.bc_customer_id == bc_customer_id
+            ).first()
+            customer_display_name = bc_cust_for_esc.company_name if bc_cust_for_esc else ""
+            esc_profile = get_escalating_margin(customer_display_name)
+
+            if esc_profile:
+                tier_subtotal = sum(
+                    lp["price"] * lp["qty"]
+                    for lp in tier_prices_by_line_id.values()
+                )
+                esc_calc = esc_profile.calculate(tier_subtotal)
+                multiplier = esc_calc["multiplier"]
+
+                if multiplier < 1.0:
+                    logger.info(
+                        f"Applying escalating margin [{esc_profile.name}]: "
+                        f"tier subtotal ${tier_subtotal:,.0f} × {multiplier:.4f}"
+                    )
+
+                    # PATCH each tracked line: tier_price × multiplier
+                    esc_quote_lines = bc_client.get_quote_lines(bc_quote_id)
+                    for ql in esc_quote_lines:
+                        line_id = ql.get("id")
+                        if line_id in tier_prices_by_line_id:
+                            tier_price = tier_prices_by_line_id[line_id]["price"]
+                            adj_price = round(tier_price * multiplier, 2)
+                            try:
+                                etag = ql.get("@odata.etag", "*")
+                                bc_client.update_quote_line(
+                                    bc_quote_id, line_id, etag,
+                                    {"unitPrice": adj_price},
+                                )
+                            except Exception as esc_patch_err:
+                                logger.warning(f"Escalating margin PATCH failed for {ql.get('lineObjectNumber')}: {esc_patch_err}")
+
+                    # Add a comment noting the volume discount
+                    try:
+                        bc_client.add_quote_line(bc_quote_id, {
+                            "lineType": "Comment",
+                            "description": (
+                                f"** VOLUME PRICING: {esc_profile.name} — "
+                                f"{esc_calc['discount_pct']:.1f}% volume discount applied **"
+                            ),
+                        })
+                    except Exception:
+                        pass
+
+                    # Re-fetch pricing totals after adjustment
+                    try:
+                        updated = bc_client.get_sales_quote(bc_quote_id)
+                        pricing["subtotal"] = round(updated.get("totalAmountExcludingTax", 0), 2)
+                        pricing["total"] = round(updated.get("totalAmountIncludingTax", 0), 2)
+                        pricing["tax"] = round(pricing["total"] - pricing["subtotal"], 2)
+                    except Exception:
+                        pass
+
+                    escalating_result = esc_calc
+        except Exception as esc_err:
+            logger.warning(f"Escalating margin check failed: {esc_err}")
 
     # Step 5: Add freight line if delivery
     freight_info = None
@@ -1186,6 +1336,7 @@ def _generate_bc_quote_with_items(
         "line_pricing": line_pricing if line_pricing else None,
         "door_results": door_results,
         "freight": freight_info,
+        "escalating_margin": escalating_result,
     }
 
 

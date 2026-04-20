@@ -110,6 +110,25 @@ async def get_shipping_metrics(current_user: User = Depends(require_viewer)):
 # CUSTOMER METRICS — any authenticated user (admin sees all, customers see own)
 # =============================================================================
 
+# =============================================================================
+# QUOTING ANALYTICS — reviewer+ (admin or reviewer)
+# =============================================================================
+
+@router.get("/quoting")
+async def get_quoting_analytics(
+    days: int = 30,
+    current_user: User = Depends(require_reviewer),
+):
+    """Quoting pipeline analytics: conversion, aging, volume, items."""
+    try:
+        from app.services.quoting_analytics_service import quoting_analytics_service
+        data = quoting_analytics_service.get_quoting_analytics(days=days)
+        return {"success": True, "data": data}
+    except Exception as e:
+        logger.error(f"Quoting analytics error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/customer/{customer_number}")
 async def get_customer_metrics(
     customer_number: str,

@@ -6,9 +6,49 @@ on:
   workflow_dispatch:
 
 jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          pip install -q pytest
+          pip install -q fastapi sqlalchemy pydantic pydantic-settings
+          pip install -q python-jose[cryptography] passlib[bcrypt]
+          pip install -q msal requests anthropic httpx
+          pip install -q psycopg2-binary python-dotenv python-multipart
+          pip install -q apscheduler cryptography
+
+      - name: Run tests
+        working-directory: backend
+        env:
+          # Minimal env so services can load without real credentials
+          DATABASE_URL: "sqlite:///./test.db"
+          BC_TENANT_ID: "test"
+          BC_CLIENT_ID: "test"
+          BC_CLIENT_SECRET: "test"
+          BC_ENVIRONMENT: "test"
+          BC_COMPANY_ID: "test"
+          ANTHROPIC_API_KEY: "test"
+          SECRET_KEY: "test"
+          ALLOWED_ORIGINS: "http://localhost"
+        run: |
+          python -m pytest tests/ -v --tb=short 2>&1
+
   deploy:
     name: Deploy to DigitalOcean
     runs-on: ubuntu-latest
+    needs: test  # Only deploy if tests pass
 
     steps:
       - name: Deploy via SSH

@@ -662,6 +662,9 @@ export const metricsApi = {
 
   getCustomer: (customerNumber) =>
     apiClient.get(`/api/metrics/customer/${customerNumber}`),
+
+  getQuoting: (days = 30) =>
+    apiClient.get(`/api/metrics/quoting?days=${days}`),
 };
 
 // Weekly Email Agent API

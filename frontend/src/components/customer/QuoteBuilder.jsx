@@ -464,7 +464,8 @@ function QuoteBuilder() {
             selected={currentDoor.doorSeries}
             onSelect={(series) => {
               const isCommercialSeries = ['TX380', 'TX450', 'TX500', 'TX450-20', 'TX500-20'].includes(series)
-              const isAluminumSeries = ['AL976', 'PANORAMA', 'SOLALITE'].includes(series)
+              const isAluminumSeries = ['AL976', 'SWD', 'PANORAMA', 'SOLALITE'].includes(series)
+              const isGlassSeries = ['AL976', 'SWD'].includes(series)
               updateCurrentDoor({
                 doorSeries: series,
                 panelColor: isAluminumSeries ? 'CLEAR_ANODIZED' : '',
@@ -478,7 +479,7 @@ function QuoteBuilder() {
                 glassColor: null,
                 ...(isCommercialSeries ? { trackThickness: '3' } : {}),
                 ...(isAluminumSeries ? {
-                  glassPaneType: series === 'AL976' ? 'INSULATED' : null,
+                  glassPaneType: isGlassSeries ? 'INSULATED' : null,
                   glassColor: 'CLEAR',
                 } : {}),
                 // Craft series includes windows as standard
@@ -698,25 +699,76 @@ function DoorSeriesStep({ series, selected, onSelect }) {
 
 function DimensionsStep({ door, onChange, series }) {
   const specs = series?.specs || {}
+  const [unitMode, setUnitMode] = useState('imperial')
+  const [mmWidth, setMmWidth] = useState(() => Math.round(door.doorWidth * 25.4))
+  const [mmHeight, setMmHeight] = useState(() => Math.round(door.doorHeight * 25.4))
+
+  useEffect(() => {
+    if (unitMode === 'imperial') {
+      setMmWidth(Math.round(door.doorWidth * 25.4))
+      setMmHeight(Math.round(door.doorHeight * 25.4))
+    }
+  }, [door.doorWidth, door.doorHeight, unitMode])
+
+  const handleMmWidthChange = (mm) => {
+    setMmWidth(mm)
+    const inches = Math.round(mm / 25.4)
+    if (inches > 0) onChange({ doorWidth: inches })
+  }
+
+  const handleMmHeightChange = (mm) => {
+    setMmHeight(mm)
+    const inches = Math.round(mm / 25.4)
+    if (inches > 0) onChange({ doorHeight: inches })
+  }
 
   // Common door sizes
   const commonSizes = [
-    { width: 96, height: 84, label: "8' x 7'" },
-    { width: 108, height: 84, label: "9' x 7'" },
-    { width: 144, height: 84, label: "12' x 7'" },
-    { width: 192, height: 84, label: "16' x 7'" },
-    { width: 96, height: 96, label: "8' x 8'" },
-    { width: 108, height: 96, label: "9' x 8'" },
-    { width: 144, height: 96, label: "12' x 8'" },
-    { width: 192, height: 96, label: "16' x 8'" },
+    { width: 96, height: 84, label: unitMode === 'mm' ? "2438 x 2134" : "8' x 7'" },
+    { width: 108, height: 84, label: unitMode === 'mm' ? "2743 x 2134" : "9' x 7'" },
+    { width: 144, height: 84, label: unitMode === 'mm' ? "3658 x 2134" : "12' x 7'" },
+    { width: 192, height: 84, label: unitMode === 'mm' ? "4877 x 2134" : "16' x 7'" },
+    { width: 96, height: 96, label: unitMode === 'mm' ? "2438 x 2438" : "8' x 8'" },
+    { width: 108, height: 96, label: unitMode === 'mm' ? "2743 x 2438" : "9' x 8'" },
+    { width: 144, height: 96, label: unitMode === 'mm' ? "3658 x 2438" : "12' x 8'" },
+    { width: 192, height: 96, label: unitMode === 'mm' ? "4877 x 2438" : "16' x 8'" },
   ]
 
   return (
     <div className="space-y-6">
+      {/* Unit Toggle */}
+      <div className="flex items-center justify-between">
+        <label className="block text-sm font-medium text-gray-700">Unit of Measure</label>
+        <div className="inline-flex rounded-md shadow-sm">
+          <button
+            type="button"
+            onClick={() => setUnitMode('imperial')}
+            className={`px-3 py-1.5 text-sm font-medium rounded-l-md border ${
+              unitMode === 'imperial'
+                ? 'bg-odc-600 text-white border-odc-600'
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            Feet / Inches
+          </button>
+          <button
+            type="button"
+            onClick={() => setUnitMode('mm')}
+            className={`px-3 py-1.5 text-sm font-medium rounded-r-md border-t border-r border-b ${
+              unitMode === 'mm'
+                ? 'bg-odc-600 text-white border-odc-600'
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            Millimetres
+          </button>
+        </div>
+      </div>
+
       {/* Quick Select */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          Common Sizes
+          Common Sizes {unitMode === 'mm' && <span className="text-gray-400 font-normal">(mm)</span>}
         </label>
         <div className="grid grid-cols-4 gap-2">
           {commonSizes.map((size) => (
@@ -735,7 +787,8 @@ function DimensionsStep({ door, onChange, series }) {
         </div>
       </div>
 
-      {/* Custom Dimensions — Feet + Inches */}
+      {/* Custom Dimensions */}
+      {unitMode === 'imperial' ? (
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Width</label>
@@ -771,7 +824,7 @@ function DimensionsStep({ door, onChange, series }) {
               <p className="mt-1 text-xs text-gray-500">inches</p>
             </div>
           </div>
-          <p className="mt-1 text-xs text-gray-400">{door.doorWidth}" total</p>
+          <p className="mt-1 text-xs text-gray-400">{door.doorWidth}" total ({Math.round(door.doorWidth * 25.4)} mm)</p>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Height</label>
@@ -807,7 +860,7 @@ function DimensionsStep({ door, onChange, series }) {
               <p className="mt-1 text-xs text-gray-500">inches</p>
             </div>
           </div>
-          <p className="mt-1 text-xs text-gray-400">{door.doorHeight}" total</p>
+          <p className="mt-1 text-xs text-gray-400">{door.doorHeight}" total ({Math.round(door.doorHeight * 25.4)} mm)</p>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -823,12 +876,55 @@ function DimensionsStep({ door, onChange, series }) {
           />
         </div>
       </div>
+      ) : (
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Width (mm)</label>
+          <input
+            type="number"
+            value={mmWidth}
+            onChange={(e) => handleMmWidthChange(parseInt(e.target.value) || 0)}
+            min={Math.round((specs.minWidth || 60) * 25.4)}
+            max={Math.round((specs.maxWidth || 288) * 25.4)}
+            step={1}
+            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
+          />
+          <p className="mt-1 text-xs text-gray-400">= {Math.floor(door.doorWidth / 12)}' {door.doorWidth % 12}" ({door.doorWidth}" total)</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Height (mm)</label>
+          <input
+            type="number"
+            value={mmHeight}
+            onChange={(e) => handleMmHeightChange(parseInt(e.target.value) || 0)}
+            min={Math.round((specs.minHeight || 72) * 25.4)}
+            max={Math.round((specs.maxHeight || 384) * 25.4)}
+            step={1}
+            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
+          />
+          <p className="mt-1 text-xs text-gray-400">= {Math.floor(door.doorHeight / 12)}' {door.doorHeight % 12}" ({door.doorHeight}" total)</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Quantity
+          </label>
+          <input
+            type="number"
+            value={door.doorCount}
+            onChange={(e) => onChange({ doorCount: parseInt(e.target.value) || 1 })}
+            min={1}
+            max={100}
+            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
+          />
+        </div>
+      </div>
+      )}
 
       {/* Constraints Info */}
       {specs.maxWidth && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
           <p className="text-sm text-odc-700">
-            <strong>{series?.name}:</strong> Max width {specs.maxWidth}" ({Math.floor(specs.maxWidth / 12)}')
+            <strong>{series?.name}:</strong> Max width {specs.maxWidth}" ({Math.floor(specs.maxWidth / 12)}'){unitMode === 'mm' && ` / ${Math.round(specs.maxWidth * 25.4)} mm`}
             {specs.sectionHeights && `, Section heights: ${specs.sectionHeights.join('", ')}`}
           </p>
         </div>
@@ -851,6 +947,7 @@ function DesignStep({ door, colors, panelDesigns, config, onChange }) {
     'TX450-20': 'COMMERCIAL',
     'TX500-20': 'COMMERCIAL',
     'AL976': 'AL976',
+    'SWD': 'AL976',
     'KANATA_EXECUTIVE': 'EXECUTIVE_STAINS',
   }
   const colorKey = colorMap[door.doorSeries] || 'KANATA'
@@ -2162,7 +2259,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
       {isLowHeadroom && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
           <p className="text-sm text-blue-800">
-            <span className="font-medium">2" Double Track Low Headroom</span> - Uses 2" track with double track configuration for minimal headroom clearance.
+            <span className="font-medium">{door.trackThickness || '2'}" Double Track Low Headroom</span> - Uses {door.trackThickness || '2'}" track with double track configuration for minimal headroom clearance.
           </p>
         </div>
       )}
@@ -2444,6 +2541,7 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
       'TX450-20': 'COMMERCIAL',
       'TX500-20': 'COMMERCIAL',
       'AL976': 'AL976',
+      'SWD': 'AL976',
     }
     const colorKey = colorMap[seriesId] || 'KANATA'
     const color = config?.colors?.[colorKey]?.find(c => c.id === colorId)
@@ -2629,7 +2727,7 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
                     <span className="text-gray-500">Track:</span>
                     <span className="ml-2 text-gray-900">
                       {door.liftType === 'low_headroom'
-                        ? '2" Double Track Low Headroom'
+                        ? `${door.trackThickness || '2'}" Double Track Low Headroom`
                         : `${door.trackRadius}" radius / ${door.trackThickness}" track`}
                       {door.liftType === 'high_lift' && ' (High Lift)'}
                       {door.liftType === 'vertical' && ' (Vertical Lift)'}

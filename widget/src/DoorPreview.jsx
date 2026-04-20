@@ -61,7 +61,7 @@ const PANEL_PATTERNS = {
 }
 
 const COLOR_MAP = {
-  WHITE: '#F4F4F4',
+  WHITE: '#E2E2E2',
   BRIGHT_WHITE: '#F4F4F4',
   ALMOND: '#DCCBB3',
   BLACK: '#282828',
@@ -69,13 +69,13 @@ const COLOR_MAP = {
   NEW_BROWN: '#4C4842',
   HAZELWOOD: '#756F61',
   BRONZE: '#6C6961',
-  STEEL_GREY: '#7D7F7D',
-  SANDTONE: '#A4957D',
+  STEEL_GREY: '#6B6B6B',
+  SANDTONE: '#A89E94',
   IRON_ORE: '#2F3234',
-  NEW_ALMOND: '#D6C6A8',
-  WALNUT: '#4A3728',
-  ENGLISH_CHESTNUT: '#6B4423',
-  FRENCH_OAK: '#C2B078',
+  NEW_ALMOND: '#E3DCCA',
+  WALNUT: '#673D27',
+  ENGLISH_CHESTNUT: '#7F583F',
+  FRENCH_OAK: '#A48468',
   CANYON: '#8B6F47',
   CLEAR_ANODIZED: '#C0C0C0',
   BLACK_ANODIZED: '#1a1a1a',
@@ -83,12 +83,14 @@ const COLOR_MAP = {
 }
 
 const WOODGRAIN_COLORS = {
-  WALNUT: { base: '#4A3728', light: '#5D432C', dark: '#3D2B1F' },
-  ENGLISH_CHESTNUT: { base: '#6B4423', light: '#8B5A2B', dark: '#5C3317' },
-  FRENCH_OAK: { base: '#C2B078', light: '#C2B078', dark: '#8A6642' },
+  WALNUT: { base: '#673D27', light: '#8A5A40', dark: '#3D2010' },
+  ENGLISH_CHESTNUT: { base: '#7F583F', light: '#B88A72', dark: '#4A2D1A' },
+  FRENCH_OAK: { base: '#A48468', light: '#C8AA8D', dark: '#6C523C' },
 }
 
 const isWoodgrain = (colorId) => ['WALNUT', 'ENGLISH_CHESTNUT', 'FRENCH_OAK'].includes(colorId)
+
+const hasMetallicSheen = (colorId) => ['STEEL_GREY', 'BLACK', 'IRON_ORE', 'ONYX_BLACK', 'CLEAR_ANODIZED', 'BLACK_ANODIZED', 'MILL'].includes(colorId)
 
 const darkenHex = (hex, factor = 0.75) => {
   const r = parseInt(hex.slice(1, 3), 16)
@@ -203,6 +205,7 @@ function DoorPreview({
 
   // Unique ID for this instance to avoid SVG id collisions when multiple previews on page
   const instanceId = useMemo(() => Math.random().toString(36).substr(2, 9), [])
+  const surfaceFill = isWoodgrain(color) ? `url(#woodgrainPattern-${instanceId})` : doorColor
 
   const renderWindowOverlays = (y, w, h, padding, sectionIndex) => {
     const absoluteSection = sectionIndex + 1
@@ -493,7 +496,7 @@ function DoorPreview({
         <g key={`commercial-window-${sectionIdx}-${i}`}>
           <rect x={windowX - frameThickness - 1} y={windowY - frameThickness - 1}
             width={scaledWindowWidth + (frameThickness + 1) * 2} height={scaledWindowHeight + (frameThickness + 1) * 2}
-            fill={doorColor} stroke="none" />
+            fill={surfaceFill} stroke="none" />
           <rect x={windowX - frameThickness} y={windowY - frameThickness}
             width={scaledWindowWidth + frameThickness * 2} height={scaledWindowHeight + frameThickness * 2}
             fill={frameColor} stroke={frameStroke} strokeWidth="1.5" rx="1" />
@@ -522,11 +525,34 @@ function DoorPreview({
     const windowY = y + windowPadding
 
     const elements = []
+    const frameLight = resolvedFrame.fill
+    const frameDark = resolvedFrame.stroke
+    const frameT = Math.min(windowWidth, windowHeight) * 0.06
 
     elements.push(
-      <rect key={`window-frame-${colIndex}`}
+      <rect key={`glass-${colIndex}`}
         x={windowX} y={windowY} width={windowWidth} height={windowHeight}
-        fill={glassFill} stroke={frameColor} strokeWidth="2" rx="2" ry="2" />
+        fill={glassFill} />
+    )
+    elements.push(
+      <rect key={`glass-sheen-${colIndex}`}
+        x={windowX} y={windowY} width={windowWidth} height={windowHeight}
+        fill={`url(#glassReflection-${instanceId})`} opacity="0.28" />
+    )
+    const fx = windowX, fy = windowY, fw = windowWidth, fh = windowHeight
+    elements.push(
+      <polygon key={`frame-top-${colIndex}`}
+        points={`${fx},${fy} ${fx + fw},${fy} ${fx + fw - frameT},${fy + frameT} ${fx + frameT},${fy + frameT}`}
+        fill={frameLight} />,
+      <polygon key={`frame-left-${colIndex}`}
+        points={`${fx},${fy} ${fx + frameT},${fy + frameT} ${fx + frameT},${fy + fh - frameT} ${fx},${fy + fh}`}
+        fill={frameLight} />,
+      <polygon key={`frame-right-${colIndex}`}
+        points={`${fx + fw},${fy} ${fx + fw},${fy + fh} ${fx + fw - frameT},${fy + fh - frameT} ${fx + fw - frameT},${fy + frameT}`}
+        fill={frameDark} />,
+      <polygon key={`frame-bottom-${colIndex}`}
+        points={`${fx},${fy + fh} ${fx + frameT},${fy + fh - frameT} ${fx + fw - frameT},${fy + fh - frameT} ${fx + fw},${fy + fh}`}
+        fill={frameDark} />
     )
 
     if (!hasInserts || windowShape.type === 'plain') {
@@ -661,24 +687,26 @@ function DoorPreview({
                 fill="rgba(201, 169, 110, 0.2)" stroke="rgba(201, 169, 110, 0.8)"
                 strokeWidth="2" strokeDasharray="4,2" rx="2" />
             )}
-            <rect x={x + outerInset} y={cellY + outerInset}
-              width={cellW - outerInset * 2} height={cellH - outerInset * 2}
-              fill="none" stroke={lineColor} strokeWidth="1.5" />
-            <rect x={x + outerInset + innerInset} y={cellY + outerInset + innerInset}
-              width={cellW - (outerInset + innerInset) * 2} height={cellH - (outerInset + innerInset) * 2}
-              fill="none" stroke={lineColor} strokeWidth="1" />
-            <line x1={x + outerInset + innerInset} y1={cellY + cellH - outerInset - innerInset}
-              x2={x + cellW - outerInset - innerInset} y2={cellY + cellH - outerInset - innerInset}
-              stroke={shadowColor} strokeWidth="2" />
-            <line x1={x + cellW - outerInset - innerInset} y1={cellY + outerInset + innerInset}
-              x2={x + cellW - outerInset - innerInset} y2={cellY + cellH - outerInset - innerInset}
-              stroke={shadowColor} strokeWidth="2" />
-            <line x1={x + outerInset + innerInset} y1={cellY + outerInset + innerInset}
-              x2={x + cellW - outerInset - innerInset} y2={cellY + outerInset + innerInset}
-              stroke={isDark ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.7)'} strokeWidth="1" />
-            <line x1={x + outerInset + innerInset} y1={cellY + outerInset + innerInset}
-              x2={x + outerInset + innerInset} y2={cellY + cellH - outerInset - innerInset}
-              stroke={isDark ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.7)'} strokeWidth="1" />
+            {(() => {
+              const sx = x + outerInset, sy = cellY + outerInset
+              const sw = cellW - outerInset * 2, sh = cellH - outerInset * 2
+              const bx = sw * 0.13, by = sh * 0.17
+              const px = sx + bx, py = sy + by
+              const pw = sw - bx * 2, ph = sh - by * 2
+              const highlight = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.18)'
+              const shadow = 'rgba(0,0,0,0.14)'
+              return (
+                <>
+                  <rect x={sx - 1.5} y={sy - 1.5} width={sw + 3} height={sh + 3} fill="none" stroke="rgba(0,0,0,0.18)" strokeWidth="1.5" />
+                  <rect x={sx} y={sy} width={sw} height={sh} fill="none" stroke={lineColor} strokeWidth="1" />
+                  <polygon points={`${sx},${sy} ${sx + sw},${sy} ${px + pw},${py} ${px},${py}`} fill={highlight} />
+                  <polygon points={`${sx},${sy} ${px},${py} ${px},${py + ph} ${sx},${sy + sh}`} fill={highlight} />
+                  <polygon points={`${sx + sw},${sy} ${sx + sw},${sy + sh} ${px + pw},${py + ph} ${px + pw},${py}`} fill={shadow} />
+                  <polygon points={`${sx},${sy + sh} ${px},${py + ph} ${px + pw},${py + ph} ${sx + sw},${sy + sh}`} fill={shadow} />
+                  <rect x={px} y={py} width={pw} height={ph} fill="none" stroke={lineColor} strokeWidth="0.6" opacity="0.5" />
+                </>
+              )
+            })()}
           </g>
         )
       }
@@ -822,7 +850,7 @@ function DoorPreview({
   }
 
   const renderFlushPanel = (y, w, h, padding) => {
-    return <rect x={padding} y={y} width={w} height={h} fill={doorColor} />
+    return <rect x={padding} y={y} width={w} height={h} fill={surfaceFill} />
   }
 
   const renderCraftSection = (sectionIndex, sectionY, sectionHeight, pattern) => {
@@ -840,7 +868,7 @@ function DoorPreview({
         <rect key="craft-top-flush"
           x={padding} y={sectionY + padding}
           width={panelWidth} height={panelHeight}
-          fill={doorColor} />
+          fill={surfaceFill} />
       )
       const windowInset = panelHeight * 0.1
       const windowH = panelHeight - windowInset * 2
@@ -1012,29 +1040,147 @@ function DoorPreview({
           <filter id={`doorShadow-${instanceId}`} x="-20%" y="-20%" width="140%" height="140%">
             <feDropShadow dx="3" dy="3" stdDeviation="4" floodOpacity="0.3"/>
           </filter>
-          {isWoodgrain(color) && WOODGRAIN_COLORS[color] && (
-            <pattern id={`woodgrainPattern-${instanceId}`} patternUnits="userSpaceOnUse" width="100" height="8">
-              <rect width="100" height="8" fill={WOODGRAIN_COLORS[color].base} />
-              <path d={`M0,2 Q25,0 50,2 T100,2`}
-                stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.5" fill="none" opacity="0.6" />
-              <path d={`M0,5 Q30,3 60,5 T100,5`}
-                stroke={WOODGRAIN_COLORS[color].light} strokeWidth="0.3" fill="none" opacity="0.4" />
-              <path d={`M0,7 Q20,6 40,7 T80,6.5 T100,7`}
-                stroke={WOODGRAIN_COLORS[color].dark} strokeWidth="0.4" fill="none" opacity="0.5" />
-            </pattern>
-          )}
+          <linearGradient id={`metallicSheen-${instanceId}`} x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="white" stopOpacity="0.12" />
+            <stop offset="35%" stopColor="white" stopOpacity="0.02" />
+            <stop offset="65%" stopColor="black" stopOpacity="0.02" />
+            <stop offset="100%" stopColor="black" stopOpacity="0.08" />
+          </linearGradient>
+          {isWoodgrain(color) && WOODGRAIN_COLORS[color] && (() => {
+            const g = WOODGRAIN_COLORS[color]
+            const pid = `woodgrainPattern-${instanceId}`
+            if (color === 'WALNUT') {
+              return (
+                <pattern id={pid} patternUnits="userSpaceOnUse" width="480" height="100">
+                  <rect width="480" height="100" fill={g.base} />
+                  <path d="M0,3 Q100,2 200,4 T400,3 T480,4" stroke={g.dark} strokeWidth="0.9" fill="none" opacity="0.85" />
+                  <path d="M0,7 Q140,6 280,8 T480,7" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.55" />
+                  <path d="M0,11 Q80,10 160,12 T320,11 T480,10" stroke={g.dark} strokeWidth="0.7" fill="none" opacity="0.7" />
+                  <path d="M0,14 Q120,13 240,15 T480,14" stroke={g.dark} strokeWidth="0.3" fill="none" opacity="0.45" />
+                  <path d="M0,18 Q90,16 180,18 T360,19 T480,17" stroke={g.dark} strokeWidth="1.0" fill="none" opacity="0.9" />
+                  <path d="M0,22 Q150,21 300,22 T480,21" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.5" />
+                  <path d="M0,25 Q110,24 220,26 T440,25 T480,26" stroke={g.dark} strokeWidth="0.6" fill="none" opacity="0.6" />
+                  <path d="M0,29 Q80,28 160,29 T320,30 T480,29" stroke={g.dark} strokeWidth="0.3" fill="none" opacity="0.45" />
+                  <path d="M0,33 Q130,31 260,33 T480,32" stroke={g.dark} strokeWidth="1.1" fill="none" opacity="0.9" />
+                  <path d="M0,37 Q100,36 200,37 T400,37 T480,36" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.5" />
+                  <path d="M0,40 Q140,39 280,41 T480,40" stroke={g.dark} strokeWidth="0.7" fill="none" opacity="0.65" />
+                  <path d="M0,44 Q90,43 180,44 T360,45 T480,44" stroke={g.dark} strokeWidth="0.3" fill="none" opacity="0.45" />
+                  <path d="M0,48 Q120,46 240,48 T480,47" stroke={g.dark} strokeWidth="1.0" fill="none" opacity="0.85" />
+                  <path d="M0,52 Q150,51 300,52 T480,51" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.5" />
+                  <path d="M0,55 Q80,54 160,56 T320,55 T480,56" stroke={g.dark} strokeWidth="0.6" fill="none" opacity="0.6" />
+                  <path d="M0,59 Q110,58 220,59 T440,60 T480,59" stroke={g.dark} strokeWidth="0.3" fill="none" opacity="0.45" />
+                  <path d="M0,63 Q130,61 260,63 T480,62" stroke={g.dark} strokeWidth="1.1" fill="none" opacity="0.9" />
+                  <path d="M0,67 Q100,66 200,67 T400,68 T480,67" stroke={g.dark} strokeWidth="0.5" fill="none" opacity="0.55" />
+                  <path d="M0,71 Q140,70 280,72 T480,71" stroke={g.dark} strokeWidth="0.7" fill="none" opacity="0.65" />
+                  <path d="M0,75 Q90,74 180,75 T360,76 T480,75" stroke={g.dark} strokeWidth="0.3" fill="none" opacity="0.45" />
+                  <path d="M0,79 Q120,77 240,79 T480,78" stroke={g.dark} strokeWidth="1.0" fill="none" opacity="0.85" />
+                  <path d="M0,83 Q150,82 300,83 T480,82" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.5" />
+                  <path d="M0,87 Q80,86 160,88 T320,87 T480,88" stroke={g.dark} strokeWidth="0.7" fill="none" opacity="0.65" />
+                  <path d="M0,91 Q110,90 220,91 T440,92 T480,91" stroke={g.dark} strokeWidth="0.3" fill="none" opacity="0.45" />
+                  <path d="M0,95 Q130,93 260,95 T480,94" stroke={g.dark} strokeWidth="0.9" fill="none" opacity="0.8" />
+                  <path d="M0,5 Q120,4 240,5 T480,5" stroke={g.light} strokeWidth="0.4" fill="none" opacity="0.6" />
+                  <path d="M0,16 Q100,15 200,16 T400,16 T480,16" stroke={g.light} strokeWidth="0.3" fill="none" opacity="0.5" />
+                  <path d="M0,27 Q140,26 280,27 T480,27" stroke={g.light} strokeWidth="0.4" fill="none" opacity="0.55" />
+                  <path d="M0,35 Q90,34 180,36 T360,35" stroke={g.light} strokeWidth="0.3" fill="none" opacity="0.5" />
+                  <path d="M0,46 Q120,45 240,46 T480,46" stroke={g.light} strokeWidth="0.4" fill="none" opacity="0.55" />
+                  <path d="M0,57 Q100,56 200,57 T400,57 T480,57" stroke={g.light} strokeWidth="0.3" fill="none" opacity="0.5" />
+                  <path d="M0,69 Q140,68 280,69 T480,69" stroke={g.light} strokeWidth="0.4" fill="none" opacity="0.55" />
+                  <path d="M0,81 Q90,80 180,81 T360,82 T480,81" stroke={g.light} strokeWidth="0.3" fill="none" opacity="0.5" />
+                  <path d="M0,93 Q120,92 240,93 T480,93" stroke={g.light} strokeWidth="0.4" fill="none" opacity="0.55" />
+                </pattern>
+              )
+            } else if (color === 'ENGLISH_CHESTNUT') {
+              return (
+                <pattern id={pid} patternUnits="userSpaceOnUse" width="480" height="140">
+                  <rect width="480" height="140" fill={g.base} />
+                  <path d="M0,8 Q120,3 240,10 T480,6" stroke={g.dark} strokeWidth="1.4" fill="none" opacity="0.95" />
+                  <path d="M0,18 Q200,14 400,20 T480,17" stroke={g.dark} strokeWidth="0.6" fill="none" opacity="0.6" />
+                  <path d="M0,28 Q80,22 180,30 Q280,38 380,26 T480,30" stroke={g.dark} strokeWidth="1.6" fill="none" opacity="0.95" />
+                  <path d="M0,40 Q160,36 320,42 T480,39" stroke={g.dark} strokeWidth="0.5" fill="none" opacity="0.5" />
+                  <path d="M0,50 Q100,44 200,52 Q300,58 400,48 T480,52" stroke={g.dark} strokeWidth="1.3" fill="none" opacity="0.9" />
+                  <path d="M0,62 Q180,58 360,64 T480,61" stroke={g.dark} strokeWidth="0.5" fill="none" opacity="0.55" />
+                  <path d="M0,72 Q120,66 240,74 Q360,80 480,70" stroke={g.dark} strokeWidth="1.5" fill="none" opacity="0.95" />
+                  <path d="M0,84 Q200,80 400,86 T480,83" stroke={g.dark} strokeWidth="0.6" fill="none" opacity="0.55" />
+                  <path d="M0,94 Q80,88 180,96 Q280,102 380,92 T480,96" stroke={g.dark} strokeWidth="1.3" fill="none" opacity="0.9" />
+                  <path d="M0,106 Q160,102 320,108 T480,105" stroke={g.dark} strokeWidth="0.5" fill="none" opacity="0.5" />
+                  <path d="M0,116 Q120,110 240,118 Q360,124 480,114" stroke={g.dark} strokeWidth="1.4" fill="none" opacity="0.9" />
+                  <path d="M0,128 Q200,124 400,130 T480,127" stroke={g.dark} strokeWidth="0.5" fill="none" opacity="0.5" />
+                  <path d="M0,14 Q150,12 300,15 T480,13" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
+                  <path d="M0,35 Q100,33 200,36 T400,34 T480,36" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
+                  <path d="M0,56 Q140,54 280,57 T480,55" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
+                  <path d="M0,78 Q120,76 240,79 T480,77" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
+                  <path d="M0,100 Q160,98 320,101 T480,99" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
+                  <path d="M0,122 Q100,120 200,123 T400,121 T480,123" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
+                  <path d="M0,22 Q180,20 360,24 T480,22" stroke={g.light} strokeWidth="0.6" fill="none" opacity="0.7" />
+                  <path d="M0,45 Q120,43 240,46 T480,44" stroke={g.light} strokeWidth="0.5" fill="none" opacity="0.6" />
+                  <path d="M0,68 Q200,66 400,70 T480,68" stroke={g.light} strokeWidth="0.6" fill="none" opacity="0.65" />
+                  <path d="M0,90 Q140,88 280,91 T480,89" stroke={g.light} strokeWidth="0.5" fill="none" opacity="0.6" />
+                  <path d="M0,112 Q100,110 200,113 T400,111 T480,113" stroke={g.light} strokeWidth="0.6" fill="none" opacity="0.65" />
+                  <path d="M0,134 Q160,132 320,135 T480,133" stroke={g.light} strokeWidth="0.5" fill="none" opacity="0.6" />
+                </pattern>
+              )
+            } else {
+              return (
+                <pattern id={pid} patternUnits="userSpaceOnUse" width="480" height="120">
+                  <rect width="480" height="120" fill={g.base} />
+                  <path d="M0,6 Q240,5 480,7" stroke={g.dark} strokeWidth="0.6" fill="none" opacity="0.55" />
+                  <path d="M0,14 Q240,13 480,14" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
+                  <path d="M0,20 Q240,19 480,21" stroke={g.dark} strokeWidth="0.7" fill="none" opacity="0.6" />
+                  <path d="M0,28 Q240,27 480,28" stroke={g.dark} strokeWidth="0.3" fill="none" opacity="0.35" />
+                  <path d="M0,34 Q240,33 480,35" stroke={g.dark} strokeWidth="0.8" fill="none" opacity="0.65" />
+                  <path d="M0,42 Q240,41 480,42" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
+                  <path d="M0,48 Q240,47 480,49" stroke={g.dark} strokeWidth="0.6" fill="none" opacity="0.55" />
+                  <path d="M0,56 Q240,55 480,56" stroke={g.dark} strokeWidth="0.3" fill="none" opacity="0.35" />
+                  <path d="M0,62 Q240,61 480,63" stroke={g.dark} strokeWidth="0.7" fill="none" opacity="0.6" />
+                  <path d="M0,70 Q240,69 480,70" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
+                  <path d="M0,76 Q240,75 480,77" stroke={g.dark} strokeWidth="0.6" fill="none" opacity="0.55" />
+                  <path d="M0,84 Q240,83 480,84" stroke={g.dark} strokeWidth="0.3" fill="none" opacity="0.35" />
+                  <path d="M0,90 Q240,89 480,91" stroke={g.dark} strokeWidth="0.8" fill="none" opacity="0.6" />
+                  <path d="M0,98 Q240,97 480,98" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
+                  <path d="M0,106 Q240,105 480,107" stroke={g.dark} strokeWidth="0.6" fill="none" opacity="0.5" />
+                  <path d="M0,114 Q240,113 480,114" stroke={g.dark} strokeWidth="0.3" fill="none" opacity="0.35" />
+                  <path d="M0,10 Q240,9 480,10" stroke={g.light} strokeWidth="0.3" fill="none" opacity="0.45" />
+                  <path d="M0,24 Q240,23 480,24" stroke={g.light} strokeWidth="0.3" fill="none" opacity="0.4" />
+                  <path d="M0,38 Q240,37 480,38" stroke={g.light} strokeWidth="0.3" fill="none" opacity="0.45" />
+                  <path d="M0,52 Q240,51 480,52" stroke={g.light} strokeWidth="0.3" fill="none" opacity="0.4" />
+                  <path d="M0,66 Q240,65 480,66" stroke={g.light} strokeWidth="0.3" fill="none" opacity="0.45" />
+                  <path d="M0,80 Q240,79 480,80" stroke={g.light} strokeWidth="0.3" fill="none" opacity="0.4" />
+                  <path d="M0,94 Q240,93 480,94" stroke={g.light} strokeWidth="0.3" fill="none" opacity="0.45" />
+                  <path d="M0,110 Q240,109 480,110" stroke={g.light} strokeWidth="0.3" fill="none" opacity="0.4" />
+                  <line x1="45" y1="8" x2="45" y2="16" stroke={g.light} strokeWidth="0.5" opacity="0.35" />
+                  <line x1="130" y1="30" x2="130" y2="38" stroke={g.light} strokeWidth="0.4" opacity="0.3" />
+                  <line x1="210" y1="55" x2="210" y2="62" stroke={g.light} strokeWidth="0.5" opacity="0.35" />
+                  <line x1="310" y1="15" x2="310" y2="22" stroke={g.light} strokeWidth="0.4" opacity="0.3" />
+                  <line x1="380" y1="72" x2="380" y2="80" stroke={g.light} strokeWidth="0.5" opacity="0.35" />
+                  <line x1="85" y1="85" x2="85" y2="93" stroke={g.light} strokeWidth="0.4" opacity="0.3" />
+                  <line x1="260" y1="95" x2="260" y2="103" stroke={g.light} strokeWidth="0.5" opacity="0.35" />
+                  <line x1="440" y1="40" x2="440" y2="48" stroke={g.light} strokeWidth="0.4" opacity="0.3" />
+                  <line x1="170" y1="105" x2="170" y2="113" stroke={g.light} strokeWidth="0.5" opacity="0.35" />
+                  <line x1="350" y1="50" x2="350" y2="57" stroke={g.light} strokeWidth="0.4" opacity="0.3" />
+                </pattern>
+              )
+            }
+          })()}
         </defs>
 
         <rect x="0" y="0" width={displayWidth} height={displayHeight}
-          fill={isWoodgrain(color) ? `url(#woodgrainPattern-${instanceId})` : doorColor}
+          fill={surfaceFill}
           stroke="#333" strokeWidth="2"
           filter={`url(#doorShadow-${instanceId})`} />
+        {hasMetallicSheen(color) && (
+          <rect x="0" y="0" width={displayWidth} height={displayHeight}
+            fill={`url(#metallicSheen-${instanceId})`} pointerEvents="none" />
+        )}
 
         {sections.map((section) => (
           <g key={`section-${section.index}`}>
             {section.index > 0 && (
-              <line x1="0" y1={section.y} x2={displayWidth} y2={section.y}
-                stroke={lineColor} strokeWidth="2" />
+              <g>
+                <line x1="0" y1={section.y} x2={displayWidth} y2={section.y}
+                  stroke="rgba(0,0,0,0.45)" strokeWidth="2" />
+                <line x1="0" y1={section.y + 1.5} x2={displayWidth} y2={section.y + 1.5}
+                  stroke={isDark ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.25)'} strokeWidth="0.5" />
+              </g>
             )}
             {renderPanelDesign(section.index, section.y, section.height)}
           </g>

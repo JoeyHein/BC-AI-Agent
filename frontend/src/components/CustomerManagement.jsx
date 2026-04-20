@@ -377,10 +377,10 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
           <div className="flex gap-2">
             <button
               onClick={handleSave}
-              disabled={updateMutation.isLoading}
+              disabled={updateMutation.isPending}
               className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-odc-600 hover:bg-odc-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-odc-500"
             >
-              {updateMutation.isLoading ? 'Saving...' : 'Save'}
+              {updateMutation.isPending ? 'Saving...' : 'Save'}
             </button>
             <button
               onClick={() => setEditing(false)}
@@ -518,10 +518,10 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
                 </div>
                 <button
                   onClick={() => unlinkMutation.mutate(customer.id)}
-                  disabled={unlinkMutation.isLoading}
+                  disabled={unlinkMutation.isPending}
                   className="mt-2 text-sm text-red-600 hover:text-red-800"
                 >
-                  {unlinkMutation.isLoading ? 'Unlinking...' : 'Unlink BC Customer'}
+                  {unlinkMutation.isPending ? 'Unlinking...' : 'Unlink BC Customer'}
                 </button>
               </div>
             ) : (
@@ -615,10 +615,10 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
             </button>
             <button
               onClick={handleDelete}
-              disabled={deleteMutation.isLoading}
+              disabled={deleteMutation.isPending}
               className="inline-flex items-center px-3 py-2 border border-red-300 text-sm leading-4 font-medium rounded-md text-red-700 bg-white hover:bg-red-50"
             >
-              {deleteMutation.isLoading ? 'Deleting...' : 'Delete Account'}
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete Account'}
             </button>
           </div>
 
@@ -802,7 +802,7 @@ function LinkBCCustomerModal({ customerId, onClose, onSuccess }) {
           )}
         </div>
 
-        {linkMutation.isLoading && (
+        {linkMutation.isPending && (
           <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
             <div className="flex items-center justify-center text-sm text-gray-500">
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-odc-600 mr-2"></div>
@@ -975,10 +975,10 @@ function CreateCustomerModal({ onClose, onSuccess }) {
           <div className="flex gap-2 pt-4">
             <button
               type="submit"
-              disabled={createMutation.isLoading}
+              disabled={createMutation.isPending}
               className="flex-1 inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-odc-600 hover:bg-odc-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-odc-500"
             >
-              {createMutation.isLoading ? 'Creating...' : 'Create Account'}
+              {createMutation.isPending ? 'Creating...' : 'Create Account'}
             </button>
             <button
               type="button"
@@ -1243,10 +1243,10 @@ function CustomerManagement() {
         <div className="flex gap-3">
           <button
             onClick={() => syncMutation.mutate()}
-            disabled={syncMutation.isLoading}
+            disabled={syncMutation.isPending}
             className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-odc-500 disabled:opacity-50"
           >
-            {syncMutation.isLoading ? (
+            {syncMutation.isPending ? (
               <svg className="animate-spin h-5 w-5 mr-2 text-gray-500" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -1256,7 +1256,7 @@ function CustomerManagement() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
             )}
-            {syncMutation.isLoading ? 'Syncing...' : 'Sync BC Customers'}
+            {syncMutation.isPending ? 'Syncing...' : 'Sync BC Customers'}
           </button>
           <button
             onClick={() => {
