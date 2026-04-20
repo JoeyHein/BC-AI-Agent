@@ -1067,18 +1067,43 @@ class PartNumberService:
         )
         top_seal_weight = config.door_width * TOP_SEAL_LBS_PER_INCH if has_top_seal else 0
 
-        total_weight = panel_weight + end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight + hardware_weight + top_seal_weight
+        # 9. Window weight (residential + commercial)
+        RESI_WINDOW_WEIGHTS = {
+            "KANATA": {"short": 4.0, "long": 7.0},
+            "CRAFT": {"short": 10.0, "long": 10.0},
+        }
+        COMM_WINDOW_WEIGHTS = {
+            "TX380": {"18x8": 3.49, "24x12": 5.0, "34x16": 9.0},
+            "TX450": {"18x8": 2.5, "24x12": 5.16, "34x16": 9.77},
+            "TX450-20": {"18x8": 2.45, "24x12": 5.0, "34x16": 9.0},
+            "TX500": {"18x8": 2.5, "24x12": 5.0, "34x16": 9.0},
+            "TX500-20": {"18x8": 2.3, "24x12": 4.88, "34x16": 9.0},
+        }
+        window_weight = 0.0
+        if series in RESI_WINDOW_WEIGHTS and config.window_count > 0:
+            win_size = config.window_size or "long"
+            wt_per = RESI_WINDOW_WEIGHTS[series].get(win_size, 7.0)
+            window_weight = wt_per * config.window_count
+        elif series in COMM_WINDOW_WEIGHTS and config.window_qty > 0:
+            # Commercial window_insert maps to window type
+            comm_window_sizes = {"V130G": "24x12", "V230G": "24x12"}
+            wt_key = comm_window_sizes.get(config.window_insert, "24x12")
+            wt_per = COMM_WINDOW_WEIGHTS[series].get(wt_key, 5.0)
+            window_weight = wt_per * config.window_qty
+
+        total_weight = panel_weight + end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight + hardware_weight + top_seal_weight + window_weight
 
         breakdown_str = " + ".join(
             f"{breakdown[h]}x{h}\"" for h in ["24", "21"] if breakdown[h] > 0
         )
-        extras = end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight + hardware_weight + top_seal_weight
+        extras = end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight + hardware_weight + top_seal_weight + window_weight
         logger.info(
             f"Door weight: {series} {door_width_ft:.1f}'x{door_height_in}\" "
             f"= [{breakdown_str}] panels={panel_weight:.1f} + extras={extras:.1f} "
             f"(endcaps={end_cap_weight:.1f}, retainer={retainer_weight:.1f}, "
             f"astragal={astragal_weight:.1f}, struts={strut_weight:.1f}, "
-            f"hardware={hardware_weight:.1f}, top_seal={top_seal_weight:.1f}) = {total_weight:.1f} lbs"
+            f"hardware={hardware_weight:.1f}, top_seal={top_seal_weight:.1f}, "
+            f"windows={window_weight:.1f}) = {total_weight:.1f} lbs"
         )
 
         return total_weight

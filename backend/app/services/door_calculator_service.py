@@ -226,6 +226,9 @@ WINDOW_WEIGHTS = {
     "TX450-20": {"18x8": 5.35, "24x12": 8.125, "34x16": 15.5},
     "TX500": {"18x8": 5.5, "24x12": 8.375, "34x16": 15.5},
     "TX500-20": {"18x8": 5.5, "24x12": 8.375, "34x16": 15.5},
+    # Residential — net weights (no cutout subtraction needed)
+    "KANATA": {"short": 4.0, "long": 7.0},
+    "CRAFT": {"short": 10.0, "long": 10.0},
 }
 
 # Window cutout weight reduction (lbs)
@@ -235,6 +238,9 @@ WINDOW_CUTOUT_WEIGHTS = {
     "TX450-20": {"18x8": 2.9, "24x12": 3.13, "34x16": 6.5},
     "TX500": {"18x8": 3.0, "24x12": 3.375, "34x16": 6.5},
     "TX500-20": {"18x8": 3.2, "24x12": 3.5, "34x16": 6.5},
+    # Residential weights above are already net — zero cutout
+    "KANATA": {"short": 0, "long": 0},
+    "CRAFT": {"short": 0, "long": 0},
 }
 
 # Net window weight (window weight - cutout weight)
