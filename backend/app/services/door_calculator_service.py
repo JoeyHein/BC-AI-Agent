@@ -681,13 +681,32 @@ class DoorCalculatorService:
                 mapper = get_bc_mapper()
                 test_pn = mapper.get_spring_part_number(springs.wire_diameter, springs.coil_diameter, "LH")
                 if test_pn.part_number not in mapper.spring_items:
-                    # Try stepping up
                     found = False
+                    # Try stepping up wire on same coil
                     for bc_wire in sorted(mapper.WIRE_SIZE_CODES.keys()):
                         if bc_wire >= springs.wire_diameter:
                             test = mapper.get_spring_part_number(bc_wire, springs.coil_diameter, "LH")
                             if test.part_number in mapper.spring_items:
                                 found = True
+                                break
+                    # Try same wire then larger wires on next coil up
+                    if not found:
+                        for next_coil in STOCKED_COIL_DIAMETERS:
+                            if next_coil <= springs.coil_diameter:
+                                continue
+                            # Same wire at bigger coil
+                            test = mapper.get_spring_part_number(springs.wire_diameter, next_coil, "LH")
+                            if test.part_number in mapper.spring_items:
+                                found = True
+                                break
+                            # Step up wire at bigger coil
+                            for bc_wire in sorted(mapper.WIRE_SIZE_CODES.keys()):
+                                if bc_wire > springs.wire_diameter:
+                                    test = mapper.get_spring_part_number(bc_wire, next_coil, "LH")
+                                    if test.part_number in mapper.spring_items:
+                                        found = True
+                                        break
+                            if found:
                                 break
                     if not found:
                         warnings.append(
