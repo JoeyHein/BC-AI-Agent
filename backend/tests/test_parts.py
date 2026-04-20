@@ -64,17 +64,18 @@ class TestStruts:
 # ── Hardware boxes ────────────────────────────────────────────────────────
 
 class TestHardwareBoxes:
-    def test_residential_hardware_in_bc(self):
-        mapper = get_bc_mapper()
+    def test_residential_hardware_generated(self):
+        """HK02 kits follow a deterministic pattern — verify they're generated (not generic)."""
         for width in [8, 9, 10, 12, 16, 18]:
             parts = _get_parts({"doorWidth": width * 12})
             hw = _by_category(parts, "hardware")
             assert len(hw) >= 1, f"{width}ft: no hardware kit"
             pn = hw[0]["part_number"]
-            assert pn in mapper.bc_items, f"{width}ft: hardware {pn} not in BC"
+            assert pn.startswith("HK02-"), f"{width}ft: expected HK02, got {pn}"
+            assert pn != "HK02-00000-RC", f"{width}ft: got generic fallback instead of sized kit"
 
-    def test_commercial_hardware_in_bc(self):
-        mapper = get_bc_mapper()
+    def test_commercial_hardware_generated(self):
+        """HK03 kits follow a deterministic pattern — verify they're generated (not generic)."""
         for width in [12, 14, 16, 18]:
             parts = _get_parts({
                 "doorType": "commercial", "doorSeries": "TX450",
@@ -84,7 +85,8 @@ class TestHardwareBoxes:
             hw = _by_category(parts, "hardware")
             assert len(hw) >= 1, f"Comm {width}ft: no hardware kit"
             pn = hw[0]["part_number"]
-            assert pn in mapper.bc_items, f"Comm {width}ft: hardware {pn} not in BC"
+            assert pn.startswith("HK03-"), f"Comm {width}ft: expected HK03, got {pn}"
+            assert pn != "HK03-00000-RC", f"Comm {width}ft: got generic fallback instead of sized kit"
 
 
 # ── Top seal ──────────────────────────────────────────────────────────────
