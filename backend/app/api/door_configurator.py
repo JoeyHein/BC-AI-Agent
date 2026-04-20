@@ -1238,12 +1238,14 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
             logger.warning(f"Could not fetch pricing for quote {bc_quote_number}: {pricing_error}")
 
         # Step 4b: Escalating margin adjustment (client-specific volume discount)
-        # Uses the tier prices we tracked in Step 4 (tier_prices_by_line_id) so we
-        # apply the multiplier to the GOLD TIER price, not BC's list price.
+        # Calculates final price directly FROM COST at the target GM%.
+        # Does NOT multiply the tier price — computes from scratch so the
+        # discount is always relative to the actual product cost.
         escalating_result = None
         if tier_prices_by_line_id and request.customerId:
             try:
                 from app.services.escalating_margin_service import get_escalating_margin
+                from app.services.pricing_service import calculate_selling_price_at_margin
                 bc_cust_esc = db.query(BCCustomer).filter(
                     BCCustomer.bc_customer_id == request.customerId
                 ).first()
@@ -1251,48 +1253,42 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 esc_profile = get_escalating_margin(cust_name)
 
                 if esc_profile:
-                    # Calculate total from our tracked tier prices (not from BC)
                     tier_subtotal = sum(
                         lp["price"] * lp["qty"]
                         for lp in tier_prices_by_line_id.values()
                     )
                     esc_calc = esc_profile.calculate(tier_subtotal)
-                    multiplier = esc_calc["multiplier"]
+                    target_gm = esc_calc["target_gm"]
 
-                    if multiplier < 1.0:
+                    if target_gm < esc_profile.base_gm_pct:
                         logger.info(
                             f"Applying escalating margin [{esc_profile.name}]: "
-                            f"tier subtotal ${tier_subtotal:,.0f} x {multiplier:.4f}"
+                            f"tier subtotal ${tier_subtotal:,.0f} → {target_gm:.1f}% GM from cost"
                         )
 
-                        # PATCH each tracked line: tier_price × multiplier
                         esc_lines = bc_client.get_quote_lines(bc_quote_id)
-                        esc_item_lines = [ql for ql in esc_lines if ql.get("lineType") == "Item"]
-                        matched = sum(1 for ql in esc_item_lines if ql["id"] in tier_prices_by_line_id)
-                        logger.info(
-                            f"Escalating margin: {len(esc_item_lines)} item lines in BC, "
-                            f"{len(tier_prices_by_line_id)} tracked, {matched} matched"
-                        )
                         patched_count = 0
                         for ql in esc_lines:
                             line_id = ql.get("id")
-                            if line_id in tier_prices_by_line_id:
+                            part_num = ql.get("lineObjectNumber", "")
+                            if line_id in tier_prices_by_line_id and part_num:
                                 tier_price = tier_prices_by_line_id[line_id]["price"]
-                                adj_price = round(tier_price * multiplier, 2)
-                                etag = ql.get("@odata.etag", "*")
-                                try:
-                                    bc_client.update_quote_line(
-                                        bc_quote_id, line_id, etag,
-                                        {"unitPrice": adj_price},
-                                    )
-                                    patched_count += 1
-                                    logger.info(
-                                        f"ESC PATCH: {ql.get('lineObjectNumber','?')} "
-                                        f"tier=${tier_price} -> adj=${adj_price}"
-                                    )
-                                except Exception as esc_err:
-                                    logger.error(f"ESC PATCH FAILED [{ql.get('lineObjectNumber','?')}]: {esc_err}")
-                        logger.info(f"Escalating margin: {patched_count}/{matched} lines PATCHed")
+                                esc_price = calculate_selling_price_at_margin(part_num, target_gm, db)
+                                if esc_price is not None:
+                                    etag = ql.get("@odata.etag", "*")
+                                    try:
+                                        bc_client.update_quote_line(
+                                            bc_quote_id, line_id, etag,
+                                            {"unitPrice": esc_price},
+                                        )
+                                        patched_count += 1
+                                        logger.info(
+                                            f"ESC PATCH: {part_num} "
+                                            f"30%GM=${tier_price} → {target_gm:.1f}%GM=${esc_price}"
+                                        )
+                                    except Exception as esc_err:
+                                        logger.error(f"ESC PATCH FAILED [{part_num}]: {esc_err}")
+                        logger.info(f"Escalating margin: {patched_count} lines re-priced at {target_gm:.1f}% GM")
 
                         try:
                             bc_client.add_quote_line(bc_quote_id, {

@@ -340,3 +340,46 @@ def calculate_selling_price(
     selling_price = adjusted_cost / (1 - margin_pct / 100)
 
     return round(selling_price, 2)
+
+
+def calculate_selling_price_at_margin(
+    part_number: str,
+    margin_pct: float,
+    db: Session,
+) -> Optional[float]:
+    """
+    Calculate selling price at a specific gross margin percentage.
+
+    Uses the same cost + cost adjustments as calculate_selling_price(),
+    but with an explicit margin instead of tier-based lookup.
+    Used by the escalating margin module to price directly from cost.
+
+    Returns rounded selling price, or None if cost unavailable.
+    """
+    item = _get_live_item(part_number)
+    if not item:
+        return None
+
+    unit_cost = item.get("unitCost", 0)
+    if not unit_cost or unit_cost <= 0:
+        return None
+
+    posting_group = item.get("generalProductPostingGroupCode", "")
+
+    # Cost adjustments (same as tier pricing)
+    adjustments = _load_cost_adjustments(db)
+    adj_entry = adjustments.get(posting_group, {})
+    cost_adj_pct = adj_entry.get("adjustment", 0) if isinstance(adj_entry, dict) else 0
+
+    # Spring waste factor
+    pn_upper = part_number.upper()
+    SPRING_WASTE_FACTOR = 0.15
+    if posting_group == "SPRI" or pn_upper.startswith("SP11"):
+        unit_cost = unit_cost * (1 + SPRING_WASTE_FACTOR)
+
+    adjusted_cost = unit_cost * (1 + cost_adj_pct / 100)
+    if margin_pct >= 100:
+        margin_pct = 99
+    selling_price = adjusted_cost / (1 - margin_pct / 100)
+
+    return round(selling_price, 2)
