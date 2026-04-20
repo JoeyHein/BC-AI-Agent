@@ -951,8 +951,13 @@ class BCPartNumberMapper:
 
         # Width code: FFII format (feet + inches)
         # E.g., 9' = 0900, 16' = 1600, 9'6" = 0906
+        # Use round() not int() to avoid floating-point truncation
+        # (e.g. 170/12 = 14.1666... → 0.1666*12 = 1.9999 → int()=1, round()=2)
         feet = int(width_feet)
-        inches = int((width_feet % 1) * 12)
+        inches = round((width_feet % 1) * 12)
+        if inches >= 12:
+            feet += 1
+            inches = 0
         width_code = f"{feet:02d}{inches:02d}"
 
         # Build part number: PN{series}-{height}{stamp}{color}-{width}

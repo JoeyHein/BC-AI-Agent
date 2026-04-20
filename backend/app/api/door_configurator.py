@@ -1046,7 +1046,20 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
             pn = line["part_number"]
             if pn in mapper.bc_items:
                 continue
-            # Part doesn't exist in BC — find closest match
+
+            # PANEL HARD FAIL: if a panel part can't be found, abort the quote.
+            if line.get("category") == "panel":
+                logger.error(f"PANEL PART NOT IN BC — aborting quote {bc_quote_number}. Part: {pn}")
+                try:
+                    bc_client.delete_sales_quote(bc_quote_id)
+                except Exception:
+                    pass
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Panel part {pn} not found in BC inventory. Please contact the office."
+                )
+
+            # Non-panel part doesn't exist — find closest match
             prefix = pn.split("-")[0] if "-" in pn else pn[:4]
             candidates = [
                 (bc_pn, item.get("displayName", ""))
@@ -1217,6 +1230,67 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
         except Exception as pricing_error:
             logger.warning(f"Could not fetch pricing for quote {bc_quote_number}: {pricing_error}")
 
+        # Step 4b: Escalating margin adjustment (client-specific volume discount)
+        escalating_result = None
+        if pricing and pricing.get("subtotal", 0) > 0 and request.customerId:
+            try:
+                from app.services.escalating_margin_service import get_escalating_margin
+                bc_cust_esc = db.query(BCCustomer).filter(
+                    BCCustomer.bc_customer_id == request.customerId
+                ).first()
+                cust_name = bc_cust_esc.company_name if bc_cust_esc else ""
+                esc_profile = get_escalating_margin(cust_name)
+
+                if esc_profile:
+                    subtotal_at_base = pricing["subtotal"]
+                    esc_calc = esc_profile.calculate(subtotal_at_base)
+                    multiplier = esc_calc["multiplier"]
+
+                    if multiplier < 1.0:
+                        logger.info(
+                            f"Applying escalating margin [{esc_profile.name}]: "
+                            f"${subtotal_at_base:,.0f} x {multiplier:.4f} "
+                            f"(target GM {esc_calc['target_gm']:.1f}%)"
+                        )
+                        esc_lines = bc_client.get_quote_lines(bc_quote_id)
+                        for ql in esc_lines:
+                            if ql.get("lineObjectType", "") == "Item":
+                                orig_price = ql.get("unitPrice", 0)
+                                if orig_price > 0:
+                                    adj_price = round(orig_price * multiplier, 2)
+                                    try:
+                                        etag = ql.get("@odata.etag", "*")
+                                        bc_client.update_quote_line(
+                                            bc_quote_id, ql["id"], etag,
+                                            {"unitPrice": adj_price},
+                                        )
+                                    except Exception as esc_err:
+                                        logger.warning(f"Escalating PATCH failed: {esc_err}")
+
+                        try:
+                            bc_client.add_quote_line(bc_quote_id, {
+                                "lineType": "Comment",
+                                "description": (
+                                    f"** VOLUME PRICING: {esc_profile.name} - "
+                                    f"{esc_calc['target_gm']:.1f}% GM "
+                                    f"({esc_calc['discount_pct']:.1f}% volume discount) **"
+                                ),
+                            })
+                        except Exception:
+                            pass
+
+                        try:
+                            updated = bc_client.get_sales_quote(bc_quote_id)
+                            pricing["subtotal"] = round(updated.get("totalAmountExcludingTax", 0), 2)
+                            pricing["total"] = round(updated.get("totalAmountIncludingTax", 0), 2)
+                            pricing["tax"] = round(pricing["total"] - pricing["subtotal"], 2)
+                        except Exception:
+                            pass
+
+                        escalating_result = esc_calc
+            except Exception as esc_err:
+                logger.warning(f"Escalating margin check failed: {esc_err}")
+
         # Step 5: Add freight line if delivery
         freight_info = None
         if pricing:
@@ -1348,9 +1422,13 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "line_pricing": line_pricing if line_pricing else None,
                 "freight": freight_info,
                 "part_warnings": part_warnings if part_warnings else None,
+                "escalating_margin": escalating_result,
             },
             "message": f"BC Quote {bc_quote_number} created with {lines_added} line items" + (
                 f" ({len(part_warnings)} part(s) substituted — review in BC)" if part_warnings else ""
+            ) + (
+                f" | Volume pricing: {escalating_result['target_gm']:.1f}% GM ({escalating_result['discount_pct']:.1f}% discount)"
+                if escalating_result else ""
             )
         }
 
