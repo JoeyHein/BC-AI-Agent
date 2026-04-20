@@ -675,18 +675,41 @@ class DoorCalculatorService:
                     f"Wire size ({springs.wire_diameter}\") exceeds standard maximum ({MAX_WIRE_SIZE}\"). "
                     f"Contact office for custom spring quote."
                 )
-            # Check if this wire/coil combo exists in BC inventory
-            # Uses the shared resolve_spring_in_bc() — same logic as quote generator
-            if spring_inventory:
-                from app.services.bc_part_number_mapper import get_bc_mapper
-                mapper = get_bc_mapper()
-                found, _, _ = mapper.resolve_spring_in_bc(springs.wire_diameter, springs.coil_diameter)
-                if not found:
-                    warnings.append(
-                        f"Calculated spring ({springs.wire_diameter}\" wire x {springs.coil_diameter}\" coil) "
-                        f"is not available in standard inventory for {target_cycles:,} cycles. "
-                        f"Contact office for custom spring quote."
-                    )
+            # Check if this wire/coil combo exists in BC inventory.
+            # If not, UPDATE the spring specs to match what the quote generator
+            # will actually use, so specs and quoted parts always agree.
+            from app.services.bc_part_number_mapper import get_bc_mapper
+            mapper = get_bc_mapper()
+            found, resolved_wire, resolved_coil = mapper.resolve_spring_in_bc(
+                springs.wire_diameter, springs.coil_diameter
+            )
+            if not found:
+                warnings.append(
+                    f"Calculated spring ({springs.wire_diameter}\" wire x {springs.coil_diameter}\" coil) "
+                    f"is not available in standard inventory for {target_cycles:,} cycles. "
+                    f"Contact office for custom spring quote."
+                )
+            elif resolved_wire != springs.wire_diameter or resolved_coil != springs.coil_diameter:
+                # Update spring specs to show the resolved (quotable) values
+                logger.info(
+                    f"Spring specs updated: {springs.wire_diameter}\" x {springs.coil_diameter}\" "
+                    f"→ {resolved_wire}\" x {resolved_coil}\" (BC resolved)"
+                )
+                springs = SpringSelection(
+                    quantity=springs.quantity,
+                    coil_diameter=resolved_coil,
+                    wire_diameter=resolved_wire,
+                    length=springs.length,
+                    active_coils=springs.active_coils,
+                    dead_coil_factor=springs.dead_coil_factor,
+                    ippt=springs.ippt,
+                    mip_per_spring=springs.mip_per_spring,
+                    turns=springs.turns,
+                    spring_quantity=springs.spring_quantity,
+                    cycle_life=springs.cycle_life,
+                    drum_model=springs.drum_model,
+                    multiplier=springs.multiplier,
+                )
 
         # 7. Calculate shaft (spring count drives shaft count)
         is_residential = door_type == "residential"

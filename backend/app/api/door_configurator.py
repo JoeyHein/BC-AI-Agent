@@ -1305,12 +1305,25 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                         except Exception:
                             pass
 
-                        # Re-fetch totals from BC
+                        # Re-fetch totals AND line pricing from BC
                         try:
                             updated = bc_client.get_sales_quote(bc_quote_id)
                             pricing["subtotal"] = round(updated.get("totalAmountExcludingTax", 0), 2)
                             pricing["total"] = round(updated.get("totalAmountIncludingTax", 0), 2)
                             pricing["tax"] = round(pricing["total"] - pricing["subtotal"], 2)
+
+                            # Rebuild line_pricing with discounted prices
+                            updated_lines = bc_client.get_quote_lines(bc_quote_id)
+                            line_pricing = []
+                            for ul in updated_lines:
+                                if ul.get("lineType") == "Item":
+                                    line_pricing.append({
+                                        "part_number": ul.get("lineObjectNumber"),
+                                        "description": ul.get("description", ""),
+                                        "quantity": ul.get("quantity", 0),
+                                        "unit_price": ul.get("unitPrice", 0),
+                                        "line_total": ul.get("netAmount", 0),
+                                    })
                         except Exception:
                             pass
 
