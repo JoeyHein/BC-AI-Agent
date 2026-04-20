@@ -1254,7 +1254,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                         )
                         esc_lines = bc_client.get_quote_lines(bc_quote_id)
                         for ql in esc_lines:
-                            if ql.get("lineObjectType", "") == "Item":
+                            if ql.get("lineType", "") == "Item":
                                 orig_price = ql.get("unitPrice", 0)
                                 if orig_price > 0:
                                     adj_price = round(orig_price * multiplier, 2)
@@ -1272,8 +1272,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                                 "lineType": "Comment",
                                 "description": (
                                     f"** VOLUME PRICING: {esc_profile.name} - "
-                                    f"{esc_calc['target_gm']:.1f}% GM "
-                                    f"({esc_calc['discount_pct']:.1f}% volume discount) **"
+                                    f"{esc_calc['discount_pct']:.1f}% volume discount applied **"
                                 ),
                             })
                         except Exception:

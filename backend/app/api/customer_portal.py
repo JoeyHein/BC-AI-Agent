@@ -1017,7 +1017,7 @@ def _generate_bc_quote_with_items(
                     # PATCH each non-comment line with adjusted unit price
                     esc_quote_lines = bc_client.get_quote_lines(bc_quote_id)
                     for ql in esc_quote_lines:
-                        if ql.get("lineObjectType", "") == "Item":
+                        if ql.get("lineType", "") == "Item":
                             orig_price = ql.get("unitPrice", 0)
                             if orig_price > 0:
                                 adj_price = round(orig_price * multiplier, 2)
@@ -1036,8 +1036,7 @@ def _generate_bc_quote_with_items(
                             "lineType": "Comment",
                             "description": (
                                 f"** VOLUME PRICING: {esc_profile.name} — "
-                                f"{esc_calc['target_gm']:.1f}% GM "
-                                f"({esc_calc['discount_pct']:.1f}% volume discount applied) **"
+                                f"{esc_calc['discount_pct']:.1f}% volume discount applied **"
                             ),
                         })
                     except Exception:
