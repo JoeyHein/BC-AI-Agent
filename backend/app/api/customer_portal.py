@@ -804,6 +804,39 @@ def _generate_bc_quote_with_items(
             part_id = line.get("part_number", line.get("description", "unknown"))
             logger.warning(f"Failed to add line {part_id}: {line_error}")
 
+            # ── PANEL HARD FAIL: if a panel part number can't be resolved,
+            # abort the entire quote. Panels are the core product — a quote
+            # without correct panels is worse than no quote. ────────────────
+            line_category = line.get("category", "")
+            if line_category == "panel":
+                logger.error(
+                    f"PANEL PART FAILED — aborting quote {bc_quote_number}. "
+                    f"Part: {part_id}, Error: {line_error}"
+                )
+                # Delete the incomplete BC quote
+                try:
+                    bc_client.delete_sales_quote(bc_quote_id)
+                    logger.info(f"Deleted incomplete quote {bc_quote_number}")
+                except Exception as del_err:
+                    logger.warning(f"Could not delete incomplete quote: {del_err}")
+
+                return {
+                    "success": False,
+                    "error": (
+                        f"Panel part number {part_id} could not be resolved in BC. "
+                        f"Please contact the office to complete this quote."
+                    ),
+                    "bc_quote_id": None,
+                    "bc_quote_number": None,
+                    "lines_added": 0,
+                    "lines_failed": [{"part_number": part_id, "error": str(line_error), "category": "panel"}],
+                    "pricing": None,
+                    "line_pricing": None,
+                    "door_results": None,
+                    "freight": None,
+                    "escalating_margin": None,
+                }
+
             # ── AI substitute lookup ────────────────────────────────────────
             # Before falling back to a comment, ask Claude to find the closest
             # matching BC item so the quote has real billable lines.
