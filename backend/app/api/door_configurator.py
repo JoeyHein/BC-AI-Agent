@@ -1267,6 +1267,12 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
 
                         # PATCH each tracked line: tier_price × multiplier
                         esc_lines = bc_client.get_quote_lines(bc_quote_id)
+                        esc_item_lines = [ql for ql in esc_lines if ql.get("lineType") == "Item"]
+                        matched = sum(1 for ql in esc_item_lines if ql["id"] in tier_prices_by_line_id)
+                        logger.info(
+                            f"Escalating margin: {len(esc_item_lines)} item lines in BC, "
+                            f"{len(tier_prices_by_line_id)} tracked, {matched} matched"
+                        )
                         for ql in esc_lines:
                             line_id = ql.get("id")
                             if line_id in tier_prices_by_line_id:
