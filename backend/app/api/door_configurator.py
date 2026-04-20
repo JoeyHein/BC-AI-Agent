@@ -1040,11 +1040,18 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
         from app.services.bc_part_number_mapper import get_bc_mapper
         mapper = get_bc_mapper()
 
+        # Part number prefixes that follow deterministic patterns and are
+        # known to exist in BC even if not in our item cache export.
+        SKIP_VALIDATION_PREFIXES = ("HK02-", "HK03-", "HK12-", "HK13-")
+
         for line in all_lines:
             if line.get("lineType") == "Comment" or not line.get("part_number"):
                 continue
             pn = line["part_number"]
             if pn in mapper.bc_items:
+                continue
+            # Skip validation for deterministic HK hardware kit part numbers
+            if any(pn.startswith(pfx) for pfx in SKIP_VALIDATION_PREFIXES) and pn != f"{pn[:4]}-00000-RC":
                 continue
 
             # PANEL HARD FAIL: if a panel part can't be found, abort the quote.
