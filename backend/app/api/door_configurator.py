@@ -1273,19 +1273,26 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                             f"Escalating margin: {len(esc_item_lines)} item lines in BC, "
                             f"{len(tier_prices_by_line_id)} tracked, {matched} matched"
                         )
+                        patched_count = 0
                         for ql in esc_lines:
                             line_id = ql.get("id")
                             if line_id in tier_prices_by_line_id:
                                 tier_price = tier_prices_by_line_id[line_id]["price"]
                                 adj_price = round(tier_price * multiplier, 2)
+                                etag = ql.get("@odata.etag", "*")
                                 try:
-                                    etag = ql.get("@odata.etag", "*")
                                     bc_client.update_quote_line(
                                         bc_quote_id, line_id, etag,
                                         {"unitPrice": adj_price},
                                     )
+                                    patched_count += 1
+                                    logger.info(
+                                        f"ESC PATCH: {ql.get('lineObjectNumber','?')} "
+                                        f"tier=${tier_price} -> adj=${adj_price}"
+                                    )
                                 except Exception as esc_err:
-                                    logger.warning(f"Escalating PATCH failed: {esc_err}")
+                                    logger.error(f"ESC PATCH FAILED [{ql.get('lineObjectNumber','?')}]: {esc_err}")
+                        logger.info(f"Escalating margin: {patched_count}/{matched} lines PATCHed")
 
                         try:
                             bc_client.add_quote_line(bc_quote_id, {
