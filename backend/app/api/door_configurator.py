@@ -1091,6 +1091,8 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
         # Step 4: Add line items to the quote in proper order
         lines_added = 0
         lines_failed = []
+        # Track tier prices per BC line ID for escalating margin (avoids re-fetch race)
+        tier_prices_by_line_id = {}  # { bc_line_id: { "price": float, "qty": float } }
 
         for line in all_lines:
             try:
@@ -1147,6 +1149,11 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                                 etag,
                                 {"unitPrice": selling_price},
                             )
+                            # Track for escalating margin
+                            tier_prices_by_line_id[added_line["id"]] = {
+                                "price": selling_price,
+                                "qty": line.get("quantity", 1),
+                            }
                             logger.info(f"PRICING DEBUG [{part_num}]: PATCH SUCCESS unitPrice={selling_price}")
                         except Exception as patch_err:
                             logger.error(f"PRICING DEBUG [{part_num}]: PATCH FAILED: {patch_err}")
@@ -1231,8 +1238,10 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
             logger.warning(f"Could not fetch pricing for quote {bc_quote_number}: {pricing_error}")
 
         # Step 4b: Escalating margin adjustment (client-specific volume discount)
+        # Uses the tier prices we tracked in Step 4 (tier_prices_by_line_id) so we
+        # apply the multiplier to the GOLD TIER price, not BC's list price.
         escalating_result = None
-        if pricing and pricing.get("subtotal", 0) > 0 and request.customerId:
+        if tier_prices_by_line_id and request.customerId:
             try:
                 from app.services.escalating_margin_service import get_escalating_margin
                 bc_cust_esc = db.query(BCCustomer).filter(
@@ -1242,30 +1251,35 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 esc_profile = get_escalating_margin(cust_name)
 
                 if esc_profile:
-                    subtotal_at_base = pricing["subtotal"]
-                    esc_calc = esc_profile.calculate(subtotal_at_base)
+                    # Calculate total from our tracked tier prices (not from BC)
+                    tier_subtotal = sum(
+                        lp["price"] * lp["qty"]
+                        for lp in tier_prices_by_line_id.values()
+                    )
+                    esc_calc = esc_profile.calculate(tier_subtotal)
                     multiplier = esc_calc["multiplier"]
 
                     if multiplier < 1.0:
                         logger.info(
                             f"Applying escalating margin [{esc_profile.name}]: "
-                            f"${subtotal_at_base:,.0f} x {multiplier:.4f} "
-                            f"(target GM {esc_calc['target_gm']:.1f}%)"
+                            f"tier subtotal ${tier_subtotal:,.0f} x {multiplier:.4f}"
                         )
+
+                        # PATCH each tracked line: tier_price × multiplier
                         esc_lines = bc_client.get_quote_lines(bc_quote_id)
                         for ql in esc_lines:
-                            if ql.get("lineType", "") == "Item":
-                                orig_price = ql.get("unitPrice", 0)
-                                if orig_price > 0:
-                                    adj_price = round(orig_price * multiplier, 2)
-                                    try:
-                                        etag = ql.get("@odata.etag", "*")
-                                        bc_client.update_quote_line(
-                                            bc_quote_id, ql["id"], etag,
-                                            {"unitPrice": adj_price},
-                                        )
-                                    except Exception as esc_err:
-                                        logger.warning(f"Escalating PATCH failed: {esc_err}")
+                            line_id = ql.get("id")
+                            if line_id in tier_prices_by_line_id:
+                                tier_price = tier_prices_by_line_id[line_id]["price"]
+                                adj_price = round(tier_price * multiplier, 2)
+                                try:
+                                    etag = ql.get("@odata.etag", "*")
+                                    bc_client.update_quote_line(
+                                        bc_quote_id, line_id, etag,
+                                        {"unitPrice": adj_price},
+                                    )
+                                except Exception as esc_err:
+                                    logger.warning(f"Escalating PATCH failed: {esc_err}")
 
                         try:
                             bc_client.add_quote_line(bc_quote_id, {
@@ -1278,6 +1292,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                         except Exception:
                             pass
 
+                        # Re-fetch totals from BC
                         try:
                             updated = bc_client.get_sales_quote(bc_quote_id)
                             pricing["subtotal"] = round(updated.get("totalAmountExcludingTax", 0), 2)
