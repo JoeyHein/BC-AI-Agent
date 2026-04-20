@@ -851,12 +851,13 @@ class PartNumberService:
         }
         door_model = model_map.get(config.door_series, DoorModel.TX450)
 
-        # Actual door width — keep precise value for description
-        actual_width_in = config.door_width          # e.g., 150 for 12'6"
-        actual_width_feet = actual_width_in / 12     # e.g., 12.5
-
-        # Round UP to next whole foot for BC part number (no panel exists for fractional widths)
-        panel_width_feet = math.ceil(actual_width_feet)   # e.g., 13
+        # Actual door width — keep precise value for part number and description.
+        # Panel part numbers use FFII format (e.g. 1402 = 14'2"), so we pass
+        # the exact fractional feet to the mapper. Do NOT round up to the next
+        # whole foot — that generates a wrong width code (e.g. 1500 instead of 1402).
+        actual_width_in = config.door_width          # e.g., 170 for 14'2"
+        actual_width_feet = actual_width_in / 12     # e.g., 14.1667
+        panel_width_feet = actual_width_feet          # exact — mapper formats FFII
 
         # Determine end cap type — user override or width-based auto
         if config.end_cap_type == 'SEC':
