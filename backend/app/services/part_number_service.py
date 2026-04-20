@@ -1563,9 +1563,12 @@ class PartNumberService:
         spring_lh = mapper.get_spring_part_number(wire_size, coil_id, "LH")
         spring_rh = mapper.get_spring_part_number(wire_size, coil_id, "RH")
 
-        # Validate spring exists in BC — if not, step up wire until we find one
+        # Validate spring exists in BC — if not, step up wire at same coil,
+        # then try the next coil diameter up with all valid wires.
+        COIL_PROGRESSION = [2.0, 2.625, 3.75, 6.0]
         spring_found_in_bc = spring_lh.part_number in mapper.spring_items
         if not spring_found_in_bc:
+            # First: try stepping up wire on the SAME coil
             for bc_wire in sorted(mapper.WIRE_SIZE_CODES.keys()):
                 if bc_wire >= wire_size:
                     test_lh = mapper.get_spring_part_number(bc_wire, coil_id, "LH")
@@ -1578,6 +1581,29 @@ class PartNumberService:
                         spring_lh = test_lh
                         spring_rh = mapper.get_spring_part_number(bc_wire, coil_id, "RH")
                         spring_found_in_bc = True
+                        break
+
+            # Second: if still not found, try the NEXT coil diameter up
+            if not spring_found_in_bc:
+                current_coil_idx = next(
+                    (i for i, c in enumerate(COIL_PROGRESSION) if c >= coil_id), -1
+                )
+                for next_coil in COIL_PROGRESSION[current_coil_idx + 1:]:
+                    for bc_wire in sorted(mapper.WIRE_SIZE_CODES.keys()):
+                        if bc_wire >= wire_size:
+                            test_lh = mapper.get_spring_part_number(bc_wire, next_coil, "LH")
+                            if test_lh.part_number in mapper.spring_items:
+                                logger.info(
+                                    f"Spring not in BC at {coil_id}\" coil — "
+                                    f"stepped up to {bc_wire}\" wire x {next_coil}\" coil"
+                                )
+                                wire_size = bc_wire
+                                coil_id = next_coil
+                                spring_lh = test_lh
+                                spring_rh = mapper.get_spring_part_number(bc_wire, next_coil, "RH")
+                                spring_found_in_bc = True
+                                break
+                    if spring_found_in_bc:
                         break
 
         # If no BC part number found after step-up, warn but still include the calculated specs
