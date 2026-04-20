@@ -1327,10 +1327,13 @@ class PartNumberService:
                 radius_inches = 12  # 3" tracks don't use radius
 
         # Determine lift type and mount type
+        # HIGH LIFT uses STANDARD LIFT track assemblies — the extension kits
+        # (TR02-EXT4, TR03-EXT4/EXT6) are added separately by _get_highlift_parts().
+        # BC has no dedicated high-lift track part numbers.
         lift_type_map = {
             'standard': LiftType.STANDARD,
             'low_headroom': LiftType.LOW_HEADROOM,
-            'high_lift': LiftType.HIGH_LIFT,
+            'high_lift': LiftType.STANDARD,   # ← standard track + extension kit
             'vertical': LiftType.VERTICAL,
         }
         lift_type = lift_type_map.get(config.lift_type, LiftType.STANDARD)
@@ -1376,7 +1379,7 @@ class PartNumberService:
         lift_label_map = {
             'standard': 'STANDARD LIFT',
             'low_headroom': 'LOW HEADROOM',
-            'high_lift': 'HIGH LIFT',
+            'high_lift': 'STANDARD LIFT',  # track is standard; extension kit is separate
             'vertical': 'VERTICAL LIFT',
         }
         lift_label = lift_label_map.get(config.lift_type, 'STANDARD LIFT')
