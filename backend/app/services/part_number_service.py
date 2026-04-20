@@ -1583,14 +1583,30 @@ class PartNumberService:
                         spring_found_in_bc = True
                         break
 
-            # Second: if still not found, try the NEXT coil diameter up
+            # Second: if still not found, try the NEXT coil diameter up.
+            # Try the SAME wire size first at the larger coil (don't upsize wire
+            # unnecessarily), then step up wire if needed.
             if not spring_found_in_bc:
                 current_coil_idx = next(
                     (i for i, c in enumerate(COIL_PROGRESSION) if c >= coil_id), -1
                 )
                 for next_coil in COIL_PROGRESSION[current_coil_idx + 1:]:
+                    # First try the exact calculated wire at the new coil
+                    test_lh = mapper.get_spring_part_number(wire_size, next_coil, "LH")
+                    if test_lh.part_number in mapper.spring_items:
+                        logger.info(
+                            f"Spring not in BC at {coil_id}\" coil — "
+                            f"moved to {wire_size}\" wire x {next_coil}\" coil (same wire)"
+                        )
+                        coil_id = next_coil
+                        spring_lh = test_lh
+                        spring_rh = mapper.get_spring_part_number(wire_size, next_coil, "RH")
+                        spring_found_in_bc = True
+                        break
+
+                    # Then try stepping up wire at the new coil
                     for bc_wire in sorted(mapper.WIRE_SIZE_CODES.keys()):
-                        if bc_wire >= wire_size:
+                        if bc_wire > wire_size:
                             test_lh = mapper.get_spring_part_number(bc_wire, next_coil, "LH")
                             if test_lh.part_number in mapper.spring_items:
                                 logger.info(
