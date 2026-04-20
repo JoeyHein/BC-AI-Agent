@@ -381,6 +381,16 @@ class EmailMonitorService:
         email_log.status = "parsed"
         email_log.parsed_at = datetime.utcnow()
 
+        # COMMIT critical data before non-critical steps.
+        # QuoteRequest + AIDecision + email status must persist even if
+        # the example library or auto-generation steps fail.
+        try:
+            db.commit()
+        except Exception as commit_err:
+            logger.error(f"  -> Failed to commit QuoteRequest: {commit_err}")
+            db.rollback()
+            return
+
         # MEMORY SYSTEM: Auto-add high-confidence parses to example library (non-critical)
         if confidence >= 0.8:
             try:
