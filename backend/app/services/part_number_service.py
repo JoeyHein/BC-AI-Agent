@@ -2199,10 +2199,12 @@ class PartNumberService:
         - 3" track: TR03-EXT{feet}-00 (2' through 20')
         Round up HL inches to next whole foot. Qty is always 1.
         """
-        if config.lift_type != 'high_lift' or not config.high_lift_inches:
+        if config.lift_type != 'high_lift':
             return []
 
-        hl_feet = math.ceil(config.high_lift_inches / 12)
+        # Default to minimum HL if lift type is high_lift but inches not specified
+        hl_inches = config.high_lift_inches or 24  # default 2' (24") if not set
+        hl_feet = math.ceil(hl_inches / 12)
         track_size = int(config.track_thickness) if config.track_thickness else 3
 
         if track_size == 2:
@@ -2214,8 +2216,8 @@ class PartNumberService:
             part_number = f"TR03-EXT{hl_feet}-00"
             description = f"TRACK ASSEMBLY, 3\" HIGH LIFT EXTENSION {hl_feet}' KIT"
 
-        hl_ft_exact = config.high_lift_inches / 12
-        hl_display = f"{config.high_lift_inches}\" ({hl_ft_exact:.1f}')" if config.high_lift_inches % 12 != 0 else f"{config.high_lift_inches}\" ({hl_feet}')"
+        hl_ft_exact = hl_inches / 12
+        hl_display = f"{hl_inches}\" ({hl_ft_exact:.1f}')" if hl_inches % 12 != 0 else f"{hl_inches}\" ({hl_feet}')"
 
         return [
             PartSelection(
