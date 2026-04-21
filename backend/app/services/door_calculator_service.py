@@ -706,15 +706,14 @@ class DoorCalculatorService:
                     coil_diameter=resolved_coil,
                     wire_diameter=resolved_wire,
                     length=springs.length,
-                    active_coils=springs.active_coils,
-                    dead_coil_factor=springs.dead_coil_factor,
-                    ippt=springs.ippt,
-                    mip_per_spring=springs.mip_per_spring,
                     turns=springs.turns,
-                    spring_quantity=springs.spring_quantity,
-                    cycle_life=springs.cycle_life,
-                    drum_model=springs.drum_model,
-                    multiplier=springs.multiplier,
+                    cycles=springs.cycles,
+                    galvanized=springs.galvanized,
+                    is_duplex=springs.is_duplex,
+                    inner_coil_diameter=springs.inner_coil_diameter,
+                    inner_wire_diameter=springs.inner_wire_diameter,
+                    inner_length=springs.inner_length,
+                    duplex_pairs=springs.duplex_pairs,
                 )
 
         # 7. Calculate shaft (spring count drives shaft count)
