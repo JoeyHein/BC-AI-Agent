@@ -1178,8 +1178,8 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
   const getStampColumns = (widthInches, panelDesign) => {
     const widthFeet = widthInches / 12
     let longCols
-    if (widthFeet <= 10) longCols = 2
-    else if (widthFeet <= 12) longCols = 3
+    if (widthFeet < 12) longCols = 2        // up to 10'2"
+    else if (widthFeet <= 14) longCols = 3  // 12'-14'
     else if (widthFeet <= 16) longCols = 4
     else if (widthFeet <= 19) longCols = 5
     else longCols = 6
