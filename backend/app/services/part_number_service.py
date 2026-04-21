@@ -2194,37 +2194,30 @@ class PartNumberService:
         """Get high lift extension track kit parts.
 
         Extension kits are ADDITIONAL line items on top of the standard track assembly.
-        - 2" track: TR02-EXT4-00 (4' extension kit)
-        - 3" track: TR03-EXT4-00 (4' kit, HL ≤ 48") or TR03-EXT6-00 (6' kit, HL > 48")
-        - qty = max(1, ceil(hl_inches / kit_size_inches))
+        Each kit is sized to the exact high lift footage:
+        - 2" track: TR02-EXT{feet}-00 (1' through 12')
+        - 3" track: TR03-EXT{feet}-00 (2' through 20')
+        Round up HL inches to next whole foot. Qty is always 1.
         """
         if config.lift_type != 'high_lift' or not config.high_lift_inches:
             return []
 
-        hl_inches = config.high_lift_inches
-        track_size = int(config.track_thickness)
+        hl_feet = math.ceil(config.high_lift_inches / 12)
+        track_size = int(config.track_thickness) if config.track_thickness else 3
 
         if track_size == 2:
-            part_number = "TR02-EXT4-00"
-            kit_size_inches = 48
-            description = "2\" HIGH LIFT EXTENSION 4' KIT"
+            hl_feet = max(1, min(hl_feet, 12))  # 2" kits: 1'-12'
+            part_number = f"TR02-EXT{hl_feet}-00"
+            description = f"TRACK ASSEMBLY, 2\" HIGH LIFT EXTENSION {hl_feet}' KIT"
         else:
-            # 3" track
-            if hl_inches <= 48:
-                part_number = "TR03-EXT4-00"
-                kit_size_inches = 48
-                description = "3\" HIGH LIFT EXTENSION 4' KIT"
-            else:
-                part_number = "TR03-EXT6-00"
-                kit_size_inches = 72
-                description = "3\" HIGH LIFT EXTENSION 6' KIT"
-
-        qty = max(1, math.ceil(hl_inches / kit_size_inches))
+            hl_feet = max(2, min(hl_feet, 20))  # 3" kits: 2'-20'
+            part_number = f"TR03-EXT{hl_feet}-00"
+            description = f"TRACK ASSEMBLY, 3\" HIGH LIFT EXTENSION {hl_feet}' KIT"
 
         return [PartSelection(
             part_number=part_number,
             description=description,
-            quantity=qty,
+            quantity=1,
             category="highlift_track"
         )]
 
