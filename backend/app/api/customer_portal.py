@@ -809,38 +809,67 @@ def _generate_bc_quote_with_items(
             part_id = line.get("part_number", line.get("description", "unknown"))
             logger.warning(f"Failed to add line {part_id}: {line_error}")
 
-            # ── PANEL HARD FAIL: if a panel part number can't be resolved,
-            # abort the entire quote. Panels are the core product — a quote
-            # without correct panels is worse than no quote. ────────────────
+            # ── PANEL: try stepping up to next biggest width in BC.
             line_category = line.get("category", "")
             if line_category == "panel":
-                logger.error(
-                    f"PANEL PART FAILED — aborting quote {bc_quote_number}. "
-                    f"Part: {part_id}, Error: {line_error}"
-                )
-                # Delete the incomplete BC quote
-                try:
-                    bc_client.delete_sales_quote(bc_quote_id)
-                    logger.info(f"Deleted incomplete quote {bc_quote_number}")
-                except Exception as del_err:
-                    logger.warning(f"Could not delete incomplete quote: {del_err}")
+                from app.services.bc_part_number_mapper import get_bc_mapper
+                panel_mapper = get_bc_mapper()
+                pn_parts = part_id.rsplit("-", 1)
+                stepped_up = False
+                if len(pn_parts) == 2:
+                    pn_prefix = pn_parts[0]
+                    width_code = pn_parts[1]
+                    try:
+                        orig_feet = int(width_code[:2])
+                    except (ValueError, IndexError):
+                        orig_feet = 0
 
-                return {
-                    "success": False,
-                    "error": (
-                        f"Panel part number {part_id} could not be resolved in BC. "
-                        f"Please contact the office to complete this quote."
-                    ),
-                    "bc_quote_id": None,
-                    "bc_quote_number": None,
-                    "lines_added": 0,
-                    "lines_failed": [{"part_number": part_id, "error": str(line_error), "category": "panel"}],
-                    "pricing": None,
-                    "line_pricing": None,
-                    "door_results": None,
-                    "freight": None,
-                    "escalating_margin": None,
-                }
+                    for try_feet in range(orig_feet + 1, 31):
+                        for try_inches in [0, 2]:
+                            try_pn = f"{pn_prefix}-{try_feet:02d}{try_inches:02d}"
+                            if try_pn in panel_mapper.bc_items:
+                                logger.info(f"Panel {part_id} not in BC — stepped up to {try_pn}")
+                                try:
+                                    sub_data = {
+                                        "lineType": "Item",
+                                        "lineObjectNumber": try_pn,
+                                        "description": line.get("description", ""),
+                                        "quantity": line["quantity"],
+                                    }
+                                    added_sub = bc_client.add_quote_line(bc_quote_id, sub_data)
+                                    lines_added += 1
+                                    stepped_up = True
+                                except Exception:
+                                    pass
+                                break
+                        if stepped_up:
+                            break
+
+                if not stepped_up:
+                    logger.error(
+                        f"PANEL PART FAILED — aborting quote {bc_quote_number}. "
+                        f"Part: {part_id}, Error: {line_error}"
+                    )
+                    try:
+                        bc_client.delete_sales_quote(bc_quote_id)
+                    except Exception:
+                        pass
+                    return {
+                        "success": False,
+                        "error": (
+                            f"Panel part number {part_id} could not be resolved in BC. "
+                            f"Please contact the office to complete this quote."
+                        ),
+                        "bc_quote_id": None,
+                        "bc_quote_number": None,
+                        "lines_added": 0,
+                        "lines_failed": [{"part_number": part_id, "error": str(line_error), "category": "panel"}],
+                        "pricing": None,
+                        "line_pricing": None,
+                        "door_results": None,
+                        "freight": None,
+                        "escalating_margin": None,
+                    }
 
             # ── AI substitute lookup ────────────────────────────────────────
             # Before falling back to a comment, ask Claude to find the closest

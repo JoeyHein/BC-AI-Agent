@@ -1056,17 +1056,53 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
             if any(pn.startswith(pfx) for pfx in SKIP_VALIDATION_PREFIXES) and pn != f"{pn[:4]}-00000-RC":
                 continue
 
-            # PANEL HARD FAIL: if a panel part can't be found, abort the quote.
+            # PANEL: step up to next biggest width available in BC.
+            # Panel format: PN{series}-{height}{stamp}{color}-{widthFFII}
+            # Try incrementally larger widths until one is found.
             if line.get("category") == "panel":
-                logger.error(f"PANEL PART NOT IN BC — aborting quote {bc_quote_number}. Part: {pn}")
-                try:
-                    bc_client.delete_sales_quote(bc_quote_id)
-                except Exception:
-                    pass
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Panel part {pn} not found in BC inventory. Please contact the office."
-                )
+                # Extract prefix (everything before the width code)
+                parts_split = pn.rsplit("-", 1)
+                if len(parts_split) == 2:
+                    pn_prefix = parts_split[0]  # e.g. "PN45-24400"
+                    width_code = parts_split[1]  # e.g. "1402"
+                    try:
+                        orig_feet = int(width_code[:2])
+                        orig_inches = int(width_code[2:])
+                    except (ValueError, IndexError):
+                        orig_feet = 0
+                        orig_inches = 0
+
+                    stepped_up = False
+                    # Try next foot sizes up to 30'
+                    for try_feet in range(orig_feet + 1, 31):
+                        for try_inches in [0, 2]:  # standard widths: even feet or +2"
+                            try_pn = f"{pn_prefix}-{try_feet:02d}{try_inches:02d}"
+                            if try_pn in mapper.bc_items:
+                                part_warnings.append({
+                                    "original": pn,
+                                    "substituted": try_pn,
+                                    "description": line.get("description", ""),
+                                    "message": f"Panel {pn} not in BC. Stepped up to next size: {try_pn}"
+                                })
+                                logger.info(f"Panel {pn} not in BC — stepped up to {try_pn}")
+                                line["part_number"] = try_pn
+                                line["_original_part_number"] = pn
+                                stepped_up = True
+                                break
+                        if stepped_up:
+                            break
+
+                    if not stepped_up:
+                        logger.error(f"PANEL NOT IN BC and no larger size found — aborting quote {bc_quote_number}. Part: {pn}")
+                        try:
+                            bc_client.delete_sales_quote(bc_quote_id)
+                        except Exception:
+                            pass
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Panel part {pn} not found in BC inventory and no larger size available. Please contact the office."
+                        )
+                continue
 
             # Non-panel part doesn't exist — find closest match
             prefix = pn.split("-")[0] if "-" in pn else pn[:4]
