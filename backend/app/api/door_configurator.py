@@ -903,6 +903,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
             # Get parts for this door configuration
             # Calculate window count from windowPositions array
             window_count = len(door.windowPositions) if door.windowPositions else (1 if door.windowSection else 0)
+            logger.info(f"Door {door_index}: liftType={door.liftType}, highLiftInches={door.highLiftInches}")
 
             config_dict = {
                 "doorType": door.doorType,
