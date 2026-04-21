@@ -13,7 +13,7 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 
 from app.db.database import SessionLocal
-from app.db.models import User, UserRole, BCCustomer, SavedQuoteConfig, SalesOrder, CustomerInstallPricing
+from app.db.models import User, UserRole, BCCustomer, SavedQuoteConfig, SalesOrder, CustomerInstallPricing, CustomerNote
 from app.services.auth_service import auth_service
 from app.services.bc_sync_service import bc_sync_service
 from app.integrations.bc.client import bc_client
@@ -1165,6 +1165,142 @@ def get_customer_activity(
         "quotes": quotes_data,
         "orders": orders_data,
         "last_login_at": customer.last_login_at.isoformat() if customer.last_login_at else None,
+    }
+
+
+@router.get("/notes-feed")
+def get_notes_feed(
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+    note_type: Optional[str] = None,
+    matched: Optional[str] = None,  # "matched" | "unmatched" | None
+    limit: int = 100,
+    offset: int = 0,
+):
+    """Global CRM feed — every note across every customer, reverse-chronological.
+    Used by the Activity tab on the Customer Management page."""
+    from app.db.models import CustomerNote
+
+    query = db.query(CustomerNote)
+    if note_type and note_type != 'all':
+        query = query.filter(CustomerNote.note_type == note_type)
+    if matched == 'matched':
+        query = query.filter(CustomerNote.bc_customer_id.isnot(None))
+    elif matched == 'unmatched':
+        query = query.filter(CustomerNote.bc_customer_id.is_(None))
+
+    total = query.count()
+    notes = (
+        query.order_by(CustomerNote.created_at.desc())
+        .offset(offset)
+        .limit(min(limit, 500))
+        .all()
+    )
+
+    # Enrich with customer company name when matched, so the UI can show
+    # "Acme Doors" instead of a bare GUID.
+    customer_map: dict[str, str] = {}
+    matched_ids = {n.bc_customer_id for n in notes if n.bc_customer_id}
+    if matched_ids:
+        customers = db.query(BCCustomer).filter(BCCustomer.bc_customer_id.in_(matched_ids)).all()
+        customer_map = {c.bc_customer_id: c.company_name or c.contact_name or c.bc_customer_id for c in customers}
+
+    return {
+        "total": total,
+        "notes": [
+            {
+                "id": n.id,
+                "bc_customer_id": n.bc_customer_id,
+                "customer_name": customer_map.get(n.bc_customer_id) if n.bc_customer_id else None,
+                "match_key": n.match_key,
+                "match_key_type": n.match_key_type,
+                "note_type": n.note_type,
+                "subject": n.subject,
+                "body": n.body,
+                "source": n.source,
+                "source_ref": n.source_ref,
+                "metadata": n.note_metadata,
+                "created_at": n.created_at.isoformat() if n.created_at else None,
+            }
+            for n in notes
+        ],
+    }
+
+
+@router.post("/notes/{note_id}/link")
+def link_note_to_customer(
+    note_id: int,
+    body: dict,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Assign an unmatched note to a specific BC customer. Used for triaging
+    calls/emails from numbers that didn't auto-match."""
+    from app.db.models import CustomerNote
+
+    bc_customer_id = body.get('bc_customer_id')
+    if not bc_customer_id:
+        raise HTTPException(status_code=400, detail="bc_customer_id is required")
+
+    customer = db.query(BCCustomer).filter(BCCustomer.bc_customer_id == bc_customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="BC customer not found")
+
+    note = db.query(CustomerNote).filter(CustomerNote.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    note.bc_customer_id = bc_customer_id
+    db.commit()
+    return {"ok": True, "note_id": note_id, "bc_customer_id": bc_customer_id}
+
+
+@router.get("/{customer_id}/notes")
+def get_customer_notes(
+    customer_id: int,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+    limit: int = 100,
+):
+    """List CRM notes (call transcripts, email summaries, meeting notes) logged
+    by Donna / AI agents for this customer. Reverse-chronological."""
+    customer = db.query(User).filter(
+        User.id == customer_id,
+        User.user_type == 'CUSTOMER',
+    ).first()
+
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found",
+        )
+
+    if not customer.bc_customer_id:
+        return {"notes": []}
+
+    notes = (
+        db.query(CustomerNote)
+        .filter(CustomerNote.bc_customer_id == customer.bc_customer_id)
+        .order_by(CustomerNote.created_at.desc())
+        .limit(min(limit, 500))
+        .all()
+    )
+
+    return {
+        "notes": [
+            {
+                "id": n.id,
+                "note_type": n.note_type,
+                "subject": n.subject,
+                "body": n.body,
+                "source": n.source,
+                "source_ref": n.source_ref,
+                "match_key": n.match_key,
+                "metadata": n.note_metadata,
+                "created_at": n.created_at.isoformat() if n.created_at else None,
+            }
+            for n in notes
+        ]
     }
 
 

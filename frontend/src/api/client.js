@@ -596,6 +596,18 @@ export const customersApi = {
   setInstallPricing: (customerId, data) =>
     apiClient.put(`/api/admin/customers/${customerId}/install-pricing`, data),
 
+  // CRM notes — call/email/meeting history logged by Donna
+  getNotes: (customerId, params = {}) =>
+    apiClient.get(`/api/admin/customers/${customerId}/notes`, { params }),
+
+  // Global CRM feed — all notes across all customers
+  getNotesFeed: (params = {}) =>
+    apiClient.get('/api/admin/customers/notes-feed', { params }),
+
+  // Triage — assign an unmatched note to a BC customer
+  linkNoteToCustomer: (noteId, bcCustomerId) =>
+    apiClient.post(`/api/admin/customers/notes/${noteId}/link`, { bc_customer_id: bcCustomerId }),
+
   // Travel distances
   getTravelDistances: () =>
     apiClient.get('/api/admin/install-travel-distances'),

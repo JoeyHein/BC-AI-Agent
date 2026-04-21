@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     MAILCHIMP_FROM_NAME: str = "Joey @ OPENDC"
     MAILCHIMP_FROM_EMAIL: str = "joey@opendc.com"
 
+    # Integrations (service-to-service API key for Donna PA and other AI agents)
+    INTEGRATIONS_API_KEY: Optional[str] = None
+
     # Logging
     LOG_LEVEL: str = "INFO"
 

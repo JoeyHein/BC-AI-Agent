@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -206,7 +207,128 @@ function CustomerDetail() {
           )}
         </div>
       </div>
+
+      {/* CRM Notes — call transcripts, email summaries, meeting notes */}
+      <CustomerNotes customerId={id} />
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Customer Notes — CRM interaction history
+// ---------------------------------------------------------------------------
+
+const NOTE_TYPE_META = {
+  call: { label: 'Call', badge: 'bg-blue-100 text-blue-800' },
+  email: { label: 'Email', badge: 'bg-purple-100 text-purple-800' },
+  meeting: { label: 'Meeting', badge: 'bg-emerald-100 text-emerald-800' },
+  sms: { label: 'SMS', badge: 'bg-amber-100 text-amber-800' },
+}
+
+function CustomerNotes({ customerId }) {
+  const [filter, setFilter] = useState('all')
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['customer-notes', customerId],
+    queryFn: async () => {
+      const r = await customersApi.getNotes(customerId)
+      return r.data
+    },
+    refetchInterval: 30_000,
+  })
+
+  const notes = data?.notes || []
+  const filtered = filter === 'all' ? notes : notes.filter((n) => n.note_type === filter)
+
+  return (
+    <div className="bg-white shadow rounded-lg">
+      <div className="px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Call &amp; Email History</h2>
+          <p className="text-xs text-gray-500">
+            Notes logged by Donna from calls, emails, and meetings.
+          </p>
+        </div>
+        <div className="flex gap-1">
+          {['all', 'call', 'email', 'meeting', 'sms'].map((t) => (
+            <button
+              key={t}
+              onClick={() => setFilter(t)}
+              className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                filter === t
+                  ? 'bg-odc-600 text-white border-odc-600'
+                  : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              {t === 'all' ? 'All' : NOTE_TYPE_META[t]?.label || t}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="p-4">
+        {isLoading ? (
+          <div className="text-sm text-gray-400">Loading notes…</div>
+        ) : filtered.length === 0 ? (
+          <div className="text-sm text-gray-400 py-6 text-center">
+            {filter === 'all'
+              ? 'No notes yet. Notes appear automatically when Donna handles a call or email for this customer.'
+              : `No ${NOTE_TYPE_META[filter]?.label.toLowerCase() || filter} notes.`}
+          </div>
+        ) : (
+          <ul className="space-y-3">
+            {filtered.map((note) => (
+              <NoteCard key={note.id} note={note} />
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function NoteCard({ note }) {
+  const [open, setOpen] = useState(false)
+  const meta = NOTE_TYPE_META[note.note_type] || { label: note.note_type, badge: 'bg-gray-100 text-gray-700' }
+  const bodyPreview = note.body.length > 180 ? note.body.slice(0, 180) + '…' : note.body
+  const createdAt = note.created_at ? new Date(note.created_at) : null
+
+  return (
+    <li className="border border-gray-200 rounded-lg">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-start gap-3 p-3 text-left hover:bg-gray-50"
+      >
+        <span className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded ${meta.badge}`}>
+          {meta.label.toUpperCase()}
+        </span>
+        <div className="flex-1 min-w-0">
+          {note.subject && (
+            <p className="text-sm font-medium text-gray-900 truncate">{note.subject}</p>
+          )}
+          <p className="text-sm text-gray-600 whitespace-pre-wrap line-clamp-2">
+            {open ? note.body : bodyPreview}
+          </p>
+          <div className="mt-1 flex items-center gap-2 text-xs text-gray-400">
+            <span>{note.source}</span>
+            {createdAt && <span>· {createdAt.toLocaleString()}</span>}
+            {note.metadata?.duration_seconds != null && (
+              <span>· {Math.floor(note.metadata.duration_seconds / 60)}m {note.metadata.duration_seconds % 60}s</span>
+            )}
+            {note.metadata?.answered_by_donna && (
+              <span className="text-odc-600">· Donna answered</span>
+            )}
+          </div>
+        </div>
+      </button>
+      {open && note.body.length > 180 && (
+        <div className="px-3 pb-3 pt-0">
+          <pre className="whitespace-pre-wrap text-sm text-gray-700 font-sans bg-gray-50 rounded p-3 max-h-96 overflow-auto">
+            {note.body}
+          </pre>
+        </div>
+      )}
+    </li>
   )
 }
 

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import CrmFeed from './CrmFeed'
 import apiClient, { customersApi } from '../api/client'
 import InstallPricingPanel from './InstallPricingPanel'
 
@@ -1163,11 +1164,58 @@ function PendingRegistrations({ onRefreshCustomers }) {
   )
 }
 
+// Tab header for the customer management page. Live badges pulled from the
+// CRM feed so Joey can see unmatched conversations that need triage.
+function CustomerTabs({ active, onChange, unreadFetcher }) {
+  const { data } = useQuery({
+    queryKey: ['crm-unread-badge'],
+    queryFn: unreadFetcher,
+    refetchInterval: 30_000,
+  })
+  const unmatchedCount = data?.unmatched ?? 0
+
+  const tabs = [
+    { id: 'customers', label: 'Customers' },
+    { id: 'activity', label: 'Activity' },
+    { id: 'unmatched', label: 'Unmatched', count: unmatchedCount },
+  ]
+
+  return (
+    <div className="mb-4 border-b border-gray-200 flex gap-1">
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          onClick={() => onChange(t.id)}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2 ${
+            active === t.id
+              ? 'border-odc-600 text-odc-700'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          {t.label}
+          {t.count > 0 && (
+            <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-amber-500 text-white text-xs font-semibold">
+              {t.count}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // Main Component
 function CustomerManagement() {
   const [selectedCustomer, setSelectedCustomer] = useState(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [activeTab, setActiveTab] = useState('customers')
   const queryClient = useQueryClient()
+
+  const unreadFetcher = async () => {
+    const { customersApi } = await import('../api/client')
+    const r = await customersApi.getNotesFeed({ matched: 'unmatched', limit: 1 })
+    return { unmatched: r.data.total }
+  }
 
   const { data: customers, isLoading, error, refetch } = useQuery({
     queryKey: ['customers'],
@@ -1301,25 +1349,42 @@ function CustomerManagement() {
 
       <PendingRegistrations onRefreshCustomers={refetch} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className={selectedCustomer ? 'lg:col-span-2' : 'lg:col-span-3'}>
-          <CustomerList
-            customers={customers || []}
-            onSelect={handleSelectCustomer}
-            selectedId={selectedCustomer?.id}
-          />
-        </div>
+      {/* Tabs — Customers (existing) / Activity (all CRM notes) / Unmatched */}
+      <CustomerTabs
+        active={activeTab}
+        onChange={setActiveTab}
+        unreadFetcher={unreadFetcher}
+      />
 
-        {selectedCustomer && (
-          <div className="lg:col-span-1">
-            <CustomerDetail
-              customer={selectedCustomer}
-              onClose={() => setSelectedCustomer(null)}
-              onRefresh={() => handleSelectCustomer(selectedCustomer)}
+      {activeTab === 'customers' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className={selectedCustomer ? 'lg:col-span-2' : 'lg:col-span-3'}>
+            <CustomerList
+              customers={customers || []}
+              onSelect={handleSelectCustomer}
+              selectedId={selectedCustomer?.id}
             />
           </div>
-        )}
-      </div>
+
+          {selectedCustomer && (
+            <div className="lg:col-span-1">
+              <CustomerDetail
+                customer={selectedCustomer}
+                onClose={() => setSelectedCustomer(null)}
+                onRefresh={() => handleSelectCustomer(selectedCustomer)}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'activity' && (
+        <CrmFeed matchedFilter="all" customers={customers || []} />
+      )}
+
+      {activeTab === 'unmatched' && (
+        <CrmFeed matchedFilter="unmatched" customers={customers || []} />
+      )}
 
       {showCreateModal && (
         <CreateCustomerModal
