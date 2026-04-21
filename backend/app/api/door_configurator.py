@@ -88,6 +88,7 @@ DOOR_SERIES = {
             "categoryValue": "67ab1db858e8bd835f4898e4",
             "specs": {
                 "rValue": 16.3,
+                "maxWidth": 432,  # 36' in inches
                 "features": ["Double Continuous Hinge Reinforcement", "Thermal Break", "Windload", "IECC Certified"],
                 "warranty": "10 Year Limited"
             }
@@ -99,6 +100,7 @@ DOOR_SERIES = {
             "categoryValue": "67ab1db858e8bd835f4898e5",
             "specs": {
                 "rValue": 18.4,
+                "maxWidth": 432,  # 36' in inches
                 "features": ["Double Continuous Hinge Reinforcement", "Thermal Break", "Windload", "IECC Certified"],
                 "warranty": "10 Year Limited"
             }
@@ -108,14 +110,14 @@ DOOR_SERIES = {
             "name": "Thermalex TX450-20",
             "description": "TX450 with 20-gauge steel",
             "categoryValue": "67ab1db858e8bd835f4898e6",
-            "specs": {"rValue": 16.3, "steel": "20-gauge", "warranty": "10 Year Limited"}
+            "specs": {"rValue": 16.3, "maxWidth": 432, "steel": "20-gauge", "warranty": "10 Year Limited"}
         },
         {
             "id": "TX500-20",
             "name": "Thermalex TX500-20",
             "description": "TX500 with 20-gauge steel",
             "categoryValue": "67ab1db858e8bd835f4898e7",
-            "specs": {"rValue": 18.4, "steel": "20-gauge", "warranty": "10 Year Limited"}
+            "specs": {"rValue": 18.4, "maxWidth": 432, "steel": "20-gauge", "warranty": "10 Year Limited"}
         },
     ],
     "aluminium": [
@@ -1551,13 +1553,25 @@ async def get_dimension_constraints(series_id: str):
         },
         "TX450": {
             "minWidth": 72,
-            "maxWidth": 288,
+            "maxWidth": 432,  # 36'
             "minHeight": 84,
             "maxHeight": 240,
         },
         "TX500": {
             "minWidth": 72,
-            "maxWidth": 288,
+            "maxWidth": 432,  # 36'
+            "minHeight": 84,
+            "maxHeight": 240,
+        },
+        "TX450-20": {
+            "minWidth": 72,
+            "maxWidth": 432,  # 36'
+            "minHeight": 84,
+            "maxHeight": 240,
+        },
+        "TX500-20": {
+            "minWidth": 72,
+            "maxWidth": 432,  # 36'
             "minHeight": 84,
             "maxHeight": 240,
         },
@@ -1755,8 +1769,8 @@ async def calculate_door_specifications(request: DoorCalculationRequest, db: Ses
         width_inches = (request.widthFeet * 12) + request.widthInches
         height_inches = (request.heightFeet * 12) + request.heightInches
 
-        if width_inches < 60 or width_inches > 360:
-            raise HTTPException(status_code=400, detail="Door width must be between 60\" and 360\" (5' to 30')")
+        if width_inches < 60 or width_inches > 432:
+            raise HTTPException(status_code=400, detail="Door width must be between 60\" and 432\" (5' to 36')")
         if height_inches < 60 or height_inches > 288:
             raise HTTPException(status_code=400, detail="Door height must be between 60\" and 288\" (5' to 24')")
 
