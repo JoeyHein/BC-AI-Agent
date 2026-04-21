@@ -14,9 +14,10 @@ const getStampColumns = (widthInches, stampType = 'long', isCraft = false, panel
   const widthFeet = widthInches / 12
 
   // Long stamps (SHXL, BCXL): ~42" wide
+  // Breakpoints: 8,9,10,10'2" → 2; 12,14 → 3; 16 → 4; 18 → 5; 20+ → 6
   let longCols
-  if (widthFeet <= 10) longCols = 2
-  else if (widthFeet <= 12) longCols = 3
+  if (widthFeet < 12) longCols = 2
+  else if (widthFeet <= 14) longCols = 3
   else if (widthFeet <= 16) longCols = 4
   else if (widthFeet <= 19) longCols = 5
   else longCols = 6
