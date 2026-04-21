@@ -821,6 +821,7 @@ LINE_ORDER = [
     "track",             # 8. Track
     "highlift_track",    # 8b. Highlift track (if applicable)
     "hardware",          # 9. Hardware box
+    "highlift_comment",  # 7b. High lift extension detail comment
     "spring_comment",    # 9b. Spring info comment (door weight, drum, turns)
     "spring",            # 10. Springs
     "spring_accessory",  # 10b. Winders, plugs
@@ -975,7 +976,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                     part["door_type"] = door.doorType
 
                 # Spring info comment → BC Comment line (not an item)
-                if part.get("category") == "spring_comment":
+                if part.get("category") in ("spring_comment", "highlift_comment"):
                     part["lineType"] = "Comment"
                     part["is_note"] = True
 

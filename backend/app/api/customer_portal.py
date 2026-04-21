@@ -352,7 +352,7 @@ LINE_ORDER = [
     "comment", "panel", "v130g_section", "v130g_glass",
     "aluminum_section", "aluminum_glazing", "aluminum_glass", "commercial_window",
     "retainer", "astragal", "top_seal", "strut", "window",
-    "track", "highlift_track", "hardware", "spring_comment", "spring", "spring_accessory",
+    "track", "highlift_comment", "highlift_track", "hardware", "spring_comment", "spring", "spring_accessory",
     "shaft", "weather_stripping", "accessory", "operator",
 ]
 
@@ -654,8 +654,8 @@ def _generate_bc_quote_with_items(
                 else:
                     part["door_type"] = part_door_type
 
-                # Spring info comment → BC Comment line (not an item)
-                if part.get("category") == "spring_comment":
+                # Info comments → BC Comment line (not an item)
+                if part.get("category") in ("spring_comment", "highlift_comment"):
                     part["lineType"] = "Comment"
                     part["is_note"] = True
 
@@ -1452,8 +1452,8 @@ def _estimate_pricing_locally(
                 else:
                     part["door_type"] = part_door_type
 
-                # Spring info comment → BC Comment line (not an item)
-                if part.get("category") == "spring_comment":
+                # Info comments → BC Comment line (not an item)
+                if part.get("category") in ("spring_comment", "highlift_comment"):
                     part["lineType"] = "Comment"
                     part["is_note"] = True
 

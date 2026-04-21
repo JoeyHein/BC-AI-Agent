@@ -2214,12 +2214,23 @@ class PartNumberService:
             part_number = f"TR03-EXT{hl_feet}-00"
             description = f"TRACK ASSEMBLY, 3\" HIGH LIFT EXTENSION {hl_feet}' KIT"
 
-        return [PartSelection(
-            part_number=part_number,
-            description=description,
-            quantity=1,
-            category="highlift_track"
-        )]
+        hl_ft_exact = config.high_lift_inches / 12
+        hl_display = f"{config.high_lift_inches}\" ({hl_ft_exact:.1f}')" if config.high_lift_inches % 12 != 0 else f"{config.high_lift_inches}\" ({hl_feet}')"
+
+        return [
+            PartSelection(
+                part_number="",
+                description=f"HIGH LIFT: {hl_display} requested → {hl_feet}' extension kit selected",
+                quantity=0,
+                category="highlift_comment",
+            ),
+            PartSelection(
+                part_number=part_number,
+                description=description,
+                quantity=1,
+                category="highlift_track",
+            ),
+        ]
 
     def _consolidate_parts(self, parts: List[PartSelection]) -> List[PartSelection]:
         """Merge parts with the same part_number into a single line with summed quantity.
