@@ -1044,7 +1044,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
 
         # Part number prefixes that follow deterministic patterns and are
         # known to exist in BC even if not in our item cache export.
-        SKIP_VALIDATION_PREFIXES = ("HK02-", "HK03-", "HK12-", "HK13-")
+        SKIP_VALIDATION_PREFIXES = ("HK02-", "HK03-", "HK12-", "HK13-", "TR02-EXT", "TR03-EXT")
 
         for line in all_lines:
             if line.get("lineType") == "Comment" or not line.get("part_number"):

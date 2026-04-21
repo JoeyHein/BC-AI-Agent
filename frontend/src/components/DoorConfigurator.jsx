@@ -202,6 +202,7 @@ function DoorConfigurator() {
         trackRadius: door.trackRadius,
         trackThickness: door.trackThickness,
         liftType: door.liftType,
+        highLiftInches: door.liftType === 'high_lift' ? door.highLiftInches : null,
         hardware: door.hardware,
         operator: door.operator !== 'NONE' ? door.operator : null,
         operatorAccessories: (door.operatorAccessories || []).length > 0 ? door.operatorAccessories : undefined,
