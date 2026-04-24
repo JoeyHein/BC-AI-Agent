@@ -295,12 +295,12 @@ function QuoteBuilder() {
     )
   }
 
-  if (isEditing && existingQuote?.is_submitted) {
+  if (isEditing && existingQuote?.order_placed) {
     return (
       <div className="bg-yellow-50 p-6 rounded-lg">
-        <h2 className="text-lg font-medium text-yellow-800">Quote Already Submitted</h2>
+        <h2 className="text-lg font-medium text-yellow-800">Order Already Placed</h2>
         <p className="mt-2 text-yellow-700">
-          This quote has been submitted and cannot be edited.
+          This quote has been converted to an order and can no longer be edited.
           {existingQuote.bc_quote_number && ` BC Quote: ${existingQuote.bc_quote_number}`}
         </p>
         <button

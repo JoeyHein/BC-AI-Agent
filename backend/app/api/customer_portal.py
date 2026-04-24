@@ -78,6 +78,9 @@ class SavedQuoteConfigResponse(BaseModel):
     created_at: datetime
     updated_at: Optional[datetime]
     submitted_at: Optional[datetime]
+    # True once a SalesOrder has been placed against this quote.
+    # Clients should treat this as the true edit lock — not is_submitted.
+    order_placed: bool = False
 
     class Config:
         from_attributes = True
@@ -203,6 +206,51 @@ def calculate_install_price(
 # SAVED QUOTE CONFIG ENDPOINTS
 # ============================================================================
 
+def _config_to_response(config: SavedQuoteConfig, db: Session) -> dict:
+    """Serialize one SavedQuoteConfig to the response shape, hydrating order_placed."""
+    return {
+        "id": config.id,
+        "name": config.name,
+        "description": config.description,
+        "config_data": config.config_data,
+        "is_submitted": config.is_submitted,
+        "bc_quote_number": config.bc_quote_number,
+        "bc_quote_id": config.bc_quote_id,
+        "created_at": config.created_at,
+        "updated_at": config.updated_at,
+        "submitted_at": config.submitted_at,
+        "order_placed": _has_sales_order_for_quote(config, db),
+    }
+
+
+def _hydrate_order_placed(configs: List[SavedQuoteConfig], db: Session) -> List[dict]:
+    """Hydrate order_placed flag for a list of configs in one query.
+    Returns list of dicts ready for SavedQuoteConfigResponse."""
+    quote_nums = [c.bc_quote_number for c in configs if c.bc_quote_number]
+    ordered_nums = set()
+    if quote_nums:
+        rows = db.query(SalesOrder.bc_quote_number).filter(
+            SalesOrder.bc_quote_number.in_(quote_nums)
+        ).all()
+        ordered_nums = {r[0] for r in rows if r[0]}
+    result = []
+    for c in configs:
+        result.append({
+            "id": c.id,
+            "name": c.name,
+            "description": c.description,
+            "config_data": c.config_data,
+            "is_submitted": c.is_submitted,
+            "bc_quote_number": c.bc_quote_number,
+            "bc_quote_id": c.bc_quote_id,
+            "created_at": c.created_at,
+            "updated_at": c.updated_at,
+            "submitted_at": c.submitted_at,
+            "order_placed": bool(c.bc_quote_number and c.bc_quote_number in ordered_nums),
+        })
+    return result
+
+
 @router.get("/saved-quotes", response_model=List[SavedQuoteConfigResponse])
 def list_saved_quotes(
     current_user: User = Depends(get_current_customer),
@@ -213,7 +261,7 @@ def list_saved_quotes(
         SavedQuoteConfig.user_id == current_user.id
     ).order_by(SavedQuoteConfig.created_at.desc()).all()
 
-    return configs
+    return _hydrate_order_placed(configs, db)
 
 
 @router.post("/saved-quotes", response_model=SavedQuoteConfigResponse)
@@ -237,7 +285,7 @@ def create_saved_quote(
 
     logger.info(f"Saved quote config created: {config.id} for user {current_user.email}")
 
-    return config
+    return _config_to_response(config, db)
 
 
 @router.get("/saved-quotes/{config_id}", response_model=SavedQuoteConfigResponse)
@@ -258,7 +306,7 @@ def get_saved_quote(
             detail="Saved configuration not found"
         )
 
-    return config
+    return _config_to_response(config, db)
 
 
 @router.put("/saved-quotes/{config_id}", response_model=SavedQuoteConfigResponse)
@@ -268,7 +316,19 @@ def update_saved_quote(
     current_user: User = Depends(get_current_customer),
     db: Session = Depends(get_db)
 ):
-    """Update a saved quote configuration"""
+    """Update a saved quote configuration.
+
+    Edit lock: a quote is editable until an order has been placed against it.
+    Submit alone does NOT lock edits — the customer can still revise doors
+    until they click Place Order.
+
+    Behavior by state:
+      - No BC quote yet: update config_data freely
+      - BC quote exists (priced and/or submitted), no order placed:
+            diff doors → surgically patch only changed doors' lines in BC,
+            keeping the BC quote number stable
+      - Order placed: reject edit (changes go through the order flow instead)
+    """
     config = db.query(SavedQuoteConfig).filter(
         SavedQuoteConfig.id == config_id,
         SavedQuoteConfig.user_id == current_user.id
@@ -280,27 +340,49 @@ def update_saved_quote(
             detail="Saved configuration not found"
         )
 
-    if config.is_submitted:
+    if _has_sales_order_for_quote(config, db):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot modify a submitted configuration"
+            detail="Cannot edit a quote once an order has been placed against it."
         )
 
     if update_data.name is not None:
         config.name = update_data.name
     if update_data.description is not None:
         config.description = update_data.description
+
     if update_data.config_data is not None:
-        config.config_data = update_data.config_data
-        # Config changed - clear stale BC quote so pricing must be re-requested
+        new_config_data = update_data.config_data
         if config.bc_quote_id:
+            # Surgical edit against the existing BC quote (same quote number).
             try:
-                bc_client.delete_sales_quote(config.bc_quote_id)
-                logger.info(f"Deleted stale BC quote {config.bc_quote_number} after config update")
+                pricing_tier = (
+                    _get_customer_pricing_tier(current_user.bc_customer_id, db)
+                    if current_user.bc_customer_id else "retail"
+                )
+                delivery_type = new_config_data.get("deliveryType", "delivery")
+                result = _edit_bc_quote_lines(
+                    config=config,
+                    new_config_data=new_config_data,
+                    bc_customer_id=current_user.bc_customer_id,
+                    pricing_tier=pricing_tier,
+                    db=db,
+                    customer_user_id=current_user.id,
+                    delivery_type=delivery_type,
+                )
+                config.config_data = new_config_data
+                config.bc_line_map = result.get("line_map")
+            except HTTPException:
+                raise
             except Exception as e:
-                logger.warning(f"Could not delete stale BC quote {config.bc_quote_id}: {e}")
-            config.bc_quote_id = None
-            config.bc_quote_number = None
+                logger.error(f"Failed to edit BC quote {config.bc_quote_number}: {e}", exc_info=True)
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to edit quote: {str(e)}"
+                )
+        else:
+            # Draft (no BC quote yet): just update config_data
+            config.config_data = new_config_data
 
     config.updated_at = datetime.utcnow()
     db.commit()
@@ -308,7 +390,7 @@ def update_saved_quote(
 
     logger.info(f"Saved quote config updated: {config.id}")
 
-    return config
+    return _config_to_response(config, db)
 
 
 @router.delete("/saved-quotes/{config_id}")
@@ -329,11 +411,19 @@ def delete_saved_quote(
             detail="Saved configuration not found"
         )
 
-    if config.is_submitted:
+    if _has_sales_order_for_quote(config, db):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot delete a submitted configuration"
+            detail="Cannot delete a quote that has been converted to an order."
         )
+
+    # Best-effort: clean up the BC quote if one exists and no order is attached
+    if config.bc_quote_id:
+        try:
+            bc_client.delete_sales_quote(config.bc_quote_id)
+            logger.info(f"Deleted BC quote {config.bc_quote_number} on config delete")
+        except Exception as e:
+            logger.warning(f"Could not delete BC quote {config.bc_quote_id}: {e}")
 
     db.delete(config)
     db.commit()
@@ -725,6 +815,20 @@ def _generate_bc_quote_with_items(
     bc_items_cache: dict = {}  # category prefix → list of BC items (populated lazily)
     tier_prices_by_line_id = {}  # Track tier prices for escalating margin
 
+    # Per-door + shared BC line ID map (persisted on SavedQuoteConfig.bc_line_map).
+    # Enables surgical per-door edits later without recreating the BC quote.
+    line_map: Dict[str, Dict[str, List[str]]] = {"doors": {}, "shared": {}}
+
+    def _track_door_line(door_index: Optional[int], bc_line: Optional[Dict[str, Any]]) -> None:
+        if not bc_line or not bc_line.get("id") or not door_index:
+            return
+        line_map["doors"].setdefault(str(door_index), []).append(bc_line["id"])
+
+    def _track_shared_line(bucket: str, bc_line: Optional[Dict[str, Any]]) -> None:
+        if not bc_line or not bc_line.get("id"):
+            return
+        line_map["shared"].setdefault(bucket, []).append(bc_line["id"])
+
     for line in all_lines:
         try:
             if line.get("lineType") == "Comment":
@@ -742,6 +846,7 @@ def _generate_bc_quote_with_items(
 
             added_line = bc_client.add_quote_line(bc_quote_id, line_data)
             lines_added += 1
+            _track_door_line(line.get("door_index"), added_line)
 
             # Set Output=True on door descriptions, operators, and accessories
             # so BC shows them on printed quotes and subtotals correctly.
@@ -838,6 +943,7 @@ def _generate_bc_quote_with_items(
                                     }
                                     added_sub = bc_client.add_quote_line(bc_quote_id, sub_data)
                                     lines_added += 1
+                                    _track_door_line(line.get("door_index"), added_sub)
                                     stepped_up = True
                                 except Exception:
                                     pass
@@ -892,6 +998,7 @@ def _generate_bc_quote_with_items(
                         }
                         added_sub = bc_client.add_quote_line(bc_quote_id, sub_line_data)
                         lines_added += 1
+                        _track_door_line(line.get("door_index"), added_sub)
                         ai_used = True
 
                         # BC overwrites description with substitute's item card.
@@ -936,8 +1043,9 @@ def _generate_bc_quote_with_items(
                         "lineType": "Comment",
                         "description": f"{line['part_number']} - {line.get('description', '')} (Qty: {line['quantity']})",
                     }
-                    bc_client.add_quote_line(bc_quote_id, comment_line)
+                    added_fallback = bc_client.add_quote_line(bc_quote_id, comment_line)
                     lines_added += 1
+                    _track_door_line(line.get("door_index"), added_fallback)
                     lines_failed.append({
                         "part_number": line.get("part_number"),
                         "description": line.get("description", ""),
@@ -1069,13 +1177,14 @@ def _generate_bc_quote_with_items(
 
                     # Add a comment noting the volume discount
                     try:
-                        bc_client.add_quote_line(bc_quote_id, {
+                        added_vol_comment = bc_client.add_quote_line(bc_quote_id, {
                             "lineType": "Comment",
                             "description": (
                                 f"** VOLUME PRICING: {esc_profile.name} — "
                                 f"{esc_calc['discount_pct']:.1f}% volume discount applied **"
                             ),
                         })
+                        _track_shared_line("volume_discount", added_vol_comment)
                     except Exception:
                         pass
 
@@ -1133,6 +1242,7 @@ def _generate_bc_quote_with_items(
                         etag,
                         {"unitPrice": freight["amount"]},
                     )
+                    _track_shared_line("freight", added_freight)
                     freight_added = True
                     logger.info(f"Added freight line: ${freight['amount']:.2f} ({freight['description']})")
                 except Exception as freight_item_err:
@@ -1144,7 +1254,8 @@ def _generate_bc_quote_with_items(
                                 "lineType": "Comment",
                                 "description": f"{freight['description']}: ${freight['amount']:.2f}",
                             }
-                            bc_client.add_quote_line(bc_quote_id, comment_data)
+                            added_freight_comment = bc_client.add_quote_line(bc_quote_id, comment_data)
+                            _track_shared_line("freight", added_freight_comment)
                             freight_added = True
                             logger.info(f"Added freight as comment fallback: ${freight['amount']:.2f}")
                         except Exception as comment_err:
@@ -1204,10 +1315,11 @@ def _generate_bc_quote_with_items(
                     if result_install.get("custom_quote_required"):
                         # Add comment noting custom install quote needed
                         try:
-                            bc_client.add_quote_line(bc_quote_id, {
+                            added_install_custom = bc_client.add_quote_line(bc_quote_id, {
                                 "lineType": "Comment",
                                 "description": f"INSTALLATION Door {i+1}: Custom quote required - {result_install.get('reason', 'oversized')}",
                             })
+                            _track_shared_line("install", added_install_custom)
                         except Exception:
                             pass
                         continue
@@ -1220,10 +1332,11 @@ def _generate_bc_quote_with_items(
 
                         # Add install comment header
                         try:
-                            bc_client.add_quote_line(bc_quote_id, {
+                            added_install_hdr = bc_client.add_quote_line(bc_quote_id, {
                                 "lineType": "Comment",
                                 "description": f"INSTALLATION Door {i+1}: {area:.0f} sqft ({tier}) x{door_count}",
                             })
+                            _track_shared_line("install", added_install_hdr)
                         except Exception:
                             pass
 
@@ -1241,15 +1354,17 @@ def _generate_bc_quote_with_items(
                                 bc_quote_id, added_install["id"], etag,
                                 {"unitPrice": install_price},
                             )
+                            _track_shared_line("install", added_install)
                             install_added = True
                         except Exception as install_item_err:
                             logger.warning(f"Could not add INSTALL as Item: {install_item_err}")
                             # Fallback: add as comment with price
                             try:
-                                bc_client.add_quote_line(bc_quote_id, {
+                                added_install_fb = bc_client.add_quote_line(bc_quote_id, {
                                     "lineType": "Comment",
                                     "description": f"Installation: ${total_install:.2f}",
                                 })
+                                _track_shared_line("install", added_install_fb)
                                 install_added = True
                             except Exception:
                                 pass
@@ -1288,12 +1403,14 @@ def _generate_bc_quote_with_items(
                                 bc_quote_id, added_travel["id"], etag,
                                 {"unitPrice": travel_price},
                             )
+                            _track_shared_line("install", added_travel)
                         except Exception:
                             try:
-                                bc_client.add_quote_line(bc_quote_id, {
+                                added_travel_fb = bc_client.add_quote_line(bc_quote_id, {
                                     "lineType": "Comment",
                                     "description": f"Travel - {install_town}: ${travel_price:.2f}",
                                 })
+                                _track_shared_line("install", added_travel_fb)
                             except Exception:
                                 pass
 
@@ -1366,6 +1483,477 @@ def _generate_bc_quote_with_items(
         "door_results": door_results,
         "freight": freight_info,
         "escalating_margin": escalating_result,
+        "line_map": line_map,
+    }
+
+
+def _has_sales_order_for_quote(config: SavedQuoteConfig, db: Session) -> bool:
+    """Returns True if a SalesOrder has been placed against this quote. Order placement
+    is the true edit lock — a quote can be freely edited until it becomes an order."""
+    if not config.bc_quote_number:
+        return False
+    return db.query(SalesOrder).filter(
+        SalesOrder.bc_quote_number == config.bc_quote_number
+    ).first() is not None
+
+
+def _diff_doors(old_doors: List[dict], new_doors: List[dict]) -> Dict[str, List[int]]:
+    """Position-based diff. Returns 1-based door indices that changed, were added, or removed."""
+    changed = []
+    added = []
+    removed = []
+    max_len = max(len(old_doors), len(new_doors))
+    for i in range(max_len):
+        old = old_doors[i] if i < len(old_doors) else None
+        new = new_doors[i] if i < len(new_doors) else None
+        idx = i + 1
+        if old is None:
+            added.append(idx)
+        elif new is None:
+            removed.append(idx)
+        elif old != new:
+            changed.append(idx)
+    return {"changed": changed, "added": added, "removed": removed}
+
+
+def _delete_bc_lines(bc_quote_id: str, line_ids: List[str]) -> int:
+    """Best-effort delete of BC lines. Logs failures, doesn't raise."""
+    deleted = 0
+    for line_id in line_ids:
+        try:
+            bc_client.delete_quote_line(bc_quote_id, line_id)
+            deleted += 1
+        except Exception as e:
+            logger.warning(f"Could not delete BC line {line_id}: {e}")
+    return deleted
+
+
+def _build_door_config_dict(door: dict) -> dict:
+    """Build the config_dict passed to get_parts_for_door_config. Matches the shape
+    used in _generate_bc_quote_with_items step 1."""
+    return {
+        "doorType": door.get("doorType", "residential"),
+        "doorSeries": door.get("doorSeries"),
+        "doorWidth": door.get("doorWidth"),
+        "doorHeight": door.get("doorHeight"),
+        "doorCount": door.get("doorCount", 1),
+        "panelColor": door.get("panelColor", "WHITE"),
+        "panelDesign": door.get("panelDesign", "SHXL"),
+        "windowInsert": door.get("windowInsert") if door.get("hasWindows") else None,
+        "windowSize": door.get("windowSize", "long"),
+        "windowPositions": door.get("windowPositions", []),
+        "windowCount": door.get("windowCount") or (
+            len(door.get("windowPositions", [])) if door.get("windowPositions")
+            else (door.get("windowQty", 0) if door.get("windowQty")
+                  else (1 if (door.get("hasWindows") and door.get("windowSection")) else 0))
+        ),
+        "windowSection": door.get("windowSection"),
+        "windowQty": door.get("windowQty", 0),
+        "windowPanels": door.get("windowPanels"),
+        "windowFrameColor": door.get("windowFrameColor", "BLACK"),
+        "glazingType": door.get("glazingType"),
+        "glassPaneType": door.get("glassPaneType"),
+        "glassColor": door.get("glassColor"),
+        "trackRadius": door.get("trackRadius", "15"),
+        "trackThickness": door.get("trackThickness", "2"),
+        "trackMount": door.get("trackMount", "bracket"),
+        "liftType": door.get("liftType", "standard"),
+        "highLiftInches": door.get("highLiftInches"),
+        "hardware": door.get("hardware", {}),
+        "operator": door.get("operator"),
+        "operatorAccessories": door.get("operatorAccessories", []),
+        "targetCycles": door.get("targetCycles", 10000),
+        "shaftType": door.get("shaftType", "auto"),
+    }
+
+
+def _edit_bc_quote_lines(
+    config: SavedQuoteConfig,
+    new_config_data: dict,
+    bc_customer_id: str,
+    pricing_tier: str,
+    db: Session,
+    customer_user_id: int,
+    delivery_type: str = "delivery",
+) -> Dict[str, Any]:
+    """
+    Surgically edit an existing BC sales quote.
+
+    - Diffs old vs new doors; deletes only the lines for changed/removed doors
+    - Deletes all shared lines (freight/install/travel/volume_discount)
+    - Regenerates changed + added doors' lines at tier pricing
+    - Regenerates shared lines from the new totals
+    - KEEPS the same bc_quote_id and bc_quote_number
+
+    Escalating margin is NOT recomputed here (customer clicks "Refresh Pricing"
+    for that — which rebuilds the whole quote from scratch).
+    """
+    bc_quote_id = config.bc_quote_id
+    bc_quote_number = config.bc_quote_number
+    if not bc_quote_id:
+        raise HTTPException(400, "Quote has no BC reference to edit")
+
+    old_doors = (config.config_data or {}).get("doors", [])
+    new_doors = _validate_doors_config(new_config_data)
+
+    diff = _diff_doors(old_doors, new_doors)
+    logger.info(f"Edit diff for quote {bc_quote_number}: {diff}")
+
+    # Load existing line_map (tolerate legacy configs without one)
+    line_map = config.bc_line_map or {"doors": {}, "shared": {}}
+    line_map.setdefault("doors", {})
+    line_map.setdefault("shared", {})
+
+    indices_to_regenerate = sorted(set(diff["changed"] + diff["added"]))
+    indices_to_delete = sorted(set(diff["changed"] + diff["removed"]))
+
+    # ── Step 1: Delete lines for changed/removed doors ──────────────────────
+    for idx in indices_to_delete:
+        line_ids = line_map["doors"].pop(str(idx), [])
+        if line_ids:
+            _delete_bc_lines(bc_quote_id, line_ids)
+            logger.info(f"Deleted {len(line_ids)} line(s) for door {idx}")
+
+    # ── Step 2: Delete all shared lines (always regenerated) ────────────────
+    for bucket, line_ids in list(line_map["shared"].items()):
+        _delete_bc_lines(bc_quote_id, line_ids)
+    line_map["shared"] = {}
+
+    # ── Step 3: Build line dicts for doors that need regeneration ───────────
+    spring_inventory = get_bc_spring_inventory()
+    all_new_lines: List[dict] = []
+    door_results: List[dict] = []
+    aluminum_panel_categories = {
+        "aluminum_section", "aluminum_glazing", "aluminum_glass",
+        "v130g_section", "v130g_glass",
+    }
+
+    for door_index in indices_to_regenerate:
+        if door_index > len(new_doors):
+            continue  # defensive: don't regen a position that doesn't exist
+        door = new_doors[door_index - 1]
+        door_desc = _format_door_description(door)
+
+        all_new_lines.append({
+            "lineType": "Comment", "description": door_desc, "category": "COMMENT",
+            "door_index": door_index, "is_door_desc": True,
+        })
+
+        if door.get("doorType") == "aluminium":
+            from app.services.part_number_service import _default_glass_pockets
+            pockets = door.get("glassPocketsPerSection") or _default_glass_pockets(door.get("doorWidth", 96))
+            all_new_lines.append({
+                "lineType": "Comment",
+                "description": f"** {pockets} GLASS POCKETS PER SECTION **",
+                "category": "COMMENT", "door_index": door_index, "is_note": True,
+            })
+
+        config_dict = _build_door_config_dict(door)
+        try:
+            door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inventory)
+            parts_list = door_parts.get("parts_list", [])
+            sorted_parts = _sort_parts_by_category(parts_list)
+            part_door_type = config_dict.get("doorType", "residential")
+            window_note_emitted = False
+
+            for part in sorted_parts:
+                part["door_index"] = door_index
+                cat = part.get("category", "")
+                if cat in aluminum_panel_categories:
+                    part["door_type"] = "aluminium"
+                elif part_door_type == "aluminium" and cat not in aluminum_panel_categories:
+                    part["door_type"] = "commercial"
+                else:
+                    part["door_type"] = part_door_type
+                if part.get("category") in ("spring_comment", "highlift_comment"):
+                    part["lineType"] = "Comment"
+                    part["is_note"] = True
+                all_new_lines.append(part)
+                if not window_note_emitted and part.get("notes") and part.get("category") in ("window", "commercial_window"):
+                    window_note_emitted = True
+                    all_new_lines.append({
+                        "lineType": "Comment", "description": part["notes"],
+                        "category": "COMMENT", "door_index": door_index, "is_note": True,
+                    })
+
+            door_results.append({
+                "door_index": door_index, "door_description": door_desc,
+                "parts_count": len(parts_list), "success": True,
+            })
+        except Exception as e:
+            logger.warning(f"Failed to get parts for door {door_index}: {e}")
+            door_results.append({
+                "door_index": door_index, "door_description": door_desc,
+                "parts_count": 0, "success": False, "error": str(e),
+            })
+
+        all_new_lines.append({
+            "lineType": "Comment", "description": " ", "category": "COMMENT",
+            "door_index": door_index, "is_separator": True,
+        })
+
+    # Warm BC cost cache for regenerated parts
+    item_pns = [l["part_number"] for l in all_new_lines if l.get("part_number")]
+    if item_pns:
+        warm_bc_cost_cache(item_pns)
+
+    # ── Step 4: Push new lines to BC with tier pricing ──────────────────────
+    lines_added = 0
+    lines_failed: List[dict] = []
+
+    for line in all_new_lines:
+        try:
+            if line.get("lineType") == "Comment":
+                line_data = {"lineType": "Comment", "description": line["description"]}
+            else:
+                line_data = {
+                    "lineType": "Item",
+                    "lineObjectNumber": line["part_number"],
+                    "description": line.get("description", ""),
+                    "quantity": line["quantity"],
+                }
+            added_line = bc_client.add_quote_line(bc_quote_id, line_data)
+            lines_added += 1
+            di = line.get("door_index")
+            if di and added_line and added_line.get("id"):
+                line_map["doors"].setdefault(str(di), []).append(added_line["id"])
+
+            needs_output = line.get("is_door_desc") or line.get("category") in ("operator",)
+            if needs_output and added_line.get("sequence"):
+                try:
+                    bc_client.set_quote_line_output(bc_quote_number, added_line["sequence"], output=True)
+                except Exception as out_err:
+                    logger.warning(f"Failed to set Output flag on line: {out_err}")
+
+            if line.get("lineType") != "Comment":
+                patch_data = {}
+                intended_desc = line.get("description", "")
+                if intended_desc and added_line.get("description", "") != intended_desc:
+                    patch_data["description"] = intended_desc[:100]
+                if pricing_tier:
+                    selling_price = calculate_selling_price(
+                        part_number=line["part_number"],
+                        door_type=line.get("door_type", "residential"),
+                        tier=pricing_tier, db=db,
+                    )
+                    if selling_price is not None:
+                        patch_data["unitPrice"] = selling_price
+                if patch_data:
+                    etag = added_line.get("@odata.etag", "*")
+                    try:
+                        bc_client.update_quote_line(bc_quote_id, added_line["id"], etag, patch_data)
+                    except Exception as patch_err:
+                        logger.error(f"PATCH FAILED [{line['part_number']}]: {patch_err}")
+        except Exception as line_error:
+            part_id = line.get("part_number", line.get("description", "unknown"))
+            logger.warning(f"Failed to add line {part_id} during edit: {line_error}")
+            if line.get("lineType") != "Comment" and line.get("part_number"):
+                try:
+                    fb_line = bc_client.add_quote_line(bc_quote_id, {
+                        "lineType": "Comment",
+                        "description": f"{line['part_number']} - {line.get('description', '')} (Qty: {line['quantity']})",
+                    })
+                    lines_added += 1
+                    di = line.get("door_index")
+                    if di and fb_line and fb_line.get("id"):
+                        line_map["doors"].setdefault(str(di), []).append(fb_line["id"])
+                    lines_failed.append({
+                        "part_number": line.get("part_number"),
+                        "error": str(line_error), "fallback": "comment",
+                    })
+                except Exception:
+                    lines_failed.append({
+                        "part_number": line.get("part_number"),
+                        "error": str(line_error), "fallback": "failed",
+                    })
+
+    # Equalize cone prices across whole quote
+    try:
+        _equalize_cone_prices(bc_quote_id)
+    except Exception as cone_err:
+        logger.warning(f"Could not equalize cone prices: {cone_err}")
+
+    # ── Step 5: Fetch pricing subtotal for freight calc ─────────────────────
+    pricing = None
+    try:
+        updated_quote = bc_client.get_sales_quote(bc_quote_id)
+        subtotal = updated_quote.get("totalAmountExcludingTax", 0)
+        total_with_tax = updated_quote.get("totalAmountIncludingTax", 0)
+        pricing = {
+            "subtotal": round(subtotal, 2),
+            "tax": round(total_with_tax - subtotal, 2),
+            "total": round(total_with_tax, 2),
+            "currency": "CAD",
+        }
+    except Exception as e:
+        logger.warning(f"Could not fetch pricing after edit: {e}")
+
+    # ── Step 6: Re-add freight ──────────────────────────────────────────────
+    freight_info = None
+    if pricing:
+        try:
+            customer_province = None
+            bc_cust = db.query(BCCustomer).filter(BCCustomer.bc_customer_id == bc_customer_id).first()
+            if bc_cust and bc_cust.address:
+                customer_province = bc_cust.address.get("province")
+            freight = calculate_freight(
+                product_subtotal=pricing["subtotal"],
+                province=customer_province,
+                delivery_type=delivery_type, db=db,
+            )
+            freight_info = freight
+            if not freight["skip"] and freight["amount"] > 0:
+                freight_config = get_freight_config(db)
+                freight_item = freight_config.get("freight_item_number", "FREIGHT")
+                try:
+                    added_freight = bc_client.add_quote_line(bc_quote_id, {
+                        "lineType": "Item", "lineObjectNumber": freight_item,
+                        "description": freight["description"], "quantity": 1,
+                    })
+                    etag = added_freight.get("@odata.etag", "*")
+                    bc_client.update_quote_line(bc_quote_id, added_freight["id"], etag, {"unitPrice": freight["amount"]})
+                    if added_freight.get("id"):
+                        line_map["shared"].setdefault("freight", []).append(added_freight["id"])
+                except Exception as fe:
+                    logger.warning(f"Could not add freight as Item: {fe}")
+                    if freight_config.get("fallback_to_comment", True):
+                        try:
+                            added_fc = bc_client.add_quote_line(bc_quote_id, {
+                                "lineType": "Comment",
+                                "description": f"{freight['description']}: ${freight['amount']:.2f}",
+                            })
+                            if added_fc.get("id"):
+                                line_map["shared"].setdefault("freight", []).append(added_fc["id"])
+                        except Exception:
+                            pass
+        except Exception as freight_err:
+            logger.warning(f"Could not add freight during edit: {freight_err}")
+
+    # ── Step 7: Re-add install + travel for home builder customers ──────────
+    if customer_user_id:
+        try:
+            customer_user = db.query(User).filter(User.id == customer_user_id).first()
+            account_type = getattr(customer_user, 'account_type', None) if customer_user else None
+            if account_type == 'home_builder':
+                install_town = new_doors[0].get("installTown") if new_doors else None
+                install_lines_added = []
+                for i, door in enumerate(new_doors):
+                    dw = door.get("doorWidth", 96)
+                    dh = door.get("doorHeight", 84)
+                    dt = door.get("doorType", "residential")
+                    dc = door.get("doorCount", 1)
+                    r_install = install_pricing_service.calculate_install_price(
+                        customer_id=customer_user_id, door_width_inches=dw,
+                        door_height_inches=dh, door_type=dt, db=db, town=install_town,
+                    )
+                    if r_install.get("custom_quote_required"):
+                        try:
+                            a = bc_client.add_quote_line(bc_quote_id, {
+                                "lineType": "Comment",
+                                "description": f"INSTALLATION Door {i+1}: Custom quote required - {r_install.get('reason', 'oversized')}",
+                            })
+                            if a.get("id"):
+                                line_map["shared"].setdefault("install", []).append(a["id"])
+                        except Exception:
+                            pass
+                        continue
+                    ip = r_install.get("install_price")
+                    if ip and ip > 0:
+                        area = r_install["breakdown"]["door_area_sqft"]
+                        tier = r_install["breakdown"]["rate_tier"]
+                        try:
+                            hdr = bc_client.add_quote_line(bc_quote_id, {
+                                "lineType": "Comment",
+                                "description": f"INSTALLATION Door {i+1}: {area:.0f} sqft ({tier}) x{dc}",
+                            })
+                            if hdr.get("id"):
+                                line_map["shared"].setdefault("install", []).append(hdr["id"])
+                        except Exception:
+                            pass
+                        try:
+                            a = bc_client.add_quote_line(bc_quote_id, {
+                                "lineType": "Item", "lineObjectNumber": "INSTALLATION",
+                                "description": f"Installation - Door {i+1} ({tier})", "quantity": dc,
+                            })
+                            etag = a.get("@odata.etag", "*")
+                            bc_client.update_quote_line(bc_quote_id, a["id"], etag, {"unitPrice": ip})
+                            if a.get("id"):
+                                line_map["shared"].setdefault("install", []).append(a["id"])
+                            install_lines_added.append(i + 1)
+                        except Exception as ie:
+                            logger.warning(f"Could not add INSTALL item during edit: {ie}")
+                            try:
+                                fb = bc_client.add_quote_line(bc_quote_id, {
+                                    "lineType": "Comment",
+                                    "description": f"Installation: ${ip * dc:.2f}",
+                                })
+                                if fb.get("id"):
+                                    line_map["shared"].setdefault("install", []).append(fb["id"])
+                            except Exception:
+                                pass
+                if install_town and install_lines_added:
+                    tr = install_pricing_service.calculate_install_price(
+                        customer_id=customer_user_id,
+                        door_width_inches=new_doors[0].get("doorWidth", 96),
+                        door_height_inches=new_doors[0].get("doorHeight", 84),
+                        door_type=new_doors[0].get("doorType", "residential"),
+                        db=db, town=install_town,
+                    )
+                    tp = tr.get("travel_price")
+                    if tp and tp > 0:
+                        try:
+                            a = bc_client.add_quote_line(bc_quote_id, {
+                                "lineType": "Item", "lineObjectNumber": "INSTALLATION",
+                                "description": f"Travel - {install_town} (round trip)", "quantity": 1,
+                            })
+                            etag = a.get("@odata.etag", "*")
+                            bc_client.update_quote_line(bc_quote_id, a["id"], etag, {"unitPrice": tp})
+                            if a.get("id"):
+                                line_map["shared"].setdefault("install", []).append(a["id"])
+                        except Exception:
+                            try:
+                                fb = bc_client.add_quote_line(bc_quote_id, {
+                                    "lineType": "Comment",
+                                    "description": f"Travel - {install_town}: ${tp:.2f}",
+                                })
+                                if fb.get("id"):
+                                    line_map["shared"].setdefault("install", []).append(fb["id"])
+                            except Exception:
+                                pass
+        except Exception as install_err:
+            logger.warning(f"Install regen failed during edit: {install_err}")
+
+    # Final pricing after shared lines added
+    try:
+        updated_quote = bc_client.get_sales_quote(bc_quote_id)
+        subtotal = updated_quote.get("totalAmountExcludingTax", 0)
+        total_with_tax = updated_quote.get("totalAmountIncludingTax", 0)
+        pricing = {
+            "subtotal": round(subtotal, 2),
+            "tax": round(total_with_tax - subtotal, 2),
+            "total": round(total_with_tax, 2),
+            "currency": "CAD",
+        }
+    except Exception:
+        pass
+
+    logger.info(
+        f"Edited BC quote {bc_quote_number}: "
+        f"deleted={len(indices_to_delete)} door(s), "
+        f"regenerated={len(indices_to_regenerate)} door(s), "
+        f"lines_added={lines_added}"
+    )
+
+    return {
+        "bc_quote_id": bc_quote_id,
+        "bc_quote_number": bc_quote_number,
+        "line_map": line_map,
+        "pricing": pricing,
+        "lines_added": lines_added,
+        "lines_failed": lines_failed if lines_failed else None,
+        "door_results": door_results,
+        "freight": freight_info,
+        "diff": diff,
     }
 
 
@@ -1633,10 +2221,10 @@ def get_pricing_for_saved_quote(
             detail="Saved configuration not found"
         )
 
-    if config.is_submitted:
+    if _has_sales_order_for_quote(config, db):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Configuration has already been submitted"
+            detail="Cannot re-price a quote that has been converted to an order."
         )
 
     try:
@@ -1670,6 +2258,7 @@ def get_pricing_for_saved_quote(
             # Store BC quote reference (but NOT submitted)
             config.bc_quote_id = result["bc_quote_id"]
             config.bc_quote_number = result["bc_quote_number"]
+            config.bc_line_map = result.get("line_map")
         else:
             # Unlinked customer: estimate locally at retail, no BC quote created
             pricing_tier = "retail"
@@ -1737,10 +2326,10 @@ def confirm_saved_quote(
             detail="Saved configuration not found"
         )
 
-    if config.is_submitted:
+    if _has_sales_order_for_quote(config, db):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Configuration has already been submitted"
+            detail="Cannot confirm a quote that has already been converted to an order."
         )
 
     if not config.bc_quote_id:
@@ -1749,14 +2338,17 @@ def confirm_saved_quote(
             detail="Pricing has not been generated yet. Please get pricing first."
         )
 
-    config.is_submitted = True
-    config.submitted_at = datetime.utcnow()
-    db.commit()
-    db.refresh(config)
+    # Confirm is idempotent — safe to re-confirm after an edit (the customer may
+    # edit and re-confirm multiple times until they place the order).
+    if not config.is_submitted:
+        config.is_submitted = True
+        config.submitted_at = datetime.utcnow()
+        db.commit()
+        db.refresh(config)
 
     logger.info(f"Quote confirmed: config {config_id}, BC Quote {config.bc_quote_number}")
 
-    return config
+    return _config_to_response(config, db)
 
 
 @router.post("/saved-quotes/{config_id}/refresh-pricing")
@@ -1781,10 +2373,10 @@ def refresh_pricing_for_saved_quote(
             detail="Saved configuration not found"
         )
 
-    if config.is_submitted:
+    if _has_sales_order_for_quote(config, db):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot refresh pricing on a submitted configuration"
+            detail="Cannot refresh pricing on a quote that has been converted to an order."
         )
 
     try:
@@ -1816,6 +2408,7 @@ def refresh_pricing_for_saved_quote(
 
             config.bc_quote_id = result["bc_quote_id"]
             config.bc_quote_number = result["bc_quote_number"]
+            config.bc_line_map = result.get("line_map")
         else:
             # Unlinked customer: recalculate local estimate at retail
             pricing_tier = "retail"
@@ -1880,10 +2473,10 @@ def submit_saved_quote(
             detail="Saved configuration not found"
         )
 
-    if config.is_submitted:
+    if _has_sales_order_for_quote(config, db):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Configuration has already been submitted"
+            detail="Cannot submit a quote that has been converted to an order."
         )
 
     if not current_user.bc_customer_id:
@@ -1913,6 +2506,7 @@ def submit_saved_quote(
 
             config.bc_quote_id = result["bc_quote_id"]
             config.bc_quote_number = result["bc_quote_number"]
+            config.bc_line_map = result.get("line_map")
 
         # Mark as submitted
         config.is_submitted = True
@@ -1931,7 +2525,7 @@ def submit_saved_quote(
             detail=f"Failed to submit quote: {str(e)}"
         )
 
-    return config
+    return _config_to_response(config, db)
 
 
 @router.post("/saved-quotes/{config_id}/place-order")
@@ -2049,7 +2643,7 @@ def place_order_from_quote(
         if "404" in error_msg or "Not Found" in error_msg or "not found" in error_msg.lower():
             config.bc_quote_id = None
             config.bc_quote_number = None
-            config.bc_quote_data = None
+            config.bc_line_map = None
             config.is_submitted = False
             db.commit()
             raise HTTPException(

@@ -383,6 +383,16 @@ class BusinessCentralClient:
         )
         return result
 
+    def delete_quote_line(self, quote_id: str, line_id: str, company_id: Optional[str] = None) -> bool:
+        """Delete a sales quote line. BC accepts If-Match: * here (no ETag needed)."""
+        cid = company_id or self.company_id
+        self._make_request(
+            "DELETE",
+            f"companies({cid})/salesQuotes({quote_id})/salesQuoteLines({line_id})",
+            headers={"If-Match": "*"},
+        )
+        return True
+
     def set_quote_line_output(self, quote_number: str, line_no: int, output: bool = True) -> None:
         """
         Set the Output flag on a sales quote line via OData.

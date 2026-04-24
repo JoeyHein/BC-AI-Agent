@@ -893,6 +893,13 @@ class SavedQuoteConfig(Base):
     bc_quote_number = Column(String(50), nullable=True)  # BC quote number if submitted
     bc_quote_id = Column(String(100), nullable=True)  # BC quote GUID if submitted
 
+    # Per-door + shared BC line ID map. Shape:
+    #   {"doors": {"1": ["line-id-1", ...], "2": [...]},
+    #    "shared": {"freight": [...], "install": [...], "volume_discount": [...]}}
+    # Used to surgically delete/replace only the lines for changed doors on edit,
+    # keeping the BC quote number stable.
+    bc_line_map = Column(JSON, nullable=True)
+
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, onupdate=datetime.utcnow)
