@@ -38,7 +38,8 @@ class BusinessCentralClient:
     def _initialize_msal(self):
         """Initialize MSAL application. Tolerates invalid credentials (e.g. CI
         test env vars) by falling back to the unauthenticated state — real API
-        calls will still fail, but module import succeeds."""
+        calls will still fail, but module import succeeds. Catches broadly
+        because MSAL's exception types vary across versions."""
         authority = f"https://login.microsoftonline.com/{self.tenant_id}"
         try:
             self.app = msal.ConfidentialClientApplication(
@@ -47,9 +48,9 @@ class BusinessCentralClient:
                 client_credential=self.client_secret
             )
             logger.info("MSAL application initialized for BC authentication")
-        except ValueError as e:
+        except Exception as e:
             self.app = None
-            logger.warning(f"MSAL init failed ({e}); BC client will not authenticate")
+            logger.warning(f"MSAL init failed ({type(e).__name__}: {e}); BC client will not authenticate")
 
     def _get_access_token(self) -> str:
         """Get valid access token (with caching)"""
