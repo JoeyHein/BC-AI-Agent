@@ -93,3 +93,6 @@ backend/upwardor_*.html
 backend/final_*.png
 backend/dropdown_*.png
 backend/login_page_filled.png
+
+# Shop drawing dev outputs
+backend/tmp_out/
