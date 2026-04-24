@@ -1,11 +1,19 @@
 import React from 'react'
+import {
+  hasGlassPockets,
+  pocketConstraints,
+  sectionCountForHeight,
+  getCurrentPocketCount,
+  buildPocketsForCount,
+} from '../utils/glassPockets'
 
-export default function ColorStep({ options, family, config, onSelect }) {
+export default function ColorStep({ options, family, config, onSelect, onPocketsChange }) {
   const colors = family?.colors || []
 
   // For AL976, also handle glass options
   const isAluminium = family?.type === 'aluminium'
   const glassOptions = family?.glassOptions || []
+  const showPockets = isAluminium && hasGlassPockets(config.doorSeries)
 
   return (
     <div className="odc-step-content">
@@ -67,6 +75,52 @@ export default function ColorStep({ options, family, config, onSelect }) {
           </div>
         </>
       )}
+
+      {showPockets && (() => {
+        const { default: defaultPockets, min: minCount, max: maxCount } = pocketConstraints(config.doorSeries, config.width)
+        const sectionCount = sectionCountForHeight(config.height)
+        const currentCount = getCurrentPocketCount(config.glassPocketsPerSection, defaultPockets)
+        const setAll = (count) => {
+          const clamped = Math.max(minCount, Math.min(maxCount, count))
+          onPocketsChange?.(buildPocketsForCount(clamped, sectionCount, defaultPockets))
+        }
+        const isCustom = currentCount !== defaultPockets
+        return (
+          <div className="odc-pockets-section">
+            <h3 className="odc-subsection-title">Glass Pockets</h3>
+            <p className="odc-pockets-hint">
+              {currentCount} pocket{currentCount === 1 ? '' : 's'} per section
+              {' = '}
+              {currentCount - 1} center stile{currentCount - 1 === 1 ? '' : 's'}.
+              {' '}Default: {defaultPockets}. Range: {minCount}–{maxCount}.
+            </p>
+            <div className={`odc-pockets-control ${isCustom ? 'odc-pockets-custom' : ''}`}>
+              <button
+                type="button"
+                className="odc-pockets-btn"
+                onClick={() => setAll(currentCount - 1)}
+                disabled={currentCount <= minCount}
+                aria-label="Fewer pockets"
+              >−</button>
+              <span className="odc-pockets-value">{currentCount}</span>
+              <button
+                type="button"
+                className="odc-pockets-btn"
+                onClick={() => setAll(currentCount + 1)}
+                disabled={currentCount >= maxCount}
+                aria-label="More pockets"
+              >+</button>
+              {isCustom && (
+                <button
+                  type="button"
+                  className="odc-pockets-reset"
+                  onClick={() => onPocketsChange?.(null)}
+                >reset</button>
+              )}
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

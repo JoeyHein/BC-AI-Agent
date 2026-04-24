@@ -1266,3 +1266,63 @@
     height: 26px;
   }
 }
+
+/* Glass pockets / center stile control (AL976 & SWD) */
+.odc-pockets-section {
+  margin-top: 24px;
+}
+.odc-pockets-hint {
+  font-size: 12px;
+  color: var(--odc-text-muted, #6b7280);
+  margin: 4px 0 10px;
+}
+.odc-pockets-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--odc-surface-alt, #f9fafb);
+  border: 1px solid var(--odc-border, #e5e7eb);
+  border-radius: 8px;
+}
+.odc-pockets-control.odc-pockets-custom {
+  background: var(--odc-accent-soft, #eef2ff);
+  border-color: var(--odc-accent, #6366f1);
+}
+.odc-pockets-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border: 1px solid var(--odc-border, #d1d5db);
+  border-radius: 6px;
+  font-size: 16px;
+  color: var(--odc-text, #374151);
+  cursor: pointer;
+}
+.odc-pockets-btn:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+.odc-pockets-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.odc-pockets-value {
+  min-width: 28px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 15px;
+}
+.odc-pockets-reset {
+  font-size: 12px;
+  color: var(--odc-text-muted, #6b7280);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.odc-pockets-reset:hover {
+  color: var(--odc-text, #374151);
+}

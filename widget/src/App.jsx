@@ -32,6 +32,7 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
     glassColor: 'CLEAR',
     windowSection: 1,
     windowFrameColor: 'MATCH',
+    glassPocketsPerSection: null,  // Per-section stile/pocket override for AL976/SWD
     width: 192, // 16' in inches
     height: 96, // 8' in inches
   })
@@ -59,6 +60,7 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
       glassPaneType: null,
       glassColor: 'CLEAR',
       windowSection: 1,
+      glassPocketsPerSection: null,
       width: defaultWidth,
       height: defaultHeight,
     }
@@ -80,6 +82,10 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
     } else if (colorId) {
       setConfig(c => ({ ...c, color: colorId }))
     }
+  }, [])
+
+  const handlePocketsChange = useCallback((pockets) => {
+    setConfig(c => ({ ...c, glassPocketsPerSection: pockets }))
   }, [])
 
   const handleWindowSelect = useCallback((windowId, qty, glassColor, section, glassPaneType, windowFrameColor) => {
@@ -199,7 +205,7 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
             <DesignStep options={options} family={family} config={config} onSelect={handleDesignSelect} />
           )}
           {step === 3 && (
-            <ColorStep options={options} family={family} config={config} onSelect={handleColorSelect} />
+            <ColorStep options={options} family={family} config={config} onSelect={handleColorSelect} onPocketsChange={handlePocketsChange} />
           )}
           {step === 4 && (
             <WindowStep options={options} family={family} config={config} onSelect={handleWindowSelect} onWindowPositionsChange={handleWindowPositionsChange} />
@@ -234,6 +240,7 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
                 hasInserts={true}
                 glassColor={config.glassColor || 'CLEAR'}
                 windowFrameColor={config.windowFrameColor || 'MATCH'}
+                glassPocketsPerSection={config.glassPocketsPerSection || null}
                 showDimensions={true}
                 maxWidth={340}
               />

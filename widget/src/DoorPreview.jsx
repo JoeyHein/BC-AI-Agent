@@ -151,6 +151,7 @@ function DoorPreview({
   windowFrameColor = 'MATCH',
   doorType = 'residential',
   doorSeries = '',
+  glassPocketsPerSection = null,
   showDimensions = false,
   scale = 1,
   maxWidth = 400,
@@ -424,7 +425,7 @@ function DoorPreview({
     const innerW = w - frameW * 2
     const innerH = h - topInset - bottomInset
 
-    // AL976: glass panes with vertical stiles
+    // AL976/SWD: glass panes with vertical stiles
     const widthFeet = width / 12
     let paneCount
     if (widthFeet <= 10) paneCount = 3
@@ -432,6 +433,14 @@ function DoorPreview({
     else if (widthFeet <= 18) paneCount = 5
     else if (widthFeet <= 20) paneCount = 6
     else paneCount = 7
+
+    // Honor per-section override from configurator (same count applies to every section).
+    if (glassPocketsPerSection && typeof glassPocketsPerSection === 'object') {
+      const override = glassPocketsPerSection[sectionIndex] ?? glassPocketsPerSection[0]
+      if (override != null && Number.isFinite(override) && override > 0) {
+        paneCount = override
+      }
+    }
 
     const totalMullionW = mullionW * (paneCount - 1)
     const paneW = (innerW - totalMullionW) / paneCount

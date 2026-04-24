@@ -7,6 +7,13 @@ import DoorPreview from '../DoorPreview'
 import DoorDrawings from '../DoorDrawings'
 import QuotePricingDisplay from './QuotePricingDisplay'
 import InstallPriceEstimate from './InstallPriceEstimate'
+import {
+  hasGlassPockets,
+  pocketConstraints,
+  sectionCountForHeight,
+  getCurrentPocketCount,
+  buildPocketsForCount,
+} from '../../utils/glassPockets'
 
 const STEPS = [
   { id: 'type', title: 'Door Type', description: 'Select door category' },
@@ -1062,6 +1069,60 @@ function DesignStep({ door, colors, panelDesigns, config, onChange }) {
             ))}
           </div>
         </div>
+
+        {/* Glass Pockets (center stiles) — AL976 and SWD */}
+        {hasGlassPockets(door.doorSeries) && (() => {
+          const { default: defaultPockets, min: minCount, max: maxCount } = pocketConstraints(door.doorSeries, door.doorWidth)
+          const sectionCount = sectionCountForHeight(door.doorHeight)
+          const currentCount = getCurrentPocketCount(door.glassPocketsPerSection, defaultPockets)
+          const setAll = (count) => {
+            const clamped = Math.max(minCount, Math.min(maxCount, count))
+            onChange({ glassPocketsPerSection: buildPocketsForCount(clamped, sectionCount, defaultPockets) })
+          }
+          const isCustom = currentCount !== defaultPockets
+          return (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Glass Pockets (applies to all sections)
+              </label>
+              <p className="text-xs text-gray-500 mb-3">
+                {currentCount} pocket{currentCount === 1 ? '' : 's'} per section
+                {' = '}
+                {currentCount - 1} center stile{currentCount - 1 === 1 ? '' : 's'}.
+                {' '}Default: {defaultPockets}. Range: {minCount}–{maxCount}.
+              </p>
+              <div className={`flex items-center gap-3 p-2 rounded-md ${isCustom ? 'bg-odc-50 border border-odc-200' : 'bg-gray-50'}`}>
+                <span className="text-sm text-gray-700 w-24">Pockets</span>
+                <button
+                  type="button"
+                  onClick={() => setAll(currentCount - 1)}
+                  disabled={currentCount <= minCount}
+                  className="w-8 h-8 flex items-center justify-center rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  -
+                </button>
+                <span className="text-sm font-semibold w-8 text-center">{currentCount}</span>
+                <button
+                  type="button"
+                  onClick={() => setAll(currentCount + 1)}
+                  disabled={currentCount >= maxCount}
+                  className="w-8 h-8 flex items-center justify-center rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  +
+                </button>
+                {isCustom && (
+                  <button
+                    type="button"
+                    onClick={() => onChange({ glassPocketsPerSection: null })}
+                    className="text-xs text-gray-400 hover:text-gray-600"
+                  >
+                    reset
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        })()}
       </div>
     )
   }
