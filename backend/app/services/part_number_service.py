@@ -178,9 +178,9 @@ OPTIONAL_EXTRA_PARTS = {
         (None, "TRACK HARDWARE, SPRING, BUMPER SPRING, LH", 1),  # TODO: BC code
         (None, "TRACK HARDWARE, SPRING, BUMPER SPRING, RH", 1),  # TODO: BC code
     ],
-    # Track guards ship as pairs (qty 2 per door — one each side).
+    # Track guards: sold as a pair-per-unit, so qty 1 buys both guards.
     "include_track_guards": [
-        (None, "TRACK GUARDS (PAIR)", 2),  # TODO: BC item code
+        (None, "TRACK GUARDS (PAIR)", 1),  # TODO: BC item code
     ],
     "include_exhaust_port": [
         (None, "EXHAUST PORT HARDWARE", 1),  # TODO: BC item code
