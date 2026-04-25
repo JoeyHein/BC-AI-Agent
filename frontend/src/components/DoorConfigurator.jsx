@@ -470,6 +470,7 @@ function DoorConfigurator() {
               doorConfig={currentDoor}
               showExport={true}
               defaultTab="preview"
+              apiContext="admin"
             />
           </div>
         )}

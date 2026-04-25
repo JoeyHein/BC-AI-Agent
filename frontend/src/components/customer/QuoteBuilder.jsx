@@ -44,7 +44,7 @@ function QuoteBuilder() {
   const [pricingData, setPricingData] = useState(null)
   const [pricingLoading, setPricingLoading] = useState(false)
   const [savedQuoteId, setSavedQuoteId] = useState(id ? parseInt(id) : null)
-  const { isBCLinked, isHomeBuilder } = useCustomerAuth()
+  const { user, isBCLinked, isHomeBuilder } = useCustomerAuth()
 
   // Fetch existing quote if editing
   const { data: existingQuote, isLoading: loadingQuote } = useQuery({
@@ -588,6 +588,9 @@ function QuoteBuilder() {
               showExport={true}
               defaultTab="preview"
               savedQuoteId={savedQuoteId}
+              customerName={user?.name || user?.email}
+              jobNumber={quoteName?.trim() || null}
+              apiContext="customer"
             />
           </div>
         )}

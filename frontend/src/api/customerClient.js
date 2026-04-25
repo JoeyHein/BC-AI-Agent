@@ -110,6 +110,21 @@ export const savedQuotesApi = {
       null,
       { params: { fmt, door_index: doorIndex }, responseType: "blob" }
     ),
+
+  // Preview framing drawing without a saved quote — sends config_data inline.
+  // Used by the "Produce Drawing" button in the configurator (pre-save flow).
+  previewFramingDrawing: ({ configData, customerName, jobNumber, doorIndex = 0, fmt = "pdf" }) =>
+    customerApiClient.post(
+      `/api/door-config/preview-framing-drawing`,
+      {
+        config_data: configData,
+        customer_name: customerName || null,
+        job_number: jobNumber || null,
+        door_index: doorIndex,
+        fmt,
+      },
+      { responseType: "blob" }
+    ),
 };
 
 // BC Quotes API (Customer's BC quotes)

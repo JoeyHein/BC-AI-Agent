@@ -4,6 +4,7 @@ Based on Upwardor brochure specifications (Residential 2025 & Commercial 2023)
 """
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -2106,3 +2107,55 @@ def get_shop_drawing_geometry(
     except Exception as e:
         logger.error(f"Error calculating shop drawing geometry: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Preview-Framing Drawing (no saved quote required) ──────────────────────
+
+class FramingDrawingPreviewRequest(BaseModel):
+    """Inputs for generating a shop drawing without a saved quote.
+
+    Used by:
+      - In-house design tool (no customer auth, no saved quote)
+      - Customer portal "Produce Drawing" button before saving
+    """
+    config_data: dict
+    customer_name: Optional[str] = None
+    job_number: Optional[str] = None
+    door_index: int = 0
+    fmt: str = "pdf"  # "pdf" or "dxf"
+
+
+@router.post("/preview-framing-drawing")
+def preview_framing_drawing(req: FramingDrawingPreviewRequest):
+    """Generate a shop drawing PDF/DXF directly from raw config data.
+
+    Same output as the customer portal /saved-quotes/{id}/framing-drawing
+    endpoint, but accepts the config inline so it works before a quote is
+    saved (and for in-house tools that don't go through the quote flow).
+    """
+    from app.services.shop_drawings import generate_framing_drawing
+
+    fmt = (req.fmt or "pdf").lower()
+    if fmt not in ("pdf", "dxf"):
+        raise HTTPException(400, "fmt must be 'pdf' or 'dxf'")
+
+    try:
+        content = generate_framing_drawing(
+            config_data=req.config_data or {},
+            customer_name=req.customer_name or "—",
+            job_number=req.job_number or "PREVIEW",
+            fmt=fmt,
+            door_index=req.door_index,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.error(f"Failed to generate preview framing drawing: {e}", exc_info=True)
+        raise HTTPException(500, f"Failed to generate drawing: {e}")
+
+    media_type = "application/pdf" if fmt == "pdf" else "application/dxf"
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="framing-drawing-preview.{fmt}"'},
+    )

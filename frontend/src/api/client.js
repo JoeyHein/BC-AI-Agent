@@ -216,6 +216,20 @@ export const doorConfigApi = {
   // Get shop drawing geometry (Thermalex formulas)
   getShopDrawingGeometry: (params) =>
     apiClient.get('/api/door-config/shop-drawing-geometry', { params }),
+
+  // Preview shop drawing PDF/DXF directly from config (no saved quote needed)
+  previewFramingDrawing: ({ configData, customerName, jobNumber, doorIndex = 0, fmt = "pdf" }) =>
+    apiClient.post(
+      '/api/door-config/preview-framing-drawing',
+      {
+        config_data: configData,
+        customer_name: customerName || null,
+        job_number: jobNumber || null,
+        door_index: doorIndex,
+        fmt,
+      },
+      { responseType: "blob" }
+    ),
 };
 
 // Production API
