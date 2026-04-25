@@ -86,10 +86,25 @@ class DrawingContext:
     lift_type: str = "standard"   # standard, high_lift, full_vertical, low_headroom
     high_lift_inches: Optional[float] = None
     track_radius_in: float = 15.0 # "15" (15") or "12" (low-headroom)
-    track_thickness_ga: str = "14"
+    track_thickness_ga: str = "14"  # nominal track size: "2" (2") / "3" (3")
+    track_mount: str = "bracket"  # "bracket" or "angle" (continuous angle)
     jamb_type: str = "wood"       # wood, steel
     insulated: bool = True
     section_height_in: float = 21.0  # aluminum 21", commercial 24", residential 21"
+    # Spring + shaft selections
+    target_cycles: int = 10000    # 10k = standard, 25k/50k/100k = upgraded
+    shaft_type: str = "auto"      # auto, single, split, 1_solid, 1_25_solid, 1_tubular
+    # Operator
+    operator: str = "NONE"        # NONE, CHAIN_HOIST, electric models, ...
+    # Hardware bundle (mirrors frontend door.hardware)
+    has_struts: bool = True
+    has_weather_stripping: bool = True
+    has_bottom_retainer: bool = True
+    # Glass / window selections
+    has_windows: bool = False
+    glass_pockets_per_section: Optional[dict] = None  # {section_idx: count} for AL/SWD
+    # Aluminum-specific: pocket count (used when glass_pockets_per_section is None)
+    al_pocket_count: Optional[int] = None
 
 
 # ─── DXF setup ──────────────────────────────────────────────────────────────
@@ -172,11 +187,14 @@ def _draw_title_block(msp: Modelspace, ctx: DrawingContext) -> None:
         msp.add_line((xc, r1_top), (xc, r1_bot), dxfattribs={"layer": "TITLE_BLOCK"})
     door_w_str = fmt_length_imperial(ctx.door_width_in)
     door_h_str = fmt_length_imperial(ctx.door_height_in)
+    # Rough opening: width follows the +2" rule (RO = door − 2" for
+    # X′-2″ variants, otherwise = door); height = door height.
+    ro_w_str = fmt_length_imperial(_ro_width(ctx.door_width_in))
     num_sections_tb = max(3, int(ctx.door_height_in / ctx.section_height_in))
     high_h_str = (fmt_length_imperial(ctx.high_lift_inches)
                   if ctx.high_lift_inches else "—")
     r1_cells = [
-        ("DOOR OPENING (W x H)", f"{door_w_str} x {door_h_str}"),
+        ("DOOR OPENING (W x H)", f"{ro_w_str} x {door_h_str}"),
         ("DOOR SIZE (W x H)",    f"{door_w_str} x {door_h_str}"),
         ("SECTIONS",             str(num_sections_tb)),
         ("HIGH H",               high_h_str),
@@ -431,25 +449,66 @@ def _stamp_columns(width_inches: float, stamp_type: str, is_craft: bool,
 
 
 def _middle_hinge_count(width_inches: float) -> int:
-    """Number of intermediate (middle) hinges per horizontal section joint,
+    """Legacy helper kept for backward compatibility — prefer _hinge_columns().
+    Number of intermediate (middle) hinges per horizontal section joint,
     in addition to the two end hinges at the jambs.
-      ≤ 12' door → 1 middle
-      ≤ 18' door → 2 middles
-      > 18'      → 3 middles
     """
-    feet = width_inches / 12
-    if feet <= 12:
-        return 1
-    if feet <= 18:
-        return 2
-    return 3
+    return max(0, _hinge_columns(width_inches) - 2)
+
+
+def _hinge_columns(width_inches: float) -> int:
+    """Total hinge columns across the door (including end columns at each
+    jamb). Rule: max(3, ceil(W″/60) + 1).
+
+    Spaces hinges no further than ~60″ apart, ensuring minimum 3 columns
+    even on narrow doors (jamb + center + jamb). Validated against the
+    OPENDC reference DXF for both TX commercial and Kanata/Craft
+    residential — same rule applies.
+    """
+    import math
+    return max(3, math.ceil(width_inches / 60.0) + 1)
+
+
+def _al_pocket_count(width_inches: float) -> int:
+    """Mirrors frontend glassPockets.js defaultPocketsForWidth(): glass
+    pocket count per row for AL976/SWD/PANORAMA. Pockets = bays between
+    stiles, so internal stile count = pockets - 1.
+    """
+    f = width_inches / 12
+    if f <= 10: return 3
+    if f <= 14: return 4
+    if f <= 18: return 5
+    if f <= 22: return 6
+    return 7
+
+
+def _is_plus_two_variant(width_inches: float) -> bool:
+    """True for the X′-2″ door variants (8′-2″, 9′-2″, ...). These ship
+    with a rough opening 2″ smaller than the door (the extra 2″ of door
+    overlaps onto the jamb face, giving 1″ of overlap per side)."""
+    rem = round(width_inches - int(width_inches // 12) * 12, 2)
+    return abs(rem - 2.0) < 0.01
+
+
+def _ro_width(door_width_in: float) -> float:
+    """Rough-opening width per OPENDC convention:
+      - Standard door (e.g., 8′-0″): RO = door width
+      - +2″ variant (e.g., 8′-2″):   RO = door width − 2″
+    Height is unaffected (RO height = door height).
+    """
+    return door_width_in - 2.0 if _is_plus_two_variant(door_width_in) else door_width_in
 
 
 def _draw_front_elevation(msp: Modelspace, ctx: DrawingContext,
                           box: Tuple[float, float, float, float],
                           view: str = "interior") -> None:
-    """Front elevation with jambs, header, section joints, panel stamps,
-    hinges, tracks, and dimension chain.
+    """Front elevation with jambs, header, section joints, panel stamps /
+    glass pockets, hinges, tracks, and dimension chain.
+
+    Sectional doors install AGAINST the jambs (not inside them like a
+    swinging door's leaf), so the door slab here is drawn spanning
+    OUTSIDE the jamb edges — i.e., the slab covers the full door width
+    and overlaps onto the jamb face on each side.
 
     Two modes:
       view="interior":  DOOR FACE: INSIDE LOOKING OUT — shows shaft + springs
@@ -471,6 +530,7 @@ def _draw_front_elevation(msp: Modelspace, ctx: DrawingContext,
     TRACK_EXTENSION = 18.0 if is_interior else 10.0
     door_w = ctx.door_width_in or 96.0
     door_h = ctx.door_height_in or 84.0
+    ro_w = _ro_width(door_w)
     # Interior view extends the footprint width to include shaft past jambs
     SHAFT_OVERHANG = 6.0 if is_interior else 0.0  # shaft extends past each jamb
     footprint_w = door_w + 2 * JAMB_VIS_W + 2 * TRACK_OFFSET + 2 * SHAFT_OVERHANG
@@ -494,16 +554,26 @@ def _draw_front_elevation(msp: Modelspace, ctx: DrawingContext,
         """Convert real-world inches → sheet-space inches."""
         return inches * scale
 
-    # Key geometry anchors (origin at footprint lower-left = fx0, fy0)
-    # x-layout: [track][jamb][door][jamb][track]
+    # Key geometry anchors (origin at footprint lower-left = fx0, fy0).
+    # x-layout: [track][jamb][RO opening][jamb][track], with the door
+    # slab overlaying — extending OUTSIDE the jambs (sectional install
+    # convention). For +2" variants, the door is 2" wider than the RO,
+    # so it overlaps 1" onto each jamb face.
     left_track_x = fx0 + DX(0)
     jl_x0 = fx0 + DX(TRACK_OFFSET)
     jl_x1 = jl_x0 + DX(JAMB_VIS_W)
-    d_x0 = jl_x1
-    d_x1 = d_x0 + DX(door_w)
-    jr_x0 = d_x1
+    # Rough opening edges = inside faces of the jambs
+    ro_x0 = jl_x1
+    ro_x1 = ro_x0 + DX(ro_w)
+    jr_x0 = ro_x1
     jr_x1 = jr_x0 + DX(JAMB_VIS_W)
     right_track_x = jr_x1 + DX(TRACK_OFFSET)
+    # Door slab: centered on the RO, extends to the door width.
+    # For standard door: door_w == ro_w, so door edges align with RO edges
+    # (+ jamb inside). For +2" variant: door extends 1" onto each jamb.
+    door_overlap = (door_w - ro_w) / 2  # 0 for standard, 1.0 for +2" variant
+    d_x0 = ro_x0 - DX(door_overlap)
+    d_x1 = ro_x1 + DX(door_overlap)
     # y-layout: [ground at fy0][door to fy0+door_h][header][track extension]
     d_y0 = fy0
     d_y1 = fy0 + DX(door_h)
@@ -525,7 +595,8 @@ def _draw_front_elevation(msp: Modelspace, ctx: DrawingContext,
     hdr_label.set_placement(((jl_x0 + jr_x1) / 2, (hdr_y0 + hdr_y1) / 2),
                             align=TextEntityAlignment.MIDDLE_CENTER)
 
-    # ── Jambs (left + right) ─────────────────────────────────────────────
+    # ── Jambs (left + right) — drawn BEHIND the door slab so the slab
+    # visibly overlaps onto the jamb faces ─────────────────────────────
     for jx0, jx1 in [(jl_x0, jl_x1), (jr_x0, jr_x1)]:
         msp.add_lwpolyline(
             [(jx0, d_y0), (jx1, d_y0), (jx1, d_y1), (jx0, d_y1), (jx0, d_y0)],
@@ -559,12 +630,29 @@ def _draw_front_elevation(msp: Modelspace, ctx: DrawingContext,
     for y in section_ys[1:-1]:
         msp.add_line((d_x0, y), (d_x1, y), dxfattribs={"layer": "HORIZONTALS"})
 
-    # ── Panel stamps inside each section (based on panel_design) ─────────
-    _draw_panel_stamps(
-        msp, ctx,
-        door_bbox=(d_x0, d_y0, d_x1, d_y1),
-        section_ys=section_ys,
-    )
+    # ── Per-series body fill (panel stamps / glass pockets / ribs) ─────
+    if _is_aluminum_series(ctx.door_series):
+        _draw_aluminum_pockets(
+            msp, ctx,
+            door_bbox=(d_x0, d_y0, d_x1, d_y1),
+            section_ys=section_ys,
+        )
+    elif _is_commercial_series(ctx.door_series):
+        # TX-series: solid steel face with horizontal rib stamps, no stiles
+        _draw_tx_ribs(
+            msp, ctx,
+            door_bbox=(d_x0, d_y0, d_x1, d_y1),
+            section_ys=section_ys,
+        )
+    else:
+        # Residential (Kanata SHXL/BCXL/BC/SH, Craft, Trafalgar): solid
+        # face with stamped panel pattern. No internal stiles — only
+        # horizontal section joints already drawn above.
+        _draw_panel_stamps(
+            msp, ctx,
+            door_bbox=(d_x0, d_y0, d_x1, d_y1),
+            section_ys=section_ys,
+        )
 
     # ── Hinges at each internal section joint ────────────────────────────
     _draw_hinges(
@@ -612,20 +700,21 @@ def _draw_front_elevation(msp: Modelspace, ctx: DrawingContext,
         align=TextEntityAlignment.MIDDLE_CENTER,
     )
 
-    # ── Width dimension (door-to-door clear opening) ─────────────────────
+    # ── Width dimension (door slab width) ────────────────────────────────
     dim_y_inner = d_y0 - 0.30
     if dim_y_inner < draw_y0 + 0.15:
         dim_y_inner = draw_y0 + 0.15
     _draw_linear_dim(msp, (d_x0, d_y0), (d_x1, d_y0), dim_y_inner,
                      label=fmt_length_dual(door_w))
 
-    # ── Rough-opening dimension (outer jamb to outer jamb, below clear) ──
+    # ── Rough-opening dimension — between jamb inside faces ────────────
+    # OPENDC convention: RO = door width for standard sizes; RO = door − 2"
+    # for the +2" variants (which overlap 1" onto each jamb face).
     dim_y_ro = dim_y_inner - 0.30
     if dim_y_ro < draw_y0 + 0.08:
         dim_y_ro = draw_y0 + 0.08
-    ro_width = door_w + 2 * JAMB_VIS_W
-    _draw_linear_dim(msp, (jl_x0, d_y0), (jr_x1, d_y0), dim_y_ro,
-                     label=f"R.O. {fmt_length_dual(ro_width)}")
+    _draw_linear_dim(msp, (ro_x0, d_y0), (ro_x1, d_y0), dim_y_ro,
+                     label=f"R.O. {fmt_length_dual(ro_w)}")
 
     # ── Height dimension (right side of door) ────────────────────────────
     dim_x = right_track_x + 0.20
@@ -704,6 +793,95 @@ def _draw_panel_stamps(msp: Modelspace, ctx: DrawingContext,
             )
 
     # Panel design is noted in the view title — no separate label needed here
+
+
+# ─── Series classification + per-series body rendering ─────────────────────
+
+ALUMINUM_SERIES = {"AL976", "SWD", "PANORAMA", "SOLALITE"}
+COMMERCIAL_SERIES = {"TX380", "TX450", "TX500", "TX450-20", "TX500-20"}
+
+
+def _is_aluminum_series(series: str) -> bool:
+    return (series or "").upper() in ALUMINUM_SERIES
+
+
+def _is_commercial_series(series: str) -> bool:
+    return (series or "").upper() in COMMERCIAL_SERIES
+
+
+def _draw_aluminum_pockets(msp: Modelspace, ctx: DrawingContext,
+                           door_bbox: Tuple[float, float, float, float],
+                           section_ys: list[float]) -> None:
+    """Aluminum-series glass pocket grid: vertical stiles divide each
+    section into N glass pockets per row. Stile count comes from the
+    width-based rule in glassPockets.js, mirrored by _al_pocket_count().
+
+    Per-section pocket-count overrides (AL976/SWD center-stile customizations)
+    are read from ctx.glass_pockets_per_section when present.
+    """
+    d_x0, d_y0, d_x1, d_y1 = door_bbox
+    door_w = d_x1 - d_x0
+    default_pockets = _al_pocket_count(ctx.door_width_in)
+    overrides = ctx.glass_pockets_per_section or {}
+
+    for i in range(len(section_ys) - 1):
+        sec_y0 = section_ys[i]
+        sec_y1 = section_ys[i + 1]
+        # Per-section override or default
+        n_pockets = overrides.get(i) or overrides.get(str(i)) or default_pockets
+        n_pockets = max(1, int(n_pockets))
+        # Vertical stile lines (interior bay dividers)
+        for k in range(1, n_pockets):
+            sx = d_x0 + door_w * (k / n_pockets)
+            msp.add_line((sx, sec_y0), (sx, sec_y1),
+                         dxfattribs={"layer": "FRAMING", "lineweight": 25})
+        # Glass pocket rectangles (slight inset from stiles + section edges)
+        bay_w = door_w / n_pockets
+        inset_x = min(bay_w * 0.06, 0.04)
+        inset_y = min((sec_y1 - sec_y0) * 0.08, 0.05)
+        for k in range(n_pockets):
+            px0 = d_x0 + bay_w * k + inset_x
+            px1 = d_x0 + bay_w * (k + 1) - inset_x
+            py0 = sec_y0 + inset_y
+            py1 = sec_y1 - inset_y
+            if px1 - px0 < 0.02 or py1 - py0 < 0.02:
+                continue
+            msp.add_lwpolyline(
+                [(px0, py0), (px1, py0), (px1, py1),
+                 (px0, py1), (px0, py0)],
+                close=True,
+                dxfattribs={"layer": "ANNOTATIONS", "lineweight": 13},
+            )
+
+
+def _draw_tx_ribs(msp: Modelspace, ctx: DrawingContext,
+                  door_bbox: Tuple[float, float, float, float],
+                  section_ys: list[float]) -> None:
+    """TX-series commercial sectional: solid steel face with fine
+    horizontal rib stamps in each section. NO internal stiles — only
+    the horizontal section joints already drawn above.
+    Reference: OPENDC catalog DXF TX-SERIES region. Each section shows
+    ~10 horizontal embossed grooves per panel.
+    """
+    d_x0, _, d_x1, _ = door_bbox
+    RIBS_PER_SECTION = 10
+    rib_inset_x = min((d_x1 - d_x0) * 0.015, 0.04)
+    for i in range(len(section_ys) - 1):
+        sec_y0 = section_ys[i]
+        sec_y1 = section_ys[i + 1]
+        sec_h = sec_y1 - sec_y0
+        if sec_h < 0.05:
+            continue
+        # Distribute ribs evenly within the section, with a small margin
+        # from the section joints so rib lines don't merge with joints.
+        margin = sec_h * 0.10
+        usable = sec_h - 2 * margin
+        for r in range(RIBS_PER_SECTION):
+            ry = sec_y0 + margin + usable * (r / max(RIBS_PER_SECTION - 1, 1))
+            msp.add_line(
+                (d_x0 + rib_inset_x, ry), (d_x1 - rib_inset_x, ry),
+                dxfattribs={"layer": "ANNOTATIONS", "lineweight": 9},
+            )
 
 
 # ─── Side elevation ─────────────────────────────────────────────────────────
@@ -790,6 +968,18 @@ def _draw_side_elevation(msp: Modelspace, ctx: DrawingContext,
     )
     t.set_placement((cx, by1 - 0.12),
                     align=TextEntityAlignment.MIDDLE_CENTER)
+    # Subtitle row: jamb material + track size + R= radius
+    sub_lines = [
+        f"{ctx.jamb_type.upper()} JAMB",
+        f"{ctx.track_thickness_ga}\" TRACK",
+        f"R = {fmt_length_imperial(ctx.track_radius_in)}",
+    ]
+    sub = msp.add_text(
+        "    ".join(sub_lines),
+        dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_SMALL, "style": "Standard"},
+    )
+    sub.set_placement((cx, by1 - 0.28),
+                      align=TextEntityAlignment.MIDDLE_CENTER)
 
     # ── Floor line ──────────────────────────────────────────────────────
     msp.add_line(
@@ -907,6 +1097,38 @@ def _draw_side_elevation(msp: Modelspace, ctx: DrawingContext,
         label=f"BACKROOM {fmt_length_imperial(backroom)}",
     )
 
+    # ── Centerline of shaft (interior view only — when there's a shaft) ──
+    if lift != "full_vertical":
+        # Shaft sits at the radius arc center elevation
+        msp.add_line(
+            (x_face - SX(radius) - 0.20, arc_cy),
+            (x_face + 0.20, arc_cy),
+            dxfattribs={"layer": "CENTERLINE", "linetype": "CENTER"},
+        )
+        cl_lbl = msp.add_text(
+            "CL SHAFT",
+            dxfattribs={
+                "layer": "ANNOTATIONS", "height": TEXT_SMALL * 0.85,
+                "style": "Standard",
+            },
+        )
+        cl_lbl.set_placement(
+            (x_face + 0.22, arc_cy),
+            align=TextEntityAlignment.MIDDLE_LEFT,
+        )
+
+    # ── Jamb stub at door face (visualises wood/steel jamb depth) ──────
+    jamb_depth_in = 5.5  # 2x6 visual depth
+    jamb_x0 = x_face
+    jamb_x1 = x_face + SX(jamb_depth_in)
+    msp.add_lwpolyline(
+        [(jamb_x0, y_floor), (jamb_x1, y_floor),
+         (jamb_x1, y_door_top + SX(2)), (jamb_x0, y_door_top + SX(2)),
+         (jamb_x0, y_floor)],
+        close=True,
+        dxfattribs={"layer": "FRAMING", "lineweight": 18},
+    )
+
     # ── Interior / exterior labels ──────────────────────────────────────
     int_label = msp.add_text(
         "INTERIOR",
@@ -921,7 +1143,7 @@ def _draw_side_elevation(msp: Modelspace, ctx: DrawingContext,
         dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_SMALL, "style": "Standard"},
     )
     ext_label.set_placement(
-        (x_face + 0.10, y_floor + 0.10),
+        (jamb_x1 + 0.05, y_floor + 0.10),
         align=TextEntityAlignment.MIDDLE_LEFT,
     )
 
@@ -1022,27 +1244,37 @@ def _draw_hinges(msp: Modelspace, ctx: DrawingContext,
                  section_ys: list[float], scale: float) -> None:
     """Draw hinge symbols at each internal section joint.
 
-    Hinge layout:
-      - 2 end hinges at each joint (near left/right stiles)
-      - N middle hinges evenly spaced (N derived from door width)
+    Hinge column rule (TX commercial + Kanata/Craft residential, validated
+    against OPENDC reference catalog): max(3, ceil(W″/60) + 1) total
+    columns spaced evenly across the door — end columns at each jamb
+    plus intermediates spaced ≤ 60″ apart. Aluminum (AL976/SWD/PANORAMA)
+    uses one hinge per stile column instead.
+
     Each hinge is a small filled square, ~2" wide per real-world.
     """
     d_x0, _, d_x1, _ = door_bbox
     HINGE_SIZE_IN = 2.0   # real-world size of each hinge symbol
-    HINGE_OFFSET_IN = 3.5 # distance from stile edge to end hinge
+    HINGE_OFFSET_IN = 3.5 # distance from door edge to end hinge column
     hinge_w = HINGE_SIZE_IN * scale
     end_offset = HINGE_OFFSET_IN * scale
-
-    middles = _middle_hinge_count(ctx.door_width_in)
     door_pw = d_x1 - d_x0
 
-    # Hinge x-positions (sheet space)
-    positions = [d_x0 + end_offset, d_x1 - end_offset]
-    if middles > 0:
-        inner_w = door_pw - 2 * end_offset
-        step = inner_w / (middles + 1)
-        for i in range(1, middles + 1):
-            positions.append(d_x0 + end_offset + step * i)
+    if _is_aluminum_series(ctx.door_series):
+        # One hinge per stile column. Stile count = pockets - 1 internal
+        # + 2 at the jambs.
+        n_pockets = _al_pocket_count(ctx.door_width_in)
+        positions = [d_x0 + end_offset, d_x1 - end_offset]
+        for k in range(1, n_pockets):
+            positions.append(d_x0 + door_pw * (k / n_pockets))
+    else:
+        # TX commercial + Kanata/Craft residential: hinge columns from
+        # the spacing rule.
+        n_cols = _hinge_columns(ctx.door_width_in)
+        positions = []
+        for k in range(n_cols):
+            t = k / (n_cols - 1) if n_cols > 1 else 0.5
+            x = d_x0 + end_offset + (door_pw - 2 * end_offset) * t
+            positions.append(x)
 
     # Draw at each internal section joint (skip top/bottom)
     for y in section_ys[1:-1]:
@@ -1368,9 +1600,13 @@ def _draw_plan_view(msp: Modelspace, ctx: DrawingContext,
 
     # Real-world dims (inches)
     door_w = ctx.door_width_in or 96.0
+    ro_w = _ro_width(door_w)
     sideroom_in = 3.5  # minimum required sideroom each side
     door_thickness_in = 2.0 if ctx.door_type == "commercial" else 1.75
-    total_w = door_w + 2 * sideroom_in
+    # Plan-view geometry: jambs flank the rough opening, not the door slab.
+    # Door slab (drawn as the section band between jambs) overlaps inward
+    # for +2" variants, so the interior face line is the door slab width.
+    total_w = ro_w + 2 * sideroom_in
     depth_in = door_thickness_in + 4.0  # section + exterior/interior buffer
 
     usable_w = box_w * 0.88
@@ -1430,10 +1666,10 @@ def _draw_plan_view(msp: Modelspace, ctx: DrawingContext,
     _draw_linear_dim(msp, (jr_x0, sec_y_bot), (jr_x1, sec_y_bot), dim_y,
                      label=f"SIDEROOM {fmt_length_imperial(sideroom_in)}")
 
-    # ── Door opening dimension ──────────────────────────────────────────
+    # ── Rough-opening dimension (between jamb inside faces) ────────────
     opening_dim_y = dim_y - 0.30
     _draw_linear_dim(msp, (d_x0, sec_y_bot), (d_x1, sec_y_bot), opening_dim_y,
-                     label=f"DOOR OPENING {fmt_length_dual(door_w)}")
+                     label=f"R.O. {fmt_length_dual(ro_w)}")
 
     # ── Exterior / Interior labels (inside the view, close to geometry) ──
     ext_lbl = msp.add_text(
@@ -1518,39 +1754,69 @@ def _draw_optional_extras(msp: Modelspace, ctx: DrawingContext,
     t.set_placement(((bx0 + bx1) / 2, by1 - 0.15),
                     align=TextEntityAlignment.MIDDLE_CENTER)
 
-    # Determine selections from ctx
-    lift = ctx.lift_type
+    # Bind every checkbox to a field on DrawingContext. Items that don't
+    # have a corresponding configurator field today render unchecked —
+    # add the field upstream (configurator → SavedQuoteConfig →
+    # build_context_from_config) before changing them here.
+    track_size = (ctx.track_thickness_ga or "").strip()
+    operator = (ctx.operator or "NONE").upper()
+    shaft = (ctx.shaft_type or "auto").lower()
+    cycles = ctx.target_cycles or 10000
+    is_aluminum = _is_aluminum_series(ctx.door_series)
+    is_commercial = _is_commercial_series(ctx.door_series)
+
     selected = {
-        "2\" TRACK APPLICATION":       ctx.track_thickness_ga == "2",
-        "3\" TRACK APPLICATION":       ctx.track_thickness_ga in ("3", "14"),
+        # Track size: 2" for residential standard, 3" for commercial
+        "2\" TRACK APPLICATION":       track_size in ("2", "2_in", ""),
+        "3\" TRACK APPLICATION":       track_size in ("3", "3_in"),
+        # Frame / jamb material
         "STEEL FRAME":                 ctx.jamb_type == "steel",
         "WOOD FRAME":                  ctx.jamb_type == "wood",
-        "BRACKET MOUNT":               lift in ("standard", "high_lift"),
-        "CONTINUOUS ANGLE MOUNT":      False,
-        "SINGLE END STILES/HINGES":    True,
-        "DOUBLE END STILES/HINGES":    False,
-        "16GA STRUTS":                 False,
-        "20GA STRUTS":                 False,
+        # Track mount style
+        "BRACKET MOUNT":               ctx.track_mount == "bracket",
+        "CONTINUOUS ANGLE MOUNT":      ctx.track_mount == "angle",
+        # End stile / hinge style — aluminum + wide commercial use double
+        "SINGLE END STILES/HINGES":    not (is_aluminum or
+                                            (is_commercial and ctx.door_width_in >= 192)),
+        "DOUBLE END STILES/HINGES":    is_aluminum or
+                                        (is_commercial and ctx.door_width_in >= 192),
+        # Strut gauge — commercial defaults to 16GA, residential to 20GA
+        "16GA STRUTS":                 ctx.has_struts and is_commercial,
+        "20GA STRUTS":                 ctx.has_struts and not is_commercial,
+        # Items not yet in the data model — keep unchecked until configurator
+        # surfaces them. Don't lie about defaults.
         "MAN DOOR (see man door spec)": False,
         "BAR LATCH":                   False,
         "KEYED OUTSIDE HANDLE":        False,
         "INTERIOR SIDE LOCK":          False,
-        "MANUAL OPERATION":            True,
-        "GEARED CHAIN HOIST":          False,
-        "ELECTRIC OPERATOR (BY OTHERS)": False,
-        "1\" SOLID SHAFT":             True,
-        "1-1/4\" SOLID SHAFT":         False,
-        "1\" TUBULAR SHAFT":           False,
-        "COUPLER":                     False,
-        "STANDARD CYCLE SPRING":       True,
-        "25,000 CYCLE SPRINGS":        False,
-        "50,000 CYCLE SPRINGS":        False,
-        "100,000 CYCLE SPRINGS":       False,
+        # Operator
+        "MANUAL OPERATION":            operator in ("NONE", "MANUAL"),
+        "GEARED CHAIN HOIST":          operator in ("CHAIN_HOIST", "CHAIN", "HOIST"),
+        "ELECTRIC OPERATOR (BY OTHERS)": (operator not in
+                                          ("NONE", "MANUAL", "CHAIN_HOIST",
+                                           "CHAIN", "HOIST")),
+        # Shaft type — "auto" defaults to 1" solid for residential, 1-1/4"
+        # for wide/commercial. Explicit shaft_type values override.
+        "1\" SOLID SHAFT":             (shaft in ("1_solid", "single") or
+                                        (shaft == "auto" and not (is_commercial
+                                            or ctx.door_width_in >= 192))),
+        "1-1/4\" SOLID SHAFT":         (shaft == "1_25_solid" or
+                                        (shaft == "auto" and (is_commercial
+                                            or ctx.door_width_in >= 192))),
+        "1\" TUBULAR SHAFT":           shaft == "1_tubular",
+        "COUPLER":                     shaft == "split",
+        # Spring cycle rating
+        "STANDARD CYCLE SPRING":       cycles <= 10000,
+        "25,000 CYCLE SPRINGS":        cycles == 25000,
+        "50,000 CYCLE SPRINGS":        cycles == 50000,
+        "100,000 CYCLE SPRINGS":       cycles >= 100000,
+        # Specialty springs — TODO: wire to configurator
         "PUSHER SPRING":               False,
         "BUMPER SPRING":               False,
         "TRACK GUARDS":                False,
-        "TOP SEAL VINYL":              True,
-        "STEEL VINYL WEATHER STRIP":   True,
+        # Weather seals — driven by hardware bundle flag
+        "TOP SEAL VINYL":              ctx.has_weather_stripping,
+        "STEEL VINYL WEATHER STRIP":   ctx.has_weather_stripping,
         "EXHAUST PORT":                False,
     }
 
@@ -1828,8 +2094,9 @@ def build_context_from_config(
     commercial_series = {"TX380", "TX450", "TX500", "TX450-20", "TX500-20"}
     section_h = 24.0 if series in commercial_series else 21.0
 
+    hardware = door.get("hardware") or {}
     return DrawingContext(
-        job_number=job_number or f"Q-{config_id}" if config_id else "UNASSIGNED",
+        job_number=job_number or (f"Q-{config_id}" if config_id else "UNASSIGNED"),
         customer_name=customer_name or "—",
         door_series=series,
         door_type=door_type,
@@ -1843,10 +2110,19 @@ def build_context_from_config(
         lift_type=door.get("liftType") or "standard",
         high_lift_inches=(float(door["highLiftInches"]) if door.get("highLiftInches") else None),
         track_radius_in=float(door.get("trackRadius") or 15),
-        track_thickness_ga=str(door.get("trackThickness") or "14"),
+        track_thickness_ga=str(door.get("trackThickness") or "2"),
+        track_mount=str(door.get("trackMount") or "bracket"),
         jamb_type="steel" if door_type == "commercial" else "wood",
         insulated=True,
         section_height_in=section_h,
+        target_cycles=int(door.get("targetCycles") or 10000),
+        shaft_type=str(door.get("shaftType") or "auto"),
+        operator=str(door.get("operator") or "NONE"),
+        has_struts=bool(hardware.get("struts", True)),
+        has_weather_stripping=bool(hardware.get("weatherStripping", True)),
+        has_bottom_retainer=bool(hardware.get("bottomRetainer", True)),
+        has_windows=bool(door.get("hasWindows", False)),
+        glass_pockets_per_section=door.get("glassPocketsPerSection"),
     )
 
 
