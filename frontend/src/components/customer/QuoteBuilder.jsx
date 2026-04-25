@@ -173,7 +173,7 @@ function QuoteBuilder() {
     const door = currentDoor
     switch (STEPS[currentStep].id) {
       case 'type':
-        return !!door.doorType
+        return !!door.doorType && !!quoteName.trim()
       case 'series':
         return !!door.doorSeries
       case 'dimensions':
@@ -441,27 +441,45 @@ function QuoteBuilder() {
 
         {/* Step 1: Door Type */}
         {STEPS[currentStep].id === 'type' && config && (
-          <DoorTypeStep
-            doorTypes={config.doorTypes}
-            selected={currentDoor.doorType}
-            onSelect={(type) => updateCurrentDoor({
-              doorType: type,
-              doorSeries: '',
-              panelColor: '',
-              panelDesign: '',
-              // Reset windows to prevent stale state
-              hasWindows: false,
-              windowInsert: null,
-              windowPositions: [],
-              windowQty: 0,
-              glassPaneType: null,
-              glassColor: null,
-              trackMount: 'bracket',
-              // Set track defaults based on door type
-              trackRadius: type === 'commercial' ? '15' : '12',
-              trackThickness: type === 'commercial' ? '3' : '2',
-            })}
-          />
+          <div className="space-y-6">
+            <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Job Name / Tag <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={quoteName}
+                onChange={(e) => setQuoteName(e.target.value)}
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-odc-500 focus:ring-odc-500 sm:text-sm"
+                placeholder="e.g., Smith Residence — Front Garage"
+                autoFocus
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Appears on shop drawings, saved quotes, and the BC quote. You can edit it on the Review step before saving.
+              </p>
+            </div>
+            <DoorTypeStep
+              doorTypes={config.doorTypes}
+              selected={currentDoor.doorType}
+              onSelect={(type) => updateCurrentDoor({
+                doorType: type,
+                doorSeries: '',
+                panelColor: '',
+                panelDesign: '',
+                // Reset windows to prevent stale state
+                hasWindows: false,
+                windowInsert: null,
+                windowPositions: [],
+                windowQty: 0,
+                glassPaneType: null,
+                glassColor: null,
+                trackMount: 'bracket',
+                // Set track defaults based on door type
+                trackRadius: type === 'commercial' ? '15' : '12',
+                trackThickness: type === 'commercial' ? '3' : '2',
+              })}
+            />
+          </div>
         )}
 
         {/* Step 2: Door Series */}
