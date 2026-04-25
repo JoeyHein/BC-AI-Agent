@@ -587,6 +587,7 @@ function QuoteBuilder() {
               doorConfig={currentDoor}
               showExport={true}
               defaultTab="preview"
+              savedQuoteId={savedQuoteId}
             />
           </div>
         )}

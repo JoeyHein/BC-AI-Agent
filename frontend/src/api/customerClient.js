@@ -102,6 +102,14 @@ export const savedQuotesApi = {
   // Place order from a priced/submitted quote
   placeOrder: (id) =>
     customerApiClient.post(`/api/customer/portal/saved-quotes/${id}/place-order`),
+
+  // Generate framing shop drawing — returns PDF (or DXF) bytes
+  framingDrawing: (id, { fmt = "pdf", doorIndex = 0 } = {}) =>
+    customerApiClient.post(
+      `/api/customer/portal/saved-quotes/${id}/framing-drawing`,
+      null,
+      { params: { fmt, door_index: doorIndex }, responseType: "blob" }
+    ),
 };
 
 // BC Quotes API (Customer's BC quotes)

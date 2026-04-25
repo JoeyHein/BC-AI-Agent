@@ -134,6 +134,26 @@ function SavedQuotes() {
     }
   }
 
+  const [downloadingFraming, setDownloadingFraming] = useState({})
+  const handleDownloadFramingDrawing = async (quoteId, quoteNumber) => {
+    setDownloadingFraming(prev => ({ ...prev, [quoteId]: true }))
+    try {
+      const response = await savedQuotesApi.framingDrawing(quoteId, { fmt: 'pdf' })
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `FramingDrawing_${quoteNumber || quoteId}.pdf`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      alert(err?.response?.data?.detail || 'Failed to download framing drawing')
+    } finally {
+      setDownloadingFraming(prev => ({ ...prev, [quoteId]: false }))
+    }
+  }
+
   const filteredQuotes = quotes?.filter(q => {
     if (filter === 'draft') return !q.is_submitted
     if (filter === 'submitted') return q.is_submitted
@@ -262,13 +282,23 @@ function SavedQuotes() {
                             {quote.bc_quote_number && ` - ${quote.bc_quote_number}`}
                           </span>
                           {quote.bc_quote_id && (
-                            <button
-                              onClick={() => handleDownloadPdf(quote.id, quote.bc_quote_id, quote.bc_quote_number)}
-                              disabled={downloadingPdf[quote.id]}
-                              className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-                            >
-                              {downloadingPdf[quote.id] ? 'Downloading...' : 'Download PDF'}
-                            </button>
+                            <>
+                              <button
+                                onClick={() => handleDownloadPdf(quote.id, quote.bc_quote_id, quote.bc_quote_number)}
+                                disabled={downloadingPdf[quote.id]}
+                                className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                              >
+                                {downloadingPdf[quote.id] ? 'Downloading...' : 'Download PDF'}
+                              </button>
+                              <button
+                                onClick={() => handleDownloadFramingDrawing(quote.id, quote.bc_quote_number)}
+                                disabled={downloadingFraming[quote.id]}
+                                className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                                title="Production shop drawing for the installer"
+                              >
+                                {downloadingFraming[quote.id] ? 'Generating...' : 'Drawing PDF'}
+                              </button>
+                            </>
                           )}
                         </div>
                       ) : quote.is_submitted ? (
@@ -306,6 +336,14 @@ function SavedQuotes() {
                                 className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
                               >
                                 {downloadingPdf[quote.id] ? 'Downloading...' : 'Download PDF'}
+                              </button>
+                              <button
+                                onClick={() => handleDownloadFramingDrawing(quote.id, quote.bc_quote_number)}
+                                disabled={downloadingFraming[quote.id]}
+                                className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                                title="Production shop drawing for the installer"
+                              >
+                                {downloadingFraming[quote.id] ? 'Generating...' : 'Drawing PDF'}
                               </button>
                               <button
                                 onClick={() => handleDelete(quote.id, quote.name)}
