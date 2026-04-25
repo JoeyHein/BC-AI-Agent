@@ -28,6 +28,7 @@ jobs:
           pip install -q msal requests anthropic httpx
           pip install -q psycopg2-binary python-dotenv python-multipart
           pip install -q apscheduler cryptography email-validator
+          pip install -q ezdxf matplotlib
 
       - name: Run tests
         working-directory: backend
