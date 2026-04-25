@@ -151,19 +151,40 @@ class DoorConfiguration:
     include_exhaust_port: bool = False
 
 
-# BC item codes for the optional extras above. Set the value to a tuple
-# of (item_code, description) once the code is confirmed; until then leave
-# as None and the emission will be skipped + logged as a warning so the
-# missing code is visible.
+# BC item codes for the optional extras above. Each flag maps to a LIST
+# of (item_code, description, qty) tuples — supports single-SKU options
+# as well as LH/RH pairs (like pushers) and pair-quantity SKUs.
+#
+# Set item_code from None to the real BC code once confirmed. Until then
+# the line is skipped and a warning is logged so the missing code is
+# visible in production logs.
 OPTIONAL_EXTRA_PARTS = {
-    # flag_name              -> (item_code, description) | None
-    "include_man_door":      None,  # TODO: BC item code for man-door pass-through kit
-    "include_bar_latch":     None,  # TODO: BC item code for bar latch hardware
-    "include_keyed_handle":  None,  # TODO: BC item code for keyed outside handle
-    "include_interior_lock": None,  # TODO: BC item code for interior side slide lock
-    "include_bumper_spring": None,  # TODO: BC item code(s) — single SKU or LH/RH pair?
-    "include_track_guards":  None,  # TODO: BC item code — per-side or per-door?
-    "include_exhaust_port":  None,  # TODO: BC item code for exhaust port cutout/hardware
+    # flag_name -> [(item_code, description, qty), ...]
+    "include_man_door": [
+        (None, "MAN DOOR PASS-THROUGH KIT", 1),  # TODO: BC item code
+    ],
+    "include_bar_latch": [
+        (None, "BAR LATCH HARDWARE", 1),  # TODO: BC item code
+    ],
+    "include_keyed_handle": [
+        (None, "KEYED OUTSIDE HANDLE", 1),  # TODO: BC item code
+    ],
+    "include_interior_lock": [
+        (None, "INTERIOR SIDE SLIDE LOCK", 1),  # TODO: BC item code
+    ],
+    # Bumper springs: 2 SKUs (LH + RH), like the pusher spring pair
+    # (TR13-00031-00 / TR13-00032-00).
+    "include_bumper_spring": [
+        (None, "TRACK HARDWARE, SPRING, BUMPER SPRING, LH", 1),  # TODO: BC code
+        (None, "TRACK HARDWARE, SPRING, BUMPER SPRING, RH", 1),  # TODO: BC code
+    ],
+    # Track guards ship as pairs (qty 2 per door — one each side).
+    "include_track_guards": [
+        (None, "TRACK GUARDS (PAIR)", 2),  # TODO: BC item code
+    ],
+    "include_exhaust_port": [
+        (None, "EXHAUST PORT HARDWARE", 1),  # TODO: BC item code
+    ],
 }
 
 
@@ -752,28 +773,29 @@ class PartNumberService:
         # track guards, exhaust port. BC item codes live in
         # OPTIONAL_EXTRA_PARTS at the top of this module — fill them in
         # once the codes are confirmed and these will start emitting.
-        for flag_name, mapping in OPTIONAL_EXTRA_PARTS.items():
+        for flag_name, items in OPTIONAL_EXTRA_PARTS.items():
             if not getattr(config, flag_name, False):
                 continue
-            if mapping is None:
-                logger.warning(
-                    "Optional extra '%s' is enabled but its BC item code is "
-                    "not yet configured (OPTIONAL_EXTRA_PARTS) — line skipped.",
-                    flag_name,
-                )
-                continue
-            item_code, base_desc = mapping
-            desc = base_desc
-            # Append the man-door spec if present so the description is
-            # actionable for production.
-            if flag_name == "include_man_door" and config.man_door_spec:
-                desc = f"{base_desc} — {config.man_door_spec}"
-            parts.append(PartSelection(
-                part_number=item_code,
-                description=desc,
-                quantity=1,
-                category="accessory",
-            ))
+            for item_code, base_desc, qty in items:
+                if item_code is None:
+                    logger.warning(
+                        "Optional extra '%s' line '%s' has no BC item code "
+                        "configured — skipped. Edit OPTIONAL_EXTRA_PARTS in "
+                        "part_number_service.py once the code is known.",
+                        flag_name, base_desc,
+                    )
+                    continue
+                desc = base_desc
+                # Append the man-door spec to the description so it's
+                # actionable for production.
+                if flag_name == "include_man_door" and config.man_door_spec:
+                    desc = f"{base_desc} — {config.man_door_spec}"
+                parts.append(PartSelection(
+                    part_number=item_code,
+                    description=desc,
+                    quantity=qty,
+                    category="accessory",
+                ))
 
         # 8b. DECORATIVE HARDWARE (residential only, if selected)
         if config.door_type == "residential" and hardware.get("decorativeHardware", False):
