@@ -77,11 +77,15 @@ class TestDxfBuild:
         text = dxf_bytes.decode("utf-8")
 
         # Title block strings must be present
-        assert "JD-2026-045" in text
+        assert "JD-2026-045" in text          # populated in PROJECT NAME / JOB # cell
         assert "ABC Warehouse" in text
-        assert "SHXL" in text
-        assert "FRAMING DRAWING" in text
+        assert "SHXL" in text                  # series shown in SERIES cell + big banner
         assert "OPEN DISTRIBUTION" in text
+        # Reference-style fields
+        assert "ELECTRIC" in text and "OPERATOR" in text  # electric operator spec row
+        assert "SPRINGS INFO" in text
+        assert "DOOR OPENING" in text
+        assert "SECTIONS" in text
 
     def test_dxf_has_expected_layers(self):
         ctx = DrawingContext(
@@ -161,3 +165,33 @@ class TestSizeFormatting:
     def test_partial_inches_preserved(self):
         from app.services.shop_drawings.framing import _fmt_size
         assert _fmt_size(110, 85, 1) == "9'-2\" x 7'-1\""
+
+
+class TestLengthDualFormat:
+    def test_basic_conversion(self):
+        from app.services.shop_drawings.framing import fmt_length_dual
+        assert fmt_length_dual(192) == "16'-0\" [4877mm]"
+        assert fmt_length_dual(96) == "8'-0\" [2438mm]"
+
+    def test_partial_inches(self):
+        from app.services.shop_drawings.framing import fmt_length_dual
+        # 110.5" = 9'-2.5" = 2806.7mm → rounds to 2807mm
+        assert fmt_length_dual(110.5) == "9'-2.5\" [2807mm]"
+
+    def test_zero_length(self):
+        from app.services.shop_drawings.framing import fmt_length_dual
+        assert fmt_length_dual(0) == "0'-0\" [0mm]"
+
+
+class TestSheetSize:
+    def test_ansi_b_landscape_dimensions(self):
+        from app.services.shop_drawings.framing import SHEET_W, SHEET_H
+        assert SHEET_W == 17.0
+        assert SHEET_H == 11.0
+
+    def test_title_block_fits_within_sheet(self):
+        from app.services.shop_drawings.framing import (
+            SHEET_W, MARGIN_L, MARGIN_R, TITLE_BLOCK_W, TITLE_BLOCK_H, SHEET_H, MARGIN_B,
+        )
+        assert TITLE_BLOCK_W <= SHEET_W - MARGIN_L - MARGIN_R
+        assert TITLE_BLOCK_H <= SHEET_H - MARGIN_B
