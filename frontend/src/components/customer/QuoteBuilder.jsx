@@ -1545,6 +1545,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                   windowFrameColor={door.windowFrameColor || 'MATCH'}
                   doorType={door.doorType || 'residential'}
                   doorSeries={door.doorSeries || ''}
+                  glassPocketsPerSection={door.glassPocketsPerSection || null}
                   windowQty={door.windowQty || 0}
                   windowSection={door.windowSection || 1}
                   showDimensions={false}
@@ -1851,6 +1852,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
               windowFrameColor={door.windowFrameColor || 'BLACK'}
               doorType={door.doorType || 'commercial'}
               doorSeries={door.doorSeries || ''}
+              glassPocketsPerSection={door.glassPocketsPerSection || null}
               windowQty={door.windowQty || 0}
               windowSection={door.windowSection || 1}
               showDimensions={true}
@@ -1930,23 +1932,9 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                   >+</button>
                 </div>
               </div>
-              <div className="mt-3">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Glass Pockets per Section
-                </label>
-                <div className="flex items-center space-x-4">
-                  <button
-                    onClick={() => onChange({ glassPocketsPerSection: Math.max(2, (door.glassPocketsPerSection || 5) - 1) })}
-                    className="w-10 h-10 rounded-md border border-gray-300 bg-white hover:bg-gray-50 text-xl font-bold"
-                  >-</button>
-                  <span className="text-lg font-medium w-10 text-center">{door.glassPocketsPerSection || 5}</span>
-                  <button
-                    onClick={() => onChange({ glassPocketsPerSection: Math.min(8, (door.glassPocketsPerSection || 5) + 1) })}
-                    className="w-10 h-10 rounded-md border border-gray-300 bg-white hover:bg-gray-50 text-xl font-bold"
-                  >+</button>
-                </div>
-                <p className="text-xs text-gray-400 mt-1">Number of glass panels within each aluminum section frame</p>
-              </div>
+              {/* (V130G "Glass Pockets per Section" control removed — conflicted with the
+                  AL976/SWD pocket control which uses an object format. Pocket count for
+                  AL976/SWD is set in the Design step.) */}
             </div>
           )}
 
@@ -2728,6 +2716,7 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
                   windowFrameColor={door.windowFrameColor || 'MATCH'}
                   doorType={door.doorType}
                   doorSeries={door.doorSeries || ''}
+                  glassPocketsPerSection={door.glassPocketsPerSection || null}
                   showDimensions={true}
                   scale={0.6}
                 />

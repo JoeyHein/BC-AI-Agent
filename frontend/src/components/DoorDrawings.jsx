@@ -66,6 +66,7 @@ function DoorDrawings({
     highLiftInches = null,
     trackMount = 'bracket',
     springCount = null,
+    glassPocketsPerSection = null,
   } = doorConfig
 
   // Convert string values
@@ -302,6 +303,7 @@ function DoorDrawings({
               title={`FRAMING DRAWING - ${doorSeries}`}
               springCount={springCount}
               extras={resolvedExtras}
+              glassPocketsPerSection={glassPocketsPerSection}
             />
           </div>
           <div className="mt-4 p-3 bg-blue-50 rounded-lg">

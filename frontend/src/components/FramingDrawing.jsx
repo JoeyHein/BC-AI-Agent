@@ -33,6 +33,7 @@ function FramingDrawing({
   title = 'FRAMING DRAWING',
   springCount: springCountProp = null,
   extras = null,
+  glassPocketsPerSection = null,  // {0: n, 1: n, ...} for AL976/SWD glass pocket override
 }) {
   // ---------------------------------------------------------------------------
   // Resolve geometry
@@ -482,13 +483,30 @@ function FramingDrawing({
                   const panelBot = oy + s(panelHeight * (pi + 1)) - 3
                   const panelLeft = ox + tInset + 3
                   const panelRight = ox + s(dw) - tInset - 3
-                  const midX = ox + s(dw) / 2
+                  // For AL976/SWD with a pocket override, draw N glass pockets
+                  // separated by stiles instead of the default 2-pane split.
+                  const isGlassDoor = ['AL976', 'SWD'].includes(doorSeries)
+                  let pocketCount = 2
+                  if (isGlassDoor && glassPocketsPerSection
+                      && typeof glassPocketsPerSection === 'object'
+                      && glassPocketsPerSection[pi] != null) {
+                    pocketCount = glassPocketsPerSection[pi]
+                  } else if (isGlassDoor) {
+                    // default by width (matches DoorPreview.jsx + backend logic)
+                    const wf = dw / 12
+                    pocketCount = wf <= 10 ? 3 : wf <= 14 ? 4 : wf <= 18 ? 5 : wf <= 22 ? 6 : 7
+                  }
+                  const stripeW = (panelRight - panelLeft - (pocketCount - 1) * 2) / pocketCount
                   return (
                     <g key={`rpanel-${pi}`}>
-                      <rect x={panelLeft} y={panelTop} width={midX - panelLeft - 2} height={panelBot - panelTop}
-                        fill="none" stroke="#000" strokeWidth="0.3" opacity="0.35" />
-                      <rect x={midX + 2} y={panelTop} width={panelRight - midX - 2} height={panelBot - panelTop}
-                        fill="none" stroke="#000" strokeWidth="0.3" opacity="0.35" />
+                      {Array.from({ length: pocketCount }, (_, ci) => {
+                        const x = panelLeft + ci * (stripeW + 2)
+                        return (
+                          <rect key={`rpane-${pi}-${ci}`}
+                            x={x} y={panelTop} width={stripeW} height={panelBot - panelTop}
+                            fill="none" stroke="#000" strokeWidth="0.3" opacity="0.35" />
+                        )
+                      })}
                     </g>
                   )
                 })

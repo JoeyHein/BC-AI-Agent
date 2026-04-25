@@ -52,7 +52,7 @@ export default function App({ options, quoteWebhook, dealerLocatorUrl }) {
       color: f.defaultColor || 'WHITE',
       panelDesign: f.defaultDesign || f.designs?.[0] || 'FLUSH',
       doorType: f.type,
-      doorSeries: f.series === 'CRAFT' ? 'CRAFT' : (f.type === 'aluminium' ? 'AL976' : ''),
+      doorSeries: f.series || (f.type === 'aluminium' ? 'AL976' : ''),
       windowInsert: null,
       windowPositions: [],
       windowSize: 'long',
