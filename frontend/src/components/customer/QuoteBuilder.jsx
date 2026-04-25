@@ -130,6 +130,16 @@ function QuoteBuilder() {
       trackMount: 'bracket', // 'bracket' or 'angle'
       // High lift inches (only used for high_lift)
       highLiftInches: null,  // extra inches above door opening
+      // Additional optional extras (mirror the title-block extras list)
+      manDoor: false,             // pass-through man door in panel
+      manDoorSpec: '',            // free-text spec (size, hinge side, etc.)
+      barLatch: false,
+      keyedHandle: false,         // keyed outside handle
+      interiorLock: false,        // interior side slide lock
+      pusherSpring: false,        // pusher (extension) spring auxiliary
+      bumperSpring: false,        // bumper spring at end of horiz. track
+      trackGuards: false,         // protective track guards
+      exhaustPort: false,         // ventilation exhaust port cutout
     }
   }
 
@@ -2447,6 +2457,64 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
               </div>
             </label>
           ))}
+        </div>
+      </div>
+
+      {/* Additional Options — fields that flow into the shop-drawing
+          optional-extras checklist and BC quote add-on lines. */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Additional Options
+        </label>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+          {[
+            { id: 'barLatch',     name: 'Bar Latch' },
+            { id: 'keyedHandle',  name: 'Keyed Outside Handle' },
+            { id: 'interiorLock', name: 'Interior Side Lock' },
+            { id: 'pusherSpring', name: 'Pusher Spring' },
+            { id: 'bumperSpring', name: 'Bumper Spring' },
+            { id: 'trackGuards',  name: 'Track Guards' },
+            { id: 'exhaustPort',  name: 'Exhaust Port' },
+          ].map((opt) => (
+            <label key={opt.id} className="flex items-center p-2 border rounded-md cursor-pointer hover:bg-gray-50">
+              <input
+                type="checkbox"
+                checked={!!door[opt.id]}
+                onChange={(e) => onChange({ [opt.id]: e.target.checked })}
+                className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
+              />
+              <span className="ml-2 text-sm text-gray-700">{opt.name}</span>
+            </label>
+          ))}
+        </div>
+
+        {/* Man Door — checkbox + spec field (free text for now;
+            structured fields can be added later if needed) */}
+        <div className="mt-3 border rounded-md p-3">
+          <label className="flex items-center">
+            <input
+              type="checkbox"
+              checked={!!door.manDoor}
+              onChange={(e) => onChange({
+                manDoor: e.target.checked,
+                manDoorSpec: e.target.checked ? (door.manDoorSpec || '') : '',
+              })}
+              className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
+            />
+            <span className="ml-2 text-sm font-medium text-gray-700">Man Door</span>
+            <span className="ml-2 text-xs text-gray-500">(pass-through door cut into panel)</span>
+          </label>
+          {door.manDoor && (
+            <div className="mt-2">
+              <input
+                type="text"
+                value={door.manDoorSpec || ''}
+                onChange={(e) => onChange({ manDoorSpec: e.target.value })}
+                placeholder="Size + hinge side + handing (e.g., 36W x 80H, RH out-swing)"
+                className="block w-full text-sm rounded-md border-gray-300 shadow-sm focus:border-odc-500 focus:ring-odc-500"
+              />
+            </div>
+          )}
         </div>
       </div>
 

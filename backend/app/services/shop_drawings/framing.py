@@ -105,6 +105,16 @@ class DrawingContext:
     glass_pockets_per_section: Optional[dict] = None  # {section_idx: count} for AL/SWD
     # Aluminum-specific: pocket count (used when glass_pockets_per_section is None)
     al_pocket_count: Optional[int] = None
+    # Additional optional extras (mirror the title-block extras checklist)
+    man_door: bool = False
+    man_door_spec: str = ""
+    bar_latch: bool = False
+    keyed_handle: bool = False
+    interior_lock: bool = False
+    pusher_spring: bool = False
+    bumper_spring: bool = False
+    track_guards: bool = False
+    exhaust_port: bool = False
 
 
 # ─── DXF setup ──────────────────────────────────────────────────────────────
@@ -809,6 +819,31 @@ def _is_commercial_series(series: str) -> bool:
     return (series or "").upper() in COMMERCIAL_SERIES
 
 
+def _panel_thickness_in(series: str, door_type: str) -> float:
+    """Door panel thickness in inches. TX-series subseries differ only in
+    panel thickness (no visible difference in elevation):
+      TX380   → 38mm = 1-1/2″
+      TX450   → 45mm = 1-3/4″
+      TX500   → 50mm = 2″
+      TX450-20, TX500-20 inherit their base thickness.
+
+    Aluminum series use 1-3/4″ regardless of pocket count.
+    Residential default is 1-3/4″.
+    """
+    s = (series or "").upper()
+    MM_TO_IN = 1.0 / 25.4
+    tx_thickness_mm = {
+        "TX380": 38, "TX450": 45, "TX500": 50,
+        "TX450-20": 45, "TX500-20": 50,
+    }
+    if s in tx_thickness_mm:
+        return round(tx_thickness_mm[s] * MM_TO_IN * 8) / 8.0  # nearest 1/8"
+    if s in ALUMINUM_SERIES:
+        return 1.75
+    # Residential
+    return 1.75
+
+
 def _draw_aluminum_pockets(msp: Modelspace, ctx: DrawingContext,
                            door_bbox: Tuple[float, float, float, float],
                            section_ys: list[float]) -> None:
@@ -1444,8 +1479,9 @@ def _draw_panel_profile(msp: Modelspace, ctx: DrawingContext,
     t.set_placement(((bx0 + bx1) / 2, by1 - 0.12),
                     align=TextEntityAlignment.MIDDLE_CENTER)
 
-    # Door section dimensions (real-world inches)
-    thickness_in = 2.0 if ctx.door_type == "commercial" else 1.75
+    # Door section dimensions (real-world inches). TX panel thickness
+    # depends on the subseries (TX380=38mm, TX450=45mm, TX500=50mm).
+    thickness_in = _panel_thickness_in(ctx.door_series, ctx.door_type)
     section_h_in = ctx.section_height_in
 
     # Fit: the section is tall and skinny. Scale to fit available height.
@@ -1602,7 +1638,7 @@ def _draw_plan_view(msp: Modelspace, ctx: DrawingContext,
     door_w = ctx.door_width_in or 96.0
     ro_w = _ro_width(door_w)
     sideroom_in = 3.5  # minimum required sideroom each side
-    door_thickness_in = 2.0 if ctx.door_type == "commercial" else 1.75
+    door_thickness_in = _panel_thickness_in(ctx.door_series, ctx.door_type)
     # Plan-view geometry: jambs flank the rough opening, not the door slab.
     # Door slab (drawn as the section band between jambs) overlaps inward
     # for +2" variants, so the interior face line is the door slab width.
@@ -1783,12 +1819,10 @@ def _draw_optional_extras(msp: Modelspace, ctx: DrawingContext,
         # Strut gauge — commercial defaults to 16GA, residential to 20GA
         "16GA STRUTS":                 ctx.has_struts and is_commercial,
         "20GA STRUTS":                 ctx.has_struts and not is_commercial,
-        # Items not yet in the data model — keep unchecked until configurator
-        # surfaces them. Don't lie about defaults.
-        "MAN DOOR (see man door spec)": False,
-        "BAR LATCH":                   False,
-        "KEYED OUTSIDE HANDLE":        False,
-        "INTERIOR SIDE LOCK":          False,
+        "MAN DOOR (see man door spec)": ctx.man_door,
+        "BAR LATCH":                   ctx.bar_latch,
+        "KEYED OUTSIDE HANDLE":        ctx.keyed_handle,
+        "INTERIOR SIDE LOCK":          ctx.interior_lock,
         # Operator
         "MANUAL OPERATION":            operator in ("NONE", "MANUAL"),
         "GEARED CHAIN HOIST":          operator in ("CHAIN_HOIST", "CHAIN", "HOIST"),
@@ -1810,14 +1844,13 @@ def _draw_optional_extras(msp: Modelspace, ctx: DrawingContext,
         "25,000 CYCLE SPRINGS":        cycles == 25000,
         "50,000 CYCLE SPRINGS":        cycles == 50000,
         "100,000 CYCLE SPRINGS":       cycles >= 100000,
-        # Specialty springs — TODO: wire to configurator
-        "PUSHER SPRING":               False,
-        "BUMPER SPRING":               False,
-        "TRACK GUARDS":                False,
+        "PUSHER SPRING":               ctx.pusher_spring,
+        "BUMPER SPRING":               ctx.bumper_spring,
+        "TRACK GUARDS":                ctx.track_guards,
         # Weather seals — driven by hardware bundle flag
         "TOP SEAL VINYL":              ctx.has_weather_stripping,
         "STEEL VINYL WEATHER STRIP":   ctx.has_weather_stripping,
-        "EXHAUST PORT":                False,
+        "EXHAUST PORT":                ctx.exhaust_port,
     }
 
     # Layout: single column of check-items. Line height calculated from list.
@@ -2123,6 +2156,15 @@ def build_context_from_config(
         has_bottom_retainer=bool(hardware.get("bottomRetainer", True)),
         has_windows=bool(door.get("hasWindows", False)),
         glass_pockets_per_section=door.get("glassPocketsPerSection"),
+        man_door=bool(door.get("manDoor", False)),
+        man_door_spec=str(door.get("manDoorSpec") or ""),
+        bar_latch=bool(door.get("barLatch", False)),
+        keyed_handle=bool(door.get("keyedHandle", False)),
+        interior_lock=bool(door.get("interiorLock", False)),
+        pusher_spring=bool(door.get("pusherSpring", False)),
+        bumper_spring=bool(door.get("bumperSpring", False)),
+        track_guards=bool(door.get("trackGuards", False)),
+        exhaust_port=bool(door.get("exhaustPort", False)),
     )
 
 

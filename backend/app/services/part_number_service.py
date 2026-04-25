@@ -137,6 +137,34 @@ class DoorConfiguration:
         if self.target_cycles < 10000:
             self.target_cycles = 10000
     include_pusher_springs: bool = False  # Upgrade: adds TR13-00031-00 + TR13-00032-00
+    # ─── Additional optional extras (mirror configurator checklist) ───
+    # BC item codes for each of these are configured in OPTIONAL_EXTRA_PARTS
+    # below. When the flag is on but the BC code hasn't been filled in,
+    # a warning is logged and the line is skipped.
+    include_man_door: bool = False
+    man_door_spec: str = ""        # free-text spec carried into BC line description
+    include_bar_latch: bool = False
+    include_keyed_handle: bool = False
+    include_interior_lock: bool = False
+    include_bumper_spring: bool = False
+    include_track_guards: bool = False
+    include_exhaust_port: bool = False
+
+
+# BC item codes for the optional extras above. Set the value to a tuple
+# of (item_code, description) once the code is confirmed; until then leave
+# as None and the emission will be skipped + logged as a warning so the
+# missing code is visible.
+OPTIONAL_EXTRA_PARTS = {
+    # flag_name              -> (item_code, description) | None
+    "include_man_door":      None,  # TODO: BC item code for man-door pass-through kit
+    "include_bar_latch":     None,  # TODO: BC item code for bar latch hardware
+    "include_keyed_handle":  None,  # TODO: BC item code for keyed outside handle
+    "include_interior_lock": None,  # TODO: BC item code for interior side slide lock
+    "include_bumper_spring": None,  # TODO: BC item code(s) — single SKU or LH/RH pair?
+    "include_track_guards":  None,  # TODO: BC item code — per-side or per-door?
+    "include_exhaust_port":  None,  # TODO: BC item code for exhaust port cutout/hardware
+}
 
 
 # ============================================================================
@@ -716,6 +744,33 @@ class PartNumberService:
             parts.append(PartSelection(
                 part_number="TR13-00032-00",
                 description="TRACK HARDWARE, SPRING, PUSHER SPRING, RH",
+                quantity=1,
+                category="accessory",
+            ))
+
+        # 8b. OPTIONAL EXTRAS — man door, locks/handles, specialty springs,
+        # track guards, exhaust port. BC item codes live in
+        # OPTIONAL_EXTRA_PARTS at the top of this module — fill them in
+        # once the codes are confirmed and these will start emitting.
+        for flag_name, mapping in OPTIONAL_EXTRA_PARTS.items():
+            if not getattr(config, flag_name, False):
+                continue
+            if mapping is None:
+                logger.warning(
+                    "Optional extra '%s' is enabled but its BC item code is "
+                    "not yet configured (OPTIONAL_EXTRA_PARTS) — line skipped.",
+                    flag_name,
+                )
+                continue
+            item_code, base_desc = mapping
+            desc = base_desc
+            # Append the man-door spec if present so the description is
+            # actionable for production.
+            if flag_name == "include_man_door" and config.man_door_spec:
+                desc = f"{base_desc} — {config.man_door_spec}"
+            parts.append(PartSelection(
+                part_number=item_code,
+                description=desc,
                 quantity=1,
                 category="accessory",
             ))
@@ -3266,7 +3321,16 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         window_positions=config_dict.get("windowPositions") if config_dict.get("hasWindows", True) else None,
         spring_inventory=spring_inventory,
         include_top_seal=config_dict.get("includeTopSeal"),
-        include_pusher_springs=bool(config_dict.get("includePusherSprings", False)),
+        include_pusher_springs=bool(config_dict.get("includePusherSprings", False)
+                                    or config_dict.get("pusherSpring", False)),
+        include_man_door=bool(config_dict.get("manDoor", False)),
+        man_door_spec=str(config_dict.get("manDoorSpec") or ""),
+        include_bar_latch=bool(config_dict.get("barLatch", False)),
+        include_keyed_handle=bool(config_dict.get("keyedHandle", False)),
+        include_interior_lock=bool(config_dict.get("interiorLock", False)),
+        include_bumper_spring=bool(config_dict.get("bumperSpring", False)),
+        include_track_guards=bool(config_dict.get("trackGuards", False)),
+        include_exhaust_port=bool(config_dict.get("exhaustPort", False)),
     )
 
     parts = part_number_service.get_parts_for_configuration(config)
