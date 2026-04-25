@@ -320,6 +320,7 @@ function DoorDrawings({
                 glassColor={glassColor}
                 doorType={doorType}
                 doorSeries={doorSeries}
+                glassPocketsPerSection={glassPocketsPerSection}
                 showDimensions={true}
                 scale={1}
               />
