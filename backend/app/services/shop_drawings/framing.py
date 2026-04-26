@@ -1161,22 +1161,43 @@ def _draw_side_elevation(msp: Modelspace, ctx: DrawingContext,
     door_thick = DOOR_THICKNESS_VIS_IN
     radius = ctx.track_radius_in or 15.0
 
-    # Determine headroom + backroom based on lift type
+    # Geometry note:
+    #   - Top of vertical track sits at door_top + (high-lift extension if any)
+    #   - Track curves on its full radius from vertical to horizontal
+    #   - Top of horizontal track is exactly radius above top-of-vertical
+    #     (tangent geometry — the arc is a quarter-circle whose center
+    #     sits at the elbow of the rails, so the horizontal rail is
+    #     offset upward by the radius from the vertical rail's top).
+    #   - The CEILING sits a real-world clearance above the horizontal
+    #     track (6-8" on residential, more on commercial). This is the
+    #     "REQ. HEADROOM" the installer needs above the door top.
+    CEILING_CLEARANCE_IN = 6.0   # space between top of horizontal track and ceiling
+
     lift = ctx.lift_type
     if lift == "high_lift" and ctx.high_lift_inches:
-        headroom = ctx.high_lift_inches + 6.0
-    elif lift == "full_vertical":
-        headroom = door_h + 6.0
-    elif lift == "low_headroom":
-        headroom = 6.0
+        vert_ext_in = ctx.high_lift_inches
     else:
-        headroom = 12.0
+        vert_ext_in = 0.0
+    # Geometric headroom = how far the top of the horizontal track sits
+    # above the door top. Equals vertical extension + radius for standard
+    # / high-lift, big number for full vertical, special small value for
+    # low-headroom (which uses a different mechanism).
+    if lift == "full_vertical":
+        geom_headroom = door_h + 6.0
+    elif lift == "low_headroom":
+        geom_headroom = 6.0   # double-track low-HR mechanism, not a standard arc
+    else:
+        geom_headroom = vert_ext_in + radius
+    # REQ. HEADROOM (the dim the customer sees) = geometric headroom +
+    # ceiling clearance — i.e., the actual clear space they need above
+    # the door for the track + ceiling.
+    headroom = geom_headroom + CEILING_CLEARANCE_IN
     # Reference Craft 8' door shows backroom 9'-6" (= door_h + ~18")
     backroom = door_h + BACKROOM_MARGIN
 
     # View extents in real-world inches (with margins for labels/dims)
-    view_w = backroom + door_thick + 24   # door + horizontal track + dim margins
-    view_h = door_h + headroom + 24       # door + headroom + ceiling + margin
+    view_w = backroom + door_thick + 24
+    view_h = door_h + headroom + 24
 
     # Border/label space reservation
     usable_w = box_w * 0.82
@@ -1196,9 +1217,12 @@ def _draw_side_elevation(msp: Modelspace, ctx: DrawingContext,
     x_back = x_face + SX(backroom)        # back end of horizontal track
     y_floor = view_y0 + 0.16              # floor line
     y_door_top = y_floor + SX(door_h)
-    # Horizontal track runs just under the ceiling
-    y_track_horiz = y_door_top + SX(headroom)
-    y_ceiling = y_track_horiz + SX(2)     # ceiling sits ~2" above track top
+    # Top of vertical track (above door top by any high-lift extension)
+    y_vert_top = y_door_top + SX(vert_ext_in)
+    # Top of horizontal track = vert_top + radius (tangent quarter-circle)
+    y_track_horiz = y_vert_top + SX(radius)
+    # Ceiling sits 6" above the top of the horizontal track
+    y_ceiling = y_track_horiz + SX(CEILING_CLEARANCE_IN)
 
     # Track cross-section depth (visible on paper — the actual track
     # u-channel is ~3" deep)
@@ -1264,19 +1288,16 @@ def _draw_side_elevation(msp: Modelspace, ctx: DrawingContext,
         dxfattribs={"layer": "FRAMING", "lineweight": 30},
     )
 
-    # ── Track path: vertical → arc → horizontal, drawn as DOUBLE LINE
-    # so the track reads as a u-channel cross-section (inner + outer
-    # rail), not just a single line. ─────────────────────────────────
-    vert_ext_in = 0.0
-    if lift == "high_lift" and ctx.high_lift_inches:
-        vert_ext_in = ctx.high_lift_inches
-    y_vert_top = y_door_top + SX(vert_ext_in)
-    # The arc center sits to the RIGHT of the vertical track and BELOW
-    # the horizontal track, so a 90° arc connects them.
+    # ── Track path: vertical → 90° arc → horizontal, drawn as a
+    # DOUBLE-LINE cross-section (outer rail + inner rail spaced by
+    # track_depth). Tangent quarter-circle geometry: the arc center
+    # sits at the ELBOW of the rails — same height as top of vertical
+    # track, offset right by the radius. So both arcs and rails meet
+    # without gaps. ───────────────────────────────────────────────
     arc_cx = x_face + SX(radius)
-    arc_cy = y_vert_top + SX(radius)
-    radius_outer_in = radius            # outer rail
-    radius_inner_in = radius - track_depth_in  # inner rail (smaller arc)
+    arc_cy = y_vert_top
+    radius_outer_in = radius
+    radius_inner_in = max(radius - track_depth_in, 0.5)
 
     if lift == "full_vertical":
         # No arc — track continues straight up to ceiling
@@ -1287,9 +1308,8 @@ def _draw_side_elevation(msp: Modelspace, ctx: DrawingContext,
                 dxfattribs={"layer": "TRACKS", "lineweight": 18},
             )
     else:
-        # Vertical portion — outer (right) rail at x_face + track_depth,
-        # inner (left, against door) rail at x_face. Both run from floor
-        # to the start of the arc.
+        # Vertical rails (outer rail flush against door face = x_face;
+        # inner rail offset INTO the building by track_depth).
         msp.add_line(
             (x_face, y_floor), (x_face, y_vert_top),
             dxfattribs={"layer": "TRACKS", "lineweight": 18},
@@ -1299,23 +1319,29 @@ def _draw_side_elevation(msp: Modelspace, ctx: DrawingContext,
             (x_face + track_depth, y_vert_top),
             dxfattribs={"layer": "TRACKS", "lineweight": 18},
         )
-        # Two arcs — outer + inner — sweeping 180° to 270° in our
-        # coordinates (vertical heading up → horizontal heading right).
+        # Outer arc — sweeps the upper-LEFT quadrant of the arc center.
+        # ezdxf arcs are counter-clockwise: 90° → 180° = upper-left.
+        # 180° point: (arc_cx - R, arc_cy) = (x_face, y_vert_top)
+        #             — connects to top of OUTER vertical rail
+        # 90°  point: (arc_cx, arc_cy + R) = (arc_cx, y_track_horiz)
+        #             — connects to start of OUTER horizontal rail
         msp.add_arc(
             center=(arc_cx, arc_cy),
             radius=SX(radius_outer_in),
-            start_angle=180, end_angle=270,
+            start_angle=90, end_angle=180,
             dxfattribs={"layer": "TRACKS", "lineweight": 18},
         )
-        if radius_inner_in > 0:
-            msp.add_arc(
-                center=(arc_cx, arc_cy),
-                radius=SX(radius_inner_in),
-                start_angle=180, end_angle=270,
-                dxfattribs={"layer": "TRACKS", "lineweight": 18},
-            )
-        # Horizontal portion — outer rail at the top (y_track_horiz),
-        # inner rail one track-depth below.
+        # Inner arc — same center, smaller radius. Connects to top of
+        # INNER vertical rail at (x_face + track_depth, y_vert_top) and
+        # to start of INNER horizontal rail at (arc_cx, y_track_horiz - track_depth).
+        msp.add_arc(
+            center=(arc_cx, arc_cy),
+            radius=SX(radius_inner_in),
+            start_angle=90, end_angle=180,
+            dxfattribs={"layer": "TRACKS", "lineweight": 18},
+        )
+        # Horizontal rails — outer rail at top (y_track_horiz), inner
+        # rail track_depth below. Both start at arc_cx (= elbow x).
         msp.add_line(
             (arc_cx, y_track_horiz),
             (x_back, y_track_horiz),
@@ -1326,9 +1352,7 @@ def _draw_side_elevation(msp: Modelspace, ctx: DrawingContext,
             (x_back, y_track_horiz - track_depth),
             dxfattribs={"layer": "TRACKS", "lineweight": 18},
         )
-        # Mounting bolts dotted along the horizontal track (typical
-        # ~24" spacing on residential, attached to ceiling via angle
-        # iron / lag bolts).
+        # Mounting bolts dotted along the horizontal track (~24" spacing)
         bolt_spacing_in = 24.0
         n_bolts = max(2, int((x_back - arc_cx) / SX(bolt_spacing_in)))
         for k in range(1, n_bolts + 1):
@@ -1346,12 +1370,24 @@ def _draw_side_elevation(msp: Modelspace, ctx: DrawingContext,
             (x_back, y_track_horiz),
             dxfattribs={"layer": "TRACKS", "lineweight": 25},
         )
-        # Top cap at the top of the vertical track (where it transitions
-        # into the arc) — small circle representing the stop bolt
+
+        # ── TORSION SHAFT — small filled circle at the elbow of the
+        # rails (= arc_cx, arc_cy). The shaft runs perpendicular to
+        # the side view (across the door width); we see its
+        # cross-section. Drawn with a centered dot so it reads as a
+        # solid round shaft. ──────────────────────────────────────
+        shaft_diameter_in = 1.0
+        shaft_r = max(SX(shaft_diameter_in / 2), 0.04)
         msp.add_circle(
-            center=(x_face + track_depth / 2, y_vert_top - 0.04),
-            radius=0.025,
-            dxfattribs={"layer": "HARDWARE", "lineweight": 13},
+            center=(arc_cx, arc_cy),
+            radius=shaft_r,
+            dxfattribs={"layer": "HARDWARE", "lineweight": 30},
+        )
+        # Inner solid dot for clarity
+        msp.add_circle(
+            center=(arc_cx, arc_cy),
+            radius=shaft_r * 0.35,
+            dxfattribs={"layer": "HARDWARE", "lineweight": 25},
         )
 
     # ── High-lift extension dimension (between door top and radius start) ──
