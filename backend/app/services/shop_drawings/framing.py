@@ -278,13 +278,51 @@ def _draw_title_block(msp: Modelspace, ctx: DrawingContext) -> None:
              ("DATE", ctx.drawing_date, 2.0),
              ("SHEET", ctx.sheet_label, TITLE_BLOCK_W - 4.0)])
 
-    # ── Row 7: Big series banner ─────────────────────────────────────────
+    # ── Row 7: OPENDC branding + series banner ────────────────────────
+    # Left third: OPENDC logo + warranty line. Right two-thirds: big
+    # series name banner. Mirrors the reference Craft drawing's
+    # "upwardOR / CRAFT" layout.
+    brand_w = 1.6
+    brand_x1 = x0 + brand_w
+    msp.add_line((brand_x1, row_ys[6]), (brand_x1, row_ys[7]),
+                 dxfattribs={"layer": "TITLE_BLOCK"})
+    # OPENDC mark
+    brand_lbl = msp.add_text(
+        "OPENDC",
+        dxfattribs={"layer": "TITLE_BLOCK", "height": 0.20, "style": "Standard"},
+    )
+    brand_lbl.set_placement(
+        ((x0 + brand_x1) / 2, row_ys[6] - 0.15),
+        align=TextEntityAlignment.MIDDLE_CENTER,
+    )
+    brand_sub = msp.add_text(
+        "Garage Doors Designed for Life",
+        dxfattribs={"layer": "TITLE_BLOCK", "height": 0.07, "style": "Standard"},
+    )
+    brand_sub.set_placement(
+        ((x0 + brand_x1) / 2, row_ys[6] - 0.32),
+        align=TextEntityAlignment.MIDDLE_CENTER,
+    )
+    # Warranty line at the bottom of the brand cell
+    warranty_text = ("WARRANTED FOR COMMERCIAL USE"
+                     if ctx.door_type == "commercial"
+                     else "WARRANTED FOR RESIDENTIAL USE")
+    warranty = msp.add_text(
+        warranty_text,
+        dxfattribs={"layer": "TITLE_BLOCK", "height": 0.06, "style": "Standard"},
+    )
+    warranty.set_placement(
+        ((x0 + brand_x1) / 2, row_ys[7] + 0.08),
+        align=TextEntityAlignment.MIDDLE_CENTER,
+    )
+
+    # Series banner (right cell)
     banner = msp.add_text(
         ctx.door_series.upper() if ctx.door_series else "FRAMING DRAWING",
         dxfattribs={"layer": "TITLE_BLOCK", "height": 0.32, "style": "Standard"},
     )
     banner.set_placement(
-        ((x0 + x1) / 2, (row_ys[6] + row_ys[7]) / 2),
+        ((brand_x1 + x1) / 2, (row_ys[6] + row_ys[7]) / 2),
         align=TextEntityAlignment.MIDDLE_CENTER,
     )
 
@@ -1516,6 +1554,9 @@ def _draw_panel_profile(msp: Modelspace, ctx: DrawingContext,
     )
     t.set_placement(((bx0 + bx1) / 2, by1 - 0.12),
                     align=TextEntityAlignment.MIDDLE_CENTER)
+    # Exterior / Interior orientation labels above the profile (left/right
+    # of the section centerline) — matches the reference Craft drawing.
+    # Note: the LEFT face of the section is the exterior; RIGHT is interior.
 
     # Door section dimensions (real-world inches). TX panel thickness
     # depends on the subseries (TX380=38mm, TX450=45mm, TX500=50mm).
@@ -1540,7 +1581,21 @@ def _draw_panel_profile(msp: Modelspace, ctx: DrawingContext,
     def SX(inches: float) -> float:
         return inches * scale
 
-    # ── Main section body (door thickness × section height) ──────────────
+    # Pre-compute heights used by both the layered composition and the
+    # top-cap / astragal / bottom-bracket draws below.
+    cap_h = SX(1.5)
+    astr_h = SX(1.0)
+
+    # ── Layered panel composition ──────────────────────────────────────
+    # The reference Craft drawing shows the panel as a real cross-section
+    # with visible exterior skin, foam core, and back sheet. We mirror
+    # that here so the customer/installer can SEE the construction
+    # rather than reading words from leader callouts alone.
+    is_glass_series = ctx.door_series in {"AL976", "SWD", "PANORAMA", "SOLALITE"}
+    skin_thickness_visual = max(SX(thickness_in * 0.06), 0.025)  # exaggerated 26ga
+    thermal_break_thickness = max(SX(thickness_in * 0.04), 0.018)
+
+    # Outer body outline (full section)
     msp.add_lwpolyline(
         [(prof_x0, prof_y0), (prof_x1, prof_y0),
          (prof_x1, prof_y1), (prof_x0, prof_y1),
@@ -1549,8 +1604,91 @@ def _draw_panel_profile(msp: Modelspace, ctx: DrawingContext,
         dxfattribs={"layer": "FRAMING", "lineweight": 35},
     )
 
+    # Note: Exterior/Interior orientation is implicit — the asymmetric
+    # composition (cap on top, astragal on bottom, exterior skin on the
+    # left edge facing the foam core, woodgrain back-sheet on the right)
+    # together with the labeled callouts makes the orientation obvious
+    # without needing extra "EXT/INT" text crowding the title row.
+
+    if not is_glass_series:
+        # Exterior steel skin (on the LEFT face — exterior of door)
+        ext_skin_x1 = prof_x0 + skin_thickness_visual
+        msp.add_lwpolyline(
+            [(prof_x0, prof_y0), (ext_skin_x1, prof_y0),
+             (ext_skin_x1, prof_y1), (prof_x0, prof_y1),
+             (prof_x0, prof_y0)],
+            close=True,
+            dxfattribs={"layer": "FRAMING", "lineweight": 25},
+        )
+        # Thermal break foam tape — thin strip just inside the exterior
+        # skin, separating the skin from the foam core. Drawn as a
+        # dashed-fill rectangle.
+        tb_x0 = ext_skin_x1
+        tb_x1 = tb_x0 + thermal_break_thickness
+        msp.add_lwpolyline(
+            [(tb_x0, prof_y0), (tb_x1, prof_y0),
+             (tb_x1, prof_y1), (tb_x0, prof_y1),
+             (tb_x0, prof_y0)],
+            close=True,
+            dxfattribs={"layer": "HIDDEN", "linetype": "HIDDEN", "lineweight": 13},
+        )
+        # Interior back sheet (RIGHT face)
+        int_skin_x0 = prof_x1 - skin_thickness_visual
+        msp.add_lwpolyline(
+            [(int_skin_x0, prof_y0), (prof_x1, prof_y0),
+             (prof_x1, prof_y1), (int_skin_x0, prof_y1),
+             (int_skin_x0, prof_y0)],
+            close=True,
+            dxfattribs={"layer": "FRAMING", "lineweight": 25},
+        )
+        # Polyurethane foam core fill — stippled dots between thermal
+        # break and back sheet so the insulation is visually obvious.
+        core_x0 = tb_x1
+        core_x1 = int_skin_x0
+        if core_x1 > core_x0:
+            stipple_step_x = max((core_x1 - core_x0) / 6, 0.04)
+            stipple_step_y = stipple_step_x
+            x = core_x0 + stipple_step_x / 2
+            row = 0
+            while x < core_x1:
+                # Stagger every other row for organic look
+                y_off = (stipple_step_y / 2) if row % 2 else 0
+                y = prof_y0 + 0.05 + y_off
+                while y < prof_y1 - 0.05:
+                    msp.add_circle(
+                        center=(x, y),
+                        radius=0.008,
+                        dxfattribs={"layer": "ANNOTATIONS", "lineweight": 5},
+                    )
+                    y += stipple_step_y
+                x += stipple_step_x
+                row += 1
+
+        # Hinge / strut reinforcement steel strips — small horizontal
+        # rectangles embedded in the foam at typical hinge positions.
+        # Two strips in the upper half of the section, where the hinge
+        # bolts through. Drawn as solid filled rectangles for emphasis.
+        strip_w = (core_x1 - core_x0) * 0.55
+        strip_h = SX(0.35)
+        strip_x0 = core_x0 + (core_x1 - core_x0 - strip_w) / 2
+        strip_x1 = strip_x0 + strip_w
+        for y_pct in (0.18, 0.36):  # upper-third positions
+            sy = prof_y0 + (prof_y1 - prof_y0) * (1 - y_pct)
+            msp.add_lwpolyline(
+                [(strip_x0, sy - strip_h / 2), (strip_x1, sy - strip_h / 2),
+                 (strip_x1, sy + strip_h / 2), (strip_x0, sy + strip_h / 2),
+                 (strip_x0, sy - strip_h / 2)],
+                close=True,
+                dxfattribs={"layer": "FRAMING", "lineweight": 30},
+            )
+            # Crosshatch the strip so it reads as steel
+            for k in range(1, 4):
+                px = strip_x0 + (strip_x1 - strip_x0) * (k / 4)
+                msp.add_line((px, sy - strip_h / 2 + 0.01),
+                             (px, sy + strip_h / 2 - 0.01),
+                             dxfattribs={"layer": "ANNOTATIONS", "lineweight": 5})
+
     # ── Top end cap (steel with vinyl weather strip) ─────────────────────
-    cap_h = SX(1.5)
     msp.add_lwpolyline(
         [(prof_x0 - SX(0.25), prof_y1),
          (prof_x1 + SX(0.25), prof_y1),
@@ -1570,7 +1708,6 @@ def _draw_panel_profile(msp: Modelspace, ctx: DrawingContext,
     )
 
     # ── Glazing moulding (shown as dashed inner rectangle for glass series) ──
-    is_glass_series = ctx.door_series in {"AL976", "SWD", "PANORAMA", "SOLALITE"}
     if is_glass_series:
         glaze_inset = SX(0.25)
         glaze_y0 = prof_y0 + SX(2.0)
@@ -1586,7 +1723,6 @@ def _draw_panel_profile(msp: Modelspace, ctx: DrawingContext,
         )
 
     # ── Bottom astragal (vinyl weather seal, wider than section) ─────────
-    astr_h = SX(1.0)
     msp.add_lwpolyline(
         [(prof_x0 - SX(0.15), prof_y0),
          (prof_x1 + SX(0.15), prof_y0),
@@ -1712,13 +1848,14 @@ def _draw_plan_view(msp: Modelspace, ctx: DrawingContext,
     # Real-world dims (inches)
     door_w = ctx.door_width_in or 96.0
     ro_w = _ro_width(door_w)
-    sideroom_in = 3.5  # minimum required sideroom each side
+    sideroom_in = 3.5  # minimum required sideroom each side (wall thickness)
+    jamb_2x_thickness_in = 1.5  # visible 2x6 lumber thickness
     door_thickness_in = _panel_thickness_in(ctx.door_series, ctx.door_type)
-    # Plan-view geometry: jambs flank the rough opening, not the door slab.
-    # Door slab (drawn as the section band between jambs) overlaps inward
-    # for +2" variants, so the interior face line is the door slab width.
+    # Plan-view geometry. The "sideroom" callout matches the reference and
+    # represents the wall + jamb combined depth on each side of the RO.
+    # Inside this sideroom, the inside-most 1.5" is the actual 2x6 jamb.
     total_w = ro_w + 2 * sideroom_in
-    depth_in = door_thickness_in + 4.0  # section + exterior/interior buffer
+    depth_in = door_thickness_in + 6.0  # section + ext/int buffer + jamb depth
 
     usable_w = box_w * 0.88
     usable_h = box_h * 0.65
@@ -1736,28 +1873,85 @@ def _draw_plan_view(msp: Modelspace, ctx: DrawingContext,
     def SX(inches: float) -> float:
         return inches * scale
 
-    # ── Left jamb (sideroom pocket) ─────────────────────────────────────
+    # ── Left + right jambs as cross-sections of the framing wall.
+    # Each jamb is drawn as a 2x6 (1.5" x 5.5") sitting in a hatched
+    # framing wall block, with the door slab tucking against its
+    # interior face. The wall hatching makes it visually obvious that
+    # the jamb is part of the structural opening, not free-floating.
+    jamb_2x_thickness = 1.5    # 2x lumber actual thickness
+    jamb_2x_depth = 5.5        # 2x6 actual depth
+    wall_extension = 4.0       # how far the framing wall extends past the jamb
+    is_steel_jamb = ctx.jamb_type == "steel"
+
     jl_x0 = plan_x0
     jl_x1 = plan_x0 + sideroom_in * scale
-    msp.add_lwpolyline(
-        [(jl_x0, sec_y_bot), (jl_x1, sec_y_bot),
-         (jl_x1, sec_y_top + SX(1.5)),
-         (jl_x0, sec_y_top + SX(1.5)),
-         (jl_x0, sec_y_bot)],
-        close=True,
-        dxfattribs={"layer": "FRAMING"},
-    )
-    # ── Right jamb ──────────────────────────────────────────────────────
     jr_x0 = plan_x1 - sideroom_in * scale
     jr_x1 = plan_x1
-    msp.add_lwpolyline(
-        [(jr_x0, sec_y_bot), (jr_x1, sec_y_bot),
-         (jr_x1, sec_y_top + SX(1.5)),
-         (jr_x0, sec_y_top + SX(1.5)),
-         (jr_x0, sec_y_bot)],
-        close=True,
-        dxfattribs={"layer": "FRAMING"},
-    )
+
+    def _draw_jamb_block(wall_x0: float, wall_x1: float,
+                          jamb_inside_x: float) -> None:
+        """Draw the wall framing block + the 2x6 jamb sitting at the RO
+        edge. The wall block spans wall_x0..wall_x1 (= sideroom_in wide),
+        with hatching for visual texture. The jamb 2x6 is the inside-most
+        ~1.5" of the wall block, drawn with a heavier outline."""
+        wall_y_bot = sec_y_bot - SX(0.6)
+        wall_y_top = sec_y_top + SX(jamb_2x_depth)
+        wall_xs = sorted([wall_x0, wall_x1])
+        # Outer wall block
+        msp.add_lwpolyline(
+            [(wall_xs[0], wall_y_bot), (wall_xs[1], wall_y_bot),
+             (wall_xs[1], wall_y_top), (wall_xs[0], wall_y_top),
+             (wall_xs[0], wall_y_bot)],
+            close=True,
+            dxfattribs={"layer": "FRAMING", "lineweight": 18},
+        )
+        # 45° hatch — clipped to the wall rectangle
+        wall_w = wall_xs[1] - wall_xs[0]
+        wall_h = wall_y_top - wall_y_bot
+        hatch_step = 0.10
+        n_hatches = int((wall_w + wall_h) / hatch_step) + 1
+        for i in range(n_hatches):
+            x_start = wall_xs[0] - wall_h + i * hatch_step
+            y_start = wall_y_bot
+            x_end = x_start + wall_h
+            y_end = wall_y_top
+            # Clip to wall x-bounds
+            if x_end < wall_xs[0] or x_start > wall_xs[1]:
+                continue
+            if x_start < wall_xs[0]:
+                trim = wall_xs[0] - x_start
+                x_start += trim
+                y_start += trim
+            if x_end > wall_xs[1]:
+                trim = x_end - wall_xs[1]
+                x_end -= trim
+                y_end -= trim
+            if x_end > x_start and y_end > y_start:
+                msp.add_line((x_start, y_start), (x_end, y_end),
+                             dxfattribs={"layer": "HIDDEN", "lineweight": 5})
+        # Jamb 2x6 inset (inside-most 1.5" of the wall block)
+        jx_outer = (jamb_inside_x - SX(jamb_2x_thickness_in)
+                    if jamb_inside_x > (wall_xs[0] + wall_xs[1]) / 2
+                    else jamb_inside_x + SX(jamb_2x_thickness_in))
+        jxs = sorted([jamb_inside_x, jx_outer])
+        msp.add_lwpolyline(
+            [(jxs[0], wall_y_bot), (jxs[1], wall_y_bot),
+             (jxs[1], wall_y_top), (jxs[0], wall_y_top),
+             (jxs[0], wall_y_bot)],
+            close=True,
+            dxfattribs={"layer": "FRAMING", "lineweight": 35},
+        )
+        if is_steel_jamb:
+            # Add vertical pinstripes inside the jamb to read as steel
+            step = max(SX(jamb_2x_thickness_in) / 4, 0.03)
+            x = jxs[0] + step
+            while x < jxs[1]:
+                msp.add_line((x, wall_y_bot + 0.02), (x, wall_y_top - 0.02),
+                             dxfattribs={"layer": "ANNOTATIONS", "lineweight": 5})
+                x += step
+
+    _draw_jamb_block(jl_x0, jl_x1, jl_x1)   # left wall: outer→inner; jamb at inner
+    _draw_jamb_block(jr_x0, jr_x1, jr_x0)   # right wall: outer→inner; jamb at inner
 
     # ── Door section (thin horizontal band between jambs) ───────────────
     d_x0 = jl_x1
