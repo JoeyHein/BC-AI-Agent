@@ -808,6 +808,17 @@ def _is_commercial_series(series: str) -> bool:
     return (series or "").upper() in COMMERCIAL_SERIES
 
 
+def _is_woodgrain_finish(color: str) -> bool:
+    """True if the colour is one of the embossed woodgrain finishes (French
+    Oak / Walnut / English Chestnut). Hazelwood is a solid colour despite
+    the name. Used to label the back-sheet correctly on the side profile.
+    """
+    if not color:
+        return False
+    s = color.upper().replace(" ", "_").replace("-", "_")
+    return any(w in s for w in ("FRENCH_OAK", "WALNUT", "ENGLISH_CHESTNUT"))
+
+
 def _panel_thickness_in(series: str, door_type: str) -> float:
     """Door panel thickness in inches. TX-series subseries differ only in
     panel thickness (no visible difference in elevation):
@@ -1099,19 +1110,34 @@ def _draw_side_elevation(msp: Modelspace, ctx: DrawingContext,
         align=TextEntityAlignment.MIDDLE_LEFT,
     )
 
-    # ── Headroom dimension (floor-to-track horizontal, at left) ─────────
+    # ── Required-headroom dimension (floor-to-track horizontal) ─────────
+    # Labeled "REQ. HEADROOM" to match the reference Craft drawing — this
+    # is the minimum clearance the installer needs above the door for
+    # the chosen lift type.
     dim_x_left = x_back - 0.15
     _draw_linear_dim_vertical(
         msp, (dim_x_left + SX(1), y_door_top), (dim_x_left + SX(1), y_track_horiz),
         dim_x=dim_x_left,
-        label=f"HDRM {fmt_length_imperial(headroom)}",
+        label=f"REQ. HEADROOM {fmt_length_imperial(headroom)}",
     )
 
     # ── Door height dimension ───────────────────────────────────────────
     _draw_linear_dim_vertical(
         msp, (dim_x_left + SX(1), y_floor), (dim_x_left + SX(1), y_door_top),
         dim_x=dim_x_left - 0.30,
-        label=fmt_length_imperial(door_h),
+        label=f"DOOR HEIGHT {fmt_length_imperial(door_h)}",
+    )
+
+    # ── Underside-of-track dimension (floor up to the bottom of the
+    # horizontal track run = door height + radius, ~door_h + R) ───────
+    # Reference Craft drawing labels this "UNDERSIDE OF TRACK" with the
+    # full floor-to-rail dimension. This is what the installer measures
+    # when verifying the ceiling has clearance for the door + tracks.
+    underside_in = door_h + radius   # door height + track radius
+    _draw_linear_dim_vertical(
+        msp, (x_face + SX(1.5), y_floor), (x_face + SX(1.5), arc_cy),
+        dim_x=x_face + SX(7.5),
+        label=f"UNDERSIDE OF TRACK {fmt_length_imperial(underside_in)}",
     )
 
     # ── Backroom dimension (horizontal at top) ───────────────────────────
@@ -1386,11 +1412,46 @@ def _draw_shaft_and_springs(msp: Modelspace, ctx: DrawingContext,
         dxfattribs={"layer": "HARDWARE", "lineweight": 30},
     )
 
-    # ── Shaft-length dimension above springs (matches reference "9'-1\"") ──
-    dim_y = shaft_top + 0.25
+    # ── Bracket positions (anchor brackets at the ends of the shaft, where
+    # it lands on the track jambs) ──────────────────────────────────────
+    bracket_w = scale * 4.0   # ~4" bracket width visually
+    bracket_h = shaft_thick * 4.0
+    for bx in (left_x, right_x):
+        msp.add_lwpolyline(
+            [(bx - bracket_w / 2, shaft_cy - bracket_h / 2),
+             (bx + bracket_w / 2, shaft_cy - bracket_h / 2),
+             (bx + bracket_w / 2, shaft_cy + bracket_h / 2),
+             (bx - bracket_w / 2, shaft_cy + bracket_h / 2),
+             (bx - bracket_w / 2, shaft_cy - bracket_h / 2)],
+            close=True,
+            dxfattribs={"layer": "HARDWARE", "lineweight": 30},
+        )
+
+    # ── Shaft-length dimension above the brackets (full span) ──────────
+    dim_y = shaft_top + 0.32
     shaft_length_in = (right_x - left_x) / scale
     _draw_linear_dim(msp, (left_x, shaft_top), (right_x, shaft_top), dim_y,
                      label=fmt_length_imperial(shaft_length_in))
+
+    # ── Bracket-to-bracket span (matches reference "4'-6\"" callout) ──
+    # The end brackets of a torsion shaft sit at the inside face of each
+    # track jamb, so this is roughly the door-width clear opening.
+    bracket_span_in = ctx.door_width_in or 96.0
+    _draw_linear_dim(msp, (left_x, shaft_cy - bracket_h * 0.6),
+                     (right_x, shaft_cy - bracket_h * 0.6),
+                     shaft_cy - bracket_h - 0.18,
+                     label=fmt_length_imperial(bracket_span_in))
+
+    # ── Center-gap dimension between the two springs ("6\"" reference) ──
+    # The springs meet at a center coupler — the gap between their inside
+    # ends is small (typically ~6").
+    spring_left_inner = center_x - gap_between_springs / 2
+    spring_right_inner = center_x + gap_between_springs / 2
+    gap_dim_y = shaft_cy + spring_od / 2 + 0.18
+    _draw_linear_dim(msp, (spring_left_inner, shaft_cy + spring_od / 2),
+                     (spring_right_inner, shaft_cy + spring_od / 2),
+                     gap_dim_y,
+                     label=fmt_length_imperial(6.0))
 
     # ── Centerline-of-shaft callout ─────────────────────────────────────
     cl_label = msp.add_text(
@@ -1398,19 +1459,7 @@ def _draw_shaft_and_springs(msp: Modelspace, ctx: DrawingContext,
         dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_SMALL, "style": "Standard"},
     )
     cl_label.set_placement(
-        (center_x, shaft_cy - 0.15),
-        align=TextEntityAlignment.MIDDLE_CENTER,
-    )
-    # Distance from floor (= door_h + centerline offset)
-    cl_height_in = (shaft_cy - (door_top_y - scale * (ctx.door_height_in or 84))) / scale
-    # simpler: cl_height_in = door_height + offset-from-door-top
-    # The visual position encodes it; add a dim on the right
-    cl_dim = msp.add_text(
-        fmt_length_imperial(cl_height_in),
-        dxfattribs={"layer": "DIMENSIONS", "height": TEXT_SMALL, "style": "Standard"},
-    )
-    cl_dim.set_placement(
-        (center_x, shaft_cy - 0.30),
+        (center_x, shaft_cy - bracket_h - 0.42),
         align=TextEntityAlignment.MIDDLE_CENTER,
     )
 
@@ -1561,37 +1610,74 @@ def _draw_panel_profile(msp: Modelspace, ctx: DrawingContext,
         dxfattribs={"layer": "HARDWARE"},
     )
 
-    # ── Leader lines + labels on the right side of the box ──────────────
-    # Use MTEXT for multi-line labels (TEXT entity doesn't honor newlines).
-    label_x = bx0 + box_w * 0.55
-    labels = [
-        (prof_y1 + cap_h * 0.5, "STEEL END CAP\\PC/W VINYL WEATHER STRIP"),
-    ]
-    if is_glass_series:
-        labels.append(((prof_y0 + prof_y1) / 2, "GLAZING MOULDING"))
-    labels.append((prof_y0 + SX(1.5), "BOTTOM BRACKET\\P12GA GAL STEEL"))
-    labels.append((prof_y0 - astr_h / 2, "LOW TEMP VINYL\\PBOTTOM ASTRAGAL"))
+    # ── Construction callouts (reference Craft drawing parity).
+    # Each entry: (anchor_y on geometry, leader_from_x, label_text)
+    # The label TEXT sits on the right side of the box with leaders
+    # bending to point at the relevant feature. Label y-positions are
+    # distributed evenly across the box so they don't collide; leaders
+    # are kinked (horizontal segment from feature → vertical jog →
+    # horizontal to label) so the leader doesn't overlap the label
+    # of another callout above/below.
+    sec_top = prof_y1 + cap_h
+    sec_bot = prof_y0 - astr_h
 
-    for y_pt, text_lines in labels:
-        # Leader from label to the profile geometry
-        leader_from_x = prof_x1 + brk_w + 0.05 if "BRACKET" in text_lines else prof_x1 + 0.02
+    if is_glass_series:
+        callouts = [
+            (sec_top - cap_h * 0.5,    prof_x1 + 0.02, "STEEL END CAP\\PC/W VINYL WEATHER STRIP"),
+            (prof_y1 - SX(2.0),        prof_x1 + 0.02, "GLAZING MOULDING"),
+            (prof_cy,                  prof_x0 - SX(0.05), "ALUMINUM EXTRUDED FRAME"),
+            (prof_y0 + SX(1.5),        prof_x1 + brk_w + 0.05, "BOTTOM BRACKET\\P12GA GAL STEEL"),
+            (prof_y0 - astr_h * 0.55,  prof_x1 + 0.02, "LOW TEMP VINYL\\PBOTTOM ASTRAGAL"),
+        ]
+    else:
+        back_label = ("BACK SHEET\\PWOODGRAIN EMBOSSED"
+                      if _is_woodgrain_finish(ctx.panel_color)
+                      else "BACK SHEET\\P26GA STEEL")
+        callouts = [
+            (sec_top - cap_h * 0.25,   prof_x1 + 0.02,        "RUBBER WEATHER SEAL"),
+            (sec_top - cap_h * 0.85,   prof_x1 + 0.02,        "STEEL END CAP\\PC/W VINYL WEATHER STRIP"),
+            (prof_y1 - SX(2.5),        prof_x1 + 0.02,        "HINGE / STRUT REINFORCEMENT\\PSTEEL STRIPS"),
+            (prof_cy + SX(1.5),        prof_x1 + 0.02,        "FOAMED-IN-PLACE POLYURETHANE\\P2.5 PCF — ZERO ODP"),
+            (prof_cy - SX(0.5),        prof_x0 - SX(0.05),    "26GA EXTERIOR PREFINISHED STEEL SKIN"),
+            (prof_cy - SX(2.5),        prof_x1 + 0.02,        back_label),
+            (prof_y0 + SX(1.5),        prof_x1 + brk_w + 0.05, "BOTTOM BRACKET\\P12GA GAL STEEL"),
+            (prof_y0 - astr_h * 0.55,  prof_x1 + 0.02,        "LOW TEMP VINYL\\PBOTTOM ASTRAGAL"),
+            (prof_y0 - astr_h * 0.05,  prof_x0 - SX(0.05),    "PLASTIC BOTTOM RETAINER"),
+        ]
+
+    # Distribute label y-positions evenly across the available label
+    # column so multi-line callouts don't overlap each other. Leaders
+    # bend to connect feature anchor → label position with a small jog.
+    label_x = bx0 + box_w * 0.55
+    label_top = sec_top - 0.02
+    label_bot = sec_bot - 0.02
+    n = len(callouts)
+    label_h = max((label_top - label_bot) / max(n, 1), 0.12)
+    for i, (anchor_y, leader_from_x, text_lines) in enumerate(callouts):
+        # Label slot y, top → bottom, evenly spaced
+        y_label = label_top - (i + 0.5) * label_h
+        # Leader: feature → small horizontal stub → diagonal jog → label
+        stub_x = max(leader_from_x + 0.06,
+                     prof_x1 + brk_w + 0.10 if leader_from_x > prof_x1 else prof_x0 - SX(0.20))
         msp.add_line(
-            (leader_from_x, y_pt),
-            (label_x - 0.03, y_pt),
+            (leader_from_x, anchor_y), (stub_x, anchor_y),
             dxfattribs={"layer": "ANNOTATIONS", "lineweight": 13},
         )
-        # MTEXT supports the \P paragraph break
+        msp.add_line(
+            (stub_x, anchor_y), (label_x - 0.03, y_label),
+            dxfattribs={"layer": "ANNOTATIONS", "lineweight": 13},
+        )
         mtext = msp.add_mtext(
             text_lines,
             dxfattribs={
                 "layer": "ANNOTATIONS",
-                "char_height": TEXT_SMALL * 0.75,
+                "char_height": TEXT_SMALL * 0.65,
                 "style": "Standard",
                 "attachment_point": 4,  # middle-left
                 "width": bx1 - label_x - 0.02,
             },
         )
-        mtext.dxf.insert = (label_x, y_pt)
+        mtext.dxf.insert = (label_x, y_label)
 
     # ── Thickness dimension at bottom ─────────────────────────────────────
     dim_y = prof_y0 - astr_h - 0.15
