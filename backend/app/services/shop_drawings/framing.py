@@ -927,6 +927,19 @@ def _draw_panel_stamps(msp: Modelspace, ctx: DrawingContext,
     col_w = (d_x1 - d_x0 - 2 * section_inset_x) / cols
     col_gap = min(col_w * 0.08, 0.04)
 
+    # Build a set of (section, col) cells that hold a window — windows
+    # replace a stamp panel rather than overlay it. Section indexing
+    # in windowPositions matches the configurator: section 0 = bottom.
+    # Section 0 in section_ys is also the BOTTOM (joint indices grow
+    # upward), so the indexing aligns directly.
+    window_cells: set[tuple[int, int]] = set()
+    if ctx.has_windows and ctx.window_positions:
+        for w in ctx.window_positions:
+            try:
+                window_cells.add((int(w.get("section", 0)), int(w.get("col", 0))))
+            except (TypeError, ValueError):
+                continue
+
     for i in range(len(section_ys) - 1):
         sec_y0 = section_ys[i] + section_inset_y
         sec_y1 = section_ys[i + 1] - section_inset_y
@@ -935,14 +948,54 @@ def _draw_panel_stamps(msp: Modelspace, ctx: DrawingContext,
         for c in range(cols):
             sx0 = d_x0 + section_inset_x + c * col_w + col_gap / 2
             sx1 = sx0 + col_w - col_gap
-            msp.add_lwpolyline(
-                [(sx0, sec_y0), (sx1, sec_y0), (sx1, sec_y1),
-                 (sx0, sec_y1), (sx0, sec_y0)],
-                close=True,
-                dxfattribs={"layer": "ANNOTATIONS", "lineweight": 13},
-            )
+            if (i, c) in window_cells:
+                _draw_window_pane(msp, sx0, sec_y0, sx1, sec_y1,
+                                  size=ctx.window_size or "long")
+            else:
+                msp.add_lwpolyline(
+                    [(sx0, sec_y0), (sx1, sec_y0), (sx1, sec_y1),
+                     (sx0, sec_y1), (sx0, sec_y0)],
+                    close=True,
+                    dxfattribs={"layer": "ANNOTATIONS", "lineweight": 13},
+                )
 
     # Panel design is noted in the view title — no separate label needed here
+
+
+def _draw_window_pane(msp: Modelspace, x0: float, y0: float,
+                      x1: float, y1: float, size: str = "long") -> None:
+    """Draw a window pane inside a stamp cell. Frame is a thicker outline
+    plus an inner pane outline. For "long" windows (Kanata Long, 34x16)
+    we add a single horizontal mullion across the middle; "short" windows
+    (Kanata Short, 12x24) get a vertical mullion in the middle. Matches
+    the visual idiom used in the reference Craft drawing's top-section
+    window cutouts.
+    """
+    # Outer frame (heavier weight than stamp lines so it reads as a window)
+    msp.add_lwpolyline(
+        [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)],
+        close=True,
+        dxfattribs={"layer": "FRAMING", "lineweight": 30},
+    )
+    # Inner pane (slight inset) — represents the glass within the frame
+    inset = max(min(x1 - x0, y1 - y0) * 0.08, 0.015)
+    msp.add_lwpolyline(
+        [(x0 + inset, y0 + inset), (x1 - inset, y0 + inset),
+         (x1 - inset, y1 - inset), (x0 + inset, y1 - inset),
+         (x0 + inset, y0 + inset)],
+        close=True,
+        dxfattribs={"layer": "ANNOTATIONS", "lineweight": 13},
+    )
+    # Mullion: horizontal for "long" landscape windows, vertical for "short"
+    is_landscape = (x1 - x0) >= (y1 - y0)
+    if size == "long" or is_landscape:
+        my = (y0 + y1) / 2
+        msp.add_line((x0 + inset, my), (x1 - inset, my),
+                     dxfattribs={"layer": "ANNOTATIONS", "lineweight": 13})
+    else:
+        mx = (x0 + x1) / 2
+        msp.add_line((mx, y0 + inset), (mx, y1 - inset),
+                     dxfattribs={"layer": "ANNOTATIONS", "lineweight": 13})
 
 
 # ─── Series classification + per-series body rendering ─────────────────────
