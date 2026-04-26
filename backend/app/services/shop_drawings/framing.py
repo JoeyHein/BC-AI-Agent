@@ -94,6 +94,11 @@ class DrawingContext:
     # Spring + shaft selections
     target_cycles: int = 10000    # 10k = standard, 25k/50k/100k = upgraded
     shaft_type: str = "auto"      # auto, single, split, 1_solid, 1_25_solid, 1_tubular
+    # Set of shaft flags pulled from the actual BC parts calculator —
+    # any of: "1_solid" / "1_25_solid" / "1_tubular" / "split". Used to
+    # tick the right rows on the optional-extras list. Empty set means
+    # the calculator couldn't decide and the legacy heuristic kicks in.
+    shaft_flags: frozenset = frozenset()
     spring_count: int = 2         # 2 for residential, 4 for wide commercial; renders N coils
     # Operator
     operator: str = "NONE"        # NONE, CHAIN_HOIST, electric models, ...
@@ -971,6 +976,51 @@ def _is_aluminum_series(series: str) -> bool:
 
 def _is_commercial_series(series: str) -> bool:
     return (series or "").upper() in COMMERCIAL_SERIES
+
+
+def _shaft_flags_from_calculator(door: dict) -> set[str]:
+    """Run the parts calculator and return the set of shaft-flag strings
+    that should be ticked on the optional-extras list. A single quote
+    can have multiple shaft items (e.g., commercial doors get both a
+    1" SOLID shaft AND a coupler), so we surface a SET rather than a
+    single category.
+
+    Possible flags: "1_solid", "1_25_solid", "1_tubular", "split"
+    (split = a coupler is present, indicating two shaft pieces).
+
+    Detection rules (mirror part_number_service._get_shaft_parts):
+      - SH10-... or "1-1/4" in description → "1_25_solid"
+      - SH11-... or "solid shaft keyed"    → "1_solid"
+      - SH12-... or "tube" in description  → "1_tubular"
+      - "coupler" in description           → "split"
+      - 2+ shaft items                     → also "split" (split shaft)
+    """
+    flags: set[str] = set()
+    try:
+        from app.services.part_number_service import get_parts_for_door_config
+        result = get_parts_for_door_config(door)
+        shaft_lines = [p for p in result.get("parts_list", [])
+                       if (p.get("category") or "").lower() == "shaft"]
+        for sl in shaft_lines:
+            pn = (sl.get("part_number") or "").upper()
+            desc = (sl.get("description") or "").lower()
+            if "coupler" in desc:
+                flags.add("split")
+                continue
+            if pn.startswith("SH10") or "1-1/4" in desc:
+                flags.add("1_25_solid")
+            elif pn.startswith("SH11") or "solid shaft keyed" in desc:
+                flags.add("1_solid")
+            elif pn.startswith("SH12") or "tube" in desc or "tubular" in desc:
+                flags.add("1_tubular")
+        # If 2+ actual shaft pieces (excluding the coupler), it's split
+        non_coupler = [p for p in shaft_lines
+                       if "coupler" not in (p.get("description") or "").lower()]
+        if len(non_coupler) >= 2:
+            flags.add("split")
+    except Exception as e:
+        logger.debug(f"Shaft flags calculator fallback: {e}")
+    return flags
 
 
 def _spring_count_from_calculator(door: dict) -> int:
@@ -2465,15 +2515,13 @@ def _draw_optional_extras(msp: Modelspace, ctx: DrawingContext,
         "ELECTRIC OPERATOR (BY OTHERS)": (operator not in
                                           ("NONE", "MANUAL", "CHAIN_HOIST",
                                            "CHAIN", "HOIST")),
-        # Shaft type
-        "1\" SOLID SHAFT":             (shaft in ("1_solid", "single") or
-                                        (shaft == "auto" and not (is_commercial
-                                            or ctx.door_width_in >= 192))),
-        "1-1/4\" SOLID SHAFT":         (shaft == "1_25_solid" or
-                                        (shaft == "auto" and (is_commercial
-                                            or ctx.door_width_in >= 192))),
-        "1\" TUBULAR SHAFT":           shaft == "1_tubular",
-        "COUPLER":                     shaft == "split",
+        # Shaft selections — checked from the actual BC parts calculator
+        # output (ctx.shaft_flags). Multiple can be true at once on a
+        # split-shaft setup (e.g., 1" SOLID SHAFT + COUPLER).
+        "1\" SOLID SHAFT":             "1_solid"     in ctx.shaft_flags,
+        "1-1/4\" SOLID SHAFT":         "1_25_solid"  in ctx.shaft_flags,
+        "1\" TUBULAR SHAFT":           "1_tubular"   in ctx.shaft_flags,
+        "COUPLER":                     "split"       in ctx.shaft_flags,
         # Spring cycle rating
         "STANDARD CYCLE SPRING":       cycles <= 10000,
         "25,000 CYCLE SPRINGS":        cycles == 25000,
@@ -2871,6 +2919,10 @@ def build_context_from_config(
         section_height_in=section_h,
         target_cycles=int(door.get("targetCycles") or 10000),
         shaft_type=str(door.get("shaftType") or "auto"),
+        # Shaft flags pulled from the actual BC parts calculator so the
+        # extras list ticks the row(s) for the shaft(s) that actually
+        # ship — not a separate heuristic.
+        shaft_flags=frozenset(_shaft_flags_from_calculator(door)),
         # Spring count comes from the door spring calculator (the same
         # engine that picks BC spring SKUs for the quote). This way the
         # drawing matches the actual hardware ordered. Falls back to 2
