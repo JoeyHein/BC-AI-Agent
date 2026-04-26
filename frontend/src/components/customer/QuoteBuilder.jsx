@@ -133,8 +133,6 @@ function QuoteBuilder() {
       // Additional optional extras (mirror the title-block extras list)
       manDoor: false,             // pass-through man door in panel
       manDoorSpec: '',            // free-text spec (size, hinge side, etc.)
-      barLatch: false,
-      keyedHandle: false,         // keyed outside handle
       interiorLock: false,        // interior side slide lock
       pusherSpring: false,        // pusher (extension) spring auxiliary
       bumperSpring: false,        // bumper spring at end of horiz. track
@@ -2468,8 +2466,6 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         </label>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
           {[
-            { id: 'barLatch',     name: 'Bar Latch' },
-            { id: 'keyedHandle',  name: 'Keyed Outside Handle' },
             { id: 'interiorLock', name: 'Interior Side Lock' },
             { id: 'pusherSpring', name: 'Pusher Spring' },
             { id: 'bumperSpring', name: 'Bumper Spring' },

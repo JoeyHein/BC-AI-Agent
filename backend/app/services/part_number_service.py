@@ -143,8 +143,6 @@ class DoorConfiguration:
     # a warning is logged and the line is skipped.
     include_man_door: bool = False
     man_door_spec: str = ""        # free-text spec carried into BC line description
-    include_bar_latch: bool = False
-    include_keyed_handle: bool = False
     include_interior_lock: bool = False
     include_bumper_spring: bool = False
     include_track_guards: bool = False
@@ -155,35 +153,34 @@ class DoorConfiguration:
 # of (item_code, description, qty) tuples — supports single-SKU options
 # as well as LH/RH pairs (like pushers) and pair-quantity SKUs.
 #
-# Set item_code from None to the real BC code once confirmed. Until then
-# the line is skipped and a warning is logged so the missing code is
-# visible in production logs.
+# Codes resolved by scanning BC Production via search_items_by_name on
+# 2026-04-25; man-door SKU still pending — the configurator option
+# carries a free-text spec, so it likely should map to the kit + a
+# manual line or the install SKU.
 OPTIONAL_EXTRA_PARTS = {
     # flag_name -> [(item_code, description, qty), ...]
+    # Man door — SKU varies by door type. The emit loop below special-cases
+    # this flag and picks MI24-00000-00 for steel/residential/commercial
+    # overhead doors or MI24-00000-02 for aluminum overhead doors. Both
+    # represent a man door being installed INTO the overhead door panel.
     "include_man_door": [
-        (None, "MAN DOOR PASS-THROUGH KIT", 1),  # TODO: BC item code
+        ("__VARIES__", "MANDOOR INSTALLATION", 1),  # see emit loop
     ],
-    "include_bar_latch": [
-        (None, "BAR LATCH HARDWARE", 1),  # TODO: BC item code
-    ],
-    "include_keyed_handle": [
-        (None, "KEYED OUTSIDE HANDLE", 1),  # TODO: BC item code
-    ],
+    # Side lock — one matching SKU in BC.
     "include_interior_lock": [
-        (None, "INTERIOR SIDE SLIDE LOCK", 1),  # TODO: BC item code
+        ("FH13-00009-00", "SIDE LOCK, 3\"", 1),
     ],
-    # Bumper springs: 2 SKUs (LH + RH), like the pusher spring pair
-    # (TR13-00031-00 / TR13-00032-00).
+    # Leaf bumper spring pair (LH + RH).
     "include_bumper_spring": [
-        (None, "TRACK HARDWARE, SPRING, BUMPER SPRING, LH", 1),  # TODO: BC code
-        (None, "TRACK HARDWARE, SPRING, BUMPER SPRING, RH", 1),  # TODO: BC code
+        ("TR13-00029-00", "TRACK HARDWARE, SPRING, LEAF BUMPER SPRING, LH", 1),
+        ("TR13-00030-00", "TRACK HARDWARE, SPRING, LEAF BUMPER SPRING, RH", 1),
     ],
-    # Track guards: sold as a pair-per-unit, so qty 1 buys both guards.
+    # Track guards: pair-per-unit, qty 1 ships both guards.
     "include_track_guards": [
-        (None, "TRACK GUARDS (PAIR)", 1),  # TODO: BC item code
+        ("TRACKGUARD60", "TRACK GUARDS (PAIR), 60\", SAFETY YELLOW", 1),
     ],
     "include_exhaust_port": [
-        (None, "EXHAUST PORT HARDWARE", 1),  # TODO: BC item code
+        ("FH11-00003-00", "EXHAUST PORT RINGS/COVER SET", 1),
     ],
 }
 
@@ -769,13 +766,29 @@ class PartNumberService:
                 category="accessory",
             ))
 
-        # 8b. OPTIONAL EXTRAS — man door, locks/handles, specialty springs,
+        # 8b. OPTIONAL EXTRAS — man door, side lock, specialty springs,
         # track guards, exhaust port. BC item codes live in
-        # OPTIONAL_EXTRA_PARTS at the top of this module — fill them in
-        # once the codes are confirmed and these will start emitting.
+        # OPTIONAL_EXTRA_PARTS at the top of this module.
         for flag_name, items in OPTIONAL_EXTRA_PARTS.items():
             if not getattr(config, flag_name, False):
                 continue
+
+            # Special-case: man door SKU varies by overhead-door type.
+            if flag_name == "include_man_door":
+                is_aluminum = (config.door_type or "").lower() in ("aluminium", "aluminum")
+                item_code = "MI24-00000-02" if is_aluminum else "MI24-00000-00"
+                desc = ("MANDOOR INSTALLATION - ALUMINUM" if is_aluminum
+                        else "MANDOOR INSTALLATION")
+                if config.man_door_spec:
+                    desc = f"{desc} — {config.man_door_spec}"
+                parts.append(PartSelection(
+                    part_number=item_code,
+                    description=desc,
+                    quantity=1,
+                    category="accessory",
+                ))
+                continue
+
             for item_code, base_desc, qty in items:
                 if item_code is None:
                     logger.warning(
@@ -785,14 +798,9 @@ class PartNumberService:
                         flag_name, base_desc,
                     )
                     continue
-                desc = base_desc
-                # Append the man-door spec to the description so it's
-                # actionable for production.
-                if flag_name == "include_man_door" and config.man_door_spec:
-                    desc = f"{base_desc} — {config.man_door_spec}"
                 parts.append(PartSelection(
                     part_number=item_code,
-                    description=desc,
+                    description=base_desc,
                     quantity=qty,
                     category="accessory",
                 ))
@@ -3347,8 +3355,6 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
                                     or config_dict.get("pusherSpring", False)),
         include_man_door=bool(config_dict.get("manDoor", False)),
         man_door_spec=str(config_dict.get("manDoorSpec") or ""),
-        include_bar_latch=bool(config_dict.get("barLatch", False)),
-        include_keyed_handle=bool(config_dict.get("keyedHandle", False)),
         include_interior_lock=bool(config_dict.get("interiorLock", False)),
         include_bumper_spring=bool(config_dict.get("bumperSpring", False)),
         include_track_guards=bool(config_dict.get("trackGuards", False)),

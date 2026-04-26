@@ -108,8 +108,6 @@ class DrawingContext:
     # Additional optional extras (mirror the title-block extras checklist)
     man_door: bool = False
     man_door_spec: str = ""
-    bar_latch: bool = False
-    keyed_handle: bool = False
     interior_lock: bool = False
     pusher_spring: bool = False
     bumper_spring: bool = False
@@ -1820,8 +1818,6 @@ def _draw_optional_extras(msp: Modelspace, ctx: DrawingContext,
         "16GA STRUTS":                 ctx.has_struts and is_commercial,
         "20GA STRUTS":                 ctx.has_struts and not is_commercial,
         "MAN DOOR (see man door spec)": ctx.man_door,
-        "BAR LATCH":                   ctx.bar_latch,
-        "KEYED OUTSIDE HANDLE":        ctx.keyed_handle,
         "INTERIOR SIDE LOCK":          ctx.interior_lock,
         # Operator
         "MANUAL OPERATION":            operator in ("NONE", "MANUAL"),
@@ -2158,8 +2154,6 @@ def build_context_from_config(
         glass_pockets_per_section=door.get("glassPocketsPerSection"),
         man_door=bool(door.get("manDoor", False)),
         man_door_spec=str(door.get("manDoorSpec") or ""),
-        bar_latch=bool(door.get("barLatch", False)),
-        keyed_handle=bool(door.get("keyedHandle", False)),
         interior_lock=bool(door.get("interiorLock", False)),
         pusher_spring=bool(door.get("pusherSpring", False)),
         bumper_spring=bool(door.get("bumperSpring", False)),
