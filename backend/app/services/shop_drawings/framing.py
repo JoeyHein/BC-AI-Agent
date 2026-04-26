@@ -102,6 +102,9 @@ class DrawingContext:
     has_bottom_retainer: bool = True
     # Glass / window selections
     has_windows: bool = False
+    window_positions: Optional[list] = None  # [{"section": int, "col": int}, ...]
+    window_insert: str = ""              # "12X24_THERMOPANE" / "34X16_THERMOPANE" / "NONE"
+    window_size: str = "long"            # "short" (12x24) or "long" (34x16)
     glass_pockets_per_section: Optional[dict] = None  # {section_idx: count} for AL/SWD
     # Aluminum-specific: pocket count (used when glass_pockets_per_section is None)
     al_pocket_count: Optional[int] = None
@@ -700,20 +703,130 @@ def _draw_front_elevation(msp: Modelspace, ctx: DrawingContext,
     )
 
     # ── Tracks (vertical lines outside jambs, extending above header) ────
+    # Track structure detail per the reference Craft drawing:
+    #   - Vertical track from floor up past the header
+    #   - At header height, the track curves on its radius and runs
+    #     horizontally back into the building (shown as a small arc on
+    #     the elevation; the full horizontal run lives in the side view)
+    #   - Mounting attachment along the side: either discrete bracket
+    #     rectangles at regular intervals (track_mount=bracket) or a
+    #     continuous angle-iron strip (track_mount=angle).
+    radius_in = ctx.track_radius_in or 15.0
+    angle_mount = (ctx.track_mount or "bracket").lower() == "angle"
+
     for tx in (left_track_x, right_track_x):
-        msp.add_line((tx, d_y0), (tx, track_top_y),
+        is_left_side = (tx == left_track_x)
+        side = -1 if is_left_side else 1
+        # Vertical track up to where the radius arc starts
+        arc_start_y = d_y1 + DX(2)  # slightly above door top
+        msp.add_line((tx, d_y0), (tx, arc_start_y),
                      dxfattribs={"layer": "TRACKS"})
-        # Rail marker ticks every ~24" along track
+
+        # Radius arc — track curves from vertical (heading up) to
+        # horizontal (heading back into building). Center of arc is
+        # offset INWARD by R from the track centerline, at height R
+        # above arc_start_y.
+        arc_cx = tx - side * DX(radius_in)
+        arc_cy = arc_start_y + DX(radius_in)
+        # The arc spans 90°: starting at the track (at arc_start_y) and
+        # ending where the track is horizontal at top of the arc.
+        # Using ezdxf add_arc with start_angle/end_angle in degrees.
+        if is_left_side:
+            # Left track: arc center is to the RIGHT, arc sweeps from
+            # 180° (left of center) to 90° (top of center).
+            msp.add_arc(
+                center=(arc_cx, arc_cy),
+                radius=DX(radius_in),
+                start_angle=180,
+                end_angle=270,
+                dxfattribs={"layer": "TRACKS"},
+            )
+        else:
+            # Right track: arc center is to the LEFT, arc sweeps from
+            # 270° (bottom of center) to 0° (right of center).
+            msp.add_arc(
+                center=(arc_cx, arc_cy),
+                radius=DX(radius_in),
+                start_angle=270,
+                end_angle=360,
+                dxfattribs={"layer": "TRACKS"},
+            )
+        # Short horizontal stub at top of arc (the track continues
+        # back into the building in the SIDE VIEW, but on the elevation
+        # we just hint at the direction with a stub).
+        stub_x = arc_cx
+        stub_end_x = arc_cx + side * DX(2.0)
+        msp.add_line((stub_x, arc_cy), (stub_end_x, arc_cy),
+                     dxfattribs={"layer": "TRACKS", "linetype": "HIDDEN"})
+
+        # ── Mounting hardware ──
+        if angle_mount:
+            # Continuous angle iron — drawn as a parallel strip between
+            # the jamb and the track. The angle attaches the track to
+            # the jamb along its full length.
+            angle_x_inner = tx - side * DX(0.6)  # slightly inside the track
+            msp.add_line((angle_x_inner, d_y0), (angle_x_inner, arc_start_y),
+                         dxfattribs={"layer": "TRACKS", "lineweight": 18})
+            # Connector dashes between angle and track every 12"
+            conn_spacing = 12.0
+            n_conn = int(door_h / conn_spacing)
+            for k in range(n_conn + 1):
+                cy = d_y0 + DX(conn_spacing * k)
+                if cy < arc_start_y - DX(2):
+                    msp.add_line((angle_x_inner, cy), (tx, cy),
+                                 dxfattribs={"layer": "HIDDEN", "lineweight": 5})
+        else:
+            # Discrete mounting brackets — small rectangles along the
+            # track at standard intervals. Real-world spacing is one
+            # bracket per panel section, plus one near the floor.
+            brk_w_in = 4.0   # bracket horizontal width (real-world)
+            brk_h_in = 3.0   # bracket vertical height (real-world)
+            section_h_in = ctx.section_height_in
+            n_brackets = max(2, int(door_h / section_h_in) + 1)
+            for k in range(n_brackets):
+                # Position brackets near each section joint, with one
+                # near the floor and one near the top
+                t_pos = k / max(n_brackets - 1, 1)
+                by_center = d_y0 + DX(door_h * 0.05) + (DX(door_h * 0.90)) * t_pos
+                if by_center > arc_start_y - DX(brk_h_in):
+                    continue
+                # Bracket rectangle, anchored to the inside face of the
+                # track and protruding inward toward the jamb.
+                bx_outer = tx
+                bx_inner = tx - side * DX(brk_w_in)
+                bxs = sorted([bx_outer, bx_inner])
+                msp.add_lwpolyline(
+                    [(bxs[0], by_center - DX(brk_h_in / 2)),
+                     (bxs[1], by_center - DX(brk_h_in / 2)),
+                     (bxs[1], by_center + DX(brk_h_in / 2)),
+                     (bxs[0], by_center + DX(brk_h_in / 2)),
+                     (bxs[0], by_center - DX(brk_h_in / 2))],
+                    close=True,
+                    dxfattribs={"layer": "HARDWARE", "lineweight": 25},
+                )
+
+        # Rail marker ticks along the vertical track (above brackets) —
+        # gives a sense of the track's slotted profile
         rail_spacing = 24.0
         rail_marks = int((door_h + HEADER_VIS_H + TRACK_EXTENSION) / rail_spacing)
         for m in range(1, rail_marks + 1):
             y = fy0 + DX(rail_spacing * m)
-            if y < track_top_y - DX(1):
-                side = -1 if tx == left_track_x else 1
+            if y < arc_start_y - DX(1):
                 msp.add_line(
                     (tx + side * 0.04, y), (tx + side * 0.12, y),
                     dxfattribs={"layer": "TRACKS"},
                 )
+
+    # ── Radius callout near one of the arcs ──────────────────────────
+    rad_lbl = msp.add_text(
+        f"R = {fmt_length_imperial(radius_in)}",
+        dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_SMALL * 0.85,
+                    "style": "Standard"},
+    )
+    rad_lbl.set_placement(
+        (right_track_x - DX(radius_in / 2), d_y1 + DX(radius_in * 0.7)),
+        align=TextEntityAlignment.MIDDLE_CENTER,
+    )
 
     # ── Shaft + springs above header (interior view only) ──────────────
     if is_interior:
@@ -2451,6 +2564,9 @@ def build_context_from_config(
         has_weather_stripping=bool(hardware.get("weatherStripping", True)),
         has_bottom_retainer=bool(hardware.get("bottomRetainer", True)),
         has_windows=bool(door.get("hasWindows", False)),
+        window_positions=door.get("windowPositions") or [],
+        window_insert=str(door.get("windowInsert") or "NONE"),
+        window_size=str(door.get("windowSize") or "long"),
         glass_pockets_per_section=door.get("glassPocketsPerSection"),
         man_door=bool(door.get("manDoor", False)),
         man_door_spec=str(door.get("manDoorSpec") or ""),
