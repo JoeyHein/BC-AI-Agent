@@ -94,8 +94,11 @@ class DrawingContext:
     # Spring + shaft selections
     target_cycles: int = 10000    # 10k = standard, 25k/50k/100k = upgraded
     shaft_type: str = "auto"      # auto, single, split, 1_solid, 1_25_solid, 1_tubular
+    spring_count: int = 2         # 2 for residential, 4 for wide commercial; renders N coils
     # Operator
     operator: str = "NONE"        # NONE, CHAIN_HOIST, electric models, ...
+    operator_side: str = "right"  # "left" or "right" — which jamb the operator mounts on
+                                   # (looking at the door from inside)
     # Hardware bundle (mirrors frontend door.hardware)
     has_struts: bool = True
     has_weather_stripping: bool = True
@@ -878,10 +881,12 @@ def _draw_front_elevation(msp: Modelspace, ctx: DrawingContext,
                               label=fmt_length_dual(HEADER_VIS_H),
                               extra_offset=0.22)
 
-    # ── View title (includes panel design + section count) ──────────────
+    # ── View title — "{SERIES} VIEW INSIDE LOOKING OUT" matches the
+    # reference TX-450 / Craft drawings' title convention. ────────────
+    series_for_title = (ctx.door_series or "DOOR").upper()
     view_title_main = msp.add_text(
-        "DOOR FACE: INSIDE LOOKING OUT" if is_interior
-        else "DOOR FACE: OUTSIDE LOOKING IN",
+        f"{series_for_title} VIEW INSIDE LOOKING OUT" if is_interior
+        else f"{series_for_title} VIEW OUTSIDE LOOKING IN",
         dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_MED, "style": "Standard"},
     )
     view_title_main.set_placement(
@@ -1679,27 +1684,46 @@ def _draw_shaft_and_springs(msp: Modelspace, ctx: DrawingContext,
     )
 
     # ── Springs ─────────────────────────────────────────────────────────
-    # Residential/aluminum: 2 springs, one on each side of center.
-    # Commercial > 18': often 4 springs.
-    # Spring outer diameter typical 2-3", length varies with door weight.
-    # Both are exaggerated on paper so they're legible at small scales.
-    num_springs = 2  # sensible default; real quantity comes from part schedule
+    # Spring count from ctx (residential/aluminum 2, wide commercial 4).
+    # For 4-spring setup the springs are arranged in TWO PAIRS, one pair
+    # on each side of center, with a small gap between the inner spring
+    # of each pair and the center coupler.
+    num_springs = max(2, int(ctx.spring_count or 2))
     spring_od_in = 3.5                          # visual OD (real ~2.0-2.75")
-    spring_len_in = max(28.0, ctx.door_width_in * 0.15)  # scales with door width
+    spring_len_in = max(28.0, ctx.door_width_in * 0.12)
     spring_od = max(scale * spring_od_in, 0.15)
     spring_len = scale * spring_len_in
 
     center_x = (left_x + right_x) / 2
     gap_between_springs = scale * 6.0  # center gap
-    for i in range(num_springs):
-        side = -1 if i == 0 else 1
-        end_x = center_x + side * gap_between_springs / 2
-        start_x = end_x + side * spring_len
-        sx0, sx1 = sorted([start_x, end_x])
-        _draw_coil_spring(msp, sx0, sx1, shaft_cy, spring_od,
+
+    # Compute spring x-ranges. For 2 springs: one each side of center.
+    # For 4 springs: pairs of two on each side, tightly stacked end-to-end.
+    spring_ranges: list[tuple[float, float]] = []
+    if num_springs == 2:
+        # Left side
+        end_l = center_x - gap_between_springs / 2
+        spring_ranges.append((end_l - spring_len, end_l))
+        # Right side
+        end_r = center_x + gap_between_springs / 2
+        spring_ranges.append((end_r, end_r + spring_len))
+    else:
+        # 4 (or more) springs — split into pairs each side. Each pair has
+        # the springs end-to-end with a tiny coupler-stub between them.
+        per_side = num_springs // 2
+        side_total = spring_len * per_side + scale * 2 * (per_side - 1)
+        for s in range(per_side):
+            end_l = center_x - gap_between_springs / 2 - (s * (spring_len + scale * 2))
+            spring_ranges.append((end_l - spring_len, end_l))
+            end_r = center_x + gap_between_springs / 2 + (s * (spring_len + scale * 2))
+            spring_ranges.append((end_r, end_r + spring_len))
+
+    for sx0, sx1 in spring_ranges:
+        a, b = sorted([sx0, sx1])
+        _draw_coil_spring(msp, a, b, shaft_cy, spring_od,
                           coils=16, layer="HARDWARE")
 
-    # Center coupler (small block between springs on the shaft)
+    # Center coupler (small block between innermost springs on the shaft)
     coupler_w = scale * 3.0
     coupler_h = shaft_thick * 2.2
     msp.add_lwpolyline(
@@ -1712,9 +1736,8 @@ def _draw_shaft_and_springs(msp: Modelspace, ctx: DrawingContext,
         dxfattribs={"layer": "HARDWARE", "lineweight": 30},
     )
 
-    # ── Bracket positions (anchor brackets at the ends of the shaft, where
-    # it lands on the track jambs) ──────────────────────────────────────
-    bracket_w = scale * 4.0   # ~4" bracket width visually
+    # ── End brackets (anchor brackets at each end of the shaft) ────────
+    bracket_w = scale * 4.0
     bracket_h = shaft_thick * 4.0
     for bx in (left_x, right_x):
         msp.add_lwpolyline(
@@ -1725,6 +1748,61 @@ def _draw_shaft_and_springs(msp: Modelspace, ctx: DrawingContext,
              (bx - bracket_w / 2, shaft_cy - bracket_h / 2)],
             close=True,
             dxfattribs={"layer": "HARDWARE", "lineweight": 30},
+        )
+
+    # ── Cable drums at each shaft end (between the bracket and the
+    # outermost spring). The drum is what the lift cable wraps around;
+    # it's a larger-diameter cylinder mounted on the shaft. Drawn as
+    # a circle in side projection (looking along the shaft axis).
+    drum_d_in = 8.0   # typical 8" residential drum, larger on commercial
+    drum_d = max(scale * drum_d_in, shaft_thick * 3.0)
+    for bx, side in ((left_x, +1), (right_x, -1)):
+        # Drum sits just inboard of the end bracket
+        drum_cx = bx + side * (bracket_w / 2 + drum_d / 2 + scale * 1.0)
+        msp.add_circle(
+            center=(drum_cx, shaft_cy),
+            radius=drum_d / 2,
+            dxfattribs={"layer": "HARDWARE", "lineweight": 25},
+        )
+        # Inner hub circle for visual clarity
+        msp.add_circle(
+            center=(drum_cx, shaft_cy),
+            radius=shaft_thick * 0.6,
+            dxfattribs={"layer": "HARDWARE", "lineweight": 18},
+        )
+
+    # ── Operator marker on the chosen side of the shaft ────────────────
+    # Reference TX-450 shows the operator on one specific side (a small
+    # bracketed motor housing attached to the end of the shaft). We
+    # render a labelled rectangle on the configured operator side so
+    # the installer can see where the drive lands.
+    is_powered = (ctx.operator or "NONE").upper() not in ("NONE", "MANUAL")
+    if is_powered:
+        op_side = (ctx.operator_side or "right").lower()
+        op_anchor_x = left_x if op_side == "left" else right_x
+        op_dir = -1 if op_side == "left" else +1
+        op_w = scale * 6.0
+        op_h = shaft_thick * 5.0
+        # Position the operator OUTBOARD of the end bracket
+        op_cx = op_anchor_x + op_dir * (bracket_w / 2 + op_w / 2 + scale * 2)
+        msp.add_lwpolyline(
+            [(op_cx - op_w / 2, shaft_cy - op_h / 2),
+             (op_cx + op_w / 2, shaft_cy - op_h / 2),
+             (op_cx + op_w / 2, shaft_cy + op_h / 2),
+             (op_cx - op_w / 2, shaft_cy + op_h / 2),
+             (op_cx - op_w / 2, shaft_cy - op_h / 2)],
+            close=True,
+            dxfattribs={"layer": "HARDWARE", "lineweight": 35},
+        )
+        op_lbl = msp.add_text(
+            "OP",
+            dxfattribs={"layer": "ANNOTATIONS",
+                        "height": TEXT_SMALL * 0.7,
+                        "style": "Standard"},
+        )
+        op_lbl.set_placement(
+            (op_cx, shaft_cy),
+            align=TextEntityAlignment.MIDDLE_CENTER,
         )
 
     # ── Shaft-length dimension above the brackets (full span) ──────────
@@ -2411,9 +2489,11 @@ def _draw_optional_extras(msp: Modelspace, ctx: DrawingContext,
         f"DOOR COLOR CHOICE ({ctx.panel_color or 'WHITE'})": True,
     }
 
-    # Layout: single column of check-items. Line height calculated from list.
+    # Layout: single column of check-items. Line height includes the
+    # SPRINGS INFO + TURNS tail lines so they fit inside the box.
     avail_h = (by1 - 0.35) - (by0 + 0.05)
-    n = len(selected)
+    n_extras_tail = 3   # gap + SPRINGS INFO + TURNS
+    n = len(selected) + n_extras_tail
     line_h = min(avail_h / max(n, 1), 0.18)
     y = by1 - 0.35
     for label, is_on in selected.items():
@@ -2444,6 +2524,31 @@ def _draw_optional_extras(msp: Modelspace, ctx: DrawingContext,
         lbl.set_placement((bx + box_size + 0.05, y),
                           align=TextEntityAlignment.MIDDLE_LEFT)
         y -= line_h
+
+    # ── SPRINGS INFO + TURNS lines below the checklist (matches the
+    # reference TX-450 drawing's tail). The tech fills in TURNS at
+    # install time; we render the SPRINGS INFO from spring_count. ──
+    y -= line_h * 0.4
+    springs_info = msp.add_text(
+        f"SPRINGS INFO: {ctx.spring_count}-SPRING SETUP",
+        dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_SMALL * 0.85,
+                    "style": "Standard"},
+    )
+    springs_info.set_placement((bx0 + 0.08, y),
+                                align=TextEntityAlignment.MIDDLE_LEFT)
+    y -= line_h
+    turns = msp.add_text(
+        "TURNS:",
+        dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_SMALL * 0.85,
+                    "style": "Standard"},
+    )
+    turns.set_placement((bx0 + 0.08, y),
+                        align=TextEntityAlignment.MIDDLE_LEFT)
+    # Underline placeholder for the tech to fill in turns count
+    msp.add_line(
+        (bx0 + 0.65, y - 0.02), (bx1 - 0.10, y - 0.02),
+        dxfattribs={"layer": "ANNOTATIONS", "lineweight": 13},
+    )
 
 
 def _draw_box_with_title(msp: Modelspace, box: Tuple[float, float, float, float],
@@ -2756,7 +2861,13 @@ def build_context_from_config(
         section_height_in=section_h,
         target_cycles=int(door.get("targetCycles") or 10000),
         shaft_type=str(door.get("shaftType") or "auto"),
+        # 4-spring setup for wide commercial (>= 16' commercial) or any
+        # door with very heavy weight; otherwise 2 springs.
+        spring_count=(4 if (door.get("doorType") == "commercial"
+                            and float(door.get("doorWidth") or 0) >= 192)
+                      else 2),
         operator=str(door.get("operator") or "NONE"),
+        operator_side=str(door.get("operatorSide") or "right").lower(),
         has_struts=bool(hardware.get("struts", True)),
         has_weather_stripping=bool(hardware.get("weatherStripping", True)),
         has_bottom_retainer=bool(hardware.get("bottomRetainer", True)),

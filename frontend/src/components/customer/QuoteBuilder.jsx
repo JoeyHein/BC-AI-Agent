@@ -127,6 +127,8 @@ function QuoteBuilder() {
       // Spring and shaft options
       targetCycles: 10000,
       shaftType: 'auto', // 'auto', 'single', 'split'
+      operatorSide: 'right', // 'left' or 'right' — drives operator mount
+                              // location on shop drawings (industry default = right)
       trackMount: 'bracket', // 'bracket' or 'angle'
       // High lift inches (only used for high_lift)
       highLiftInches: null,  // extra inches above door opening
@@ -2389,6 +2391,32 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
             </p>
           </div>
         )}
+
+        {/* Operator side — drives where the operator mounts on the shaft
+            on the shop drawing (right is the industry default). */}
+        <div className="mt-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Operator Side <span className="text-xs font-normal text-gray-500">(viewed from inside looking out)</span>
+          </label>
+          <div className="grid grid-cols-2 gap-3 max-w-md">
+            {[
+              { id: 'left',  name: 'Left' },
+              { id: 'right', name: 'Right' },
+            ].map((opt) => (
+              <button
+                key={opt.id}
+                onClick={() => onChange({ operatorSide: opt.id })}
+                className={`p-3 rounded-lg border-2 text-center transition-all ${
+                  (door.operatorSide || 'right') === opt.id
+                    ? 'border-odc-500 bg-odc-50'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <span className="text-sm font-medium">{opt.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Hardware Options */}
