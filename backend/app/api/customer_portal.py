@@ -2233,27 +2233,39 @@ def get_pricing_for_saved_quote(
         if current_user.bc_customer_id:
             # Linked customer: create a real BC quote for accurate pricing (incl. tax)
             pricing_tier = _get_customer_pricing_tier(current_user.bc_customer_id, db)
-
-            # Delete old BC quote if one exists
-            if config.bc_quote_id:
-                try:
-                    bc_client.delete_sales_quote(config.bc_quote_id)
-                    logger.info(f"Deleted previous BC quote {config.bc_quote_number} for config {config_id}")
-                except Exception as e:
-                    logger.warning(f"Could not delete previous BC quote {config.bc_quote_id}: {e}")
-
             delivery_type = (config.config_data or {}).get("deliveryType", "delivery")
 
-            result = _generate_bc_quote_with_items(
-                doors=doors,
-                bc_customer_id=current_user.bc_customer_id,
-                config_id=config.id,
-                pricing_tier=pricing_tier,
-                db=db,
-                po_number=(config.config_data or {}).get("poNumber"),
-                delivery_type=delivery_type,
-                customer_user_id=current_user.id,
-            )
+            if config.bc_quote_id:
+                # Existing BC quote: edit in place so the same quote number
+                # stays in BC across re-prices. Only the lines that changed
+                # are touched, via the bc_line_map / surgical edit path.
+                # Without this, every "Build Quote" click would create a
+                # duplicate BC quote and orphan the previous one.
+                logger.info(
+                    f"Re-pricing existing BC quote {config.bc_quote_number} "
+                    f"for config {config_id} via surgical edit"
+                )
+                result = _edit_bc_quote_lines(
+                    config=config,
+                    new_config_data=config.config_data or {},
+                    bc_customer_id=current_user.bc_customer_id,
+                    pricing_tier=pricing_tier,
+                    db=db,
+                    customer_user_id=current_user.id,
+                    delivery_type=delivery_type,
+                )
+            else:
+                # First-time pricing: create the BC quote.
+                result = _generate_bc_quote_with_items(
+                    doors=doors,
+                    bc_customer_id=current_user.bc_customer_id,
+                    config_id=config.id,
+                    pricing_tier=pricing_tier,
+                    db=db,
+                    po_number=(config.config_data or {}).get("poNumber"),
+                    delivery_type=delivery_type,
+                    customer_user_id=current_user.id,
+                )
 
             # Store BC quote reference (but NOT submitted)
             config.bc_quote_id = result["bc_quote_id"]
@@ -2286,11 +2298,11 @@ def get_pricing_for_saved_quote(
             "config_id": config.id,
             "bc_quote_id": result["bc_quote_id"],
             "bc_quote_number": result["bc_quote_number"],
-            "lines_added": result["lines_added"],
-            "lines_failed": result["lines_failed"],
-            "pricing": result["pricing"],
-            "line_pricing": result["line_pricing"],
-            "door_results": result["door_results"],
+            "lines_added": result.get("lines_added"),
+            "lines_failed": result.get("lines_failed"),
+            "pricing": result.get("pricing"),
+            "line_pricing": result.get("line_pricing"),
+            "door_results": result.get("door_results"),
             "freight": result.get("freight"),
         }
 
@@ -2360,7 +2372,9 @@ def refresh_pricing_for_saved_quote(
     """
     Refresh pricing for a saved quote after config changes.
 
-    Deletes the old BC quote (if any) and generates a new one.
+    Edits the existing BC quote in place if one exists (preserving the
+    same quote number across re-prices), or creates a new one if this
+    is the first time pricing is requested.
     """
     config = db.query(SavedQuoteConfig).filter(
         SavedQuoteConfig.id == config_id,
@@ -2383,28 +2397,38 @@ def refresh_pricing_for_saved_quote(
         doors = _validate_doors_config(config.config_data or {})
 
         if current_user.bc_customer_id:
-            # Linked customer: delete old quote and regenerate
+            # Linked customer: edit existing BC quote in place if one
+            # already exists, otherwise create a new one. Same logic as
+            # /get-pricing — never delete + recreate when an unsubmitted
+            # BC quote is sitting there, that just orphans it.
             pricing_tier = _get_customer_pricing_tier(current_user.bc_customer_id, db)
-
-            if config.bc_quote_id:
-                try:
-                    bc_client.delete_sales_quote(config.bc_quote_id)
-                    logger.info(f"Deleted old BC quote {config.bc_quote_number} for refresh")
-                except Exception as e:
-                    logger.warning(f"Could not delete old BC quote {config.bc_quote_id}: {e}")
-
             delivery_type = (config.config_data or {}).get("deliveryType", "delivery")
 
-            result = _generate_bc_quote_with_items(
-                doors=doors,
-                bc_customer_id=current_user.bc_customer_id,
-                config_id=config.id,
-                pricing_tier=pricing_tier,
-                db=db,
-                po_number=(config.config_data or {}).get("poNumber"),
-                delivery_type=delivery_type,
-                customer_user_id=current_user.id,
-            )
+            if config.bc_quote_id:
+                logger.info(
+                    f"Refreshing pricing on existing BC quote "
+                    f"{config.bc_quote_number} for config {config_id} via surgical edit"
+                )
+                result = _edit_bc_quote_lines(
+                    config=config,
+                    new_config_data=config.config_data or {},
+                    bc_customer_id=current_user.bc_customer_id,
+                    pricing_tier=pricing_tier,
+                    db=db,
+                    customer_user_id=current_user.id,
+                    delivery_type=delivery_type,
+                )
+            else:
+                result = _generate_bc_quote_with_items(
+                    doors=doors,
+                    bc_customer_id=current_user.bc_customer_id,
+                    config_id=config.id,
+                    pricing_tier=pricing_tier,
+                    db=db,
+                    po_number=(config.config_data or {}).get("poNumber"),
+                    delivery_type=delivery_type,
+                    customer_user_id=current_user.id,
+                )
 
             config.bc_quote_id = result["bc_quote_id"]
             config.bc_quote_number = result["bc_quote_number"]
@@ -2432,11 +2456,11 @@ def refresh_pricing_for_saved_quote(
             "config_id": config.id,
             "bc_quote_id": result["bc_quote_id"],
             "bc_quote_number": result["bc_quote_number"],
-            "lines_added": result["lines_added"],
-            "lines_failed": result["lines_failed"],
-            "pricing": result["pricing"],
-            "line_pricing": result["line_pricing"],
-            "door_results": result["door_results"],
+            "lines_added": result.get("lines_added"),
+            "lines_failed": result.get("lines_failed"),
+            "pricing": result.get("pricing"),
+            "line_pricing": result.get("line_pricing"),
+            "door_results": result.get("door_results"),
             "freight": result.get("freight"),
         }
 
