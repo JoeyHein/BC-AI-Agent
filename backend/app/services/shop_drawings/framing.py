@@ -1362,68 +1362,69 @@ def _draw_side_elevation(msp: Modelspace, ctx: DrawingContext,
             label=f"HI-LIFT {fmt_length_imperial(vert_ext_in)}",
         )
 
-    # ── Dimensions ──────────────────────────────────────────────────────
-    # Three vertical dim chains on the LEFT side of the view, from
-    # closest-to-door outward, so they don't fight for the same x:
-    #   1. REQ HEADROOM (door top → underside of track)  — closest in
-    #   2. DOOR HEIGHT (floor → door top)                — outboard
-    # Plus one vertical on the RIGHT (UNDERSIDE OF TRACK) and one
-    # horizontal at top (BACKROOM).
-    dim_x_a = x_face - 0.20  # closest column — REQ HEADROOM
-    dim_x_b = x_face - 0.42  # outboard column — DOOR HEIGHT
-
-    # REQ HEADROOM
+    # ── Dimensions — stacked-horizontal labels per reference Craft ─────
     underside_y = y_track_horiz - track_depth
-    _draw_linear_dim_vertical(
-        msp, (x_face, y_door_top), (x_face, underside_y),
-        dim_x=dim_x_a,
-        label=f"REQ. HEADROOM {fmt_length_imperial(headroom)}",
-    )
-
-    # DOOR HEIGHT
-    _draw_linear_dim_vertical(
-        msp, (x_face, y_floor), (x_face, y_door_top),
-        dim_x=dim_x_b,
-        label=f"DOOR HEIGHT {fmt_length_imperial(door_h)}",
-    )
-
-    # UNDERSIDE OF TRACK — right side of the arc
     underside_in = door_h + radius - track_depth_in
+
+    # REQ. HEADROOM — closest column on the LEFT, between door top and
+    # underside of horizontal track.
+    _draw_linear_dim_vertical_stacked(
+        msp, (x_face, y_door_top), (x_face, underside_y),
+        dim_x=x_face - 0.20,
+        label_lines=["REQ.", "HEADROOM",
+                     fmt_length_imperial(headroom)],
+        side="left",
+    )
+
+    # DOOR HEIGHT — outboard column on the LEFT, floor to door top.
+    _draw_linear_dim_vertical_stacked(
+        msp, (x_face, y_floor), (x_face, y_door_top),
+        dim_x=x_face - 0.42,
+        label_lines=["DOOR", "HEIGHT",
+                     fmt_length_imperial(door_h)],
+        side="left",
+    )
+
+    # UNDERSIDE OF TRACK — vertical dim on the right side of the arc,
+    # placed in the open space between the door slab and the back end
+    # of the horizontal track.
     underside_dim_x = arc_cx + 0.32
-    _draw_linear_dim_vertical(
+    _draw_linear_dim_vertical_stacked(
         msp, (arc_cx, y_floor), (arc_cx, underside_y),
         dim_x=underside_dim_x,
-        label=f"UNDERSIDE OF TRACK {fmt_length_imperial(underside_in)}",
+        label_lines=["UNDERSIDE", "OF", "TRACK",
+                     fmt_length_imperial(underside_in)],
+        side="right",
     )
 
-    # BACKROOM — horizontal, above the horizontal track
+    # BACKROOM — horizontal dim above the horizontal track, with a
+    # 2-line stacked label at the right end.
     backroom_dim_y = y_track_horiz + 0.24
-    _draw_linear_dim(
-        msp, (x_face, backroom_dim_y), (x_back, backroom_dim_y),
-        backroom_dim_y + 0.08,
-        label=f"BACKROOM {fmt_length_imperial(backroom)}",
-    )
-
-    # ── Centerline of shaft — short dashed line at the arc-center
-    # height, sitting just to the right of the vertical track (interior
-    # side) where the real shaft lives. ──
-    if lift != "full_vertical":
-        msp.add_line(
-            (x_face + track_depth, arc_cy),
-            (x_face + track_depth + SX(8), arc_cy),
-            dxfattribs={"layer": "CENTERLINE", "linetype": "CENTER"},
+    sx_b, ex_b = x_face, x_back
+    msp.add_line((sx_b, y_track_horiz), (sx_b, backroom_dim_y + 0.05),
+                 dxfattribs={"layer": "DIMENSIONS"})
+    msp.add_line((ex_b, y_track_horiz), (ex_b, backroom_dim_y + 0.05),
+                 dxfattribs={"layer": "DIMENSIONS"})
+    msp.add_line((sx_b, backroom_dim_y), (ex_b, backroom_dim_y),
+                 dxfattribs={"layer": "DIMENSIONS"})
+    for x in (sx_b, ex_b):
+        msp.add_line((x - 0.04, backroom_dim_y - 0.04),
+                     (x + 0.04, backroom_dim_y + 0.04),
+                     dxfattribs={"layer": "DIMENSIONS"})
+    # Stacked "BACKROOM / 9'-6"" label centered horizontally over the dim
+    backroom_lines = ["BACKROOM", fmt_length_imperial(backroom)]
+    block_h = len(backroom_lines) * 0.10
+    label_cx = (sx_b + ex_b) / 2
+    label_y_top = backroom_dim_y + 0.20 + block_h
+    for i, ln in enumerate(backroom_lines):
+        t = msp.add_text(
+            ln,
+            dxfattribs={"layer": "DIMENSIONS",
+                        "height": TEXT_SMALL * 0.8,
+                        "style": "Standard"},
         )
-        cl_lbl = msp.add_text(
-            "CL SHAFT",
-            dxfattribs={
-                "layer": "ANNOTATIONS", "height": TEXT_SMALL * 0.85,
-                "style": "Standard",
-            },
-        )
-        cl_lbl.set_placement(
-            (x_face + track_depth + SX(8.5), arc_cy),
-            align=TextEntityAlignment.MIDDLE_LEFT,
-        )
+        t.set_placement((label_cx, label_y_top - (i + 0.5) * 0.10),
+                        align=TextEntityAlignment.MIDDLE_CENTER)
 
     # ── Floor label below the floor line ────────────────────────────────
     floor_lbl = msp.add_text(
@@ -2473,6 +2474,52 @@ def _draw_linear_dim(msp: Modelspace, start: Tuple[float, float],
                     align=TextEntityAlignment.MIDDLE_CENTER)
 
 
+def _draw_linear_dim_vertical_stacked(
+    msp: Modelspace, start: Tuple[float, float], end: Tuple[float, float],
+    dim_x: float, label_lines: list[str], side: str = "left",
+    line_h: float = 0.10,
+) -> None:
+    """Vertical dim with the label drawn as STACKED HORIZONTAL text
+    centered between the dim line and the geometry. Matches the
+    reference Craft drawing's "REQ. / HEADROOM / 1'-9"" style — each
+    line is its own horizontal text, stacked vertically. Much more
+    readable than rotated single-line text at small scales.
+
+    side: "left"  → label is to the LEFT of dim_x
+          "right" → label is to the RIGHT of dim_x
+    """
+    sx, sy = start
+    _, ey = end
+    # Extension + dim line + tick marks
+    msp.add_line((sx, sy), (dim_x + 0.05, sy),
+                 dxfattribs={"layer": "DIMENSIONS"})
+    msp.add_line((sx, ey), (dim_x + 0.05, ey),
+                 dxfattribs={"layer": "DIMENSIONS"})
+    msp.add_line((dim_x, sy), (dim_x, ey),
+                 dxfattribs={"layer": "DIMENSIONS"})
+    for y in (sy, ey):
+        msp.add_line((dim_x - 0.04, y - 0.04), (dim_x + 0.04, y + 0.04),
+                     dxfattribs={"layer": "DIMENSIONS"})
+    # Stacked label
+    n = len(label_lines)
+    if n == 0:
+        return
+    block_h = n * line_h
+    y_top = (sy + ey) / 2 + block_h / 2
+    label_x = dim_x - 0.10 if side == "left" else dim_x + 0.10
+    align = (TextEntityAlignment.MIDDLE_RIGHT if side == "left"
+             else TextEntityAlignment.MIDDLE_LEFT)
+    for i, ln in enumerate(label_lines):
+        t = msp.add_text(
+            ln,
+            dxfattribs={"layer": "DIMENSIONS",
+                        "height": TEXT_SMALL * 0.8,
+                        "style": "Standard"},
+        )
+        t.set_placement((label_x, y_top - (i + 0.5) * line_h),
+                        align=align)
+
+
 def _draw_linear_dim_vertical(msp: Modelspace, start: Tuple[float, float],
                               end: Tuple[float, float], dim_x: float,
                               label: str, extra_offset: float = 0.0) -> None:
@@ -2551,9 +2598,11 @@ def build_dxf(ctx: DrawingContext) -> ezdxf.document.Drawing:
     profile_box = (int_x1 + 0.05, DIVIDE_Y, prof_x1 - 0.10, DRAW_Y_TOP)
     extras_box = (prof_x1 + 0.05, tb_y1 + 0.10, extras_x1, DRAW_Y_TOP)
 
-    # Bottom row: plan view (left) + side elevation (center). Window/
-    # callout area sits above the title block which starts at tb_x0.
-    plan_x1 = DRAW_X0 + TOP_W * 0.38
+    # Bottom row: plan view (left) + side elevation (center+). The side
+    # view carries the most installer-actionable dim chain on the
+    # drawing (req headroom, door height, underside of track, backroom)
+    # so we give it a larger horizontal allocation than the plan view.
+    plan_x1 = DRAW_X0 + TOP_W * 0.30
     plan_box = (DRAW_X0, DRAW_Y_BOT, plan_x1 - 0.10, DIVIDE_Y - 0.10)
 
     side_x0 = plan_x1 + 0.05
