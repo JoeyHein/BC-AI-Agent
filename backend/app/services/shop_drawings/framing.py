@@ -720,47 +720,12 @@ def _draw_front_elevation(msp: Modelspace, ctx: DrawingContext,
     for tx in (left_track_x, right_track_x):
         is_left_side = (tx == left_track_x)
         side = -1 if is_left_side else 1
-        # Vertical track up to where the radius arc starts
-        arc_start_y = d_y1 + DX(2)  # slightly above door top
+        # Vertical track running floor → past the door top. The radius
+        # curve / horizontal run is shown on the SIDE VIEW; on the front
+        # elevation we just show the vertical track itself, no arcs.
+        arc_start_y = track_top_y
         msp.add_line((tx, d_y0), (tx, arc_start_y),
                      dxfattribs={"layer": "TRACKS"})
-
-        # Radius arc — track curves from vertical (heading up) to
-        # horizontal (heading back into building). Center of arc is
-        # offset INWARD by R from the track centerline, at height R
-        # above arc_start_y.
-        arc_cx = tx - side * DX(radius_in)
-        arc_cy = arc_start_y + DX(radius_in)
-        # The arc spans 90°: starting at the track (at arc_start_y) and
-        # ending where the track is horizontal at top of the arc.
-        # Using ezdxf add_arc with start_angle/end_angle in degrees.
-        if is_left_side:
-            # Left track: arc center is to the RIGHT, arc sweeps from
-            # 180° (left of center) to 90° (top of center).
-            msp.add_arc(
-                center=(arc_cx, arc_cy),
-                radius=DX(radius_in),
-                start_angle=180,
-                end_angle=270,
-                dxfattribs={"layer": "TRACKS"},
-            )
-        else:
-            # Right track: arc center is to the LEFT, arc sweeps from
-            # 270° (bottom of center) to 0° (right of center).
-            msp.add_arc(
-                center=(arc_cx, arc_cy),
-                radius=DX(radius_in),
-                start_angle=270,
-                end_angle=360,
-                dxfattribs={"layer": "TRACKS"},
-            )
-        # Short horizontal stub at top of arc (the track continues
-        # back into the building in the SIDE VIEW, but on the elevation
-        # we just hint at the direction with a stub).
-        stub_x = arc_cx
-        stub_end_x = arc_cx + side * DX(2.0)
-        msp.add_line((stub_x, arc_cy), (stub_end_x, arc_cy),
-                     dxfattribs={"layer": "TRACKS", "linetype": "HIDDEN"})
 
         # ── Mounting hardware ──
         if angle_mount:
@@ -819,17 +784,6 @@ def _draw_front_elevation(msp: Modelspace, ctx: DrawingContext,
                     (tx + side * 0.04, y), (tx + side * 0.12, y),
                     dxfattribs={"layer": "TRACKS"},
                 )
-
-    # ── Radius callout near one of the arcs ──────────────────────────
-    rad_lbl = msp.add_text(
-        f"R = {fmt_length_imperial(radius_in)}",
-        dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_SMALL * 0.85,
-                    "style": "Standard"},
-    )
-    rad_lbl.set_placement(
-        (right_track_x - DX(radius_in / 2), d_y1 + DX(radius_in * 0.7)),
-        align=TextEntityAlignment.MIDDLE_CENTER,
-    )
 
     # ── Shaft + springs above header (interior view only) ──────────────
     if is_interior:
@@ -1017,6 +971,49 @@ def _is_aluminum_series(series: str) -> bool:
 
 def _is_commercial_series(series: str) -> bool:
     return (series or "").upper() in COMMERCIAL_SERIES
+
+
+def _spring_count_from_calculator(door: dict) -> int:
+    """Run the spring calculator (same one that picks BC spring SKUs for
+    the quote) and return its physical spring count.
+
+    The calculator emits one PartSelection per spring SKU (typically
+    1 LH + 1 RH for a single-pair setup, or 2 LH + 2 RH for two-pair).
+    The PartSelection's `quantity` field is wire length in inches —
+    NOT physical count. Per-side count lives in the notes string,
+    formatted "...× N" at the end. We parse that to get pair count
+    and double for total physical springs.
+
+    Falls back to 2 if the calculator can't produce a result.
+    """
+    import re
+    try:
+        from app.services.part_number_service import get_parts_for_door_config
+        result = get_parts_for_door_config(door)
+        spring_lines = [p for p in result.get("parts_list", [])
+                        if (p.get("category") or "").lower() == "spring"
+                        and p.get("part_number")]
+        if not spring_lines:
+            return 2
+        # Count distinct sides — at least 1 LH and 1 RH = 2 springs.
+        # If notes carry "× N" then each side has N springs (so total = N * 2).
+        per_side = 1
+        for p in spring_lines:
+            m = re.search(r'(?:×|x|X)\s*(\d+)\s*$', (p.get("notes") or ""))
+            if m:
+                per_side = max(per_side, int(m.group(1)))
+        # Double for LH + RH
+        total = per_side * 2
+        # Pair count = ceil(spring_lines / 2) per side gives a fallback
+        # if some calculators emit multiple SKUs per side
+        n_lh = sum(1 for p in spring_lines if "LH" in (p.get("description") or "").upper())
+        n_rh = sum(1 for p in spring_lines if "RH" in (p.get("description") or "").upper())
+        side_max = max(n_lh, n_rh, 1)
+        total = max(total, side_max * 2)
+        return max(2, total)
+    except Exception as e:
+        logger.debug(f"Spring count calculator fallback: {e}")
+    return 2
 
 
 def _is_woodgrain_finish(color: str) -> bool:
@@ -1751,25 +1748,38 @@ def _draw_shaft_and_springs(msp: Modelspace, ctx: DrawingContext,
         )
 
     # ── Cable drums at each shaft end (between the bracket and the
-    # outermost spring). The drum is what the lift cable wraps around;
-    # it's a larger-diameter cylinder mounted on the shaft. Drawn as
-    # a circle in side projection (looking along the shaft axis).
-    drum_d_in = 8.0   # typical 8" residential drum, larger on commercial
-    drum_d = max(scale * drum_d_in, shaft_thick * 3.0)
+    # outermost spring). On the FRONT ELEVATION we view the shaft from
+    # the side — its long axis runs left-right across the door — so a
+    # drum (which is a cylinder mounted on the shaft) appears as a
+    # short cylindrical body with the shaft passing horizontally
+    # through it. Drawn as a rectangle taller than the shaft, with
+    # vertical end faces and the shaft visible passing through. ─────
+    drum_d_in = 8.0   # typical 8" residential drum diameter
+    drum_w_in = 4.0   # axial length along the shaft
+    drum_h = max(scale * drum_d_in, shaft_thick * 3.0)
+    drum_w = max(scale * drum_w_in, shaft_thick * 1.5)
     for bx, side in ((left_x, +1), (right_x, -1)):
         # Drum sits just inboard of the end bracket
-        drum_cx = bx + side * (bracket_w / 2 + drum_d / 2 + scale * 1.0)
-        msp.add_circle(
-            center=(drum_cx, shaft_cy),
-            radius=drum_d / 2,
+        drum_cx = bx + side * (bracket_w / 2 + drum_w / 2 + scale * 1.0)
+        # Cylinder body
+        msp.add_lwpolyline(
+            [(drum_cx - drum_w / 2, shaft_cy - drum_h / 2),
+             (drum_cx + drum_w / 2, shaft_cy - drum_h / 2),
+             (drum_cx + drum_w / 2, shaft_cy + drum_h / 2),
+             (drum_cx - drum_w / 2, shaft_cy + drum_h / 2),
+             (drum_cx - drum_w / 2, shaft_cy - drum_h / 2)],
+            close=True,
             dxfattribs={"layer": "HARDWARE", "lineweight": 25},
         )
-        # Inner hub circle for visual clarity
-        msp.add_circle(
-            center=(drum_cx, shaft_cy),
-            radius=shaft_thick * 0.6,
-            dxfattribs={"layer": "HARDWARE", "lineweight": 18},
-        )
+        # Cable groove hint — a few horizontal lines on the drum body
+        # representing the cable wrap channels
+        for k in range(1, 4):
+            gy = shaft_cy - drum_h / 2 + drum_h * (k / 4)
+            msp.add_line(
+                (drum_cx - drum_w / 2 + 0.01, gy),
+                (drum_cx + drum_w / 2 - 0.01, gy),
+                dxfattribs={"layer": "HARDWARE", "lineweight": 5},
+            )
 
     # ── Operator marker on the chosen side of the shaft ────────────────
     # Reference TX-450 shows the operator on one specific side (a small
@@ -2861,11 +2871,11 @@ def build_context_from_config(
         section_height_in=section_h,
         target_cycles=int(door.get("targetCycles") or 10000),
         shaft_type=str(door.get("shaftType") or "auto"),
-        # 4-spring setup for wide commercial (>= 16' commercial) or any
-        # door with very heavy weight; otherwise 2 springs.
-        spring_count=(4 if (door.get("doorType") == "commercial"
-                            and float(door.get("doorWidth") or 0) >= 192)
-                      else 2),
+        # Spring count comes from the door spring calculator (the same
+        # engine that picks BC spring SKUs for the quote). This way the
+        # drawing matches the actual hardware ordered. Falls back to 2
+        # if the calculator can't produce a result.
+        spring_count=_spring_count_from_calculator(door),
         operator=str(door.get("operator") or "NONE"),
         operator_side=str(door.get("operatorSide") or "right").lower(),
         has_struts=bool(hardware.get("struts", True)),
