@@ -1139,18 +1139,19 @@ BACKROOM_MARGIN = 18.0            # door height + ~18" typical backroom
 
 def _draw_side_elevation(msp: Modelspace, ctx: DrawingContext,
                          box: Tuple[float, float, float, float]) -> None:
-    """Side view showing track path, headroom, backroom, and door thickness.
+    """Side view of the track installation, modeled on the reference
+    Craft drawing's "20"R STANDARD LIFT TRACKS" section.
 
-    Geometry (in real-world inches, drawn with fit-to-box scale):
-      x-axis: backroom (horizontal track run, into the building)
-      y-axis: height (floor at bottom, ceiling above header)
-
-    Track path:
-      - Door face is at x = 0 (right edge of frame).
-      - Vertical track runs straight up from floor (y=0) to somewhere near
-        the top of the door height.
-      - Radius curves back horizontally over ~R (15" typical).
-      - Horizontal track extends backward to ~door_h + headroom.
+    Layout (matches reference convention):
+      - Door face on the LEFT
+      - Vertical track runs from floor up the door face
+      - Radius arc curves the track from vertical (running up) to
+        horizontal (running RIGHT, into the building)
+      - Hatched ceiling at the top of the view, with the horizontal
+        track running just under it
+      - Backroom extends to the RIGHT
+      - Track drawn as a TWO-LINE cross-section (showing the U-channel
+        depth), with mounting bolt circles dotted along the horizontal
     """
     bx0, by0, bx1, by1 = box
     box_w = bx1 - bx0
@@ -1170,193 +1171,246 @@ def _draw_side_elevation(msp: Modelspace, ctx: DrawingContext,
         headroom = 6.0
     else:
         headroom = 12.0
-    # Backroom = door height + some margin for horizontal track return
+    # Reference Craft 8' door shows backroom 9'-6" (= door_h + ~18")
     backroom = door_h + BACKROOM_MARGIN
 
-    view_w = backroom + door_thick + 10  # +10" padding front of door
-    view_h = door_h + headroom + 24
+    # View extents in real-world inches (with margins for labels/dims)
+    view_w = backroom + door_thick + 24   # door + horizontal track + dim margins
+    view_h = door_h + headroom + 24       # door + headroom + ceiling + margin
 
     # Border/label space reservation
-    usable_w = box_w * 0.78
-    usable_h = box_h * 0.74
+    usable_w = box_w * 0.82
+    usable_h = box_h * 0.72
     scale = min(usable_w / view_w, usable_h / view_h)
 
-    # Position view within the box
     cx = (bx0 + bx1) / 2
     cy = (by0 + by1) / 2
-    # Place origin (floor-right / door-face) so that the full view fits
-    view_x0 = cx - (view_w * scale) / 2     # left edge of side view in sheet space
-    view_y0 = cy - (view_h * scale) / 2 + 0.15  # leave room at bottom for labels
+    view_x0 = cx - (view_w * scale) / 2
+    view_y0 = cy - (view_h * scale) / 2 + 0.10
 
     def SX(inches: float) -> float:
         return inches * scale
 
-    # Sheet-space helper coordinates. The door face is at the RIGHT of the
-    # side view (x_face), backroom extends LEFT (decreasing x).
-    x_face = view_x0 + SX(view_w - 5)     # door face near right edge (5" margin)
-    x_back = x_face - SX(backroom)        # backroom extends left
-    y_floor = view_y0 + 0.10              # floor line
+    # Anchors — door face on the LEFT, backroom extends RIGHT
+    x_face = view_x0 + SX(8)              # door face is 8" inside the left margin
+    x_back = x_face + SX(backroom)        # back end of horizontal track
+    y_floor = view_y0 + 0.16              # floor line
     y_door_top = y_floor + SX(door_h)
-    y_track_horiz = y_door_top + SX(headroom)  # horizontal track elevation
-    y_ceiling = y_floor + SX(view_h - 2)
+    # Horizontal track runs just under the ceiling
+    y_track_horiz = y_door_top + SX(headroom)
+    y_ceiling = y_track_horiz + SX(2)     # ceiling sits ~2" above track top
 
-    # ── Title ────────────────────────────────────────────────────────────
+    # Track cross-section depth (visible on paper — the actual track
+    # u-channel is ~3" deep)
+    track_depth_in = 2.0
+    track_depth = SX(track_depth_in)
+
+    # ── Title — "20"R STANDARD LIFT TRACKS" (from reference Craft) ──
+    radius_int = int(round(radius))
+    lift_name = LIFT_TYPE_LABELS.get(lift, "STANDARD LIFT TRACKS")
+    lift_label = lift_name.replace(" TRACKS", "")
     t = msp.add_text(
-        f"SIDE VIEW — {LIFT_TYPE_LABELS.get(lift, 'STANDARD LIFT')}",
+        f'{radius_int}"R {lift_label} TRACKS',
         dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_MED, "style": "Standard"},
     )
     t.set_placement((cx, by1 - 0.12),
                     align=TextEntityAlignment.MIDDLE_CENTER)
-    # Subtitle row: jamb material + track size + R= radius
-    sub_lines = [
-        f"{ctx.jamb_type.upper()} JAMB",
-        f"{ctx.track_thickness_ga}\" TRACK",
-        f"R = {fmt_length_imperial(ctx.track_radius_in)}",
-    ]
-    sub = msp.add_text(
-        "    ".join(sub_lines),
-        dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_SMALL, "style": "Standard"},
+
+    # ── Hatched ceiling ─────────────────────────────────────────────────
+    # Reference shows diagonal hatching above the horizontal track,
+    # representing the building's ceiling/roof framing.
+    ceiling_top = y_ceiling + SX(6)
+    msp.add_lwpolyline(
+        [(x_face - SX(2), y_ceiling), (x_back + SX(2), y_ceiling),
+         (x_back + SX(2), ceiling_top), (x_face - SX(2), ceiling_top),
+         (x_face - SX(2), y_ceiling)],
+        close=True,
+        dxfattribs={"layer": "FRAMING", "lineweight": 18},
     )
-    sub.set_placement((cx, by1 - 0.28),
-                      align=TextEntityAlignment.MIDDLE_CENTER)
+    # 45° hatch lines clipped to ceiling rectangle
+    hatch_step = 0.10
+    cw = (x_back + SX(2)) - (x_face - SX(2))
+    ch = ceiling_top - y_ceiling
+    for i in range(int((cw + ch) / hatch_step) + 1):
+        x_start = (x_face - SX(2)) - ch + i * hatch_step
+        y_start = y_ceiling
+        x_end = x_start + ch
+        y_end = ceiling_top
+        if x_end < (x_face - SX(2)) or x_start > (x_back + SX(2)):
+            continue
+        if x_start < (x_face - SX(2)):
+            trim = (x_face - SX(2)) - x_start
+            x_start += trim; y_start += trim
+        if x_end > (x_back + SX(2)):
+            trim = x_end - (x_back + SX(2))
+            x_end -= trim; y_end -= trim
+        if x_end > x_start and y_end > y_start:
+            msp.add_line((x_start, y_start), (x_end, y_end),
+                         dxfattribs={"layer": "HIDDEN", "lineweight": 5})
 
     # ── Floor line ──────────────────────────────────────────────────────
     msp.add_line(
         (view_x0, y_floor), (view_x0 + SX(view_w), y_floor),
         dxfattribs={"layer": "FRAMING", "lineweight": 30},
     )
-    floor_lbl = msp.add_text(
-        "FLOOR",
-        dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_SMALL, "style": "Standard"},
-    )
-    floor_lbl.set_placement(
-        (view_x0 + 0.10, y_floor - 0.12),
-        align=TextEntityAlignment.MIDDLE_LEFT,
-    )
 
-    # ── Door thickness (vertical rectangle at face position) ─────────────
-    x_door_back = x_face - SX(door_thick)
+    # ── Door (thin vertical bar at face, behind the vertical track) ─────
+    door_x_back = x_face - SX(door_thick)
     msp.add_lwpolyline(
-        [(x_door_back, y_floor), (x_face, y_floor),
-         (x_face, y_door_top), (x_door_back, y_door_top),
-         (x_door_back, y_floor)],
+        [(door_x_back, y_floor), (x_face, y_floor),
+         (x_face, y_door_top), (door_x_back, y_door_top),
+         (door_x_back, y_floor)],
         close=True,
-        dxfattribs={"layer": "FRAMING", "lineweight": 40},
-    )
-    # "DOOR" label on the door
-    door_lbl = msp.add_text(
-        "DOOR",
-        dxfattribs={
-            "layer": "ANNOTATIONS", "height": TEXT_SMALL,
-            "style": "Standard", "rotation": 90,
-        },
-    )
-    door_lbl.set_placement(
-        ((x_door_back + x_face) / 2, (y_floor + y_door_top) / 2),
-        align=TextEntityAlignment.MIDDLE_CENTER,
+        dxfattribs={"layer": "FRAMING", "lineweight": 30},
     )
 
-    # ── Track path ───────────────────────────────────────────────────────
-    # Standard:    floor → [up door_h] → radius arc → horizontal to backroom
-    # High-lift:   floor → [up door_h + extra vertical] → radius arc → horiz
-    # Full-vert:   floor → [up door_h + headroom] (no arc, no horizontal)
-    # Low-headrm:  floor → [up door_h] → small radius (6") → short horiz
+    # ── Track path: vertical → arc → horizontal, drawn as DOUBLE LINE
+    # so the track reads as a u-channel cross-section (inner + outer
+    # rail), not just a single line. ─────────────────────────────────
     vert_ext_in = 0.0
     if lift == "high_lift" and ctx.high_lift_inches:
         vert_ext_in = ctx.high_lift_inches
     y_vert_top = y_door_top + SX(vert_ext_in)
+    # The arc center sits to the RIGHT of the vertical track and BELOW
+    # the horizontal track, so a 90° arc connects them.
+    arc_cx = x_face + SX(radius)
     arc_cy = y_vert_top + SX(radius)
-
-    # Vertical section (includes high-lift extension)
-    msp.add_line(
-        (x_face + 0.05, y_floor), (x_face + 0.05, y_vert_top),
-        dxfattribs={"layer": "TRACKS"},
-    )
+    radius_outer_in = radius            # outer rail
+    radius_inner_in = radius - track_depth_in  # inner rail (smaller arc)
 
     if lift == "full_vertical":
-        # No arc — track keeps going up to ceiling
-        # Already drawn via the vertical line above; extend up to y_track_horiz
-        msp.add_line(
-            (x_face + 0.05, y_vert_top), (x_face + 0.05, y_track_horiz),
-            dxfattribs={"layer": "TRACKS"},
-        )
+        # No arc — track continues straight up to ceiling
+        for offset in (0.0, track_depth):
+            msp.add_line(
+                (x_face + offset, y_floor),
+                (x_face + offset, y_track_horiz),
+                dxfattribs={"layer": "TRACKS", "lineweight": 18},
+            )
     else:
-        # Radius arc from vertical → horizontal
-        msp.add_arc(
-            center=(x_face - SX(radius), arc_cy),
-            radius=SX(radius),
-            start_angle=270,
-            end_angle=0,
-            dxfattribs={"layer": "TRACKS"},
-        )
-        # Horizontal section from arc end back to backroom
+        # Vertical portion — outer (right) rail at x_face + track_depth,
+        # inner (left, against door) rail at x_face. Both run from floor
+        # to the start of the arc.
         msp.add_line(
-            (x_face - SX(radius), arc_cy),
-            (x_back, arc_cy),
-            dxfattribs={"layer": "TRACKS"},
+            (x_face, y_floor), (x_face, y_vert_top),
+            dxfattribs={"layer": "TRACKS", "lineweight": 18},
+        )
+        msp.add_line(
+            (x_face + track_depth, y_floor),
+            (x_face + track_depth, y_vert_top),
+            dxfattribs={"layer": "TRACKS", "lineweight": 18},
+        )
+        # Two arcs — outer + inner — sweeping 180° to 270° in our
+        # coordinates (vertical heading up → horizontal heading right).
+        msp.add_arc(
+            center=(arc_cx, arc_cy),
+            radius=SX(radius_outer_in),
+            start_angle=180, end_angle=270,
+            dxfattribs={"layer": "TRACKS", "lineweight": 18},
+        )
+        if radius_inner_in > 0:
+            msp.add_arc(
+                center=(arc_cx, arc_cy),
+                radius=SX(radius_inner_in),
+                start_angle=180, end_angle=270,
+                dxfattribs={"layer": "TRACKS", "lineweight": 18},
+            )
+        # Horizontal portion — outer rail at the top (y_track_horiz),
+        # inner rail one track-depth below.
+        msp.add_line(
+            (arc_cx, y_track_horiz),
+            (x_back, y_track_horiz),
+            dxfattribs={"layer": "TRACKS", "lineweight": 18},
+        )
+        msp.add_line(
+            (arc_cx, y_track_horiz - track_depth),
+            (x_back, y_track_horiz - track_depth),
+            dxfattribs={"layer": "TRACKS", "lineweight": 18},
+        )
+        # Mounting bolts dotted along the horizontal track (typical
+        # ~24" spacing on residential, attached to ceiling via angle
+        # iron / lag bolts).
+        bolt_spacing_in = 24.0
+        n_bolts = max(2, int((x_back - arc_cx) / SX(bolt_spacing_in)))
+        for k in range(1, n_bolts + 1):
+            bx = arc_cx + SX(bolt_spacing_in) * k - SX(bolt_spacing_in / 2)
+            if bx >= x_back - SX(2):
+                break
+            msp.add_circle(
+                center=(bx, y_track_horiz),
+                radius=0.025,
+                dxfattribs={"layer": "HARDWARE", "lineweight": 13},
+            )
+        # End cap at the back end of the horizontal track
+        msp.add_line(
+            (x_back, y_track_horiz - track_depth),
+            (x_back, y_track_horiz),
+            dxfattribs={"layer": "TRACKS", "lineweight": 25},
+        )
+        # Top cap at the top of the vertical track (where it transitions
+        # into the arc) — small circle representing the stop bolt
+        msp.add_circle(
+            center=(x_face + track_depth / 2, y_vert_top - 0.04),
+            radius=0.025,
+            dxfattribs={"layer": "HARDWARE", "lineweight": 13},
         )
 
     # ── High-lift extension dimension (between door top and radius start) ──
     if vert_ext_in > 0:
         _draw_linear_dim_vertical(
-            msp, (x_face + 0.15, y_door_top), (x_face + 0.15, y_vert_top),
-            dim_x=x_face + 0.35,
+            msp, (x_face - 0.10, y_door_top), (x_face - 0.10, y_vert_top),
+            dim_x=x_face - 0.32,
             label=f"HI-LIFT {fmt_length_imperial(vert_ext_in)}",
         )
 
-    # Annotation: track radius
-    rad_label = msp.add_text(
-        f"R = {fmt_length_imperial(radius)}",
-        dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_SMALL, "style": "Standard"},
-    )
-    rad_label.set_placement(
-        (x_face - SX(radius), arc_cy + 0.06),
-        align=TextEntityAlignment.MIDDLE_LEFT,
-    )
+    # ── Dimensions ──────────────────────────────────────────────────────
+    # Three vertical dim chains on the LEFT side of the view, from
+    # closest-to-door outward, so they don't fight for the same x:
+    #   1. REQ HEADROOM (door top → underside of track)  — closest in
+    #   2. DOOR HEIGHT (floor → door top)                — outboard
+    # Plus one vertical on the RIGHT (UNDERSIDE OF TRACK) and one
+    # horizontal at top (BACKROOM).
+    dim_x_a = x_face - 0.20  # closest column — REQ HEADROOM
+    dim_x_b = x_face - 0.42  # outboard column — DOOR HEIGHT
 
-    # ── Required-headroom dimension (floor-to-track horizontal) ─────────
-    # Labeled "REQ. HEADROOM" to match the reference Craft drawing — this
-    # is the minimum clearance the installer needs above the door for
-    # the chosen lift type.
-    dim_x_left = x_back - 0.15
+    # REQ HEADROOM
+    underside_y = y_track_horiz - track_depth
     _draw_linear_dim_vertical(
-        msp, (dim_x_left + SX(1), y_door_top), (dim_x_left + SX(1), y_track_horiz),
-        dim_x=dim_x_left,
+        msp, (x_face, y_door_top), (x_face, underside_y),
+        dim_x=dim_x_a,
         label=f"REQ. HEADROOM {fmt_length_imperial(headroom)}",
     )
 
-    # ── Door height dimension ───────────────────────────────────────────
+    # DOOR HEIGHT
     _draw_linear_dim_vertical(
-        msp, (dim_x_left + SX(1), y_floor), (dim_x_left + SX(1), y_door_top),
-        dim_x=dim_x_left - 0.30,
+        msp, (x_face, y_floor), (x_face, y_door_top),
+        dim_x=dim_x_b,
         label=f"DOOR HEIGHT {fmt_length_imperial(door_h)}",
     )
 
-    # ── Underside-of-track dimension (floor up to the bottom of the
-    # horizontal track run = door height + radius, ~door_h + R) ───────
-    # Reference Craft drawing labels this "UNDERSIDE OF TRACK" with the
-    # full floor-to-rail dimension. This is what the installer measures
-    # when verifying the ceiling has clearance for the door + tracks.
-    underside_in = door_h + radius   # door height + track radius
+    # UNDERSIDE OF TRACK — right side of the arc
+    underside_in = door_h + radius - track_depth_in
+    underside_dim_x = arc_cx + 0.32
     _draw_linear_dim_vertical(
-        msp, (x_face + SX(1.5), y_floor), (x_face + SX(1.5), arc_cy),
-        dim_x=x_face + SX(7.5),
+        msp, (arc_cx, y_floor), (arc_cx, underside_y),
+        dim_x=underside_dim_x,
         label=f"UNDERSIDE OF TRACK {fmt_length_imperial(underside_in)}",
     )
 
-    # ── Backroom dimension (horizontal at top) ───────────────────────────
-    dim_y_top = y_track_horiz + 0.18
+    # BACKROOM — horizontal, above the horizontal track
+    backroom_dim_y = y_track_horiz + 0.24
     _draw_linear_dim(
-        msp, (x_back, y_track_horiz), (x_face, y_track_horiz), dim_y_top,
+        msp, (x_face, backroom_dim_y), (x_back, backroom_dim_y),
+        backroom_dim_y + 0.08,
         label=f"BACKROOM {fmt_length_imperial(backroom)}",
     )
 
-    # ── Centerline of shaft (interior view only — when there's a shaft) ──
+    # ── Centerline of shaft — short dashed line at the arc-center
+    # height, sitting just to the right of the vertical track (interior
+    # side) where the real shaft lives. ──
     if lift != "full_vertical":
-        # Shaft sits at the radius arc center elevation
         msp.add_line(
-            (x_face - SX(radius) - 0.20, arc_cy),
-            (x_face + 0.20, arc_cy),
+            (x_face + track_depth, arc_cy),
+            (x_face + track_depth + SX(8), arc_cy),
             dxfattribs={"layer": "CENTERLINE", "linetype": "CENTER"},
         )
         cl_lbl = msp.add_text(
@@ -1367,37 +1421,40 @@ def _draw_side_elevation(msp: Modelspace, ctx: DrawingContext,
             },
         )
         cl_lbl.set_placement(
-            (x_face + 0.22, arc_cy),
+            (x_face + track_depth + SX(8.5), arc_cy),
             align=TextEntityAlignment.MIDDLE_LEFT,
         )
 
-    # ── Jamb stub at door face (visualises wood/steel jamb depth) ──────
-    jamb_depth_in = 5.5  # 2x6 visual depth
-    jamb_x0 = x_face
-    jamb_x1 = x_face + SX(jamb_depth_in)
-    msp.add_lwpolyline(
-        [(jamb_x0, y_floor), (jamb_x1, y_floor),
-         (jamb_x1, y_door_top + SX(2)), (jamb_x0, y_door_top + SX(2)),
-         (jamb_x0, y_floor)],
-        close=True,
-        dxfattribs={"layer": "FRAMING", "lineweight": 18},
+    # ── Floor label below the floor line ────────────────────────────────
+    floor_lbl = msp.add_text(
+        "FLOOR",
+        dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_SMALL,
+                    "style": "Standard"},
+    )
+    floor_lbl.set_placement(
+        ((x_face + x_back) / 2, y_floor - 0.18),
+        align=TextEntityAlignment.MIDDLE_CENTER,
     )
 
-    # ── Interior / exterior labels ──────────────────────────────────────
-    int_label = msp.add_text(
-        "INTERIOR",
-        dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_SMALL, "style": "Standard"},
-    )
-    int_label.set_placement(
-        (x_back + 0.08, y_floor + 0.10),
-        align=TextEntityAlignment.MIDDLE_LEFT,
-    )
+    # ── Interior / exterior labels — LEFT of door = exterior, RIGHT of
+    # backroom track = interior. Placed at the same height as the
+    # FLOOR label so they read along the floor line. ─────────────
     ext_label = msp.add_text(
         "EXTERIOR",
-        dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_SMALL, "style": "Standard"},
+        dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_SMALL * 0.85,
+                    "style": "Standard"},
     )
     ext_label.set_placement(
-        (jamb_x1 + 0.05, y_floor + 0.10),
+        (door_x_back - SX(2), y_floor - 0.18),
+        align=TextEntityAlignment.MIDDLE_RIGHT,
+    )
+    int_label = msp.add_text(
+        "INTERIOR",
+        dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_SMALL * 0.85,
+                    "style": "Standard"},
+    )
+    int_label.set_placement(
+        (x_back + SX(2), y_floor - 0.18),
         align=TextEntityAlignment.MIDDLE_LEFT,
     )
 
