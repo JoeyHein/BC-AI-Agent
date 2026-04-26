@@ -778,10 +778,13 @@ def _generate_bc_quote_with_items(
                 "error": str(e),
             })
 
-        # Blank separator after every door (including last — separates from freight)
+        # Blank separator after every door (including last — separates from freight).
+        # NBSP (U+00A0), not a regular space: BC's API drops whitespace-only
+        # comment descriptions server-side, which used to make doors run
+        # together in the printed quote with no visual break between them.
         all_lines.append({
             "lineType": "Comment",
-            "description": " ",
+            "description": " ",
             "category": "COMMENT",
             "door_index": door_index,
             "is_separator": True,
@@ -1688,7 +1691,7 @@ def _edit_bc_quote_lines(
             })
 
         all_new_lines.append({
-            "lineType": "Comment", "description": " ", "category": "COMMENT",
+            "lineType": "Comment", "description": " ", "category": "COMMENT",
             "door_index": door_index, "is_separator": True,
         })
 
@@ -2103,10 +2106,12 @@ def _estimate_pricing_locally(
                 "error": str(e),
             })
 
-        # Blank separator after every door (including last — separates from freight)
+        # Blank separator after every door — NBSP for parity with the BC
+        # path (description=" " gets stripped server-side, leaving doors
+        # running together with no break).
         all_lines.append({
             "lineType": "Comment",
-            "description": " ",
+            "description": " ",
             "category": "COMMENT",
             "door_index": door_index,
             "is_separator": True,
