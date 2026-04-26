@@ -905,40 +905,50 @@ def _draw_front_elevation(msp: Modelspace, ctx: DrawingContext,
 def _draw_panel_stamps(msp: Modelspace, ctx: DrawingContext,
                        door_bbox: Tuple[float, float, float, float],
                        section_ys: list[float]) -> None:
-    """Draw the panel design stamp pattern on the door face. Mirrors the logic
-    in DoorPreview.jsx so the shop drawing matches the configurator preview.
-    """
-    d_x0, d_y0, d_x1, d_y1 = door_bbox
-    design = ctx.panel_design or "SHXL"
+    """Render the residential door face on the shop drawing.
 
-    # Flush / smooth finish: no stamp pattern, skip
-    if design in {"FLUSH", "SMOOTH"}:
+    All Kanata and Craft variants render as a FLUSH panel — section
+    joints only, no surface-stamp rectangles. The panel design (SHXL /
+    BCXL / BC / SH / Trafalgar / Sheridan / Carriage) is recorded in
+    the view title and the BC parts list, but the shop drawing doesn't
+    try to depict the exterior stamp pattern. This keeps residential
+    panels visually distinct from aluminum (which has a real glass-
+    pocket grid) — previous behaviour of drawing a stamp-cell grid was
+    making Trafalgar (multi-col, multi-row stamps) look identical to an
+    AL976 glass-pocket grid.
+
+    Windows ARE still rendered when positioned — they're real cutouts
+    in the panel face, not a stamp pattern. We use the column grid
+    only as a positioning reference for windowPositions.
+    """
+    if not (ctx.has_windows and ctx.window_positions):
         return
 
+    d_x0, d_y0, d_x1, d_y1 = door_bbox
+    design = ctx.panel_design or "SHXL"
     is_craft = ctx.door_series == "CRAFT"
-    # Long-stamp designs (SHXL, BCXL) get one stamp per column per section
-    # Short-stamp designs (SH, BC) get stamp-count based on a different formula
-    stamp_type = "long" if design in {"SHXL", "BCXL"} else "short"
-    cols = _stamp_columns(ctx.door_width_in, stamp_type, is_craft, design)
+    # Use the same column count we'd use for stamp positioning, so
+    # window x-coordinates match the configurator's windowPositions
+    # (which are stored as {section, col} where col is into the same
+    # column grid). FLUSH design defaults to 2 columns (matches the
+    # configurator's default windowPositions layout).
+    if design in {"FLUSH", "SMOOTH"}:
+        cols = 2
+    else:
+        stamp_type = "long" if design in {"SHXL", "BCXL"} else "short"
+        cols = _stamp_columns(ctx.door_width_in, stamp_type, is_craft, design)
 
-    # Draw stamp rectangles inside each section, inset from the section edges
     section_inset_x = (d_x1 - d_x0) * 0.015
     section_inset_y = 0.04
     col_w = (d_x1 - d_x0 - 2 * section_inset_x) / cols
     col_gap = min(col_w * 0.08, 0.04)
 
-    # Build a set of (section, col) cells that hold a window — windows
-    # replace a stamp panel rather than overlay it. Section indexing
-    # in windowPositions matches the configurator: section 0 = bottom.
-    # Section 0 in section_ys is also the BOTTOM (joint indices grow
-    # upward), so the indexing aligns directly.
     window_cells: set[tuple[int, int]] = set()
-    if ctx.has_windows and ctx.window_positions:
-        for w in ctx.window_positions:
-            try:
-                window_cells.add((int(w.get("section", 0)), int(w.get("col", 0))))
-            except (TypeError, ValueError):
-                continue
+    for w in ctx.window_positions:
+        try:
+            window_cells.add((int(w.get("section", 0)), int(w.get("col", 0))))
+        except (TypeError, ValueError):
+            continue
 
     for i in range(len(section_ys) - 1):
         sec_y0 = section_ys[i] + section_inset_y
@@ -946,20 +956,12 @@ def _draw_panel_stamps(msp: Modelspace, ctx: DrawingContext,
         if sec_y1 - sec_y0 < 0.05:
             continue
         for c in range(cols):
+            if (i, c) not in window_cells:
+                continue
             sx0 = d_x0 + section_inset_x + c * col_w + col_gap / 2
             sx1 = sx0 + col_w - col_gap
-            if (i, c) in window_cells:
-                _draw_window_pane(msp, sx0, sec_y0, sx1, sec_y1,
-                                  size=ctx.window_size or "long")
-            else:
-                msp.add_lwpolyline(
-                    [(sx0, sec_y0), (sx1, sec_y0), (sx1, sec_y1),
-                     (sx0, sec_y1), (sx0, sec_y0)],
-                    close=True,
-                    dxfattribs={"layer": "ANNOTATIONS", "lineweight": 13},
-                )
-
-    # Panel design is noted in the view title — no separate label needed here
+            _draw_window_pane(msp, sx0, sec_y0, sx1, sec_y1,
+                              size=ctx.window_size or "long")
 
 
 def _draw_window_pane(msp: Modelspace, x0: float, y0: float,
