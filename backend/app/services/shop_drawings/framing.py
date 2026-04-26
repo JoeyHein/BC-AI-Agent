@@ -589,19 +589,10 @@ def _draw_front_elevation(msp: Modelspace, ctx: DrawingContext,
     hdr_y1 = hdr_y0 + DX(HEADER_VIS_H)
     track_top_y = hdr_y1 + DX(TRACK_EXTENSION)
 
-    # ── Header ───────────────────────────────────────────────────────────
-    msp.add_lwpolyline(
-        [(jl_x0, hdr_y0), (jr_x1, hdr_y0), (jr_x1, hdr_y1),
-         (jl_x0, hdr_y1), (jl_x0, hdr_y0)],
-        close=True,
-        dxfattribs={"layer": "FRAMING"},
-    )
-    hdr_label = msp.add_text(
-        "HEADER",
-        dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_SMALL, "style": "Standard"},
-    )
-    hdr_label.set_placement(((jl_x0 + jr_x1) / 2, (hdr_y0 + hdr_y1) / 2),
-                            align=TextEntityAlignment.MIDDLE_CENTER)
+    # ── Header (no labeled box — reference shop drawings just use the
+    # space above the door for shaft + tracks geometry, the framing wall
+    # itself isn't called out as "HEADER"). The hdr_y0/hdr_y1 anchors
+    # below are still used to position the shaft and track extension. ──
 
     # ── Jambs (left + right) — drawn BEHIND the door slab so the slab
     # visibly overlaps onto the jamb faces ─────────────────────────────
@@ -1798,9 +1789,22 @@ def _draw_optional_extras(msp: Modelspace, ctx: DrawingContext,
     cycles = ctx.target_cycles or 10000
     is_aluminum = _is_aluminum_series(ctx.door_series)
     is_commercial = _is_commercial_series(ctx.door_series)
+    radius = int(round(float(ctx.track_radius_in or 15)))
+    lift = (ctx.lift_type or "standard").lower()
+    # Strut count — one strut per internal section joint when struts are on
+    # (matches the reference Craft drawing's "20GA STRUTS ___1___" line for
+    # an 8' door = 4 sections = 3 joints, but typically only 1 strut on
+    # residential, more on wide commercial).
+    n_sections = max(3, int((ctx.door_height_in or 84) / ctx.section_height_in))
+    if not ctx.has_struts:
+        strut_count = 0
+    elif is_commercial:
+        strut_count = max(1, n_sections - 1)
+    else:
+        strut_count = 1
 
     selected = {
-        # Track size: 2" for residential standard, 3" for commercial
+        # Track size
         "2\" TRACK APPLICATION":       track_size in ("2", "2_in", ""),
         "3\" TRACK APPLICATION":       track_size in ("3", "3_in"),
         # Frame / jamb material
@@ -1809,14 +1813,20 @@ def _draw_optional_extras(msp: Modelspace, ctx: DrawingContext,
         # Track mount style
         "BRACKET MOUNT":               ctx.track_mount == "bracket",
         "CONTINUOUS ANGLE MOUNT":      ctx.track_mount == "angle",
-        # End stile / hinge style — aluminum + wide commercial use double
+        # End stile / hinge style
         "SINGLE END STILES/HINGES":    not (is_aluminum or
                                             (is_commercial and ctx.door_width_in >= 192)),
         "DOUBLE END STILES/HINGES":    is_aluminum or
                                         (is_commercial and ctx.door_width_in >= 192),
-        # Strut gauge — commercial defaults to 16GA, residential to 20GA
-        "16GA STRUTS":                 ctx.has_struts and is_commercial,
-        "20GA STRUTS":                 ctx.has_struts and not is_commercial,
+        # Track radius — call out the actual configured radius
+        "12\" RADIUS":                 radius == 12,
+        "15\" RADIUS":                 radius == 15,
+        "20\" RADIUS":                 radius == 20,
+        # Strut gauge with explicit count
+        f"16GA STRUTS    [{strut_count}]" if (is_commercial and ctx.has_struts) else "16GA STRUTS":
+                                       ctx.has_struts and is_commercial,
+        f"20GA STRUTS    [{strut_count}]" if (not is_commercial and ctx.has_struts) else "20GA STRUTS":
+                                       ctx.has_struts and not is_commercial,
         "MAN DOOR (see man door spec)": ctx.man_door,
         "INTERIOR SIDE LOCK":          ctx.interior_lock,
         # Operator
@@ -1825,8 +1835,7 @@ def _draw_optional_extras(msp: Modelspace, ctx: DrawingContext,
         "ELECTRIC OPERATOR (BY OTHERS)": (operator not in
                                           ("NONE", "MANUAL", "CHAIN_HOIST",
                                            "CHAIN", "HOIST")),
-        # Shaft type — "auto" defaults to 1" solid for residential, 1-1/4"
-        # for wide/commercial. Explicit shaft_type values override.
+        # Shaft type
         "1\" SOLID SHAFT":             (shaft in ("1_solid", "single") or
                                         (shaft == "auto" and not (is_commercial
                                             or ctx.door_width_in >= 192))),
@@ -1843,10 +1852,21 @@ def _draw_optional_extras(msp: Modelspace, ctx: DrawingContext,
         "PUSHER SPRING":               ctx.pusher_spring,
         "BUMPER SPRING":               ctx.bumper_spring,
         "TRACK GUARDS":                ctx.track_guards,
-        # Weather seals — driven by hardware bundle flag
+        # Weather seals
         "TOP SEAL VINYL":              ctx.has_weather_stripping,
         "STEEL VINYL WEATHER STRIP":   ctx.has_weather_stripping,
+        # Hardware sub-items (residential extras the reference Craft drawing
+        # carries — wired off the existing has_weather_stripping/struts
+        # bundle for now, can be split into discrete configurator fields
+        # later if needed).
+        "HD 10 BALL ROLLERS":          True,  # standard-issue on every door
+        "OPERATOR BRACKET":            operator not in ("NONE", "MANUAL"),
+        "LHR FRONT":                   lift == "low_headroom" and ctx.track_mount == "bracket",
+        "LHR REAR":                    lift == "low_headroom" and ctx.track_mount == "angle",
+        "DECORATIVE FACE HARDWARE":    False,  # TODO: wire to a configurator field
         "EXHAUST PORT":                ctx.exhaust_port,
+        # Final line: door colour choice spelled out (matches reference layout)
+        f"DOOR COLOR CHOICE ({ctx.panel_color or 'WHITE'})": True,
     }
 
     # Layout: single column of check-items. Line height calculated from list.
