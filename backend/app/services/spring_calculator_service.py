@@ -723,8 +723,9 @@ class SpringCalculatorService:
         options = []
         warnings = []
 
-        # Try common coil diameters (including larger sizes for commercial doors)
-        coil_diameters = [1.75, 2.0, 2.625, 3.75, 5.25, 6.0]
+        # Try common coil diameters — restricted to OPENDC stocked IDs
+        # (matches bc_part_number_mapper.COIL_SIZE_CODES).
+        coil_diameters = [1.75, 2.0, 2.625, 3.75, 6.0]
 
         for coil_diam in coil_diameters:
             # Find wire diameters that work with this coil
@@ -814,8 +815,14 @@ class SpringCalculatorService:
 
         Returns: (wire_diameter, coil_diameter) or None
         """
-        # Coil diameters to try, in order of preference (smaller is better for installation)
-        coil_diameters_to_try = [preferred_coil, 2.0, 2.5, 2.625, 3.75, 4.5, 5.25, 5.875, 6.0, 7.625]
+        # Coil diameters to try, in order of preference (smaller is better
+        # for installation). Restricted to OPENDC stocked IDs, which match
+        # bc_part_number_mapper.COIL_SIZE_CODES (1.75/2.0/2.625/3.75/6.0).
+        # Canimex's table includes 2.5, 4.5, 5.25, 5.875, 7.625 — none of
+        # those are stocked, so picks at those IDs would never resolve to a
+        # real BC SKU. Heavier configs that don't fit on a 6" coil should
+        # escalate to duplex or fail to a manual SP-CUSTOM line.
+        coil_diameters_to_try = [preferred_coil, 2.0, 2.625, 3.75, 6.0]
         # Remove duplicates while preserving order
         seen = set()
         coil_diameters_to_try = [x for x in coil_diameters_to_try if not (x in seen or seen.add(x))]

@@ -1775,10 +1775,9 @@ class PartNumberService:
 
         # 6" non-duplex springs need a PVC tube inside each spring, sized to
         # the spring length. Total tube length = spring_length × spring_qty
-        # (covers LH + RH). The Canimex table uses 5.875" and 6.0" for the
-        # same nominal 6" coil class — both get the tube. Duplex assemblies
-        # skip this; the inner spring already fills the 6" outer.
-        if coil_id in (5.875, 6.0) and not is_duplex:
+        # (covers LH + RH). Duplex assemblies skip this — the inner spring
+        # already fills the 6" outer.
+        if coil_id == 6.0 and not is_duplex:
             parts.append(PartSelection(
                 part_number="PK14-00003-00",
                 description=f"PVC TUBE FOR 6\" SPRING, {spring_length}\" LONG",
