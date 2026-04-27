@@ -214,7 +214,7 @@ DOOR_SERIES = {
             "specs": {
                 "thickness": "1 3/4\" (44.5mm)",
                 "material": "Extruded Aluminum",
-                "maxWidth": 240,  # 20' in inches
+                "maxWidth": 290,  # 24'2" in inches
                 "finishWarranty": "5 Year Limited",
                 "workmanshipWarranty": "1 Year Limited"
             }
