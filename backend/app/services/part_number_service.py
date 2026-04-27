@@ -137,6 +137,52 @@ class DoorConfiguration:
         if self.target_cycles < 10000:
             self.target_cycles = 10000
     include_pusher_springs: bool = False  # Upgrade: adds TR13-00031-00 + TR13-00032-00
+    # ─── Additional optional extras (mirror configurator checklist) ───
+    # BC item codes for each of these are configured in OPTIONAL_EXTRA_PARTS
+    # below. When the flag is on but the BC code hasn't been filled in,
+    # a warning is logged and the line is skipped.
+    include_man_door: bool = False
+    man_door_spec: str = ""        # free-text spec carried into BC line description
+    include_interior_lock: bool = False
+    include_bumper_spring: bool = False
+    include_track_guards: bool = False
+    include_exhaust_port: bool = False
+
+
+# BC item codes for the optional extras above. Each flag maps to a LIST
+# of (item_code, description, qty) tuples — supports single-SKU options
+# as well as LH/RH pairs (like pushers) and pair-quantity SKUs.
+#
+# Codes resolved by scanning BC Production via search_items_by_name on
+# 2026-04-25; man-door SKU still pending — the configurator option
+# carries a free-text spec, so it likely should map to the kit + a
+# manual line or the install SKU.
+OPTIONAL_EXTRA_PARTS = {
+    # flag_name -> [(item_code, description, qty), ...]
+    # Man door — SKU varies by door type. The emit loop below special-cases
+    # this flag and picks MI24-00000-00 for steel/residential/commercial
+    # overhead doors or MI24-00000-02 for aluminum overhead doors. Both
+    # represent a man door being installed INTO the overhead door panel.
+    "include_man_door": [
+        ("__VARIES__", "MANDOOR INSTALLATION", 1),  # see emit loop
+    ],
+    # Side lock — one matching SKU in BC.
+    "include_interior_lock": [
+        ("FH13-00009-00", "SIDE LOCK, 3\"", 1),
+    ],
+    # Leaf bumper spring pair (LH + RH).
+    "include_bumper_spring": [
+        ("TR13-00029-00", "TRACK HARDWARE, SPRING, LEAF BUMPER SPRING, LH", 1),
+        ("TR13-00030-00", "TRACK HARDWARE, SPRING, LEAF BUMPER SPRING, RH", 1),
+    ],
+    # Track guards: pair-per-unit, qty 1 ships both guards.
+    "include_track_guards": [
+        ("TRACKGUARD60", "TRACK GUARDS (PAIR), 60\", SAFETY YELLOW", 1),
+    ],
+    "include_exhaust_port": [
+        ("FH11-00003-00", "EXHAUST PORT RINGS/COVER SET", 1),
+    ],
+}
 
 
 # ============================================================================
@@ -720,6 +766,45 @@ class PartNumberService:
                 category="accessory",
             ))
 
+        # 8b. OPTIONAL EXTRAS — man door, side lock, specialty springs,
+        # track guards, exhaust port. BC item codes live in
+        # OPTIONAL_EXTRA_PARTS at the top of this module.
+        for flag_name, items in OPTIONAL_EXTRA_PARTS.items():
+            if not getattr(config, flag_name, False):
+                continue
+
+            # Special-case: man door SKU varies by overhead-door type.
+            if flag_name == "include_man_door":
+                is_aluminum = (config.door_type or "").lower() in ("aluminium", "aluminum")
+                item_code = "MI24-00000-02" if is_aluminum else "MI24-00000-00"
+                desc = ("MANDOOR INSTALLATION - ALUMINUM" if is_aluminum
+                        else "MANDOOR INSTALLATION")
+                if config.man_door_spec:
+                    desc = f"{desc} — {config.man_door_spec}"
+                parts.append(PartSelection(
+                    part_number=item_code,
+                    description=desc,
+                    quantity=1,
+                    category="accessory",
+                ))
+                continue
+
+            for item_code, base_desc, qty in items:
+                if item_code is None:
+                    logger.warning(
+                        "Optional extra '%s' line '%s' has no BC item code "
+                        "configured — skipped. Edit OPTIONAL_EXTRA_PARTS in "
+                        "part_number_service.py once the code is known.",
+                        flag_name, base_desc,
+                    )
+                    continue
+                parts.append(PartSelection(
+                    part_number=item_code,
+                    description=base_desc,
+                    quantity=qty,
+                    category="accessory",
+                ))
+
         # 8b. DECORATIVE HARDWARE (residential only, if selected)
         if config.door_type == "residential" and hardware.get("decorativeHardware", False):
             parts.append(PartSelection(
@@ -1067,18 +1152,43 @@ class PartNumberService:
         )
         top_seal_weight = config.door_width * TOP_SEAL_LBS_PER_INCH if has_top_seal else 0
 
-        total_weight = panel_weight + end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight + hardware_weight + top_seal_weight
+        # 9. Window weight (residential + commercial)
+        RESI_WINDOW_WEIGHTS = {
+            "KANATA": {"short": 4.0, "long": 7.0},
+            "CRAFT": {"short": 10.0, "long": 10.0},
+        }
+        COMM_WINDOW_WEIGHTS = {
+            "TX380": {"18x8": 3.49, "24x12": 5.0, "34x16": 9.0},
+            "TX450": {"18x8": 2.5, "24x12": 5.16, "34x16": 9.77},
+            "TX450-20": {"18x8": 2.45, "24x12": 5.0, "34x16": 9.0},
+            "TX500": {"18x8": 2.5, "24x12": 5.0, "34x16": 9.0},
+            "TX500-20": {"18x8": 2.3, "24x12": 4.88, "34x16": 9.0},
+        }
+        window_weight = 0.0
+        if series in RESI_WINDOW_WEIGHTS and config.window_count > 0:
+            win_size = config.window_size or "long"
+            wt_per = RESI_WINDOW_WEIGHTS[series].get(win_size, 7.0)
+            window_weight = wt_per * config.window_count
+        elif series in COMM_WINDOW_WEIGHTS and config.window_qty > 0:
+            # Commercial window_insert maps to window type
+            comm_window_sizes = {"V130G": "24x12", "V230G": "24x12"}
+            wt_key = comm_window_sizes.get(config.window_insert, "24x12")
+            wt_per = COMM_WINDOW_WEIGHTS[series].get(wt_key, 5.0)
+            window_weight = wt_per * config.window_qty
+
+        total_weight = panel_weight + end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight + hardware_weight + top_seal_weight + window_weight
 
         breakdown_str = " + ".join(
             f"{breakdown[h]}x{h}\"" for h in ["24", "21"] if breakdown[h] > 0
         )
-        extras = end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight + hardware_weight + top_seal_weight
+        extras = end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight + hardware_weight + top_seal_weight + window_weight
         logger.info(
             f"Door weight: {series} {door_width_ft:.1f}'x{door_height_in}\" "
             f"= [{breakdown_str}] panels={panel_weight:.1f} + extras={extras:.1f} "
             f"(endcaps={end_cap_weight:.1f}, retainer={retainer_weight:.1f}, "
             f"astragal={astragal_weight:.1f}, struts={strut_weight:.1f}, "
-            f"hardware={hardware_weight:.1f}, top_seal={top_seal_weight:.1f}) = {total_weight:.1f} lbs"
+            f"hardware={hardware_weight:.1f}, top_seal={top_seal_weight:.1f}, "
+            f"windows={window_weight:.1f}) = {total_weight:.1f} lbs"
         )
 
         return total_weight
@@ -1302,10 +1412,13 @@ class PartNumberService:
                 radius_inches = 12  # 3" tracks don't use radius
 
         # Determine lift type and mount type
+        # HIGH LIFT uses STANDARD LIFT track assemblies — the extension kits
+        # (TR02-EXT4, TR03-EXT4/EXT6) are added separately by _get_highlift_parts().
+        # BC has no dedicated high-lift track part numbers.
         lift_type_map = {
             'standard': LiftType.STANDARD,
             'low_headroom': LiftType.LOW_HEADROOM,
-            'high_lift': LiftType.HIGH_LIFT,
+            'high_lift': LiftType.STANDARD,   # ← standard track + extension kit
             'vertical': LiftType.VERTICAL,
         }
         lift_type = lift_type_map.get(config.lift_type, LiftType.STANDARD)
@@ -1351,7 +1464,7 @@ class PartNumberService:
         lift_label_map = {
             'standard': 'STANDARD LIFT',
             'low_headroom': 'LOW HEADROOM',
-            'high_lift': 'HIGH LIFT',
+            'high_lift': 'STANDARD LIFT',  # track is standard; extension kit is separate
             'vertical': 'VERTICAL LIFT',
         }
         lift_label = lift_label_map.get(config.lift_type, 'STANDARD LIFT')
@@ -2215,39 +2328,45 @@ class PartNumberService:
         """Get high lift extension track kit parts.
 
         Extension kits are ADDITIONAL line items on top of the standard track assembly.
-        - 2" track: TR02-EXT4-00 (4' extension kit)
-        - 3" track: TR03-EXT4-00 (4' kit, HL ≤ 48") or TR03-EXT6-00 (6' kit, HL > 48")
-        - qty = max(1, ceil(hl_inches / kit_size_inches))
+        Each kit is sized to the exact high lift footage:
+        - 2" track: TR02-EXT{feet}-00 (1' through 12')
+        - 3" track: TR03-EXT{feet}-00 (2' through 20')
+        Round up HL inches to next whole foot. Qty is always 1.
         """
-        if config.lift_type != 'high_lift' or not config.high_lift_inches:
+        if config.lift_type != 'high_lift':
             return []
 
-        hl_inches = config.high_lift_inches
-        track_size = int(config.track_thickness)
+        # Default to minimum HL if lift type is high_lift but inches not specified
+        hl_inches = config.high_lift_inches or 24  # default 2' (24") if not set
+        hl_feet = math.ceil(hl_inches / 12)
+        track_size = int(config.track_thickness) if config.track_thickness else 3
 
         if track_size == 2:
-            part_number = "TR02-EXT4-00"
-            kit_size_inches = 48
-            description = "2\" HIGH LIFT EXTENSION 4' KIT"
+            hl_feet = max(1, min(hl_feet, 12))  # 2" kits: 1'-12'
+            part_number = f"TR02-EXT{hl_feet}-00"
+            description = f"TRACK ASSEMBLY, 2\" HIGH LIFT EXTENSION {hl_feet}' KIT"
         else:
-            # 3" track
-            if hl_inches <= 48:
-                part_number = "TR03-EXT4-00"
-                kit_size_inches = 48
-                description = "3\" HIGH LIFT EXTENSION 4' KIT"
-            else:
-                part_number = "TR03-EXT6-00"
-                kit_size_inches = 72
-                description = "3\" HIGH LIFT EXTENSION 6' KIT"
+            hl_feet = max(2, min(hl_feet, 20))  # 3" kits: 2'-20'
+            part_number = f"TR03-EXT{hl_feet}-00"
+            description = f"TRACK ASSEMBLY, 3\" HIGH LIFT EXTENSION {hl_feet}' KIT"
 
-        qty = max(1, math.ceil(hl_inches / kit_size_inches))
+        hl_ft_exact = hl_inches / 12
+        hl_display = f"{hl_inches}\" ({hl_ft_exact:.1f}')" if hl_inches % 12 != 0 else f"{hl_inches}\" ({hl_feet}')"
 
-        return [PartSelection(
-            part_number=part_number,
-            description=description,
-            quantity=qty,
-            category="highlift_track"
-        )]
+        return [
+            PartSelection(
+                part_number="",
+                description=f"HIGH LIFT: {hl_display} requested → {hl_feet}' extension kit selected",
+                quantity=0,
+                category="highlift_comment",
+            ),
+            PartSelection(
+                part_number=part_number,
+                description=description,
+                quantity=1,
+                category="highlift_track",
+            ),
+        ]
 
     def _consolidate_parts(self, parts: List[PartSelection]) -> List[PartSelection]:
         """Merge parts with the same part_number into a single line with summed quantity.
@@ -3281,7 +3400,14 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         window_positions=config_dict.get("windowPositions") if config_dict.get("hasWindows", True) else None,
         spring_inventory=spring_inventory,
         include_top_seal=config_dict.get("includeTopSeal"),
-        include_pusher_springs=bool(config_dict.get("includePusherSprings", False)),
+        include_pusher_springs=bool(config_dict.get("includePusherSprings", False)
+                                    or config_dict.get("pusherSpring", False)),
+        include_man_door=bool(config_dict.get("manDoor", False)),
+        man_door_spec=str(config_dict.get("manDoorSpec") or ""),
+        include_interior_lock=bool(config_dict.get("interiorLock", False)),
+        include_bumper_spring=bool(config_dict.get("bumperSpring", False)),
+        include_track_guards=bool(config_dict.get("trackGuards", False)),
+        include_exhaust_port=bool(config_dict.get("exhaustPort", False)),
     )
 
     parts = part_number_service.get_parts_for_configuration(config)

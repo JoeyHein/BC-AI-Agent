@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import CrmFeed from './CrmFeed'
 import apiClient, { customersApi } from '../api/client'
 import InstallPricingPanel from './InstallPricingPanel'
 
@@ -128,8 +129,64 @@ function AccountStatusBadge({ status }) {
 }
 
 // Customer List Component
-function CustomerList({ customers, onSelect, selectedId }) {
+function CustomerList({ customers, onSelect, selectedId, onCreateFromBC }) {
+  const [searchQuery, setSearchQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 250)
+    return () => clearTimeout(timer)
+  }, [searchQuery])
+
+  // Filter portal customers locally by name / email / BC company / BC ID
+  const q = debouncedQuery.toLowerCase()
+  const filteredCustomers = q
+    ? customers.filter((c) =>
+        (c.name || '').toLowerCase().includes(q) ||
+        (c.email || '').toLowerCase().includes(q) ||
+        (c.bc_company_name || '').toLowerCase().includes(q) ||
+        (c.bc_customer_id || '').toLowerCase().includes(q)
+      )
+    : customers
+
+  // When the user types something, also pull BC customers (the configurator
+  // search source) so BC accounts WITHOUT a portal user (e.g. GNB Manitoba)
+  // show up here too.
+  const { data: bcResults = [] } = useQuery({
+    queryKey: ['admin-bc-customers', debouncedQuery],
+    queryFn: () => fetchBCCustomers(debouncedQuery),
+    enabled: debouncedQuery.length >= 2,
+  })
+  const unlinkedBcResults = (bcResults || []).filter((b) => !b.already_linked)
+
   return (
+    <div>
+      {/* Search bar */}
+      <div className="mb-4">
+        <div className="relative">
+          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search customers — name, email, company, BC ID…"
+            className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-odc-500 focus:border-odc-500 sm:text-sm"
+          />
+        </div>
+        {debouncedQuery && (
+          <p className="mt-1 text-xs text-gray-500">
+            {filteredCustomers.length} portal account{filteredCustomers.length === 1 ? '' : 's'}
+            {unlinkedBcResults.length > 0 && (
+              <> · {unlinkedBcResults.length} BC account{unlinkedBcResults.length === 1 ? '' : 's'} without portal</>
+            )}
+          </p>
+        )}
+      </div>
+
     <div className="bg-white shadow rounded-lg overflow-hidden">
       <table className="min-w-full divide-y divide-gray-200">
         <thead className="bg-gray-50">
@@ -158,7 +215,7 @@ function CustomerList({ customers, onSelect, selectedId }) {
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
-          {customers.map((customer) => (
+          {filteredCustomers.map((customer) => (
             <tr
               key={customer.id}
               onClick={() => onSelect(customer)}
@@ -231,12 +288,77 @@ function CustomerList({ customers, onSelect, selectedId }) {
           ))}
         </tbody>
       </table>
-      {customers.length === 0 && (
+      {filteredCustomers.length === 0 && customers.length === 0 && (
         <div className="text-center py-12 text-gray-500">
           No customer accounts found
         </div>
       )}
+      {filteredCustomers.length === 0 && customers.length > 0 && debouncedQuery && (
+        <div className="text-center py-8 text-gray-500 text-sm">
+          No portal accounts match "{debouncedQuery}".
+        </div>
+      )}
     </div>
+
+    {/* BC customers without a portal account — surfaced from the same source
+        the configurator search uses, so accounts like GNB Manitoba show up
+        here even before someone creates a portal user for them. */}
+    {unlinkedBcResults.length > 0 && (
+      <div className="mt-6 bg-white shadow rounded-lg overflow-hidden">
+        <div className="px-6 py-3 bg-gray-50 border-b border-gray-200 flex items-baseline justify-between">
+          <h3 className="text-sm font-semibold text-gray-700">
+            BC customers without a portal account
+            <span className="ml-2 text-xs text-gray-500 font-normal">
+              ({unlinkedBcResults.length})
+            </span>
+          </h3>
+          <span className="text-xs text-gray-500">Click to create a portal account</span>
+        </div>
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-6 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Company</th>
+              <th className="px-6 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
+              <th className="px-6 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+              <th className="px-6 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">BC ID</th>
+              <th className="px-6 py-2"></th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {unlinkedBcResults.map((bc) => (
+              <tr
+                key={bc.bc_customer_id}
+                onClick={() => onCreateFromBC?.(bc)}
+                className="cursor-pointer hover:bg-gray-50"
+              >
+                <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                  {bc.company_name || '—'}
+                </td>
+                <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600">
+                  {bc.contact_name || '—'}
+                </td>
+                <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600">
+                  {bc.email || <span className="text-gray-400 italic">no email on file</span>}
+                </td>
+                <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-500 font-mono">
+                  {bc.bc_customer_id}
+                </td>
+                <td className="px-6 py-3 whitespace-nowrap text-right">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onCreateFromBC?.(bc) }}
+                    className="text-xs text-odc-600 hover:text-odc-700 font-medium"
+                  >
+                    Create portal account →
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </div>
   )
 }
 
@@ -824,16 +946,16 @@ function LinkBCCustomerModal({ customerId, onClose, onSuccess }) {
 }
 
 // Create Customer Modal
-function CreateCustomerModal({ onClose, onSuccess }) {
+function CreateCustomerModal({ onClose, onSuccess, prefillBc = null }) {
   const [formData, setFormData] = useState({
-    email: '',
-    name: '',
+    email: prefillBc?.email || '',
+    name: prefillBc?.contact_name || prefillBc?.company_name || '',
     password: '',
-    bc_customer_id: ''
+    bc_customer_id: prefillBc?.bc_customer_id || ''
   })
   const [showBCSearch, setShowBCSearch] = useState(false)
   const [bcSearchQuery, setBCSearchQuery] = useState('')
-  const [selectedBC, setSelectedBC] = useState(null)
+  const [selectedBC, setSelectedBC] = useState(prefillBc || null)
 
   const { data: bcCustomers } = useQuery({
     queryKey: ['bc-customers', bcSearchQuery],
@@ -1163,11 +1285,59 @@ function PendingRegistrations({ onRefreshCustomers }) {
   )
 }
 
+// Tab header for the customer management page. Live badges pulled from the
+// CRM feed so Joey can see unmatched conversations that need triage.
+function CustomerTabs({ active, onChange, unreadFetcher }) {
+  const { data } = useQuery({
+    queryKey: ['crm-unread-badge'],
+    queryFn: unreadFetcher,
+    refetchInterval: 30_000,
+  })
+  const unmatchedCount = data?.unmatched ?? 0
+
+  const tabs = [
+    { id: 'customers', label: 'Customers' },
+    { id: 'activity', label: 'Activity' },
+    { id: 'unmatched', label: 'Unmatched', count: unmatchedCount },
+  ]
+
+  return (
+    <div className="mb-4 border-b border-gray-200 flex gap-1">
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          onClick={() => onChange(t.id)}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2 ${
+            active === t.id
+              ? 'border-odc-600 text-odc-700'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          {t.label}
+          {t.count > 0 && (
+            <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-amber-500 text-white text-xs font-semibold">
+              {t.count}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // Main Component
 function CustomerManagement() {
   const [selectedCustomer, setSelectedCustomer] = useState(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [createPrefillBc, setCreatePrefillBc] = useState(null)
+  const [activeTab, setActiveTab] = useState('customers')
   const queryClient = useQueryClient()
+
+  const unreadFetcher = async () => {
+    const { customersApi } = await import('../api/client')
+    const r = await customersApi.getNotesFeed({ matched: 'unmatched', limit: 1 })
+    return { unmatched: r.data.total }
+  }
 
   const { data: customers, isLoading, error, refetch } = useQuery({
     queryKey: ['customers'],
@@ -1301,33 +1471,59 @@ function CustomerManagement() {
 
       <PendingRegistrations onRefreshCustomers={refetch} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className={selectedCustomer ? 'lg:col-span-2' : 'lg:col-span-3'}>
-          <CustomerList
-            customers={customers || []}
-            onSelect={handleSelectCustomer}
-            selectedId={selectedCustomer?.id}
-          />
-        </div>
+      {/* Tabs — Customers (existing) / Activity (all CRM notes) / Unmatched */}
+      <CustomerTabs
+        active={activeTab}
+        onChange={setActiveTab}
+        unreadFetcher={unreadFetcher}
+      />
 
-        {selectedCustomer && (
-          <div className="lg:col-span-1">
-            <CustomerDetail
-              customer={selectedCustomer}
-              onClose={() => setSelectedCustomer(null)}
-              onRefresh={() => handleSelectCustomer(selectedCustomer)}
+      {activeTab === 'customers' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className={selectedCustomer ? 'lg:col-span-2' : 'lg:col-span-3'}>
+            <CustomerList
+              customers={customers || []}
+              onSelect={handleSelectCustomer}
+              selectedId={selectedCustomer?.id}
+              onCreateFromBC={(bc) => {
+                setCreatePrefillBc(bc)
+                setShowCreateModal(true)
+              }}
             />
           </div>
-        )}
-      </div>
+
+          {selectedCustomer && (
+            <div className="lg:col-span-1">
+              <CustomerDetail
+                customer={selectedCustomer}
+                onClose={() => setSelectedCustomer(null)}
+                onRefresh={() => handleSelectCustomer(selectedCustomer)}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'activity' && (
+        <CrmFeed matchedFilter="all" customers={customers || []} />
+      )}
+
+      {activeTab === 'unmatched' && (
+        <CrmFeed matchedFilter="unmatched" customers={customers || []} />
+      )}
 
       {showCreateModal && (
         <CreateCustomerModal
-          onClose={() => setShowCreateModal(false)}
+          onClose={() => {
+            setShowCreateModal(false)
+            setCreatePrefillBc(null)
+          }}
           onSuccess={() => {
             setShowCreateModal(false)
+            setCreatePrefillBc(null)
             queryClient.invalidateQueries(['customers'])
           }}
+          prefillBc={createPrefillBc}
         />
       )}
     </div>

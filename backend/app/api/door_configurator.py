@@ -4,6 +4,7 @@ Based on Upwardor brochure specifications (Residential 2025 & Commercial 2023)
 """
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -88,6 +89,7 @@ DOOR_SERIES = {
             "categoryValue": "67ab1db858e8bd835f4898e4",
             "specs": {
                 "rValue": 16.3,
+                "maxWidth": 432,  # 36' in inches
                 "features": ["Double Continuous Hinge Reinforcement", "Thermal Break", "Windload", "IECC Certified"],
                 "warranty": "10 Year Limited"
             }
@@ -99,6 +101,7 @@ DOOR_SERIES = {
             "categoryValue": "67ab1db858e8bd835f4898e5",
             "specs": {
                 "rValue": 18.4,
+                "maxWidth": 432,  # 36' in inches
                 "features": ["Double Continuous Hinge Reinforcement", "Thermal Break", "Windload", "IECC Certified"],
                 "warranty": "10 Year Limited"
             }
@@ -108,14 +111,14 @@ DOOR_SERIES = {
             "name": "Thermalex TX450-20",
             "description": "TX450 with 20-gauge steel",
             "categoryValue": "67ab1db858e8bd835f4898e6",
-            "specs": {"rValue": 16.3, "steel": "20-gauge", "warranty": "10 Year Limited"}
+            "specs": {"rValue": 16.3, "maxWidth": 432, "steel": "20-gauge", "warranty": "10 Year Limited"}
         },
         {
             "id": "TX500-20",
             "name": "Thermalex TX500-20",
             "description": "TX500 with 20-gauge steel",
             "categoryValue": "67ab1db858e8bd835f4898e7",
-            "specs": {"rValue": 18.4, "steel": "20-gauge", "warranty": "10 Year Limited"}
+            "specs": {"rValue": 18.4, "maxWidth": 432, "steel": "20-gauge", "warranty": "10 Year Limited"}
         },
     ],
     "aluminium": [
@@ -831,6 +834,7 @@ LINE_ORDER = [
     "track",             # 8. Track
     "highlift_track",    # 8b. Highlift track (if applicable)
     "hardware",          # 9. Hardware box
+    "highlift_comment",  # 7b. High lift extension detail comment
     "spring_comment",    # 9b. Spring info comment (door weight, drum, turns)
     "spring",            # 10. Springs
     "spring_accessory",  # 10b. Winders, plugs
@@ -922,6 +926,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
             # Get parts for this door configuration
             # Calculate window count from windowPositions array
             window_count = len(door.windowPositions) if door.windowPositions else (1 if door.windowSection else 0)
+            logger.info(f"Door {door_index}: liftType={door.liftType}, highLiftInches={door.highLiftInches}")
 
             config_dict = {
                 "doorType": door.doorType,
@@ -995,7 +1000,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                     part["door_type"] = door.doorType
 
                 # Spring info comment → BC Comment line (not an item)
-                if part.get("category") == "spring_comment":
+                if part.get("category") in ("spring_comment", "highlift_comment"):
                     part["lineType"] = "Comment"
                     part["is_note"] = True
 
@@ -1062,24 +1067,67 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
         from app.services.bc_part_number_mapper import get_bc_mapper
         mapper = get_bc_mapper()
 
+        # Part number prefixes that follow deterministic patterns and are
+        # known to exist in BC even if not in our item cache export.
+        SKIP_VALIDATION_PREFIXES = ("HK02-", "HK03-", "HK12-", "HK13-", "TR02-EXT", "TR03-EXT")
+
         for line in all_lines:
             if line.get("lineType") == "Comment" or not line.get("part_number"):
                 continue
             pn = line["part_number"]
             if pn in mapper.bc_items:
                 continue
+            # Skip validation for deterministic HK hardware kit part numbers
+            if any(pn.startswith(pfx) for pfx in SKIP_VALIDATION_PREFIXES) and pn != f"{pn[:4]}-00000-RC":
+                continue
 
-            # PANEL HARD FAIL: if a panel part can't be found, abort the quote.
+            # PANEL: step up to next biggest width available in BC.
+            # Panel format: PN{series}-{height}{stamp}{color}-{widthFFII}
+            # Try incrementally larger widths until one is found.
             if line.get("category") == "panel":
-                logger.error(f"PANEL PART NOT IN BC — aborting quote {bc_quote_number}. Part: {pn}")
-                try:
-                    bc_client.delete_sales_quote(bc_quote_id)
-                except Exception:
-                    pass
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Panel part {pn} not found in BC inventory. Please contact the office."
-                )
+                # Extract prefix (everything before the width code)
+                parts_split = pn.rsplit("-", 1)
+                if len(parts_split) == 2:
+                    pn_prefix = parts_split[0]  # e.g. "PN45-24400"
+                    width_code = parts_split[1]  # e.g. "1402"
+                    try:
+                        orig_feet = int(width_code[:2])
+                        orig_inches = int(width_code[2:])
+                    except (ValueError, IndexError):
+                        orig_feet = 0
+                        orig_inches = 0
+
+                    stepped_up = False
+                    # Try next foot sizes up to 30'
+                    for try_feet in range(orig_feet + 1, 31):
+                        for try_inches in [0, 2]:  # standard widths: even feet or +2"
+                            try_pn = f"{pn_prefix}-{try_feet:02d}{try_inches:02d}"
+                            if try_pn in mapper.bc_items:
+                                part_warnings.append({
+                                    "original": pn,
+                                    "substituted": try_pn,
+                                    "description": line.get("description", ""),
+                                    "message": f"Panel {pn} not in BC. Stepped up to next size: {try_pn}"
+                                })
+                                logger.info(f"Panel {pn} not in BC — stepped up to {try_pn}")
+                                line["part_number"] = try_pn
+                                line["_original_part_number"] = pn
+                                stepped_up = True
+                                break
+                        if stepped_up:
+                            break
+
+                    if not stepped_up:
+                        logger.error(f"PANEL NOT IN BC and no larger size found — aborting quote {bc_quote_number}. Part: {pn}")
+                        try:
+                            bc_client.delete_sales_quote(bc_quote_id)
+                        except Exception:
+                            pass
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Panel part {pn} not found in BC inventory and no larger size available. Please contact the office."
+                        )
+                continue
 
             # Non-panel part doesn't exist — find closest match
             prefix = pn.split("-")[0] if "-" in pn else pn[:4]
@@ -1537,13 +1585,25 @@ async def get_dimension_constraints(series_id: str):
         },
         "TX450": {
             "minWidth": 72,
-            "maxWidth": 288,
+            "maxWidth": 432,  # 36'
             "minHeight": 84,
             "maxHeight": 240,
         },
         "TX500": {
             "minWidth": 72,
-            "maxWidth": 288,
+            "maxWidth": 432,  # 36'
+            "minHeight": 84,
+            "maxHeight": 240,
+        },
+        "TX450-20": {
+            "minWidth": 72,
+            "maxWidth": 432,  # 36'
+            "minHeight": 84,
+            "maxHeight": 240,
+        },
+        "TX500-20": {
+            "minWidth": 72,
+            "maxWidth": 432,  # 36'
             "minHeight": 84,
             "maxHeight": 240,
         },
@@ -1741,8 +1801,8 @@ async def calculate_door_specifications(request: DoorCalculationRequest, db: Ses
         width_inches = (request.widthFeet * 12) + request.widthInches
         height_inches = (request.heightFeet * 12) + request.heightInches
 
-        if width_inches < 60 or width_inches > 360:
-            raise HTTPException(status_code=400, detail="Door width must be between 60\" and 360\" (5' to 30')")
+        if width_inches < 60 or width_inches > 432:
+            raise HTTPException(status_code=400, detail="Door width must be between 60\" and 432\" (5' to 36')")
         if height_inches < 60 or height_inches > 288:
             raise HTTPException(status_code=400, detail="Door height must be between 60\" and 288\" (5' to 24')")
 
@@ -2078,3 +2138,55 @@ def get_shop_drawing_geometry(
     except Exception as e:
         logger.error(f"Error calculating shop drawing geometry: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Preview-Framing Drawing (no saved quote required) ──────────────────────
+
+class FramingDrawingPreviewRequest(BaseModel):
+    """Inputs for generating a shop drawing without a saved quote.
+
+    Used by:
+      - In-house design tool (no customer auth, no saved quote)
+      - Customer portal "Produce Drawing" button before saving
+    """
+    config_data: dict
+    customer_name: Optional[str] = None
+    job_number: Optional[str] = None
+    door_index: int = 0
+    fmt: str = "pdf"  # "pdf" or "dxf"
+
+
+@router.post("/preview-framing-drawing")
+def preview_framing_drawing(req: FramingDrawingPreviewRequest):
+    """Generate a shop drawing PDF/DXF directly from raw config data.
+
+    Same output as the customer portal /saved-quotes/{id}/framing-drawing
+    endpoint, but accepts the config inline so it works before a quote is
+    saved (and for in-house tools that don't go through the quote flow).
+    """
+    from app.services.shop_drawings import generate_framing_drawing
+
+    fmt = (req.fmt or "pdf").lower()
+    if fmt not in ("pdf", "dxf"):
+        raise HTTPException(400, "fmt must be 'pdf' or 'dxf'")
+
+    try:
+        content = generate_framing_drawing(
+            config_data=req.config_data or {},
+            customer_name=req.customer_name or "—",
+            job_number=req.job_number or "PREVIEW",
+            fmt=fmt,
+            door_index=req.door_index,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.error(f"Failed to generate preview framing drawing: {e}", exc_info=True)
+        raise HTTPException(500, f"Failed to generate drawing: {e}")
+
+    media_type = "application/pdf" if fmt == "pdf" else "application/dxf"
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="framing-drawing-preview.{fmt}"'},
+    )

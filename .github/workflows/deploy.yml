@@ -23,11 +23,12 @@ jobs:
         working-directory: backend
         run: |
           pip install -q pytest
-          pip install -q fastapi sqlalchemy pydantic pydantic-settings
+          pip install -q fastapi sqlalchemy 'pydantic[email]' pydantic-settings
           pip install -q python-jose[cryptography] passlib[bcrypt]
           pip install -q msal requests anthropic httpx
           pip install -q psycopg2-binary python-dotenv python-multipart
-          pip install -q apscheduler cryptography
+          pip install -q apscheduler cryptography email-validator
+          pip install -q ezdxf matplotlib
 
       - name: Run tests
         working-directory: backend

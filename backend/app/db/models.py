@@ -527,8 +527,51 @@ class BCCustomer(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, onupdate=datetime.utcnow)
 
+    # CRM interaction history — call transcripts, email threads, meeting notes.
+    notes = relationship("CustomerNote", back_populates="customer", cascade="all, delete-orphan")
+
     def __repr__(self):
         return f"<BCCustomer(id={self.bc_customer_id}, name={self.company_name})>"
+
+
+class CustomerNote(Base):
+    """CRM note — call transcript, email log, meeting notes. Written by Donna
+    and other AI agents when they interact with a customer on the user's behalf.
+
+    Matching is by normalized phone number. If no BCCustomer matches, the note
+    is stored with bc_customer_id=NULL in an "unmatched" bucket for later
+    triage. Once a customer is identified, the link can be set manually.
+    """
+    __tablename__ = "customer_notes"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Link to customer (nullable — unmatched notes live here until linked)
+    bc_customer_id = Column(String(100), ForeignKey("bc_customers.bc_customer_id"), nullable=True, index=True)
+
+    # The phone number / email we used to try to match — always stored even if unmatched
+    match_key = Column(String(255), nullable=True, index=True)
+    match_key_type = Column(String(20), nullable=False, default="phone")  # phone | email
+
+    # Note content
+    note_type = Column(String(20), nullable=False, index=True)  # call | email | meeting | sms
+    subject = Column(String(255))  # short headline for list view
+    body = Column(Text, nullable=False)  # full transcript, summary, or message body
+
+    # Provenance — who wrote this note
+    source = Column(String(50), nullable=False, default="donna_pa")  # donna_pa | manual | email_agent
+    source_ref = Column(String(255), nullable=True)  # external id (phone call id, email message id)
+
+    # Structured extras (duration, caller name, action outcomes, etc.)
+    note_metadata = Column(JSON, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    customer = relationship("BCCustomer", back_populates="notes")
+
+    def __repr__(self):
+        return f"<CustomerNote(id={self.id}, type={self.note_type}, customer={self.bc_customer_id or 'unmatched'})>"
 
 
 # ============================================================================
@@ -849,6 +892,13 @@ class SavedQuoteConfig(Base):
     is_submitted = Column(Boolean, default=False, index=True)
     bc_quote_number = Column(String(50), nullable=True)  # BC quote number if submitted
     bc_quote_id = Column(String(100), nullable=True)  # BC quote GUID if submitted
+
+    # Per-door + shared BC line ID map. Shape:
+    #   {"doors": {"1": ["line-id-1", ...], "2": [...]},
+    #    "shared": {"freight": [...], "install": [...], "volume_discount": [...]}}
+    # Used to surgically delete/replace only the lines for changed doors on edit,
+    # keeping the BC quote number stable.
+    bc_line_map = Column(JSON, nullable=True)
 
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

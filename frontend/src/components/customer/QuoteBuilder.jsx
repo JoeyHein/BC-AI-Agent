@@ -7,6 +7,13 @@ import DoorPreview from '../DoorPreview'
 import DoorDrawings from '../DoorDrawings'
 import QuotePricingDisplay from './QuotePricingDisplay'
 import InstallPriceEstimate from './InstallPriceEstimate'
+import {
+  hasGlassPockets,
+  pocketConstraints,
+  sectionCountForHeight,
+  getCurrentPocketCount,
+  buildPocketsForCount,
+} from '../../utils/glassPockets'
 
 const STEPS = [
   { id: 'type', title: 'Door Type', description: 'Select door category' },
@@ -37,7 +44,7 @@ function QuoteBuilder() {
   const [pricingData, setPricingData] = useState(null)
   const [pricingLoading, setPricingLoading] = useState(false)
   const [savedQuoteId, setSavedQuoteId] = useState(id ? parseInt(id) : null)
-  const { isBCLinked, isHomeBuilder } = useCustomerAuth()
+  const { user, isBCLinked, isHomeBuilder } = useCustomerAuth()
 
   // Fetch existing quote if editing
   const { data: existingQuote, isLoading: loadingQuote } = useQuery({
@@ -120,9 +127,19 @@ function QuoteBuilder() {
       // Spring and shaft options
       targetCycles: 10000,
       shaftType: 'auto', // 'auto', 'single', 'split'
+      operatorSide: 'right', // 'left' or 'right' — drives operator mount
+                              // location on shop drawings (industry default = right)
       trackMount: 'bracket', // 'bracket' or 'angle'
       // High lift inches (only used for high_lift)
       highLiftInches: null,  // extra inches above door opening
+      // Additional optional extras (mirror the title-block extras list)
+      manDoor: false,             // pass-through man door in panel
+      manDoorSpec: '',            // free-text spec (size, hinge side, etc.)
+      interiorLock: false,        // interior side slide lock
+      pusherSpring: false,        // pusher (extension) spring auxiliary
+      bumperSpring: false,        // bumper spring at end of horiz. track
+      trackGuards: false,         // protective track guards
+      exhaustPort: false,         // ventilation exhaust port cutout
     }
   }
 
@@ -166,7 +183,7 @@ function QuoteBuilder() {
     const door = currentDoor
     switch (STEPS[currentStep].id) {
       case 'type':
-        return !!door.doorType
+        return !!door.doorType && !!quoteName.trim()
       case 'series':
         return !!door.doorSeries
       case 'dimensions':
@@ -295,12 +312,12 @@ function QuoteBuilder() {
     )
   }
 
-  if (isEditing && existingQuote?.is_submitted) {
+  if (isEditing && existingQuote?.order_placed) {
     return (
       <div className="bg-yellow-50 p-6 rounded-lg">
-        <h2 className="text-lg font-medium text-yellow-800">Quote Already Submitted</h2>
+        <h2 className="text-lg font-medium text-yellow-800">Order Already Placed</h2>
         <p className="mt-2 text-yellow-700">
-          This quote has been submitted and cannot be edited.
+          This quote has been converted to an order and can no longer be edited.
           {existingQuote.bc_quote_number && ` BC Quote: ${existingQuote.bc_quote_number}`}
         </p>
         <button
@@ -434,27 +451,45 @@ function QuoteBuilder() {
 
         {/* Step 1: Door Type */}
         {STEPS[currentStep].id === 'type' && config && (
-          <DoorTypeStep
-            doorTypes={config.doorTypes}
-            selected={currentDoor.doorType}
-            onSelect={(type) => updateCurrentDoor({
-              doorType: type,
-              doorSeries: '',
-              panelColor: '',
-              panelDesign: '',
-              // Reset windows to prevent stale state
-              hasWindows: false,
-              windowInsert: null,
-              windowPositions: [],
-              windowQty: 0,
-              glassPaneType: null,
-              glassColor: null,
-              trackMount: 'bracket',
-              // Set track defaults based on door type
-              trackRadius: type === 'commercial' ? '15' : '12',
-              trackThickness: type === 'commercial' ? '3' : '2',
-            })}
-          />
+          <div className="space-y-6">
+            <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Job Name / Tag <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={quoteName}
+                onChange={(e) => setQuoteName(e.target.value)}
+                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-odc-500 focus:ring-odc-500 sm:text-sm"
+                placeholder="e.g., Smith Residence — Front Garage"
+                autoFocus
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Appears on shop drawings, saved quotes, and the BC quote. You can edit it on the Review step before saving.
+              </p>
+            </div>
+            <DoorTypeStep
+              doorTypes={config.doorTypes}
+              selected={currentDoor.doorType}
+              onSelect={(type) => updateCurrentDoor({
+                doorType: type,
+                doorSeries: '',
+                panelColor: '',
+                panelDesign: '',
+                // Reset windows to prevent stale state
+                hasWindows: false,
+                windowInsert: null,
+                windowPositions: [],
+                windowQty: 0,
+                glassPaneType: null,
+                glassColor: null,
+                trackMount: 'bracket',
+                // Set track defaults based on door type
+                trackRadius: type === 'commercial' ? '15' : '12',
+                trackThickness: type === 'commercial' ? '3' : '2',
+              })}
+            />
+          </div>
         )}
 
         {/* Step 2: Door Series */}
@@ -580,6 +615,10 @@ function QuoteBuilder() {
               doorConfig={currentDoor}
               showExport={true}
               defaultTab="preview"
+              savedQuoteId={savedQuoteId}
+              customerName={user?.name || user?.email}
+              jobNumber={quoteName?.trim() || null}
+              apiContext="customer"
             />
           </div>
         )}
@@ -1062,6 +1101,60 @@ function DesignStep({ door, colors, panelDesigns, config, onChange }) {
             ))}
           </div>
         </div>
+
+        {/* Glass Pockets (center stiles) — AL976 and SWD */}
+        {hasGlassPockets(door.doorSeries) && (() => {
+          const { default: defaultPockets, min: minCount, max: maxCount } = pocketConstraints(door.doorSeries, door.doorWidth)
+          const sectionCount = sectionCountForHeight(door.doorHeight)
+          const currentCount = getCurrentPocketCount(door.glassPocketsPerSection, defaultPockets)
+          const setAll = (count) => {
+            const clamped = Math.max(minCount, Math.min(maxCount, count))
+            onChange({ glassPocketsPerSection: buildPocketsForCount(clamped, sectionCount, defaultPockets) })
+          }
+          const isCustom = currentCount !== defaultPockets
+          return (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Glass Pockets (applies to all sections)
+              </label>
+              <p className="text-xs text-gray-500 mb-3">
+                {currentCount} pocket{currentCount === 1 ? '' : 's'} per section
+                {' = '}
+                {currentCount - 1} center stile{currentCount - 1 === 1 ? '' : 's'}.
+                {' '}Default: {defaultPockets}. Range: {minCount}–{maxCount}.
+              </p>
+              <div className={`flex items-center gap-3 p-2 rounded-md ${isCustom ? 'bg-odc-50 border border-odc-200' : 'bg-gray-50'}`}>
+                <span className="text-sm text-gray-700 w-24">Pockets</span>
+                <button
+                  type="button"
+                  onClick={() => setAll(currentCount - 1)}
+                  disabled={currentCount <= minCount}
+                  className="w-8 h-8 flex items-center justify-center rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  -
+                </button>
+                <span className="text-sm font-semibold w-8 text-center">{currentCount}</span>
+                <button
+                  type="button"
+                  onClick={() => setAll(currentCount + 1)}
+                  disabled={currentCount >= maxCount}
+                  className="w-8 h-8 flex items-center justify-center rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  +
+                </button>
+                {isCustom && (
+                  <button
+                    type="button"
+                    onClick={() => onChange({ glassPocketsPerSection: null })}
+                    className="text-xs text-gray-400 hover:text-gray-600"
+                  >
+                    reset
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        })()}
       </div>
     )
   }
@@ -1484,6 +1577,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                   windowFrameColor={door.windowFrameColor || 'MATCH'}
                   doorType={door.doorType || 'residential'}
                   doorSeries={door.doorSeries || ''}
+                  glassPocketsPerSection={door.glassPocketsPerSection || null}
                   windowQty={door.windowQty || 0}
                   windowSection={door.windowSection || 1}
                   showDimensions={false}
@@ -1790,6 +1884,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
               windowFrameColor={door.windowFrameColor || 'BLACK'}
               doorType={door.doorType || 'commercial'}
               doorSeries={door.doorSeries || ''}
+              glassPocketsPerSection={door.glassPocketsPerSection || null}
               windowQty={door.windowQty || 0}
               windowSection={door.windowSection || 1}
               showDimensions={true}
@@ -1869,23 +1964,9 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                   >+</button>
                 </div>
               </div>
-              <div className="mt-3">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Glass Pockets per Section
-                </label>
-                <div className="flex items-center space-x-4">
-                  <button
-                    onClick={() => onChange({ glassPocketsPerSection: Math.max(2, (door.glassPocketsPerSection || 5) - 1) })}
-                    className="w-10 h-10 rounded-md border border-gray-300 bg-white hover:bg-gray-50 text-xl font-bold"
-                  >-</button>
-                  <span className="text-lg font-medium w-10 text-center">{door.glassPocketsPerSection || 5}</span>
-                  <button
-                    onClick={() => onChange({ glassPocketsPerSection: Math.min(8, (door.glassPocketsPerSection || 5) + 1) })}
-                    className="w-10 h-10 rounded-md border border-gray-300 bg-white hover:bg-gray-50 text-xl font-bold"
-                  >+</button>
-                </div>
-                <p className="text-xs text-gray-400 mt-1">Number of glass panels within each aluminum section frame</p>
-              </div>
+              {/* (V130G "Glass Pockets per Section" control removed — conflicted with the
+                  AL976/SWD pocket control which uses an object format. Pocket count for
+                  AL976/SWD is set in the Design step.) */}
             </div>
           )}
 
@@ -2310,6 +2391,32 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
             </p>
           </div>
         )}
+
+        {/* Operator side — drives where the operator mounts on the shaft
+            on the shop drawing (right is the industry default). */}
+        <div className="mt-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Operator Side <span className="text-xs font-normal text-gray-500">(viewed from inside looking out)</span>
+          </label>
+          <div className="grid grid-cols-2 gap-3 max-w-md">
+            {[
+              { id: 'left',  name: 'Left' },
+              { id: 'right', name: 'Right' },
+            ].map((opt) => (
+              <button
+                key={opt.id}
+                onClick={() => onChange({ operatorSide: opt.id })}
+                className={`p-3 rounded-lg border-2 text-center transition-all ${
+                  (door.operatorSide || 'right') === opt.id
+                    ? 'border-odc-500 bg-odc-50'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <span className="text-sm font-medium">{opt.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Hardware Options */}
@@ -2376,6 +2483,62 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
               </div>
             </label>
           ))}
+        </div>
+      </div>
+
+      {/* Additional Options — fields that flow into the shop-drawing
+          optional-extras checklist and BC quote add-on lines. */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Additional Options
+        </label>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+          {[
+            { id: 'interiorLock', name: 'Interior Side Lock' },
+            { id: 'pusherSpring', name: 'Pusher Spring' },
+            { id: 'bumperSpring', name: 'Bumper Spring' },
+            { id: 'trackGuards',  name: 'Track Guards' },
+            { id: 'exhaustPort',  name: 'Exhaust Port' },
+          ].map((opt) => (
+            <label key={opt.id} className="flex items-center p-2 border rounded-md cursor-pointer hover:bg-gray-50">
+              <input
+                type="checkbox"
+                checked={!!door[opt.id]}
+                onChange={(e) => onChange({ [opt.id]: e.target.checked })}
+                className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
+              />
+              <span className="ml-2 text-sm text-gray-700">{opt.name}</span>
+            </label>
+          ))}
+        </div>
+
+        {/* Man Door — checkbox + spec field (free text for now;
+            structured fields can be added later if needed) */}
+        <div className="mt-3 border rounded-md p-3">
+          <label className="flex items-center">
+            <input
+              type="checkbox"
+              checked={!!door.manDoor}
+              onChange={(e) => onChange({
+                manDoor: e.target.checked,
+                manDoorSpec: e.target.checked ? (door.manDoorSpec || '') : '',
+              })}
+              className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
+            />
+            <span className="ml-2 text-sm font-medium text-gray-700">Man Door</span>
+            <span className="ml-2 text-xs text-gray-500">(pass-through door cut into panel)</span>
+          </label>
+          {door.manDoor && (
+            <div className="mt-2">
+              <input
+                type="text"
+                value={door.manDoorSpec || ''}
+                onChange={(e) => onChange({ manDoorSpec: e.target.value })}
+                placeholder="Size + hinge side + handing (e.g., 36W x 80H, RH out-swing)"
+                className="block w-full text-sm rounded-md border-gray-300 shadow-sm focus:border-odc-500 focus:ring-odc-500"
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -2667,6 +2830,7 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
                   windowFrameColor={door.windowFrameColor || 'MATCH'}
                   doorType={door.doorType}
                   doorSeries={door.doorSeries || ''}
+                  glassPocketsPerSection={door.glassPocketsPerSection || null}
                   showDimensions={true}
                   scale={0.6}
                 />

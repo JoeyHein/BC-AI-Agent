@@ -1271,21 +1271,27 @@ class BCPartNumberMapper:
             prefix = "HK03" if commercial else "HK02"
             track_label = '3"' if commercial else '2"'
 
-            # Try sized part number first (SEC then DEC)
-            sec_pn = f"{prefix}-{width_code}{height_code}-RC"
-            dec_height = height_code[:-1] + "1"  # e.g. 080 -> 081
-            dec_pn = f"{prefix}-{width_code}{dec_height}-RC"
-
-            if sec_pn in self.bc_items:
-                part_number = sec_pn
-                description = self.bc_items[sec_pn].get("displayName", f"HARDWARE KIT, STD LIFT {track_label}, {door_width_feet}'x{door_height_feet}', SEC")
-            elif dec_pn in self.bc_items:
-                part_number = dec_pn
-                description = self.bc_items[dec_pn].get("displayName", f"HARDWARE KIT, STD LIFT {track_label}, {door_width_feet}'x{door_height_feet}', DEC")
+            # DEC for wider doors: commercial >16', residential >16'
+            use_dec = door_width_feet > 16
+            if use_dec:
+                dec_height = height_code[:-1] + "1"  # e.g. 080 -> 081
+                part_number = f"{prefix}-{width_code}{dec_height}-RC"
+                cap_type = "DEC"
             else:
-                # Fall back to generic kit
-                part_number = f"{prefix}-00000-RC"
-                description = f"COMPLETE STANDARD HARDWARE KIT, {track_label}, {door_width_feet}'x{door_height_feet}'"
+                part_number = f"{prefix}-{width_code}{height_code}-RC"
+                cap_type = "SEC"
+
+            # Use BC description if available, otherwise generate one
+            if part_number in self.bc_items:
+                description = self.bc_items[part_number].get(
+                    "displayName",
+                    f"HARDWARE KIT, STD LIFT {track_label}, {door_width_feet}'x{door_height_feet}', {cap_type}"
+                )
+            else:
+                # HK02/HK03 part numbers follow a deterministic pattern —
+                # BC has all valid combos but our item cache may not.
+                # Generate directly; don't fall to generic HK03-00000-RC.
+                description = f"HARDWARE KIT, STD LIFT {track_label}, {door_width_feet}'x{door_height_feet}', {cap_type}"
 
         return BCPartNumber(
             part_number=part_number,

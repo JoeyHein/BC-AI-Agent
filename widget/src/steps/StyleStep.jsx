@@ -7,6 +7,7 @@ const FAMILY_DEFAULTS = {
   tx450: { panelDesign: 'UDC', color: 'WHITE', doorType: 'commercial', doorSeries: '', width: 144, height: 144 },
   tx500: { panelDesign: 'UDC', color: 'WHITE', doorType: 'commercial', doorSeries: '', width: 144, height: 144 },
   al976: { panelDesign: 'FLUSH', color: 'BLACK_ANODIZED', doorType: 'aluminium', doorSeries: 'AL976', width: 192, height: 96 },
+  swd: { panelDesign: 'FLUSH', color: 'CLEAR_ANODIZED', doorType: 'aluminium', doorSeries: 'SWD', width: 192, height: 96 },
 }
 
 const SECTION_ORDER = [

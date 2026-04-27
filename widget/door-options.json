@@ -68,6 +68,20 @@
       "glassOptions": ["CLEAR", "ETCHED", "SUPER_GREY"],
       "polycarbonateOptions": ["CLEAR", "LIGHT_BRONZE", "DARK_BRONZE", "WHITE_OPAL"],
       "defaultColor": "BLACK_ANODIZED"
+    },
+    {
+      "id": "swd",
+      "name": "Sectional Wood Door",
+      "tagline": "Glass + wood frame",
+      "description": "Hardwood frame sections with insulated glass panels. Customizable stile count for the modern aesthetic.",
+      "type": "aluminium",
+      "series": "SWD",
+      "designs": [],
+      "colors": ["CLEAR_ANODIZED", "BLACK_ANODIZED", "WHITE"],
+      "windowInserts": [],
+      "glassOptions": ["CLEAR", "ETCHED", "SUPER_GREY"],
+      "polycarbonateOptions": ["CLEAR", "LIGHT_BRONZE", "DARK_BRONZE", "WHITE_OPAL"],
+      "defaultColor": "CLEAR_ANODIZED"
     }
   ],
   "colorData": {

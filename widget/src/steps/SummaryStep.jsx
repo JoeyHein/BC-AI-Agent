@@ -84,6 +84,7 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
         glassId: hasWindows ? (config.glassColor || null) : null,
         glassPaneType: config.glassPaneType || null,
         windowFrameColor: config.windowFrameColor || 'MATCH',
+        glassPocketsPerSection: config.glassPocketsPerSection || null,
         trackType: formData.trackType || null,
         ceilingHeight: formData.ceilingHeight || null,
       }
@@ -200,6 +201,7 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
             hasInserts={true}
             glassColor={config.glassColor || 'CLEAR'}
             windowFrameColor={config.windowFrameColor || 'MATCH'}
+            glassPocketsPerSection={config.glassPocketsPerSection || null}
             showDimensions={true}
             maxWidth={380}
           />

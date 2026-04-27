@@ -216,6 +216,20 @@ export const doorConfigApi = {
   // Get shop drawing geometry (Thermalex formulas)
   getShopDrawingGeometry: (params) =>
     apiClient.get('/api/door-config/shop-drawing-geometry', { params }),
+
+  // Preview shop drawing PDF/DXF directly from config (no saved quote needed)
+  previewFramingDrawing: ({ configData, customerName, jobNumber, doorIndex = 0, fmt = "pdf" }) =>
+    apiClient.post(
+      '/api/door-config/preview-framing-drawing',
+      {
+        config_data: configData,
+        customer_name: customerName || null,
+        job_number: jobNumber || null,
+        door_index: doorIndex,
+        fmt,
+      },
+      { responseType: "blob" }
+    ),
 };
 
 // Production API
@@ -595,6 +609,18 @@ export const customersApi = {
 
   setInstallPricing: (customerId, data) =>
     apiClient.put(`/api/admin/customers/${customerId}/install-pricing`, data),
+
+  // CRM notes — call/email/meeting history logged by Donna
+  getNotes: (customerId, params = {}) =>
+    apiClient.get(`/api/admin/customers/${customerId}/notes`, { params }),
+
+  // Global CRM feed — all notes across all customers
+  getNotesFeed: (params = {}) =>
+    apiClient.get('/api/admin/customers/notes-feed', { params }),
+
+  // Triage — assign an unmatched note to a BC customer
+  linkNoteToCustomer: (noteId, bcCustomerId) =>
+    apiClient.post(`/api/admin/customers/notes/${noteId}/link`, { bc_customer_id: bcCustomerId }),
 
   // Travel distances
   getTravelDistances: () =>

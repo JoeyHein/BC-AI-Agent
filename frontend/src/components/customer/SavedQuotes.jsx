@@ -134,6 +134,26 @@ function SavedQuotes() {
     }
   }
 
+  const [downloadingFraming, setDownloadingFraming] = useState({})
+  const handleDownloadFramingDrawing = async (quoteId, quoteNumber) => {
+    setDownloadingFraming(prev => ({ ...prev, [quoteId]: true }))
+    try {
+      const response = await savedQuotesApi.framingDrawing(quoteId, { fmt: 'pdf' })
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `FramingDrawing_${quoteNumber || quoteId}.pdf`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      alert(err?.response?.data?.detail || 'Failed to download framing drawing')
+    } finally {
+      setDownloadingFraming(prev => ({ ...prev, [quoteId]: false }))
+    }
+  }
+
   const filteredQuotes = quotes?.filter(q => {
     if (filter === 'draft') return !q.is_submitted
     if (filter === 'submitted') return q.is_submitted
@@ -254,7 +274,35 @@ function SavedQuotes() {
                         )}
                       </div>
 
-                      {quote.is_submitted ? (
+                      {quote.order_placed ? (
+                        /* Ordered — quote is locked */
+                        <div className="flex items-center space-x-2">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-200 text-gray-800">
+                            Ordered
+                            {quote.bc_quote_number && ` - ${quote.bc_quote_number}`}
+                          </span>
+                          {quote.bc_quote_id && (
+                            <>
+                              <button
+                                onClick={() => handleDownloadPdf(quote.id, quote.bc_quote_id, quote.bc_quote_number)}
+                                disabled={downloadingPdf[quote.id]}
+                                className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                              >
+                                {downloadingPdf[quote.id] ? 'Downloading...' : 'Download PDF'}
+                              </button>
+                              <button
+                                onClick={() => handleDownloadFramingDrawing(quote.id, quote.bc_quote_number)}
+                                disabled={downloadingFraming[quote.id]}
+                                className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                                title="Production shop drawing for the installer"
+                              >
+                                {downloadingFraming[quote.id] ? 'Generating...' : 'Drawing PDF'}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      ) : quote.is_submitted ? (
+                        /* Submitted, not yet ordered — still editable */
                         <div className="flex items-center space-x-2">
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                             Submitted
@@ -262,6 +310,12 @@ function SavedQuotes() {
                           </span>
                           {quote.bc_quote_id && (
                             <>
+                              <Link
+                                to={`${quote.id}`}
+                                className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                              >
+                                Edit
+                              </Link>
                               <button
                                 onClick={() => handlePlaceOrder(quote.id, quote.name)}
                                 disabled={placeOrderMutation.isPending}
@@ -270,11 +324,33 @@ function SavedQuotes() {
                                 {placeOrderMutation.isPending ? 'Placing...' : 'Place Order'}
                               </button>
                               <button
+                                onClick={() => handleGetPricing(quote.id)}
+                                disabled={pricingState[quote.id]?.loading}
+                                className="inline-flex items-center px-3 py-1 border border-blue-300 text-xs font-medium rounded-md text-odc-700 bg-white hover:bg-blue-50 disabled:opacity-50"
+                              >
+                                Refresh Pricing
+                              </button>
+                              <button
                                 onClick={() => handleDownloadPdf(quote.id, quote.bc_quote_id, quote.bc_quote_number)}
                                 disabled={downloadingPdf[quote.id]}
                                 className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
                               >
                                 {downloadingPdf[quote.id] ? 'Downloading...' : 'Download PDF'}
+                              </button>
+                              <button
+                                onClick={() => handleDownloadFramingDrawing(quote.id, quote.bc_quote_number)}
+                                disabled={downloadingFraming[quote.id]}
+                                className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                                title="Production shop drawing for the installer"
+                              >
+                                {downloadingFraming[quote.id] ? 'Generating...' : 'Drawing PDF'}
+                              </button>
+                              <button
+                                onClick={() => handleDelete(quote.id, quote.name)}
+                                disabled={deleteMutation.isPending}
+                                className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                              >
+                                Delete
                               </button>
                             </>
                           )}

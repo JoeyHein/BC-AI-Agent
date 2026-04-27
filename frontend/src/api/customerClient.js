@@ -102,6 +102,29 @@ export const savedQuotesApi = {
   // Place order from a priced/submitted quote
   placeOrder: (id) =>
     customerApiClient.post(`/api/customer/portal/saved-quotes/${id}/place-order`),
+
+  // Generate framing shop drawing — returns PDF (or DXF) bytes
+  framingDrawing: (id, { fmt = "pdf", doorIndex = 0 } = {}) =>
+    customerApiClient.post(
+      `/api/customer/portal/saved-quotes/${id}/framing-drawing`,
+      null,
+      { params: { fmt, door_index: doorIndex }, responseType: "blob" }
+    ),
+
+  // Preview framing drawing without a saved quote — sends config_data inline.
+  // Used by the "Produce Drawing" button in the configurator (pre-save flow).
+  previewFramingDrawing: ({ configData, customerName, jobNumber, doorIndex = 0, fmt = "pdf" }) =>
+    customerApiClient.post(
+      `/api/door-config/preview-framing-drawing`,
+      {
+        config_data: configData,
+        customer_name: customerName || null,
+        job_number: jobNumber || null,
+        door_index: doorIndex,
+        fmt,
+      },
+      { responseType: "blob" }
+    ),
 };
 
 // BC Quotes API (Customer's BC quotes)

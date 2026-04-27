@@ -1,21 +1,25 @@
 /**
  * DoorDrawings Component
- * Combined view for all door drawings with export functionality
- * Includes: Visual Preview, Framing Drawing, Side Elevation
+ * Combined view for door drawings with export functionality.
+ *
+ * Tabs:
+ *  - Door Preview: in-browser SVG visualization of the door's appearance.
+ *  - Shop Drawing: production CAD drawing rendered by the backend ezdxf
+ *    pipeline. Always available via the "Produce Drawing" button — works
+ *    before the quote is saved (uses the preview endpoint with the live
+ *    config) and after save (uses the saved-quote endpoint).
  */
 
 import { useState, useRef, useEffect } from 'react'
 import DoorPreview from './DoorPreview'
-import FramingDrawing from './FramingDrawing'
-import SideElevationDrawing from './SideElevationDrawing'
 import { exportAsSVG, exportAsPNG, exportAsPDF, printDrawing, exportDrawingPackage, getSvgFromRef } from '../utils/drawingExport'
 import { doorConfigApi } from '../api/client'
+import { savedQuotesApi, customerDoorConfigApi } from '../api/customerClient'
 import { extrasFromConfig, extrasFromLineItems } from '../utils/doorExtras'
 
 const TABS = [
   { id: 'preview', label: 'Door Preview', icon: '\u{1F6AA}' },
-  { id: 'framing', label: 'Framing Drawing', icon: '\u{1F4D0}' },
-  { id: 'elevation', label: 'Side Elevation', icon: '\u{1F4CF}' },
+  { id: 'shop_drawing', label: 'Shop Drawing', icon: '\u{1F4D0}' },
 ]
 
 function DoorDrawings({
@@ -24,6 +28,12 @@ function DoorDrawings({
   defaultTab = 'preview',
   lineItems = null,
   extras: extrasProp = null,
+  savedQuoteId = null,    // when set, "Produce Drawing" uses the saved-quote endpoint
+  customerName = null,    // populates the title block in the preview-endpoint flow
+  jobNumber = null,
+  // Caller side: customer portal sends customer auth, admin tool sends admin
+  // auth. Pass "admin" to use the admin axios client; default is customer.
+  apiContext = 'customer',
 }) {
   // Resolve the optional-extras list for the framing drawing:
   //   1. explicit `extras` prop wins
@@ -36,14 +46,14 @@ function DoorDrawings({
       : extrasFromConfig(doorConfig))
   const [activeTab, setActiveTab] = useState(defaultTab)
   const [exportFormat, setExportFormat] = useState('pdf')
-  const [geometry, setGeometry] = useState(null)
-  const [geometryLoading, setGeometryLoading] = useState(false)
-  const [geometryError, setGeometryError] = useState(null)
 
-  // Refs for each drawing
+  // Backend shop drawing PDF state
+  const [shopPdfUrl, setShopPdfUrl] = useState(null)
+  const [shopPdfLoading, setShopPdfLoading] = useState(false)
+  const [shopPdfError, setShopPdfError] = useState(null)
+
+  // Ref for the in-browser door visualization (still SVG)
   const previewRef = useRef(null)
-  const framingRef = useRef(null)
-  const elevationRef = useRef(null)
 
   // Extract door configuration with defaults
   const {
@@ -66,6 +76,7 @@ function DoorDrawings({
     highLiftInches = null,
     trackMount = 'bracket',
     springCount = null,
+    glassPocketsPerSection = null,
   } = doorConfig
 
   // Convert string values
@@ -80,68 +91,111 @@ function DoorDrawings({
   // Derive frame type from door type
   const frameType = doorType === 'residential' ? 'wood' : 'steel'
 
-  // Fetch geometry from backend when relevant config changes
+  // Invalidate cached preview when the underlying config changes — the user
+  // can re-click "Produce Drawing" to regenerate.
   useEffect(() => {
-    const fetchGeometry = async () => {
-      setGeometryLoading(true)
-      setGeometryError(null)
-      try {
-        const widthFeet = Math.floor(widthInches / 12)
-        const widthRemainder = widthInches % 12
-        const heightFeet = Math.floor(heightInches / 12)
-        const heightRemainder = heightInches % 12
-
-        const resp = await doorConfigApi.getShopDrawingGeometry({
-          widthFeet,
-          widthInches: widthRemainder,
-          heightFeet,
-          heightInches: heightRemainder,
-          trackSize,
-          trackRadius: radius,
-          liftType,
-          highLiftInches: liftType === 'high_lift' ? (highLiftInches || 0) : 0,
-          mountType: trackMount || 'bracket',
-          frameType,
-          doorType,
-        })
-        setGeometry(resp.data)
-      } catch (err) {
-        console.error('Failed to fetch shop drawing geometry:', err)
-        setGeometryError(err.message || 'Failed to load geometry')
-      } finally {
-        setGeometryLoading(false)
-      }
+    if (shopPdfUrl) {
+      URL.revokeObjectURL(shopPdfUrl)
+      setShopPdfUrl(null)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedQuoteId, widthInches, heightInches, panelDesign, panelColor, doorSeries, liftType, highLiftInches, trackRadius, glassPocketsPerSection])
 
-    fetchGeometry()
-  }, [widthInches, heightInches, trackSize, radius, liftType, highLiftInches, trackMount, frameType, doorType])
+  // Cleanup blob URL on unmount
+  useEffect(() => () => {
+    if (shopPdfUrl) URL.revokeObjectURL(shopPdfUrl)
+  }, [shopPdfUrl])
 
-  // Handle export
+  // Pull a single door config out of doorConfig for the preview endpoint.
+  // The drawing service expects { doors: [{ ... }] }.
+  const buildPreviewConfigData = () => ({
+    doors: [{
+      doorSeries,
+      doorType,
+      doorWidth: widthInches,
+      doorHeight: heightInches,
+      doorCount: doorConfig.doorCount || 1,
+      panelDesign,
+      panelColor,
+      windowInsert: windowInsert || null,
+      windowPositions: windowPositions || [],
+      windowSection: windowSection || 1,
+      windowQty: windowQty || 0,
+      windowFrameColor: windowFrameColor || 'MATCH',
+      glassColor: glassColor || 'CLEAR',
+      glassPocketsPerSection: glassPocketsPerSection || null,
+      liftType,
+      highLiftInches: highLiftInches || null,
+      trackRadius: radius,
+      trackThickness: trackSize,
+      trackMount: trackMount || 'bracket',
+    }],
+  })
+
+  // Returns a Blob/Response for the requested fmt. Picks the saved-quote
+  // endpoint when a savedQuoteId is set, else the preview endpoint.
+  const fetchShopDrawing = async (fmt) => {
+    if (savedQuoteId) {
+      return savedQuotesApi.framingDrawing(savedQuoteId, { fmt })
+    }
+    const previewApi = apiContext === 'admin'
+      ? doorConfigApi.previewFramingDrawing
+      : customerDoorConfigApi.previewFramingDrawing
+    return previewApi({
+      configData: buildPreviewConfigData(),
+      customerName,
+      jobNumber,
+      doorIndex: 0,
+      fmt,
+    })
+  }
+
+  const produceShopDrawing = async () => {
+    if (shopPdfLoading) return
+    setShopPdfLoading(true)
+    setShopPdfError(null)
+    try {
+      const resp = await fetchShopDrawing('pdf')
+      const url = URL.createObjectURL(new Blob([resp.data], { type: 'application/pdf' }))
+      // Replace any existing preview URL
+      if (shopPdfUrl) URL.revokeObjectURL(shopPdfUrl)
+      setShopPdfUrl(url)
+    } catch (err) {
+      setShopPdfError(err?.response?.data?.detail || err.message || 'Failed to produce drawing')
+    } finally {
+      setShopPdfLoading(false)
+    }
+  }
+
+  const downloadShopDrawing = async (fmt) => {
+    try {
+      const resp = await fetchShopDrawing(fmt)
+      const blob = new Blob([resp.data], {
+        type: fmt === 'dxf' ? 'application/dxf' : 'application/pdf',
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `framing-drawing-${doorSeries}-${widthInches}x${heightInches}.${fmt}`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      alert(err?.response?.data?.detail || err.message || 'Failed to download')
+    }
+  }
+
+  // Handle export of the Door Preview SVG. Shop drawing exports go through
+  // the dedicated Download PDF / Download DXF buttons in that tab.
   const handleExport = () => {
-    let ref, filename
-    switch (activeTab) {
-      case 'preview':
-        ref = previewRef
-        filename = `door-preview-${widthInches}x${heightInches}`
-        break
-      case 'framing':
-        ref = framingRef
-        filename = `framing-drawing-${widthInches}x${heightInches}`
-        break
-      case 'elevation':
-        ref = elevationRef
-        filename = `side-elevation-${widthInches}x${heightInches}`
-        break
-      default:
-        return
-    }
-
-    const svg = getSvgFromRef(ref)
+    if (activeTab !== 'preview') return
+    const filename = `door-preview-${widthInches}x${heightInches}`
+    const svg = getSvgFromRef(previewRef)
     if (!svg) {
       alert('Drawing not available for export')
       return
     }
-
     switch (exportFormat) {
       case 'svg':
         exportAsSVG(svg, `${filename}.svg`)
@@ -150,7 +204,7 @@ function DoorDrawings({
         exportAsPNG(svg, `${filename}.png`, 2)
         break
       case 'pdf':
-        exportAsPDF(svg, `${filename}.pdf`, `${doorSeries} ${Math.floor(widthInches / 12)}' x ${Math.floor(heightInches / 12)}'`, { vector: activeTab !== 'preview' })
+        exportAsPDF(svg, `${filename}.pdf`, `${doorSeries} ${Math.floor(widthInches / 12)}' x ${Math.floor(heightInches / 12)}'`)
         break
       case 'print':
         printDrawing(svg, `Door Drawing - ${doorSeries}`)
@@ -160,12 +214,12 @@ function DoorDrawings({
     }
   }
 
-  // Handle export all
+  // Export-all is no longer meaningful (only Preview SVG remains; shop
+  // drawing has its own buttons). Kept as a thin wrapper so the existing
+  // "Export All" button still works for the Door Preview.
   const handleExportAll = () => {
     const drawings = [
       { element: getSvgFromRef(previewRef), title: 'Door Preview' },
-      { element: getSvgFromRef(framingRef), title: 'Framing Drawing' },
-      { element: getSvgFromRef(elevationRef), title: 'Side Elevation' },
     ].filter(d => d.element)
 
     if (drawings.length === 0) {
@@ -254,6 +308,7 @@ function DoorDrawings({
                 glassColor={glassColor}
                 doorType={doorType}
                 doorSeries={doorSeries}
+                glassPocketsPerSection={glassPocketsPerSection}
                 showDimensions={true}
                 scale={1}
               />
@@ -278,69 +333,67 @@ function DoorDrawings({
           </div>
         </div>
 
-        {/* Framing Drawing Tab */}
-        <div ref={framingRef} className={activeTab === 'framing' ? 'block' : 'hidden'}>
-          <div className="overflow-x-auto">
-            {geometryLoading && (
-              <div className="text-center py-8 text-gray-500">Loading geometry...</div>
+        {/* Shop Drawing Tab — backend-rendered PDF.
+             When savedQuoteId is set: hits the saved-quote endpoint (real
+             customer/job# in the title block).
+             Otherwise: hits the preview endpoint with the live config so
+             the in-house tool / pre-save configurator gets the same drawing. */}
+        <div className={activeTab === 'shop_drawing' ? 'block' : 'hidden'}>
+          <div className="flex flex-wrap items-center gap-3 mb-3">
+            <button
+              onClick={produceShopDrawing}
+              disabled={shopPdfLoading}
+              className="px-4 py-2 text-sm font-medium bg-odc-600 text-white rounded hover:bg-odc-700 disabled:opacity-50"
+            >
+              {shopPdfLoading
+                ? 'Generating…'
+                : (shopPdfUrl ? 'Regenerate Drawing' : 'Produce Drawing')}
+            </button>
+            {shopPdfUrl && !shopPdfLoading && (
+              <>
+                <button
+                  onClick={() => downloadShopDrawing('pdf')}
+                  className="px-3 py-2 text-sm font-medium bg-gray-700 text-white rounded hover:bg-gray-800"
+                >
+                  Download PDF
+                </button>
+                <button
+                  onClick={() => downloadShopDrawing('dxf')}
+                  className="px-3 py-2 text-sm font-medium bg-gray-700 text-white rounded hover:bg-gray-800"
+                  title="DXF for opening in CAD software"
+                >
+                  Download DXF
+                </button>
+              </>
             )}
-            {geometryError && !geometry && (
-              <div className="text-center py-8 text-red-500">Error loading geometry: {geometryError}</div>
-            )}
-            <FramingDrawing
-              width={widthInches}
-              height={heightInches}
-              trackRadius={radius}
-              trackSize={trackSize}
-              liftType={liftType}
-              geometry={geometry}
-              doorSeries={doorSeries}
-              doorType={doorType}
-              frameType={frameType}
-              mountType={trackMount || 'bracket'}
-              scale={0.6}
-              title={`FRAMING DRAWING - ${doorSeries}`}
-              springCount={springCount}
-              extras={resolvedExtras}
-            />
+            <span className="text-xs text-gray-500">
+              Includes front + side elevations, plan view, panel profile, optional extras checklist, and title block.
+            </span>
           </div>
-          <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-            <p className="text-sm text-blue-800">
-              <strong>Note:</strong> This drawing shows framing requirements for installation.
-              Verify all dimensions on site before proceeding with construction.
-            </p>
-          </div>
-        </div>
 
-        {/* Side Elevation Tab */}
-        <div ref={elevationRef} className={activeTab === 'elevation' ? 'block' : 'hidden'}>
-          <div className="overflow-x-auto">
-            {geometryLoading && (
-              <div className="text-center py-8 text-gray-500">Loading geometry...</div>
-            )}
-            {geometryError && !geometry && (
-              <div className="text-center py-8 text-red-500">Error loading geometry: {geometryError}</div>
-            )}
-            <SideElevationDrawing
-              width={widthInches}
-              height={heightInches}
-              trackRadius={radius}
-              trackSize={trackSize}
-              liftType={liftType}
-              highLiftInches={highLiftInches}
-              geometry={geometry}
-              doorSeries={doorSeries}
-              doorType={doorType}
-              scale={0.6}
-              title={`SIDE ELEVATION - ${doorSeries}`}
-            />
-          </div>
-          <div className="mt-4 p-3 bg-yellow-50 rounded-lg">
-            <p className="text-sm text-yellow-800">
-              <strong>Clearance Requirements:</strong> Ensure adequate head room, back room,
-              and side room clearances as shown in the drawing before installation.
-            </p>
-          </div>
+          {shopPdfError && !shopPdfLoading && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700 mb-3">
+              Could not produce shop drawing: {shopPdfError}
+            </div>
+          )}
+
+          {shopPdfUrl && !shopPdfLoading && (
+            <div className="border border-gray-300 rounded">
+              <iframe
+                src={shopPdfUrl}
+                title="Shop Drawing PDF"
+                style={{ width: '100%', height: '70vh', minHeight: 500, border: 0 }}
+              />
+            </div>
+          )}
+
+          {!shopPdfUrl && !shopPdfLoading && !shopPdfError && (
+            <div className="text-center py-16 text-gray-500 border border-dashed border-gray-300 rounded">
+              Click <strong>Produce Drawing</strong> to generate the shop drawing PDF.
+              <br />
+              <span className="text-xs">No save required — the drawing is generated from the current configuration.</span>
+            </div>
+          )}
         </div>
       </div>
 

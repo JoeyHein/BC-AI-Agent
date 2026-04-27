@@ -5,6 +5,13 @@ import apiClient from '../api/client'
 import DoorDrawings from './DoorDrawings'
 import DoorPreview from './DoorPreview'
 import QuoteReviewPanel from './QuoteReviewPanel'
+import {
+  hasGlassPockets,
+  pocketConstraints,
+  sectionCountForHeight,
+  getCurrentPocketCount,
+  buildPocketsForCount,
+} from '../utils/glassPockets'
 
 const STEPS = [
   { id: 'type', title: 'Door Type', description: 'Select door category' },
@@ -202,6 +209,7 @@ function DoorConfigurator() {
         trackRadius: door.trackRadius,
         trackThickness: door.trackThickness,
         liftType: door.liftType,
+        highLiftInches: door.liftType === 'high_lift' ? door.highLiftInches : null,
         hardware: door.hardware,
         operator: door.operator !== 'NONE' ? door.operator : null,
         operatorAccessories: (door.operatorAccessories || []).length > 0 ? door.operatorAccessories : undefined,
@@ -462,6 +470,7 @@ function DoorConfigurator() {
               doorConfig={currentDoor}
               showExport={true}
               defaultTab="preview"
+              apiContext="admin"
             />
           </div>
         )}
@@ -838,33 +847,9 @@ function DesignStep({ door, colors, panelDesigns, config, onChange }) {
     ]
 
     // Glass pocket customization for AL976/SWD
-    const isGlassDoor = ['AL976', 'SWD'].includes(door.doorSeries)
-    const doorWidthFeet = (door.doorWidth || 96) / 12
-    const defaultPockets = doorWidthFeet <= 10 ? 3 : doorWidthFeet <= 14 ? 4 : doorWidthFeet <= 18 ? 5 : doorWidthFeet <= 22 ? 6 : 7
-    const doorH = door.doorHeight || 84
-    const sectionHeight = 21  // aluminum sections are 21" or 24"
-    const sectionCount = Math.round(doorH / sectionHeight) || 4
-    const isSWD = door.doorSeries === 'SWD'
-    const maxAdjust = 3  // max +3 from default
-    const minAdjust = isSWD ? defaultPockets : 1  // SWD: any within range, AL976: -1 only
-
-    // Get current pocket config or build defaults
-    const pockets = door.glassPocketsPerSection || {}
-
-    const getPocketCount = (sectionIdx) => {
-      if (pockets[sectionIdx] != null) return pockets[sectionIdx]
-      return defaultPockets
-    }
-
-    const setPocketCount = (sectionIdx, count) => {
-      const min = Math.max(1, defaultPockets - minAdjust)
-      const max = defaultPockets + maxAdjust
-      const clamped = Math.max(min, Math.min(max, count))
-      const updated = { ...pockets, [sectionIdx]: clamped }
-      // If all sections match default, clear the override
-      const allDefault = Array.from({ length: sectionCount }, (_, i) => (updated[i] ?? defaultPockets) === defaultPockets).every(Boolean)
-      onChange({ glassPocketsPerSection: allDefault ? null : updated })
-    }
+    const isGlassDoor = hasGlassPockets(door.doorSeries)
+    const { default: defaultPockets, min: minCount, max: maxCount } = pocketConstraints(door.doorSeries, door.doorWidth)
+    const sectionCount = sectionCountForHeight(door.doorHeight)
 
     return (
       <div className="space-y-6">
@@ -898,19 +883,10 @@ function DesignStep({ door, colors, panelDesigns, config, onChange }) {
 
         {/* Glass Pocket Customization — AL976 and SWD only (single door-wide count) */}
         {isGlassDoor && (() => {
-          const firstCount = pockets[0]
-          const currentCount = firstCount != null ? firstCount : defaultPockets
-          const minCount = Math.max(1, defaultPockets - minAdjust)
-          const maxCount = defaultPockets + maxAdjust
+          const currentCount = getCurrentPocketCount(door.glassPocketsPerSection, defaultPockets)
           const setAll = (count) => {
             const clamped = Math.max(minCount, Math.min(maxCount, count))
-            if (clamped === defaultPockets) {
-              onChange({ glassPocketsPerSection: null })
-              return
-            }
-            const updated = {}
-            for (let i = 0; i < sectionCount; i++) updated[i] = clamped
-            onChange({ glassPocketsPerSection: updated })
+            onChange({ glassPocketsPerSection: buildPocketsForCount(clamped, sectionCount, defaultPockets) })
           }
           const isCustom = currentCount !== defaultPockets
           return (
@@ -1178,8 +1154,8 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
   const getStampColumns = (widthInches, panelDesign) => {
     const widthFeet = widthInches / 12
     let longCols
-    if (widthFeet <= 10) longCols = 2
-    else if (widthFeet <= 12) longCols = 3
+    if (widthFeet < 12) longCols = 2        // up to 10'2"
+    else if (widthFeet <= 14) longCols = 3  // 12'-14'
     else if (widthFeet <= 16) longCols = 4
     else if (widthFeet <= 19) longCols = 5
     else longCols = 6
