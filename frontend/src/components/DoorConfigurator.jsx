@@ -33,6 +33,12 @@ function DoorConfigurator() {
   const [poNumber, setPoNumber] = useState('')
   const [deliveryType, setDeliveryType] = useState('delivery')
 
+  // Clear the held BC quote id when the customer changes so a fresh quote
+  // is created for the new customer instead of editing the previous one's.
+  useEffect(() => {
+    setQuoteResult(null)
+  }, [selectedCustomer?.bc_customer_id])
+
   // Fetch full configuration on mount
   const { data: config, isLoading: configLoading } = useQuery({
     queryKey: ['doorConfig'],
@@ -225,6 +231,9 @@ function DoorConfigurator() {
       customerId: selectedCustomer?.bc_customer_id || null,
       poNumber: poNumber || undefined,
       deliveryType,
+      // Reuse the existing BC quote on subsequent generations (e.g. after
+      // adding another door) so the BC quote number stays the same.
+      bcQuoteId: quoteResult?.data?.bc_quote_id || undefined,
     }
     generateQuoteMutation.mutate(request)
   }
