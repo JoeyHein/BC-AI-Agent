@@ -989,10 +989,14 @@ class DoorCalculatorService:
         lift_type = lift_config.get("type", "standard")
         eff_h = effective_height or height_inches
 
+        # Low headroom uses standard drums (the LHR conversion is in the track
+        # kit; the drum itself is the same as a standard-lift door).
+        drum_lift = "standard" if lift_type == "low_headroom" else lift_type
+
         # Filter drums by lift type
         eligible_drums = [
             (name, spec) for name, spec in self.drum_table.items()
-            if spec["lift"] == lift_type
+            if spec["lift"] == drum_lift
         ]
 
         # 3" track requires 15" radius drums — exclude 12" radius drums (e.g. D400-144)
