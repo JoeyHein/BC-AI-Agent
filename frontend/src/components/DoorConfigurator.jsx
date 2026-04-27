@@ -39,6 +39,20 @@ function DoorConfigurator() {
     setQuoteResult(null)
   }, [selectedCustomer?.bc_customer_id])
 
+  // Manual reset: drop the held BC quote id, clear all configured doors,
+  // and jump back to step 0 so the next "Generate Quote" produces a brand
+  // new BC quote.
+  const handleStartNewQuote = () => {
+    if (quoteResult && !window.confirm('Start a new quote? This clears the current configuration but does not delete the BC quote that was already generated.')) {
+      return
+    }
+    setQuoteResult(null)
+    setDoors([createEmptyDoor()])
+    setCurrentDoorIndex(0)
+    setPoNumber('')
+    setCurrentStep(0)
+  }
+
   // Fetch full configuration on mount
   const { data: config, isLoading: configLoading } = useQuery({
     queryKey: ['doorConfig'],
@@ -498,6 +512,7 @@ function DoorConfigurator() {
             onAddDoor={addDoor}
             deliveryType={deliveryType}
             onDeliveryTypeChange={setDeliveryType}
+            onStartNewQuote={handleStartNewQuote}
           />
         )}
       </div>
@@ -2652,7 +2667,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
   )
 }
 
-function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult, selectedCustomer, poNumber, onPoNumberChange, onAddDoor, deliveryType, onDeliveryTypeChange }) {
+function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult, selectedCustomer, poNumber, onPoNumberChange, onAddDoor, deliveryType, onDeliveryTypeChange, onStartNewQuote }) {
   const [partsData, setPartsData] = useState(null)
   const [loadingParts, setLoadingParts] = useState(false)
   const [showParts, setShowParts] = useState(false)
@@ -3424,15 +3439,24 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
                   <p className="text-xs text-amber-600 mt-2">Please verify these part numbers in the BC quote and update if needed.</p>
                 </div>
               )}
-              {/* Review Changes button */}
+              {/* Review Changes + Start New Quote */}
               {quoteResult.data.bc_quote_id && (
-                <div className="mt-3 pt-3 border-t border-green-200">
+                <div className="mt-3 pt-3 border-t border-green-200 flex flex-wrap gap-2">
                   <button
                     onClick={() => setShowReviewPanel(!showReviewPanel)}
                     className="px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md"
                   >
                     {showReviewPanel ? 'Hide Review' : 'Review Changes'}
                   </button>
+                  {onStartNewQuote && (
+                    <button
+                      onClick={onStartNewQuote}
+                      className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-md"
+                      title="Clear the configurator and start a fresh BC quote"
+                    >
+                      Start New Quote
+                    </button>
+                  )}
                 </div>
               )}
             </div>
