@@ -2012,8 +2012,12 @@ class PartNumberService:
         door width and height. Small doors may need zero struts.
         CRAFT series: 0 struts without windows (except 16'=1), 1 strut with windows.
         """
-        # Aluminum doors have built-in struts — never add separate strut parts
-        if config.door_type == "aluminium":
+        # AL976 panels have struts built into the extrusion — no separate
+        # strut line. Every other series (incl. Panorama, Solalite, SWD)
+        # defaults to the Thermalex commercial chart unless overridden
+        # below.
+        series = (config.door_series or "").upper()
+        if series == "AL976":
             return []
 
         # Residential doors (KANATA & CRAFT): always 1 x 20ga strut
