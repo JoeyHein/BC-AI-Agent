@@ -1094,204 +1094,141 @@ class BCPartNumberMapper:
         """
         Get hardware box part number based on door size and type.
 
-        BC part number patterns (updated Jan 2026):
+        BC SKU format (verified against bc_items.json, 2026-04-27):
 
-        Standard Lift:
-        - HK02: Standard Lift 2" Track (Residential) - HK02-WWHH0-RC
-        - HK03: Standard Lift 3" Track (Commercial) - HK03-WWHH0-RC or HK03-WWHH1-RC
+            HK{nn}-{HH}{WW}{D}{EE}-RC   (high lift, 7-digit middle)
+            HK{nn}-{HH}{WW}{D}-RC       (standard lift, 5-digit middle)
 
-        High Lift:
-        - HK12: High Lift 2" Track - HK12-WWHH0SS-RC (SS = high lift feet)
-        - HK13: High Lift 3" Track - HK13-WWHH0SS-RC
+        Where:
+            HH = max-height-feet bucket  (08, 10, 11, 14, 16, 17, 19, 20,
+                                          22, 24, 26, 28, 29)
+            WW = max-width-feet bucket   (08, 10, 12, 14, 16, 18, 20, 21,
+                                          22, 24, 26)
+            D  = end caps  (0 = SEC for height ≤16'2", 1 = DEC required ≥16'3")
+            EE = high-lift extension feet (02 covers up to 2'11", 03–13 each
+                                          cover one foot up to 13'-13'8")
 
-        Commercial Hardware Boxes:
-        - HW: Commercial boxes - HWww-hhhhh-00
-
-        Width codes (WW):
-        - 11 = 6'-11'2" (up to ~11')
-        - 14 = 11'3"-14'2" (up to ~14')
-        - 16 = 14'3"-16'2" (up to ~16')
-        - 18 = 16'3"-18'2" (up to ~18')
-        - 20 = 18'3"-20'2" (up to ~20')
-        - 22 = 20'1"-22'0"
-        - 24 = 22'1"-24'0"
-        - 26 = 24'1"-26'2"
-        - 28 = 26'3"-28'0"
-        - 29 = 28'1"-29'
-
-        Height codes (HH0):
-        - 080 = 6'-8'2" (up to ~8')
-        - 100 = 8'3"-10'2" (up to ~10')
-        - 120 = 10'3"-12'2" (up to ~12')
-        - 140 = 12'3"-14'2" (up to ~14')
-        - 160 = 14'3"-16'2" (up to ~16')
-        - 180 = 16'3"-18'2" (up to ~18')
-        - 200 = 18'3"-20'2"
-        - 210 = 20'3"-21'2"
-        - 220 = 21'3"-22'2"
-        - 240 = 22'3"-24'2"
-        - 260 = 24'3"-26'2"
-
-        Args:
-            door_width_feet: Door width in feet
-            door_height_feet: Door height in feet
-            num_sections: Number of panel sections (typically 4)
-            commercial: True for commercial (3" track), False for residential (2" track)
-            lift_type: "standard" or "high" lift
-            high_lift_inches: Additional inches for high lift (converted to feet code)
-
-        Returns:
-            BCPartNumber for hardware box
+        Track size by prefix:
+            HK02 = std-lift 2"   (residential)
+            HK03 = std-lift 3"   (commercial)
+            HK12 = high-lift 2"  (HH up to 18, WW up to 12 only)
+            HK13 = high-lift 3"  (full HH×WW × EE matrix, both SEC and DEC)
         """
-        # Width code mapping (WW)
-        # HK02 (residential): 11, 14, 16, 18, 20
-        # HK03 (commercial): 11, 14, 16, 17, 19, 20, 22, 24, 26, 28, 29
-        # Commercial >16' uses DEC (double end cap) with different width codes
-        def get_width_code(width_ft: int, is_commercial: bool = False) -> str:
-            if is_commercial:
-                if width_ft <= 11:
-                    return "11"
-                elif width_ft <= 14:
-                    return "14"
-                elif width_ft <= 16:
-                    return "16"
-                elif width_ft <= 17:
-                    return "17"
-                elif width_ft <= 19:
-                    return "19"
-                elif width_ft <= 20:
-                    return "20"
-                elif width_ft <= 22:
-                    return "22"
-                elif width_ft <= 24:
-                    return "24"
-                elif width_ft <= 26:
-                    return "26"
-                elif width_ft <= 28:
-                    return "28"
-                else:
-                    return "29"
-            else:
-                # Residential
-                if width_ft <= 11:
-                    return "11"
-                elif width_ft <= 14:
-                    return "14"
-                elif width_ft <= 16:
-                    return "16"
-                elif width_ft <= 18:
-                    return "18"
-                elif width_ft <= 20:
-                    return "20"
-                else:
-                    return "20"  # Max residential width code
+        # ---- Bucket helpers (height and width buckets are independent from
+        # each other; the SKU has HH first, WW second, regardless of which
+        # is the larger dimension). ----
+        def hh_code(height_ft: int) -> str:
+            # Height bucket maxes — match BC's actual ranges.
+            if height_ft <= 11:
+                return "11"
+            if height_ft <= 14:
+                return "14"
+            if height_ft <= 16:
+                return "16"
+            if height_ft <= 17:
+                return "17"
+            if height_ft <= 19:
+                return "19"
+            if height_ft <= 20:
+                return "20"
+            if height_ft <= 22:
+                return "22"
+            if height_ft <= 24:
+                return "24"
+            if height_ft <= 26:
+                return "26"
+            if height_ft <= 28:
+                return "28"
+            return "29"
 
-        # Height code mapping (HH0)
-        def get_height_code(height_ft: int) -> str:
-            if height_ft <= 8:
-                return "080"
-            elif height_ft <= 10:
-                return "100"
-            elif height_ft <= 12:
-                return "120"
-            elif height_ft <= 14:
-                return "140"
-            elif height_ft <= 16:
-                return "160"
-            elif height_ft <= 18:
-                return "180"
-            elif height_ft <= 20:
-                return "200"
-            elif height_ft <= 21:
-                return "210"
-            elif height_ft <= 22:
-                return "220"
-            elif height_ft <= 24:
-                return "240"
-            else:
-                return "260"  # Max height code
+        def ww_code(width_ft: int) -> str:
+            if width_ft <= 8:
+                return "08"
+            if width_ft <= 10:
+                return "10"
+            if width_ft <= 12:
+                return "12"
+            if width_ft <= 14:
+                return "14"
+            if width_ft <= 16:
+                return "16"
+            if width_ft <= 18:
+                return "18"
+            if width_ft <= 20:
+                return "20"
+            if width_ft <= 21:
+                return "21"
+            if width_ft <= 22:
+                return "22"
+            if width_ft <= 24:
+                return "24"
+            return "26"
 
-        # Get width and height codes
-        width_code = get_width_code(door_width_feet, commercial)
-        height_code = get_height_code(door_height_feet)
+        def hl_ext_code(hl_in: int) -> str:
+            # EE=02 covers 1'-2'11" (anything up to ~35"). From 36" up, each
+            # whole foot maps to its own bucket: 36"→03, 60"→05, 156"→13.
+            if hl_in <= 35:
+                ee = 2
+            else:
+                ee = hl_in // 12
+            ee = max(2, min(13, ee))
+            return f"{ee:02d}"
+
+        # SEC/DEC: HH 11/14 are SEC-only, HH 17+ are DEC-only (door too
+        # tall for single end caps). HH=16 has both — pick DEC for wide
+        # doors (>16') where extra hinge reinforcement matters, else SEC.
+        forces_dec = door_height_feet >= 17 or (
+            hh_code(door_height_feet) == "16" and door_width_feet > 16
+        )
+
+        hh = hh_code(door_height_feet)
+        ww = ww_code(door_width_feet)
+        ee = hl_ext_code(high_lift_inches) if lift_type == "high" else None
 
         if lift_type == "high":
-            # High Lift hardware kits
-            # Format: HK12-WWHHSSS-RC (2") or HK13-WWHHSSS-RC (3")
-            # WW = width code (11, 14, 16, 18)
-            # HH = height code (08, 10, 12, 14, 16, 18, 20, 21, 22, 24, 26) - 2 digits, not 3
-            # SSS = high lift feet (002-004 for 2", 002-013 for 3")
+            prefix = "HK13" if commercial else "HK12"
+            track_label = '3"' if commercial else '2"'
 
-            # Height code for high lift is 2 digits (not 3 like standard lift)
-            def get_high_lift_height_code(height_ft: int) -> str:
-                if height_ft <= 8:
-                    return "08"
-                elif height_ft <= 10:
-                    return "10"
-                elif height_ft <= 12:
-                    return "12"
-                elif height_ft <= 14:
-                    return "14"
-                elif height_ft <= 16:
-                    return "16"
-                elif height_ft <= 18:
-                    return "18"
-                elif height_ft <= 20:
-                    return "20"
-                elif height_ft <= 21:
-                    return "21"
-                elif height_ft <= 22:
-                    return "22"
-                elif height_ft <= 24:
-                    return "24"
-                else:
-                    return "26"
+            def build(d: str) -> str:
+                return f"{prefix}-{hh}{ww}{d}{ee}-RC"
 
-            hl_height_code = get_high_lift_height_code(door_height_feet)
+            part_number = build("1" if forces_dec else "0")
+            cap_type = "DEC" if forces_dec else "SEC"
+            if not forces_dec and part_number not in self.bc_items:
+                dec_pn = build("1")
+                if dec_pn in self.bc_items:
+                    part_number = dec_pn
+                    cap_type = "DEC"
 
-            if commercial:
-                # HK13 - High Lift 3" Track (high lift 2-13 feet)
-                high_lift_feet = max(2, min(13, (high_lift_inches + 6) // 12 + 2))
-                high_lift_code = f"{high_lift_feet:03d}"
-                part_number = f"HK13-{width_code}{hl_height_code}{high_lift_code}-RC"
-                description = f"HARDWARE KIT, HIGH LIFT 3\", {door_width_feet}'x{door_height_feet}', +{high_lift_feet}' HL"
-            else:
-                # HK12 - High Lift 2" Track (high lift only 2-4 feet)
-                high_lift_feet = max(2, min(4, (high_lift_inches + 6) // 12 + 2))
-                high_lift_code = f"{high_lift_feet:03d}"
-                part_number = f"HK12-{width_code}{hl_height_code}{high_lift_code}-RC"
-                description = f"HARDWARE KIT, HIGH LIFT 2\", {door_width_feet}'x{door_height_feet}', +{high_lift_feet}' HL"
-
+            description = (
+                f"HARDWARE KIT, HIGH LIFT {track_label}, "
+                f"{door_width_feet}'W x {door_height_feet}'H, "
+                f"{cap_type}, +{int(ee)}' HL"
+            )
         else:
-            # Standard Lift hardware kits
-            # Format: HK{02|03}-{WW}{HH}{D}-RC
-            #   WW = width code, HH = height code (3 digits: 080, 100, etc.)
-            #   D = 0 for SEC (single end cap), 1 for DEC (double end cap)
-            # DEC used for wider doors (typically >16' residential, varies for commercial)
             prefix = "HK03" if commercial else "HK02"
             track_label = '3"' if commercial else '2"'
 
-            # DEC for wider doors: commercial >16', residential >16'
-            use_dec = door_width_feet > 16
-            if use_dec:
-                dec_height = height_code[:-1] + "1"  # e.g. 080 -> 081
-                part_number = f"{prefix}-{width_code}{dec_height}-RC"
-                cap_type = "DEC"
-            else:
-                part_number = f"{prefix}-{width_code}{height_code}-RC"
-                cap_type = "SEC"
+            def build(d: str) -> str:
+                return f"{prefix}-{hh}{ww}{d}-RC"
 
-            # Use BC description if available, otherwise generate one
-            if part_number in self.bc_items:
-                description = self.bc_items[part_number].get(
-                    "displayName",
-                    f"HARDWARE KIT, STD LIFT {track_label}, {door_width_feet}'x{door_height_feet}', {cap_type}"
-                )
-            else:
-                # HK02/HK03 part numbers follow a deterministic pattern —
-                # BC has all valid combos but our item cache may not.
-                # Generate directly; don't fall to generic HK03-00000-RC.
-                description = f"HARDWARE KIT, STD LIFT {track_label}, {door_width_feet}'x{door_height_feet}', {cap_type}"
+            part_number = build("1" if forces_dec else "0")
+            cap_type = "DEC" if forces_dec else "SEC"
+            if not forces_dec and part_number not in self.bc_items:
+                dec_pn = build("1")
+                if dec_pn in self.bc_items:
+                    part_number = dec_pn
+                    cap_type = "DEC"
+
+            description = (
+                f"HARDWARE KIT, STD LIFT {track_label}, "
+                f"{door_width_feet}'W x {door_height_feet}'H, {cap_type}"
+            )
+
+        # Prefer the real BC displayName when the SKU is in the cache so the
+        # description on the quote line matches BC exactly.
+        if part_number in self.bc_items:
+            description = self.bc_items[part_number].get("displayName", description)
 
         return BCPartNumber(
             part_number=part_number,
