@@ -2222,13 +2222,15 @@ class PartNumberService:
         # residential gets bottom only (pre-cut rigid retainer by width)
         # Quantity = door width in inches (retainer sold by the inch)
         if not is_residential:
-            # Commercial retainer — select by panel series per rulebook
+            # Commercial retainer — select by panel series per rulebook.
+            # Sold by the inch; one TOP and one BOTTOM run, each = door
+            # width. The previous *2 multiplier on wide doors was a holdover
+            # from when this emitted a single combined line and double-
+            # counted once the TOP/BOTTOM split was added (SQ-002448).
             series = config.door_series or "TX450"
             retainer_info = mapper.COMMERCIAL_RETAINER.get(series, mapper.COMMERCIAL_RETAINER["TX450"])
             retainer_pn, retainer_desc = retainer_info
-
-            # Qty: if door width >= 18' (216"), qty = door_width * 2; else qty = door_width
-            retainer_qty = config.door_width * 2 if config.door_width >= 216 else config.door_width
+            retainer_qty = config.door_width
 
             parts.append(PartSelection(
                 part_number=retainer_pn,
