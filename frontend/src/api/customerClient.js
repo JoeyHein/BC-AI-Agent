@@ -63,9 +63,9 @@ export const customerAuthApi = {
 
 // Saved Quotes API
 export const savedQuotesApi = {
-  // List all saved quotes
-  getAll: () =>
-    customerApiClient.get('/api/customer/portal/saved-quotes'),
+  // List all saved quotes (optional { search } filters by name or BC quote #)
+  getAll: (params = {}) =>
+    customerApiClient.get('/api/customer/portal/saved-quotes', { params }),
 
   // Get single saved quote
   get: (id) =>

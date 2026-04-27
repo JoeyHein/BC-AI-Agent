@@ -19,6 +19,7 @@ import WeeklyEmail from './components/WeeklyEmail'
 import BusinessDashboard from './components/BusinessDashboard'
 import CustomerDetail from './components/CustomerDetail'
 import QuoteLeads from './components/QuoteLeads'
+import QuoteSearch from './components/QuoteSearch'
 import QuotingAnalytics from './pages/QuotingAnalytics'
 
 function Navigation() {
@@ -55,6 +56,7 @@ function Navigation() {
   const isActive = (path) => {
     if (path === '/settings') return location.pathname.startsWith('/settings')
     if (path === '/customers') return location.pathname === '/customers' || location.pathname.startsWith('/customers/')
+    if (path === '/quotes') return location.pathname === '/quotes' || location.pathname.startsWith('/quotes/')
     return location.pathname === path
   }
 
@@ -70,6 +72,7 @@ function Navigation() {
     { path: '/reviews', label: 'Reviews' },
     { path: '/door-configurator', label: 'Configurator' },
     { path: '/customers', label: 'Customers' },
+    { path: '/quotes', label: 'Quotes' },
     { path: '/orders', label: 'Orders' },
     { path: '/leads', label: 'Leads' },
     { path: '/install-referrals', label: 'Installs' },
@@ -254,6 +257,12 @@ function AppContent() {
           <Route path="/orders" element={
             <ProtectedRoute>
               <OrderManagement />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/quotes" element={
+            <ProtectedRoute>
+              <QuoteSearch />
             </ProtectedRoute>
           } />
 

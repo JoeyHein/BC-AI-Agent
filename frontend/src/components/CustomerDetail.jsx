@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -208,8 +208,119 @@ function CustomerDetail() {
         </div>
       </div>
 
+      {/* Saved-quote configs (Portal) */}
+      <CustomerQuotes customerId={id} />
+
       {/* CRM Notes — call transcripts, email summaries, meeting notes */}
       <CustomerNotes customerId={id} />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Customer Quotes — saved-quote configs from the customer portal
+// ---------------------------------------------------------------------------
+
+function CustomerQuotes({ customerId }) {
+  const [searchInput, setSearchInput] = useState('')
+  const [search, setSearch] = useState('')
+
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 250)
+    return () => clearTimeout(t)
+  }, [searchInput])
+
+  const { data: quotes, isLoading } = useQuery({
+    queryKey: ['admin-customer-quotes', customerId, search],
+    queryFn: async () => {
+      const r = await customersApi.getQuotes(customerId, search ? { search } : {})
+      return r.data
+    },
+    enabled: !!customerId,
+  })
+
+  const list = quotes || []
+
+  const statusBadge = (q) => {
+    if (q.order_placed) return { text: 'Ordered', cls: 'bg-gray-200 text-gray-800' }
+    if (q.is_submitted) return { text: 'Submitted', cls: 'bg-green-100 text-green-800' }
+    if (q.bc_quote_id) return { text: 'Priced', cls: 'bg-blue-100 text-blue-800' }
+    return { text: 'Draft', cls: 'bg-yellow-100 text-yellow-800' }
+  }
+
+  return (
+    <div className="bg-white shadow rounded-lg">
+      <div className="px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Quotes</h2>
+          <p className="text-xs text-gray-500">
+            Saved quote configurations from the customer portal.
+          </p>
+        </div>
+        <div className="relative w-64">
+          <input
+            type="text"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search by quote # or tag…"
+            className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-odc-500"
+          />
+          <svg className="absolute left-2 top-2 h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+          </svg>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        {isLoading ? (
+          <div className="p-4 text-sm text-gray-400">Loading quotes…</div>
+        ) : list.length === 0 ? (
+          <div className="p-6 text-center text-sm text-gray-400">
+            {search ? 'No quotes match your search.' : 'No saved quotes for this customer.'}
+          </div>
+        ) : (
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tag / Name</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">BC Quote #</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Updated</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {list.map((q) => {
+                const b = statusBadge(q)
+                return (
+                  <tr key={q.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-3 text-sm text-gray-900">
+                      {q.name || <span className="text-gray-400">(untitled)</span>}
+                      {q.description && (
+                        <p className="text-xs text-gray-500 truncate max-w-xs">{q.description}</p>
+                      )}
+                    </td>
+                    <td className="px-6 py-3 text-sm font-mono text-gray-700">
+                      {q.bc_quote_number || '—'}
+                    </td>
+                    <td className="px-6 py-3">
+                      <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${b.cls}`}>
+                        {b.text}
+                      </span>
+                    </td>
+                    <td className="px-6 py-3 text-sm text-gray-500">
+                      {q.created_at ? new Date(q.created_at).toLocaleDateString() : '—'}
+                    </td>
+                    <td className="px-6 py-3 text-sm text-gray-500">
+                      {q.updated_at ? new Date(q.updated_at).toLocaleDateString() : '—'}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   )
 }

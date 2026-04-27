@@ -8,6 +8,7 @@ import secrets
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
@@ -1166,6 +1167,62 @@ def get_customer_activity(
         "orders": orders_data,
         "last_login_at": customer.last_login_at.isoformat() if customer.last_login_at else None,
     }
+
+
+@router.get("/{customer_id}/quotes")
+def list_customer_quotes(
+    customer_id: int,
+    search: Optional[str] = None,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin: list all SavedQuoteConfig rows for one customer.
+
+    Optional ?search= matches name (tag) or BC quote number, case-insensitive.
+    Returns the same row shape the customer "My Quotes" page consumes so the
+    admin UI can reuse the customer list component.
+    """
+    customer = db.query(User).filter(
+        User.id == customer_id,
+        User.user_type == 'CUSTOMER'
+    ).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    q = db.query(SavedQuoteConfig).filter(SavedQuoteConfig.user_id == customer.id)
+    if search and search.strip():
+        like = f"%{search.strip()}%"
+        q = q.filter(or_(
+            SavedQuoteConfig.name.ilike(like),
+            SavedQuoteConfig.bc_quote_number.ilike(like),
+        ))
+    configs = q.order_by(SavedQuoteConfig.created_at.desc()).all()
+
+    # Hydrate order_placed flag (matches customer portal _hydrate_order_placed)
+    submitted_nums = [c.bc_quote_number for c in configs if c.bc_quote_number]
+    ordered_nums: set = set()
+    if submitted_nums and customer.bc_customer_id:
+        rows = db.query(SalesOrder.bc_quote_number).filter(
+            SalesOrder.customer_id == customer.bc_customer_id,
+            SalesOrder.bc_quote_number.in_(submitted_nums),
+        ).all()
+        ordered_nums = {r[0] for r in rows if r[0]}
+
+    return [
+        {
+            "id": c.id,
+            "name": c.name,
+            "description": c.description,
+            "is_submitted": c.is_submitted,
+            "bc_quote_number": c.bc_quote_number,
+            "bc_quote_id": c.bc_quote_id,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+            "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+            "submitted_at": c.submitted_at.isoformat() if c.submitted_at else None,
+            "order_placed": bool(c.bc_quote_number and c.bc_quote_number in ordered_nums),
+        }
+        for c in configs
+    ]
 
 
 @router.get("/notes-feed")
