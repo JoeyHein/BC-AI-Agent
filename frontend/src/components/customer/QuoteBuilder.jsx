@@ -2332,33 +2332,34 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         </div>
       )}
 
-      {/* Track Mount Type */}
-      {door.liftType === 'standard' && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Track Mount
-          </label>
-          <div className="grid grid-cols-2 gap-3 max-w-md">
-            {[
-              { id: 'bracket', name: 'Bracket Mount', description: 'Standard bracket mounting' },
-              { id: 'angle', name: 'Angle Mount', description: 'Angle iron mounting' },
-            ].map((option) => (
-              <button
-                key={option.id}
-                onClick={() => onChange({ trackMount: option.id })}
-                className={`p-3 rounded-lg border-2 text-center transition-all ${
-                  (door.trackMount || 'bracket') === option.id
-                    ? 'border-odc-500 bg-odc-50'
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                <div className="text-sm font-medium">{option.name}</div>
-                <div className="text-xs text-gray-500 mt-1">{option.description}</div>
-              </button>
-            ))}
-          </div>
+      {/* Track Mount — bracket vs continuous angle. Applies to every
+          lift type since the horizontal track is the same standard-lift
+          assembly; high-lift / low-headroom / vertical add extension or
+          conversion kits on top of that base track. */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Track Mount
+        </label>
+        <div className="grid grid-cols-2 gap-3 max-w-md">
+          {[
+            { id: 'bracket', name: 'Bracket Mount', description: 'Standard bracket mounting' },
+            { id: 'angle', name: 'Continuous Angle Mount', description: 'Continuous angle mounting' },
+          ].map((option) => (
+            <button
+              key={option.id}
+              onClick={() => onChange({ trackMount: option.id })}
+              className={`p-3 rounded-lg border-2 text-center transition-all ${
+                (door.trackMount || 'bracket') === option.id
+                  ? 'border-odc-500 bg-odc-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <div className="text-sm font-medium">{option.name}</div>
+              <div className="text-xs text-gray-500 mt-1">{option.description}</div>
+            </button>
+          ))}
         </div>
-      )}
+      </div>
 
       {/* Low headroom info */}
       {isLowHeadroom && (
