@@ -547,6 +547,7 @@ class DoorConfigRequest(BaseModel):
     shaftType: str = "auto"  # 'auto', 'single', 'split'
     includeTopSeal: bool = False  # optional upgrade for commercial doors
     includePusherSprings: bool = False  # optional upgrade: adds TR13-00031-00 + TR13-00032-00
+    bumperSpring: bool = False  # leaf bumper spring pair: TR13-00029-00 + TR13-00030-00
 
 
 class QuoteGenerationRequest(BaseModel):
@@ -994,6 +995,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "shaftType": door.shaftType,
                 "includeTopSeal": getattr(door, 'includeTopSeal', False),
                 "includePusherSprings": getattr(door, 'includePusherSprings', False),
+                "bumperSpring": getattr(door, 'bumperSpring', False),
             }
 
             try:
@@ -1710,6 +1712,7 @@ async def get_part_numbers(config: DoorConfigRequest, db: Session = Depends(get_
             "targetCycles": config.targetCycles,
             "includeTopSeal": getattr(config, 'includeTopSeal', False),
             "includePusherSprings": getattr(config, 'includePusherSprings', False),
+            "bumperSpring": getattr(config, 'bumperSpring', False),
         }
 
         # Get parts from service (with BC spring inventory for consistency with specs tab)
@@ -1773,6 +1776,7 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "shaftType": door.shaftType,
                 "includeTopSeal": getattr(door, 'includeTopSeal', False),
                 "includePusherSprings": getattr(door, 'includePusherSprings', False),
+                "bumperSpring": getattr(door, 'bumperSpring', False),
             }
 
             spring_inv = get_bc_spring_inventory()

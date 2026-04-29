@@ -123,6 +123,7 @@ function DoorConfigurator() {
       // Upgrades
       includeTopSeal: false, // optional upgrade for commercial doors below auto-threshold
       includePusherSprings: false, // optional upgrade: adds TR13-00031-00 + TR13-00032-00
+      bumperSpring: false, // leaf bumper spring pair (TR13-00029/00030)
       // High lift inches (only used for high_lift)
       highLiftInches: null,  // extra inches above door opening
     }
@@ -242,6 +243,7 @@ function DoorConfigurator() {
         endCapType: door.endCapType || 'auto',
         includeTopSeal: door.includeTopSeal || false,
         includePusherSprings: door.includePusherSprings || false,
+        bumperSpring: door.bumperSpring || false,
       })),
       tagName: `Configurator Quote - ${doors.length} door(s)`,
       customerId: selectedCustomer?.bc_customer_id || null,
@@ -2509,50 +2511,70 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         </div>
       </div>
 
-      {/* Upgrades — commercial doors */}
-      {door.doorType === 'commercial' && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Upgrades
-          </label>
-          {(() => {
-            const widthInches = door.doorWidth || 0
-            const heightInches = door.doorHeight || 0
-            const autoIncluded = widthInches >= 216 && heightInches >= 120
-            return (
-              <label className={`flex items-start p-3 border rounded-lg ${autoIncluded ? 'bg-green-50 border-green-200' : 'cursor-pointer hover:bg-gray-50'}`}>
-                <input
-                  type="checkbox"
-                  checked={autoIncluded || door.includeTopSeal}
-                  disabled={autoIncluded}
-                  onChange={(e) => onChange({ includeTopSeal: e.target.checked })}
-                  className="h-4 w-4 mt-0.5 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
-                />
-                <div className="ml-2">
-                  <span className="text-sm font-medium text-gray-700">Top Seal (Header Weatherstrip)</span>
-                  {autoIncluded ? (
-                    <p className="text-xs text-green-600">Automatically included for doors ≥ 18' wide and ≥ 10' tall</p>
-                  ) : (
-                    <p className="text-xs text-gray-500">Optional upgrade — adds rubber weatherstrip along the top of the door opening</p>
-                  )}
-                </div>
-              </label>
-            )
-          })()}
-          <label className="mt-2 flex items-start p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-            <input
-              type="checkbox"
-              checked={!!door.includePusherSprings}
-              onChange={(e) => onChange({ includePusherSprings: e.target.checked })}
-              className="h-4 w-4 mt-0.5 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
-            />
-            <div className="ml-2">
-              <span className="text-sm font-medium text-gray-700">Pusher Springs (LH + RH)</span>
-              <p className="text-xs text-gray-500">Adds TR13-00031-00 and TR13-00032-00</p>
-            </div>
-          </label>
-        </div>
-      )}
+      {/* Upgrades */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Upgrades
+        </label>
+
+        {/* Top Seal — commercial only (auto-included on big commercial doors) */}
+        {door.doorType === 'commercial' && (() => {
+          const widthInches = door.doorWidth || 0
+          const heightInches = door.doorHeight || 0
+          const autoIncluded = widthInches >= 216 && heightInches >= 120
+          return (
+            <label className={`flex items-start p-3 border rounded-lg ${autoIncluded ? 'bg-green-50 border-green-200' : 'cursor-pointer hover:bg-gray-50'}`}>
+              <input
+                type="checkbox"
+                checked={autoIncluded || door.includeTopSeal}
+                disabled={autoIncluded}
+                onChange={(e) => onChange({ includeTopSeal: e.target.checked })}
+                className="h-4 w-4 mt-0.5 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
+              />
+              <div className="ml-2">
+                <span className="text-sm font-medium text-gray-700">Top Seal (Header Weatherstrip)</span>
+                {autoIncluded ? (
+                  <p className="text-xs text-green-600">Automatically included for doors ≥ 18' wide and ≥ 10' tall</p>
+                ) : (
+                  <p className="text-xs text-gray-500">Optional upgrade — adds rubber weatherstrip along the top of the door opening</p>
+                )}
+              </div>
+            </label>
+          )
+        })()}
+
+        {/* Pusher Springs — available on all door types (typical for high-lift) */}
+        <label className="mt-2 flex items-start p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+          <input
+            type="checkbox"
+            checked={!!door.includePusherSprings}
+            onChange={(e) => onChange({ includePusherSprings: e.target.checked })}
+            className="h-4 w-4 mt-0.5 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
+          />
+          <div className="ml-2">
+            <span className="text-sm font-medium text-gray-700">Pusher Springs (LH + RH)</span>
+            <p className="text-xs text-gray-500">
+              Typical for high-lift configurations — adds TR13-00031-00 and TR13-00032-00
+            </p>
+          </div>
+        </label>
+
+        {/* Bumper Springs — available on all door types (typical for high-lift) */}
+        <label className="mt-2 flex items-start p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+          <input
+            type="checkbox"
+            checked={!!door.bumperSpring}
+            onChange={(e) => onChange({ bumperSpring: e.target.checked })}
+            className="h-4 w-4 mt-0.5 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
+          />
+          <div className="ml-2">
+            <span className="text-sm font-medium text-gray-700">Bumper Springs (LH + RH)</span>
+            <p className="text-xs text-gray-500">
+              Typical for high-lift configurations — adds TR13-00029-00 and TR13-00030-00
+            </p>
+          </div>
+        </label>
+      </div>
 
       {/* Operator */}
       <div>
