@@ -214,7 +214,7 @@ DOOR_SERIES = {
             "specs": {
                 "thickness": "1 3/4\" (44.5mm)",
                 "material": "Extruded Aluminum",
-                "maxWidth": 240,  # 20' in inches
+                "maxWidth": 290,  # 24'2" in inches
                 "finishWarranty": "5 Year Limited",
                 "workmanshipWarranty": "1 Year Limited"
             }
@@ -516,6 +516,11 @@ class QuoteGenerationRequest(BaseModel):
     tagName: Optional[str] = None
     customerId: Optional[str] = None
     deliveryType: str = "delivery"  # "delivery" or "pickup"
+    # When provided, the endpoint clears all lines on this BC quote and
+    # re-adds them rather than creating a new quote. Used by the internal
+    # configurator so successive "Generate Quote" presses (e.g. after the
+    # user adds another door) keep the same BC quote number.
+    bcQuoteId: Optional[str] = None
 
 
 class DoorCalculationRequest(BaseModel):
@@ -1049,12 +1054,35 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
         po_number = request.poNumber or f"CFG-{len(request.doors)}-DOORS"
         quote_data["externalDocumentNumber"] = po_number
 
-        # Create the quote in BC
-        bc_quote = bc_client.create_sales_quote(quote_data)
-        bc_quote_id = bc_quote.get("id")
-        bc_quote_number = bc_quote.get("number")
-
-        logger.info(f"Created BC quote: {bc_quote_number} (ID: {bc_quote_id})")
+        # Either reuse an existing BC quote (clearing its lines first) or
+        # create a fresh one. Reuse keeps the BC quote number stable across
+        # successive "Generate Quote" presses on the configurator.
+        if request.bcQuoteId:
+            try:
+                existing = bc_client.get_sales_quote(request.bcQuoteId)
+                bc_quote_id = existing.get("id") or request.bcQuoteId
+                bc_quote_number = existing.get("number")
+                existing_lines = bc_client.get_quote_lines(bc_quote_id)
+                for ql in existing_lines:
+                    line_id = ql.get("id")
+                    if not line_id:
+                        continue
+                    try:
+                        bc_client.delete_quote_line(bc_quote_id, line_id)
+                    except Exception as del_err:
+                        logger.warning(f"Could not delete line {line_id} on quote {bc_quote_number}: {del_err}")
+                logger.info(f"Reusing BC quote {bc_quote_number} (ID {bc_quote_id}); cleared {len(existing_lines)} existing lines")
+            except Exception as reuse_err:
+                logger.warning(f"Failed to reuse BC quote {request.bcQuoteId} ({reuse_err}); falling back to new quote")
+                bc_quote = bc_client.create_sales_quote(quote_data)
+                bc_quote_id = bc_quote.get("id")
+                bc_quote_number = bc_quote.get("number")
+                logger.info(f"Created BC quote: {bc_quote_number} (ID: {bc_quote_id})")
+        else:
+            bc_quote = bc_client.create_sales_quote(quote_data)
+            bc_quote_id = bc_quote.get("id")
+            bc_quote_number = bc_quote.get("number")
+            logger.info(f"Created BC quote: {bc_quote_number} (ID: {bc_quote_id})")
 
         # Warm the BC cost cache so pricing uses live production costs
         if request.customerId:

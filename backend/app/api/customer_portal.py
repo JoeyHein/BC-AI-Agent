@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List, Any, Dict
@@ -253,14 +254,23 @@ def _hydrate_order_placed(configs: List[SavedQuoteConfig], db: Session) -> List[
 
 @router.get("/saved-quotes", response_model=List[SavedQuoteConfigResponse])
 def list_saved_quotes(
+    search: Optional[str] = None,
     current_user: User = Depends(get_current_customer),
     db: Session = Depends(get_db)
 ):
-    """List all saved quote configurations for current customer"""
-    configs = db.query(SavedQuoteConfig).filter(
-        SavedQuoteConfig.user_id == current_user.id
-    ).order_by(SavedQuoteConfig.created_at.desc()).all()
+    """List all saved quote configurations for current customer.
 
+    Optional ?search= filters by name (tag) or BC quote number, case-insensitive
+    substring match. Useful for the customer "look up by quote # or tag" box.
+    """
+    q = db.query(SavedQuoteConfig).filter(SavedQuoteConfig.user_id == current_user.id)
+    if search and search.strip():
+        like = f"%{search.strip()}%"
+        q = q.filter(or_(
+            SavedQuoteConfig.name.ilike(like),
+            SavedQuoteConfig.bc_quote_number.ilike(like),
+        ))
+    configs = q.order_by(SavedQuoteConfig.created_at.desc()).all()
     return _hydrate_order_placed(configs, db)
 
 

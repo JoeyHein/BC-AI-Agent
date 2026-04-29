@@ -380,11 +380,13 @@ STRUT_WEIGHT_PER_FT = {
 
 # Lift type configurations
 # NOTE: 12" radius tracks are ONLY available in 2" track (not 3")
-# Low headroom is a completely separate lift type: "2" double track lowhead"
+# Low headroom comes in 2" (heights 7'–14') and 3" (heights 8'–20') kits.
+# The mapper picks TR{02|03}-LHR-{height}; track-availability step-up handles
+# the 7'-door + 3"-LHR case by rounding up to the smallest available height.
 LIFT_TYPES = {
     "standard_15": {"name": "Standard Lift 15'' Radius", "radius": 15, "type": "standard", "allowed_track_sizes": [2, 3]},
     "standard_12": {"name": "Standard Lift 12'' Radius", "radius": 12, "type": "standard", "allowed_track_sizes": [2]},
-    "low_headroom": {"name": "Low Headroom (2'' Double Track)", "radius": 15, "type": "low_headroom", "allowed_track_sizes": [2]},
+    "low_headroom": {"name": "Low Headroom", "radius": 15, "type": "low_headroom", "allowed_track_sizes": [2, 3]},
     "high_lift": {"name": "High Lift", "radius": 15, "type": "high", "allowed_track_sizes": [2, 3]},
     "vertical": {"name": "Vertical Lift", "radius": None, "type": "vertical", "allowed_track_sizes": [2, 3]},
 }
@@ -987,10 +989,14 @@ class DoorCalculatorService:
         lift_type = lift_config.get("type", "standard")
         eff_h = effective_height or height_inches
 
+        # Low headroom uses standard drums (the LHR conversion is in the track
+        # kit; the drum itself is the same as a standard-lift door).
+        drum_lift = "standard" if lift_type == "low_headroom" else lift_type
+
         # Filter drums by lift type
         eligible_drums = [
             (name, spec) for name, spec in self.drum_table.items()
-            if spec["lift"] == lift_type
+            if spec["lift"] == drum_lift
         ]
 
         # 3" track requires 15" radius drums — exclude 12" radius drums (e.g. D400-144)

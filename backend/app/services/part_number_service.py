@@ -1773,6 +1773,19 @@ class PartNumberService:
             notes=f"Spring: {wire_size}\" x {coil_id}\" x {spring_length}\" RH × {pairs}"
         ))
 
+        # 6" non-duplex springs need a PVC tube inside each spring, sized to
+        # the spring length. Total tube length = spring_length × spring_qty
+        # (covers LH + RH). Duplex assemblies skip this — the inner spring
+        # already fills the 6" outer.
+        if coil_id == 6.0 and not is_duplex:
+            parts.append(PartSelection(
+                part_number="PK14-00003-00",
+                description=f"PVC TUBE FOR 6\" SPRING, {spring_length}\" LONG",
+                quantity=spring_length * spring_qty,
+                category="spring_accessory",
+                notes=f"PVC tube: {spring_length}\" × {spring_qty} springs",
+            ))
+
         # If duplex, also add inner springs
         if is_duplex and spring_result:
             inner_wire = spring_result.inner_wire_diameter
@@ -2048,8 +2061,12 @@ class PartNumberService:
         door width and height. Small doors may need zero struts.
         CRAFT series: 0 struts without windows (except 16'=1), 1 strut with windows.
         """
-        # Aluminum doors have built-in struts — never add separate strut parts
-        if config.door_type == "aluminium":
+        # AL976 panels have struts built into the extrusion — no separate
+        # strut line. Every other series (incl. Panorama, Solalite, SWD)
+        # defaults to the Thermalex commercial chart unless overridden
+        # below.
+        series = (config.door_series or "").upper()
+        if series == "AL976":
             return []
 
         # Residential doors (KANATA & CRAFT): always 1 x 20ga strut
@@ -2258,13 +2275,15 @@ class PartNumberService:
         # residential gets bottom only (pre-cut rigid retainer by width)
         # Quantity = door width in inches (retainer sold by the inch)
         if not is_residential:
-            # Commercial retainer — select by panel series per rulebook
+            # Commercial retainer — select by panel series per rulebook.
+            # Sold by the inch; one TOP and one BOTTOM run, each = door
+            # width. The previous *2 multiplier on wide doors was a holdover
+            # from when this emitted a single combined line and double-
+            # counted once the TOP/BOTTOM split was added (SQ-002448).
             series = config.door_series or "TX450"
             retainer_info = mapper.COMMERCIAL_RETAINER.get(series, mapper.COMMERCIAL_RETAINER["TX450"])
             retainer_pn, retainer_desc = retainer_info
-
-            # Qty: if door width >= 18' (216"), qty = door_width * 2; else qty = door_width
-            retainer_qty = config.door_width * 2 if config.door_width >= 216 else config.door_width
+            retainer_qty = config.door_width
 
             parts.append(PartSelection(
                 part_number=retainer_pn,

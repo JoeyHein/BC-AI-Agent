@@ -628,6 +628,16 @@ export const customersApi = {
 
   setTravelDistances: (data) =>
     apiClient.put('/api/admin/install-travel-distances', data),
+
+  // Saved-quote configs for one customer (?search= matches name or BC quote #)
+  getQuotes: (customerId, params = {}) =>
+    apiClient.get(`/api/admin/customers/${customerId}/quotes`, { params }),
+};
+
+// Admin global quote search (cross-customer)
+export const adminQuotesApi = {
+  search: (params = {}) =>
+    apiClient.get('/api/admin/quotes', { params }),
 };
 
 // Catalog Builder API (Admin)
