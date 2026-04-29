@@ -897,26 +897,17 @@ class PartNumberService:
             entry = SECTION_HEIGHT_TABLE[door_height]
             return {"21": entry["21"], "24": entry["24"], "total": entry["total"]}
 
-        # Fallback algorithm for heights not in the table
-        if door_height <= 72:
-            panel_count = 3
-        elif door_height <= 96:
-            panel_count = 4
-        elif door_height <= 120:
-            panel_count = 5
-        elif door_height <= 144:
-            panel_count = 6
-        elif door_height <= 168:
-            panel_count = 7
-        elif door_height <= 192:
-            panel_count = 8
-        elif door_height <= 216:
-            panel_count = 9
-        else:
-            panel_count = 10
-
+        # Fallback algorithm for heights not in the table — packs the door
+        # height with as many 24" panels as possible and swaps in 21"
+        # panels (each saving 3") to absorb the remainder. Works for any
+        # door height ≥ 63" (3 × 21").
+        # SECTION_HEIGHT_TABLE covers 63"–240" exactly; this branch handles
+        # anything outside that range (e.g. 28' = 336" tall industrial doors).
+        panel_count = max(3, -(-door_height // 24))  # ceil(door_height / 24)
         diff = panel_count * 24 - door_height
-        n21 = diff // 3
+        # diff is in [0, 24); each 24"→21" swap saves 3", so n21 = diff/3.
+        # Clamp to [0, panel_count] in case of edge cases.
+        n21 = max(0, min(panel_count, diff // 3))
         n24 = panel_count - n21
         return {"21": n21, "24": n24, "total": panel_count}
 
