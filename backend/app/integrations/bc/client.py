@@ -4,6 +4,7 @@ Business Central API Client with OAuth 2.0 Authentication
 
 import logging
 from typing import Optional, Dict, List, Any
+from urllib.parse import quote
 import msal
 import requests
 from datetime import datetime, timedelta
@@ -218,6 +219,185 @@ class BusinessCentralClient:
         cid = company_id or self.company_id
         result = self._make_request("GET", f"companies({cid})/customers({customer_id})")
         return result
+
+    # ==================== OData V4 helpers ====================
+    #
+    # The standard BC v2.0 REST API does not expose Customer_Price_Group,
+    # ItemMasterList Unit_Price, or the SalesPriceLists entity. We read those
+    # via published BC OData V4 web services (the same approach the Upwardor
+    # portal uses). The pages "CustomerList", "ItemMasterList", and
+    # "SalesPriceLists" must be published on the BC tenant for these calls to
+    # succeed; on 404 we log and return None so callers can fall back.
+
+    def _odata_company_path(self) -> str:
+        """Build the OData V4 base path with company name URL-encoded."""
+        company_name = settings.BC_COMPANY_NAME or ""
+        return f"{self.odata_url}/Company('{quote(company_name)}')"
+
+    @staticmethod
+    def _odata_escape(s: str) -> str:
+        """Escape single quotes for OData $filter values."""
+        return (s or "").replace("'", "''")
+
+    def _odata_get(
+        self,
+        entity_set: str,
+        filter_str: Optional[str] = None,
+        top: Optional[int] = None,
+        select: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """OData V4 GET against {odata_url}/Company('NAME')/{entity_set}.
+
+        Returns parsed JSON on success, None if the entity isn't published
+        (404) or the request errors out. Callers must tolerate None.
+        """
+        if not self.odata_url:
+            return None
+        token = self._get_access_token()
+        url = f"{self._odata_company_path()}/{entity_set}"
+        params: List[str] = []
+        if filter_str:
+            params.append(f"$filter={filter_str}")
+        if top:
+            params.append(f"$top={top}")
+        if select:
+            params.append(f"$select={select}")
+        if params:
+            url += "?" + "&".join(params)
+
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        try:
+            resp = requests.get(url, headers=headers, timeout=30)
+        except requests.RequestException as e:
+            logger.warning(f"OData GET network error for {entity_set}: {e}")
+            return None
+        if resp.status_code == 404:
+            logger.warning(
+                f"OData entity '{entity_set}' returned 404 — page may not be "
+                f"published on the BC tenant"
+            )
+            return None
+        if resp.status_code >= 400:
+            logger.error(
+                f"OData GET {entity_set} -> {resp.status_code}: {resp.text[:300]}"
+            )
+            return None
+        try:
+            return resp.json()
+        except ValueError:
+            return None
+
+    # ==================== Sales Prices (OData V4) ====================
+
+    def get_sales_price(
+        self,
+        part_number: str,
+        price_group: str,
+        uom: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Look up a unit price from BC's published SalesPriceLists for a
+        specific (item, customer price group, UoM). Returns the price-list
+        line dict (with Unit_Price, Description, Unit_of_Measure_Code) or
+        None if no match.
+        """
+        if not (part_number and price_group and uom):
+            return None
+        flt = (
+            f"Product_No eq '{self._odata_escape(part_number)}' and "
+            f"Assign_to_No eq '{self._odata_escape(price_group)}' and "
+            f"Unit_of_Measure_Code eq '{self._odata_escape(uom)}'"
+        )
+        data = self._odata_get("SalesPriceLists", filter_str=flt, top=1)
+        if not data:
+            return None
+        rows = data.get("value", [])
+        return rows[0] if rows else None
+
+    def get_default_sales_price(
+        self,
+        part_number: str,
+        uom: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Lookup the 'All Customers' Sales Price List entry — i.e. the row
+        where Source Type = All Customers (Assign_to_No is blank). This is
+        the second tier of the lookup chain after the customer-group-specific
+        entry has missed.
+        """
+        if not (part_number and uom):
+            return None
+        flt = (
+            f"Product_No eq '{self._odata_escape(part_number)}' and "
+            f"Assign_to_No eq '' and "
+            f"Unit_of_Measure_Code eq '{self._odata_escape(uom)}'"
+        )
+        data = self._odata_get("SalesPriceLists", filter_str=flt, top=1)
+        if not data:
+            return None
+        rows = data.get("value", [])
+        return rows[0] if rows else None
+
+    # ==================== Item Master (OData V4) ====================
+
+    def get_item_master(self, part_number: str) -> Optional[Dict[str, Any]]:
+        """Read a single item from the published ItemMasterList page.
+        Returns dict with No, Base_Unit_of_Measure, Description, Unit_Price,
+        etc., or None if not found / page not published.
+        """
+        if not part_number:
+            return None
+        flt = f"No eq '{self._odata_escape(part_number)}'"
+        data = self._odata_get("ItemMasterList", filter_str=flt, top=1)
+        if not data:
+            return None
+        rows = data.get("value", [])
+        return rows[0] if rows else None
+
+    def get_item_masters(self, part_numbers: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Batch-fetch ItemMasterList records by part number. Returns
+        {No: row}. Batches into chunks to stay under URL length limits.
+        """
+        if not part_numbers:
+            return {}
+        result: Dict[str, Dict[str, Any]] = {}
+        unique = list({pn for pn in part_numbers if pn})
+        batch_size = 25
+        for start in range(0, len(unique), batch_size):
+            batch = unique[start:start + batch_size]
+            flt = " or ".join(
+                f"No eq '{self._odata_escape(pn)}'" for pn in batch
+            )
+            data = self._odata_get("ItemMasterList", filter_str=flt)
+            if not data:
+                continue
+            for row in data.get("value", []):
+                no = row.get("No")
+                if no:
+                    result[no] = row
+        return result
+
+    # ==================== Customer Card (OData V4) ====================
+
+    def get_customer_card(self, customer_no: str) -> Optional[Dict[str, Any]]:
+        """Read a single customer record from the published CustomerList
+        page (or Customer_Card_Excel) so we can read Customer_Price_Group.
+        """
+        if not customer_no:
+            return None
+        flt = f"No eq '{self._odata_escape(customer_no)}'"
+        data = self._odata_get("CustomerList", filter_str=flt, top=1)
+        if not data:
+            return None
+        rows = data.get("value", [])
+        return rows[0] if rows else None
+
+    def get_customer_cards(self) -> List[Dict[str, Any]]:
+        """Bulk-fetch all customers via CustomerList (OData V4). Returns the
+        list (possibly large). Empty list if page is not published.
+        """
+        data = self._odata_get("CustomerList")
+        if not data:
+            return []
+        return data.get("value", [])
 
     # ==================== Items ====================
 

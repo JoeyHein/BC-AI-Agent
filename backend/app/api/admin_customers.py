@@ -150,10 +150,6 @@ class CustomerDetailResponse(BaseModel):
         from_attributes = True
 
 
-class UpdatePricingTierRequest(BaseModel):
-    pricing_tier: Optional[str]  # gold, silver, bronze, retail, or null to clear
-
-
 class LinkCustomerRequest(BaseModel):
     bc_customer_id: str
 
@@ -883,63 +879,6 @@ def create_customer(
     logger.info(f"Admin {current_admin.email} created customer account {customer.email}")
 
     return get_customer(customer.id, current_admin, db)
-
-
-@router.patch("/{customer_id}/pricing-tier")
-def update_customer_pricing_tier(
-    customer_id: int,
-    update_data: UpdatePricingTierRequest,
-    current_admin: User = Depends(get_current_admin),
-    db: Session = Depends(get_db)
-):
-    """Set the pricing tier for a customer's linked BC account"""
-    customer = db.query(User).filter(
-        User.id == customer_id,
-        User.user_type == 'CUSTOMER'
-    ).first()
-
-    if not customer:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Customer not found"
-        )
-
-    if not customer.bc_customer_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Customer is not linked to a BC account"
-        )
-
-    bc_customer = db.query(BCCustomer).filter(
-        BCCustomer.bc_customer_id == customer.bc_customer_id
-    ).first()
-
-    if not bc_customer:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="BC customer record not found"
-        )
-
-    # Validate tier value
-    valid_tiers = {"gold", "silver", "bronze", "retail"}
-    tier = update_data.pricing_tier
-    if tier is not None:
-        tier = tier.lower().strip()
-        if tier not in valid_tiers:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid pricing tier: {tier}. Must be one of: {', '.join(sorted(valid_tiers))}"
-            )
-
-    bc_customer.pricing_tier = tier
-    db.commit()
-
-    logger.info(
-        f"Admin {current_admin.email} set pricing tier for "
-        f"{bc_customer.company_name} ({bc_customer.bc_customer_id}) to '{tier}'"
-    )
-
-    return get_customer(customer_id, current_admin, db)
 
 
 class SetPasswordRequest(BaseModel):

@@ -1189,8 +1189,6 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
         # Step 4: Add line items to the quote in proper order
         lines_added = 0
         lines_failed = []
-        # Track tier prices per BC line ID for escalating margin (avoids re-fetch race)
-        tier_prices_by_line_id = {}  # { bc_line_id: { "price": float, "qty": float } }
 
         for line in all_lines:
             try:
@@ -1226,18 +1224,17 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                     except Exception as out_err:
                         logger.warning(f"Failed to set Output flag on line: {out_err}")
 
-                # BC's item price list overrides unitPrice on POST.
-                # PATCH the line afterward to lock in the customer-tier price.
+                # BC's item card price overrides unitPrice on POST.
+                # PATCH afterward with the price returned from BC's
+                # SalesPriceLists for the customer's price group.
                 if request.customerId and line.get("lineType") != "Comment":
                     part_num = line["part_number"]
-                    door_tp = line.get("door_type", "residential")
                     selling_price = calculate_selling_price(
                         part_number=part_num,
-                        door_type=door_tp,
-                        tier=pricing_tier,
+                        bc_price_group=pricing_tier,
                         db=db,
                     )
-                    logger.info(f"PRICING DEBUG [{part_num}]: tier={pricing_tier}, door_type={door_tp}, selling_price={selling_price}")
+                    logger.info(f"PRICING [{part_num}]: group={pricing_tier} -> price={selling_price}")
                     if selling_price is not None:
                         etag = added_line.get("@odata.etag", "*")
                         try:
@@ -1247,16 +1244,11 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                                 etag,
                                 {"unitPrice": selling_price},
                             )
-                            # Track for escalating margin
-                            tier_prices_by_line_id[added_line["id"]] = {
-                                "price": selling_price,
-                                "qty": line.get("quantity", 1),
-                            }
-                            logger.info(f"PRICING DEBUG [{part_num}]: PATCH SUCCESS unitPrice={selling_price}")
+                            logger.info(f"PRICING [{part_num}]: PATCH unitPrice={selling_price}")
                         except Exception as patch_err:
-                            logger.error(f"PRICING DEBUG [{part_num}]: PATCH FAILED: {patch_err}")
+                            logger.error(f"PRICING [{part_num}]: PATCH FAILED: {patch_err}")
                     else:
-                        logger.warning(f"PRICING DEBUG [{part_num}]: selling_price is None, SKIPPING PATCH")
+                        logger.warning(f"PRICING [{part_num}]: no price found in BC, line left at item-card price")
                 else:
                     logger.info(f"PRICING DEBUG: skip PATCH - customerId={request.customerId}, lineType={line.get('lineType')}")
                 logger.debug(f"Added line: {line.get('part_number', line.get('description', ''))[:30]}")
@@ -1334,96 +1326,6 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
 
         except Exception as pricing_error:
             logger.warning(f"Could not fetch pricing for quote {bc_quote_number}: {pricing_error}")
-
-        # Step 4b: Escalating margin adjustment (client-specific volume discount)
-        # Calculates final price directly FROM COST at the target GM%.
-        # Does NOT multiply the tier price — computes from scratch so the
-        # discount is always relative to the actual product cost.
-        escalating_result = None
-        if tier_prices_by_line_id and request.customerId:
-            try:
-                from app.services.escalating_margin_service import get_escalating_margin
-                from app.services.pricing_service import calculate_selling_price_at_margin
-                bc_cust_esc = db.query(BCCustomer).filter(
-                    BCCustomer.bc_customer_id == request.customerId
-                ).first()
-                cust_name = bc_cust_esc.company_name if bc_cust_esc else ""
-                esc_profile = get_escalating_margin(cust_name)
-
-                if esc_profile:
-                    tier_subtotal = sum(
-                        lp["price"] * lp["qty"]
-                        for lp in tier_prices_by_line_id.values()
-                    )
-                    esc_calc = esc_profile.calculate(tier_subtotal)
-                    target_gm = esc_calc["target_gm"]
-
-                    if target_gm < esc_profile.base_gm_pct:
-                        logger.info(
-                            f"Applying escalating margin [{esc_profile.name}]: "
-                            f"tier subtotal ${tier_subtotal:,.0f} → {target_gm:.1f}% GM from cost"
-                        )
-
-                        esc_lines = bc_client.get_quote_lines(bc_quote_id)
-                        patched_count = 0
-                        for ql in esc_lines:
-                            line_id = ql.get("id")
-                            part_num = ql.get("lineObjectNumber", "")
-                            if line_id in tier_prices_by_line_id and part_num:
-                                tier_price = tier_prices_by_line_id[line_id]["price"]
-                                esc_price = calculate_selling_price_at_margin(part_num, target_gm, db)
-                                if esc_price is not None:
-                                    etag = ql.get("@odata.etag", "*")
-                                    try:
-                                        bc_client.update_quote_line(
-                                            bc_quote_id, line_id, etag,
-                                            {"unitPrice": esc_price},
-                                        )
-                                        patched_count += 1
-                                        logger.info(
-                                            f"ESC PATCH: {part_num} "
-                                            f"30%GM=${tier_price} → {target_gm:.1f}%GM=${esc_price}"
-                                        )
-                                    except Exception as esc_err:
-                                        logger.error(f"ESC PATCH FAILED [{part_num}]: {esc_err}")
-                        logger.info(f"Escalating margin: {patched_count} lines re-priced at {target_gm:.1f}% GM")
-
-                        try:
-                            bc_client.add_quote_line(bc_quote_id, {
-                                "lineType": "Comment",
-                                "description": (
-                                    f"** VOLUME PRICING: {esc_profile.name} - "
-                                    f"{esc_calc['discount_pct']:.1f}% volume discount applied **"
-                                ),
-                            })
-                        except Exception:
-                            pass
-
-                        # Re-fetch totals AND line pricing from BC
-                        try:
-                            updated = bc_client.get_sales_quote(bc_quote_id)
-                            pricing["subtotal"] = round(updated.get("totalAmountExcludingTax", 0), 2)
-                            pricing["total"] = round(updated.get("totalAmountIncludingTax", 0), 2)
-                            pricing["tax"] = round(pricing["total"] - pricing["subtotal"], 2)
-
-                            # Rebuild line_pricing with discounted prices
-                            updated_lines = bc_client.get_quote_lines(bc_quote_id)
-                            line_pricing = []
-                            for ul in updated_lines:
-                                if ul.get("lineType") == "Item":
-                                    line_pricing.append({
-                                        "part_number": ul.get("lineObjectNumber"),
-                                        "description": ul.get("description", ""),
-                                        "quantity": ul.get("quantity", 0),
-                                        "unit_price": ul.get("unitPrice", 0),
-                                        "line_total": ul.get("netAmount", 0),
-                                    })
-                        except Exception:
-                            pass
-
-                        escalating_result = esc_calc
-            except Exception as esc_err:
-                logger.warning(f"Escalating margin check failed: {esc_err}")
 
         # Step 5: Add freight line if delivery
         freight_info = None
@@ -1565,13 +1467,9 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "line_pricing": line_pricing if line_pricing else None,
                 "freight": freight_info,
                 "part_warnings": part_warnings if part_warnings else None,
-                "escalating_margin": escalating_result,
             },
             "message": f"BC Quote {bc_quote_number} created with {lines_added} line items" + (
                 f" ({len(part_warnings)} part(s) substituted — review in BC)" if part_warnings else ""
-            ) + (
-                f" | Volume pricing: {escalating_result['target_gm']:.1f}% GM ({escalating_result['discount_pct']:.1f}% discount)"
-                if escalating_result else ""
             )
         }
 

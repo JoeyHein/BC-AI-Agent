@@ -20,7 +20,6 @@ from app.db.models import (
     SalesOrder, SalesOrderLineItem, ProductionOrder,
     OrderStatus, ProductionStatus, BCCustomer, AppSettings
 )
-from app.services.pricing_service import BC_GROUP_MAPPING_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -487,12 +486,15 @@ class BCSyncService:
         try:
             bc_customers = self.client.get_customers_with_multiplier()
 
-            # Load group mapping once for the whole batch
-            group_mapping = self._load_group_mapping(db)
+            # Pull Customer_Price_Group via OData V4 CustomerList (the v2.0
+            # /customers endpoint doesn't expose this field). Build a lookup
+            # by customer No so _upsert_customer can attach it without an
+            # extra round-trip per customer.
+            price_group_by_no = self._fetch_price_groups_by_customer_no()
 
             for bc_cust in bc_customers:
                 try:
-                    self._upsert_customer(db, bc_cust, results, group_mapping)
+                    self._upsert_customer(db, bc_cust, results, price_group_by_no)
                 except Exception as e:
                     results["errors"].append(f"Error syncing customer {bc_cust.get('displayName', '?')}: {e}")
 
@@ -525,8 +527,14 @@ class BCSyncService:
 
         try:
             bc_cust = self.client.get_customer_with_multiplier(bc_customer_id)
-            group_mapping = self._load_group_mapping(db)
-            self._upsert_customer(db, bc_cust, results, group_mapping)
+            # Single-customer Customer_Price_Group lookup via OData V4.
+            cust_no = bc_cust.get("number")
+            price_group_by_no: Dict[str, str] = {}
+            if cust_no:
+                card = self.client.get_customer_card(cust_no)
+                if card and card.get("Customer_Price_Group"):
+                    price_group_by_no[cust_no] = (card["Customer_Price_Group"] or "").strip().upper()
+            self._upsert_customer(db, bc_cust, results, price_group_by_no)
             db.commit()
             logger.info(f"Single customer sync complete: {bc_cust.get('displayName', bc_customer_id)}")
         except Exception as e:
@@ -536,21 +544,32 @@ class BCSyncService:
 
         return results
 
-    def _load_group_mapping(self, db: Session) -> Dict[str, str]:
-        """Load BC price group → portal tier mapping from AppSettings."""
-        setting = db.query(AppSettings).filter(
-            AppSettings.setting_key == BC_GROUP_MAPPING_KEY
-        ).first()
-        if setting and setting.setting_value:
-            return setting.setting_value
-        return {}
+    def _fetch_price_groups_by_customer_no(self) -> Dict[str, str]:
+        """Bulk-fetch Customer_Price_Group via OData V4 CustomerList. Returns
+        {customer_No: PRICE_GROUP_CODE}. Empty if the page isn't published."""
+        try:
+            cards = self.client.get_customer_cards()
+        except Exception as e:
+            logger.warning(f"CustomerList OData fetch failed: {e}")
+            return {}
+        out: Dict[str, str] = {}
+        for c in cards:
+            no = c.get("No")
+            grp = (c.get("Customer_Price_Group") or "").strip().upper()
+            if no and grp:
+                out[no] = grp
+        logger.info(
+            f"CustomerList OData: {len(out)} customers have Customer_Price_Group set "
+            f"(of {len(cards)} total)"
+        )
+        return out
 
     def _upsert_customer(
         self,
         db: Session,
         bc_cust: Dict[str, Any],
         results: Dict[str, Any],
-        group_mapping: Optional[Dict[str, str]] = None,
+        price_group_by_no: Optional[Dict[str, str]] = None,
     ):
         """Insert or update a single BCCustomer record from BC API data."""
         bc_id = bc_cust.get("id")
@@ -572,16 +591,22 @@ class BCSyncService:
             bc_cust.get("price_multiplier_percent"),
         )
 
-        # Capture BC customer price group.
-        # The standard BC API v2.0 does not expose customerPriceGroup directly,
-        # so we fall back to salespersonCode as the grouping mechanism.
-        bc_price_group = (
-            bc_cust.get("customerPriceGroup")
-            or bc_cust.get("priceGroup")
-            or bc_cust.get("customer_price_group")
-            or bc_cust.get("salespersonCode")   # fallback: use salesperson as grouping
-            or ""
-        ).strip().upper() or None
+        # Customer_Price_Group is the BC field we drive pricing from. The
+        # standard v2.0 /customers endpoint doesn't expose it, so the bulk
+        # sync pre-fetches it via OData V4 CustomerList and passes it in
+        # via price_group_by_no keyed by customer No.
+        cust_no = bc_cust.get("number") or ""
+        bc_price_group = None
+        if price_group_by_no and cust_no in price_group_by_no:
+            bc_price_group = price_group_by_no[cust_no]
+        if not bc_price_group:
+            # Fallback to any field BC v2.0 may have populated (rare).
+            bc_price_group = (
+                bc_cust.get("customerPriceGroup")
+                or bc_cust.get("priceGroup")
+                or bc_cust.get("customer_price_group")
+                or ""
+            ).strip().upper() or None
 
         # Build address from BC fields
         address = None
@@ -598,12 +623,9 @@ class BCSyncService:
                 "postal": bc_cust.get("postalCode", ""),
             }
 
-        # Resolve portal pricing tier from BC price group mapping
-        # Only auto-set if there's a mapping for this group; never clear a manually-set tier
-        mapped_tier = None
-        if bc_price_group and group_mapping:
-            mapped_tier = group_mapping.get(bc_price_group)
-
+        # BC is the single source of truth for pricing tier. The local
+        # pricing_tier column shadows bc_price_group so older read paths
+        # (BCCustomer.pricing_tier) keep working without an admin override.
         existing = db.query(BCCustomer).filter(
             BCCustomer.bc_customer_id == bc_id
         ).first()
@@ -615,9 +637,7 @@ class BCSyncService:
             existing.phone = bc_cust.get("phoneNumber")
             existing.price_multiplier = float(multiplier) if multiplier is not None else None
             existing.bc_price_group = bc_price_group
-            # Apply mapped tier only if there is one; preserve existing manual tier otherwise
-            if mapped_tier:
-                existing.pricing_tier = mapped_tier
+            existing.pricing_tier = bc_price_group
             if address:
                 existing.address = address
             existing.last_synced = datetime.utcnow()
@@ -631,7 +651,7 @@ class BCSyncService:
                 phone=bc_cust.get("phoneNumber"),
                 price_multiplier=float(multiplier) if multiplier is not None else None,
                 bc_price_group=bc_price_group,
-                pricing_tier=mapped_tier,
+                pricing_tier=bc_price_group,
                 address=address,
                 last_synced=datetime.utcnow()
             )
