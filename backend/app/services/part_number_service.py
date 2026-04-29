@@ -1126,12 +1126,14 @@ class PartNumberService:
         # 5. End cap seals
         seal_weight = (n21 * 2 * SEAL_WEIGHT_21) + (n24 * 2 * SEAL_WEIGHT_24)
 
-        # 6. Strut weight (from Thermalex strutting chart)
-        # Per Thermalex, spring weight includes 20ga/16ga struts but NOT Z struts.
-        # Z struts are structural reinforcement excluded from spring balance weight.
+        # 6. Strut weight (from Thermalex strutting chart). All strut types
+        # (20ga, 16ga, Z) hang from the springs as part of the physical
+        # door, so all are included in the spring balance weight. The
+        # earlier Thermalex-derived exclusion of Z struts undersized
+        # springs on the very heavy 28'+ doors that need them.
         strut_info = self._get_strut_requirements(config.door_width, config.door_height)
         strut_weight = 0.0
-        if strut_info["count"] > 0 and strut_info["type"] != "z":
+        if strut_info["count"] > 0:
             strut_weight = strut_info["count"] * door_width_ft * strut_info["weight_per_ft"]
 
         # 7. Hardware kit weight (HK02 residential / HK03 commercial)

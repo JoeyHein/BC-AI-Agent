@@ -842,8 +842,9 @@ class DoorCalculatorService:
             # Hardware — use commercial lookup
             weight.hardware_weight = _get_hk_weight(dimensions.width, dimensions.height, commercial=True)
 
-            # Struts
-            if strut_count > 0 and strut_type != "z":
+            # Struts — all types (20ga/16ga/Z) hang from the springs as
+            # part of the physical door, so all are included.
+            if strut_count > 0:
                 strut_lbs_per_ft = STRUT_WEIGHT_PER_FT.get(strut_type, 1.05)
                 weight.strut_weight = strut_count * width_ft * strut_lbs_per_ft
 
@@ -895,8 +896,9 @@ class DoorCalculatorService:
         commercial = door_type == "commercial"
         weight.hardware_weight = _get_hk_weight(dimensions.width, dimensions.height, commercial)
 
-        # 7. Strut weight (20ga/16ga only — Z struts excluded from spring weight)
-        if strut_count > 0 and strut_type != "z":
+        # 7. Strut weight — all types (20ga/16ga/Z) hang from the springs
+        # as part of the physical door, so all are included.
+        if strut_count > 0:
             strut_lbs_per_ft = STRUT_WEIGHT_PER_FT.get(strut_type, 1.05)
             weight.strut_weight = strut_count * width_ft * strut_lbs_per_ft
 
