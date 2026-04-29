@@ -186,6 +186,7 @@ DOOR_SERIES = {
             "paneTypes": [
                 {"id": "INSULATED", "name": "Insulated (Thermal)"},
                 {"id": "SINGLE", "name": "Single Pane"},
+                {"id": "TEMPERED", "name": "Tempered"},
             ],
             "finishes": [
                 {"id": "CLEAR_ANODIZED", "name": "Clear Anodized", "code": "0"},
@@ -218,6 +219,7 @@ DOOR_SERIES = {
             "paneTypes": [
                 {"id": "INSULATED", "name": "Insulated (Thermal)"},
                 {"id": "SINGLE", "name": "Single Pane"},
+                {"id": "TEMPERED", "name": "Tempered"},
             ],
             "finishes": [
                 {"id": "CLEAR_ANODIZED", "name": "Clear Anodized", "code": "0"},

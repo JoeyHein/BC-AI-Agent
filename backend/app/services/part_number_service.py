@@ -2638,12 +2638,15 @@ class PartNumberService:
             pane_type = (config.glass_pane_type or "INSULATED").upper()
 
             gk17_glass_map = {
-                ("CLEAR", "INSULATED"):      ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR"),
-                ("CLEAR", "SINGLE"):         ("GK17-10100-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
-                ("ETCHED", "INSULATED"):     ("GK17-11700-00", "GLAZING KIT, ALUM, THERM, ETCHED/CLEAR"),
-                ("ETCHED", "SINGLE"):        ("GK17-10300-00", "GLAZING KIT, ALUM, SINGLE 3MM, ETCHED"),
-                ("SUPER_GREY", "INSULATED"): ("GK17-12300-00", "GLAZING KIT, ALUM, THERM, TINTED GR/CLEAR"),
-                ("SUPER_GREY", "SINGLE"):    ("GK17-12300-00", "GLAZING KIT, ALUM, THERM, TINTED GR/CLEAR"),
+                ("CLEAR", "INSULATED"):       ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR"),
+                ("CLEAR", "SINGLE"):          ("GK17-10100-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
+                ("CLEAR", "TEMPERED"):        ("GK17-11500-00", "GLAZING KIT, ALUM, THERM, TEMP/CLEAR"),
+                ("ETCHED", "INSULATED"):      ("GK17-11700-00", "GLAZING KIT, ALUM, THERM, ETCHED/CLEAR"),
+                ("ETCHED", "SINGLE"):         ("GK17-10300-00", "GLAZING KIT, ALUM, SINGLE 3MM, ETCHED"),
+                ("ETCHED", "TEMPERED"):       ("GK17-13120-00", "GLAZING KIT, ALUM, THERM, TEMPERED/ETCHED"),
+                ("SUPER_GREY", "INSULATED"):  ("GK17-12300-00", "GLAZING KIT, ALUM, THERM, TINTED GR/CLEAR"),
+                ("SUPER_GREY", "SINGLE"):     ("GK17-12300-00", "GLAZING KIT, ALUM, THERM, TINTED GR/CLEAR"),
+                ("SUPER_GREY", "TEMPERED"):   ("GK17-11500-00", "GLAZING KIT, ALUM, THERM, TEMP/CLEAR"),
             }
             glass_pn, glass_desc = gk17_glass_map.get(
                 (glass_color, pane_type),
