@@ -995,16 +995,31 @@ def _generate_bc_quote_with_items(
                         "escalating_margin": None,
                     }
 
-            # ── AI substitute lookup ────────────────────────────────────────
-            # Before falling back to a comment, ask Claude to find the closest
-            # matching BC item so the quote has real billable lines.
+            # ── Substitute lookup ──────────────────────────────────────────
+            # 1) Deterministic step-up: if the SKU ends in a 4-digit width
+            #    code, pick the smallest BC SKU with the same prefix and a
+            #    LARGER width — never a smaller one. Catches PN80, PN10/12,
+            #    PN20, PN70, PN97 and anything else size-keyed.
+            # 2) Fallback to Claude for non-size-keyed parts (e.g. shafts,
+            #    accessory items where AI similarity matching makes sense).
             ai_used = False
+            substitute = None
             if line.get("lineType") != "Comment" and line.get("part_number"):
-                substitute = _find_ai_substitute(
-                    part_number=line["part_number"],
-                    description=line.get("description", ""),
-                    bc_items_cache=bc_items_cache,
-                )
+                from app.services.bc_part_number_mapper import get_bc_mapper
+                from app.api.door_configurator import _next_bigger_width_skus
+                mapper = get_bc_mapper()
+                bigger_pn = _next_bigger_width_skus(line["part_number"], mapper.bc_items)
+                if bigger_pn:
+                    substitute = mapper.bc_items.get(bigger_pn) or {"number": bigger_pn}
+                    if "number" not in substitute:
+                        substitute = dict(substitute, number=bigger_pn)
+                    logger.info(f"Step-up substitute: {line['part_number']} → {bigger_pn}")
+                else:
+                    substitute = _find_ai_substitute(
+                        part_number=line["part_number"],
+                        description=line.get("description", ""),
+                        bc_items_cache=bc_items_cache,
+                    )
                 if substitute and substitute.get("number"):
                     try:
                         original_desc = line.get("description", "") or substitute.get('displayName', substitute['number'])
