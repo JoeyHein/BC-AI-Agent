@@ -534,6 +534,19 @@ class DoorCalculatorService:
     Calculates all door components based on Thermalex formulas.
     """
 
+    class _DuplexCandidate:
+        """Adapter so a duplex SpringSelection sorts alongside regular
+        SpringCalculation candidates in the unfiltered fallback path."""
+        def __init__(self, sel):
+            self.selection = sel
+            # Use the longer of outer/inner for shaft-fit considerations
+            self.length = max(sel.length, sel.inner_length or 0)
+            self.spring_quantity = sel.quantity
+            self.coil_diameter = sel.coil_diameter
+            self.wire_diameter = sel.wire_diameter
+            self.cycle_life = sel.cycles
+            self.turns = sel.turns
+
     def __init__(self):
         self.model_weights = DOOR_MODEL_WEIGHTS
         self.section_table = SECTION_HEIGHT_TABLE
@@ -1145,6 +1158,24 @@ class DoorCalculatorService:
                 continue
             all_candidates.append(result)
 
+        # Heavy doors that don't fit on a single regular spring layout often
+        # work as duplex (6" outer + 3.75" inner). Try 2/3/4/5 pairs (totals
+        # 4/6/8/10 springs). No inventory constraint here — calculator walks
+        # the Canimex table for any valid wire/coil pairing.
+        for duplex_pairs in [2, 3, 4, 5]:
+            duplex = self._calculate_duplex_springs(
+                door_weight, height_inches, target_cycles,
+                track_radius, inventory=None, duplex_pairs=duplex_pairs,
+                drum_model=drum_model,
+                high_lift_inches=high_lift_inches,
+            )
+            if duplex is None:
+                continue
+            # Convert SpringSelection to a SpringCalculation-shaped object
+            # so it sorts alongside the regular candidates. We use a small
+            # adapter rather than reshaping the sort_key.
+            all_candidates.append(self._DuplexCandidate(duplex))
+
         if not all_candidates:
             logger.warning(
                 f"No spring found for {door_weight} lbs, {height_inches}\" height, "
@@ -1163,6 +1194,16 @@ class DoorCalculatorService:
             )
 
         best = min(all_candidates, key=sort_key)
+        # Duplex candidate already has all the inner-spring info populated;
+        # return it directly so the caller sees is_duplex=True and the inner
+        # specs flow through to the parts service.
+        if isinstance(best, self._DuplexCandidate):
+            logger.info(
+                f"Selected duplex: {best.spring_quantity} springs "
+                f"(outer {best.coil_diameter}\"/{best.wire_diameter}\", "
+                f"inner {best.selection.inner_coil_diameter}\"/{best.selection.inner_wire_diameter}\")"
+            )
+            return best.selection
         logger.info(
             f"Selected spring: {best.spring_quantity}x "
             f"{best.coil_diameter}\" coil / {best.wire_diameter}\" wire "
@@ -1282,8 +1323,10 @@ class DoorCalculatorService:
                     f"{height_inches}\" height, trying more springs..."
                 )
 
-        # Try duplex springs: 2 pairs (4 total) and 4 pairs (8 total)
-        for duplex_pairs in [2, 4]:
+        # Try duplex springs at 2/3/4/5 pairs (totals 4/6/8/10) — heavy
+        # doors that don't fit on regular springs often work with more
+        # duplex positions.
+        for duplex_pairs in [2, 3, 4, 5]:
             duplex = self._calculate_duplex_springs(
                 door_weight, height_inches, target_cycles,
                 track_radius, inventory, duplex_pairs,
@@ -1343,7 +1386,7 @@ class DoorCalculatorService:
         height_inches: int,
         target_cycles: int,
         track_radius: int,
-        inventory: Dict[str, List[str]],
+        inventory: Optional[Dict[str, List[str]]],
         duplex_pairs: int = 2,
         drum_model: Optional[str] = None,
         high_lift_inches: int = 0,
@@ -1362,19 +1405,35 @@ class DoorCalculatorService:
             height_inches: Door height in inches
             target_cycles: Target cycle life
             track_radius: Track radius (12 or 15)
-            inventory: Stocked coil/wire inventory
-            duplex_pairs: Number of duplex pairs (2 = standard, 4 = heavy)
+            inventory: Stocked coil/wire inventory. Pass None to consider
+                every wire size in the Canimex divider table that pairs
+                with 6"/3.75" coils — used by the unfiltered fallback when
+                no inventory was supplied.
+            duplex_pairs: Number of duplex pairs (2/3/4/5 — totals 4/6/8/10)
 
         Returns:
             SpringSelection with duplex fields populated, or None
         """
         total_qty = duplex_pairs * 2  # outer + inner at each position
 
-        # Need both 6.0" and 3.75" coils in inventory
-        outer_wires = inventory.get("6.0", [])
-        inner_wires = inventory.get("3.75", [])
-        if not outer_wires or not inner_wires:
-            return None
+        if inventory is not None:
+            outer_wires = inventory.get("6.0", [])
+            inner_wires = inventory.get("3.75", [])
+            if not outer_wires or not inner_wires:
+                return None
+        else:
+            # No inventory constraint — use every wire that pairs with 6"
+            # and 3.75" coils in the Canimex divider table.
+            outer_wires = [
+                str(w) for w, by_coil in spring_calculator.dividers.items()
+                if 6.0 in by_coil
+            ]
+            inner_wires = [
+                str(w) for w, by_coil in spring_calculator.dividers.items()
+                if 3.75 in by_coil
+            ]
+            if not outer_wires or not inner_wires:
+                return None
 
         # Calculate what each spring needs to handle
         drum_data = spring_calculator.get_drum_data(height_inches, track_radius, drum_model, high_lift_inches=high_lift_inches)
