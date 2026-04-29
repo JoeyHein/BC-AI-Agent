@@ -898,7 +898,12 @@ def _generate_bc_quote_with_items(
                         tier=pricing_tier,
                         db=db,
                     )
-                    logger.info(f"PRICING DEBUG [{part_num}]: tier={pricing_tier}, door_type={door_tp}, selling_price={selling_price}")
+                    # Weather stripping using a stand-in (next-biggest) SKU
+                    # is billed per-foot: scale by requested_ft / sku_ft.
+                    ratio = line.get("length_adjustment_ratio")
+                    if ratio and selling_price is not None:
+                        selling_price = round(selling_price * ratio, 2)
+                    logger.info(f"PRICING DEBUG [{part_num}]: tier={pricing_tier}, door_type={door_tp}, selling_price={selling_price}, ratio={ratio}")
                     if selling_price is not None:
                         patch_data["unitPrice"] = selling_price
                         tier_prices_by_line_id[added_line["id"]] = {

@@ -1215,7 +1215,13 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                         tier=pricing_tier,
                         db=db,
                     )
-                    logger.info(f"PRICING DEBUG [{part_num}]: tier={pricing_tier}, door_type={door_tp}, selling_price={selling_price}")
+                    # Weather stripping in a non-stocked size uses the next-
+                    # biggest SKU but is billed at the per-foot rate, so
+                    # selling_price * (requested_ft / sku_ft).
+                    ratio = line.get("length_adjustment_ratio")
+                    if ratio and selling_price is not None:
+                        selling_price = round(selling_price * ratio, 2)
+                    logger.info(f"PRICING DEBUG [{part_num}]: tier={pricing_tier}, door_type={door_tp}, selling_price={selling_price}, ratio={ratio}")
                     if selling_price is not None:
                         etag = added_line.get("@odata.etag", "*")
                         try:

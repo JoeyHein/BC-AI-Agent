@@ -92,6 +92,11 @@ class PartSelection:
     category: str  # panel, track, hardware, spring, etc.
     unit_price: Optional[float] = None
     notes: Optional[str] = None
+    # Scale the calculated unit price by this ratio when adding to BC.
+    # Used by weather stripping when we substitute the next-biggest SKU
+    # for an unstocked size: ratio = requested_ft / sku_ft, so the
+    # customer pays a per-foot rate instead of the full bigger strip.
+    length_adjustment_ratio: Optional[float] = None
 
 
 @dataclass
@@ -2162,7 +2167,8 @@ class PartNumberService:
                 f" {color_upper}, {actual_h_display} (SIDES)"
             ),
             quantity=2,  # Always 2 for left and right jambs
-            category="weather_stripping"
+            category="weather_stripping",
+            length_adjustment_ratio=height_strip.length_adjustment_ratio,
         ))
 
         # Get weather strip for WIDTH (header)
@@ -2183,7 +2189,8 @@ class PartNumberService:
                     f" {color_upper}, {actual_w_display} (HEADER - SPLIT 2PCS)"
                 ),
                 quantity=2,
-                category="weather_stripping"
+                category="weather_stripping",
+                length_adjustment_ratio=width_strip.length_adjustment_ratio,
             ))
         else:
             width_strip = mapper.get_weather_stripping(
@@ -2200,7 +2207,8 @@ class PartNumberService:
                     f" {color_upper}, {actual_w_display} (HEADER)"
                 ),
                 quantity=1,
-                category="weather_stripping"
+                category="weather_stripping",
+                length_adjustment_ratio=width_strip.length_adjustment_ratio,
             ))
 
         return parts
@@ -3274,7 +3282,8 @@ class PartNumberService:
                 "description": part.description,
                 "quantity": part.quantity,
                 "category": part.category,
-                "notes": part.notes
+                "notes": part.notes,
+                "length_adjustment_ratio": part.length_adjustment_ratio,
             })
 
         return summary
