@@ -118,6 +118,7 @@ class DoorConfiguration:
     window_frame_color: str = "BLACK"  # Commercial window frame color
     glazing_type: Optional[str] = None
     glass_pane_type: Optional[str] = None  # 'INSULATED' or 'SINGLE'
+    glass_type: Optional[str] = "ANNEALED"  # 'ANNEALED' or 'TEMPERED' (safety)
     glass_color: Optional[str] = None      # 'CLEAR', 'ETCHED', 'SUPER_GREY'
     track_radius: str = "15"
     track_thickness: str = "2"
@@ -2633,24 +2634,33 @@ class PartNumberService:
                 notes=f"Polycarbonate for {panel_count} sections ({glazing_sqft_per_section:.2f} sqft each)"
             ))
         else:
-            # AL976 — GK17 aluminum glazing kits
+            # AL976 / SWD — GK17 aluminum glazing kits
+            # Three independent axes: color × pane (insulated/single) × glass
+            # type (annealed/tempered). Lookup is keyed (color, pane, glass).
             glass_color = (config.glass_color or "CLEAR").upper()
             pane_type = (config.glass_pane_type or "INSULATED").upper()
+            glass_treatment = (getattr(config, "glass_type", None) or "ANNEALED").upper()
 
             gk17_glass_map = {
-                ("CLEAR", "INSULATED"):       ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR"),
-                ("CLEAR", "SINGLE"):          ("GK17-10100-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
-                ("CLEAR", "TEMPERED"):        ("GK17-11500-00", "GLAZING KIT, ALUM, THERM, TEMP/CLEAR"),
-                ("ETCHED", "INSULATED"):      ("GK17-11700-00", "GLAZING KIT, ALUM, THERM, ETCHED/CLEAR"),
-                ("ETCHED", "SINGLE"):         ("GK17-10300-00", "GLAZING KIT, ALUM, SINGLE 3MM, ETCHED"),
-                ("ETCHED", "TEMPERED"):       ("GK17-13120-00", "GLAZING KIT, ALUM, THERM, TEMPERED/ETCHED"),
-                ("SUPER_GREY", "INSULATED"):  ("GK17-12300-00", "GLAZING KIT, ALUM, THERM, TINTED GR/CLEAR"),
-                ("SUPER_GREY", "SINGLE"):     ("GK17-12300-00", "GLAZING KIT, ALUM, THERM, TINTED GR/CLEAR"),
-                ("SUPER_GREY", "TEMPERED"):   ("GK17-11500-00", "GLAZING KIT, ALUM, THERM, TEMP/CLEAR"),
+                # INSULATED + ANNEALED
+                ("CLEAR",      "INSULATED", "ANNEALED"): ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR"),
+                ("ETCHED",     "INSULATED", "ANNEALED"): ("GK17-11700-00", "GLAZING KIT, ALUM, THERM, ETCHED/CLEAR"),
+                ("SUPER_GREY", "INSULATED", "ANNEALED"): ("GK17-12400-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/CLEAR"),
+                # INSULATED + TEMPERED
+                ("CLEAR",      "INSULATED", "TEMPERED"): ("GK17-11500-00", "GLAZING KIT, ALUM, THERM, TEMP/CLEAR"),
+                ("ETCHED",     "INSULATED", "TEMPERED"): ("GK17-13120-00", "GLAZING KIT, ALUM, THERM, TEMPERED/ETCHED"),
+                # SINGLE + ANNEALED
+                ("CLEAR",      "SINGLE",    "ANNEALED"): ("GK17-10100-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
+                ("ETCHED",     "SINGLE",    "ANNEALED"): ("GK17-10300-00", "GLAZING KIT, ALUM, SINGLE 3MM, ETCHED"),
+                # SINGLE + TEMPERED
+                ("CLEAR",      "SINGLE",    "TEMPERED"): ("GK17-10200-00", "GLAZING KIT, ALUM, SINGLE (3MM), TEMP"),
+                # Combinations not yet stocked in BC fall through to the
+                # default below — the warning surfaces on the quote so the
+                # office can swap to an in-stock SKU if needed.
             }
             glass_pn, glass_desc = gk17_glass_map.get(
-                (glass_color, pane_type),
-                ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR")
+                (glass_color, pane_type, glass_treatment),
+                ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR"),
             )
 
             parts.append(PartSelection(
@@ -3357,6 +3367,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         window_frame_color=config_dict.get("windowFrameColor", "BLACK"),
         glazing_type=config_dict.get("glazingType"),
         glass_pane_type=config_dict.get("glassPaneType"),
+        glass_type=(config_dict.get("glassType") or "ANNEALED").upper(),
         glass_color=config_dict.get("glassColor"),
         track_radius=config_dict.get("trackRadius", "15"),
         track_thickness=config_dict.get("trackThickness", "2"),

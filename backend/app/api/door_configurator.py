@@ -186,7 +186,10 @@ DOOR_SERIES = {
             "paneTypes": [
                 {"id": "INSULATED", "name": "Insulated (Thermal)"},
                 {"id": "SINGLE", "name": "Single Pane"},
-                {"id": "TEMPERED", "name": "Tempered"},
+            ],
+            "glassTypes": [
+                {"id": "ANNEALED", "name": "Annealed"},
+                {"id": "TEMPERED", "name": "Tempered (Safety)"},
             ],
             "finishes": [
                 {"id": "CLEAR_ANODIZED", "name": "Clear Anodized", "code": "0"},
@@ -219,7 +222,10 @@ DOOR_SERIES = {
             "paneTypes": [
                 {"id": "INSULATED", "name": "Insulated (Thermal)"},
                 {"id": "SINGLE", "name": "Single Pane"},
-                {"id": "TEMPERED", "name": "Tempered"},
+            ],
+            "glassTypes": [
+                {"id": "ANNEALED", "name": "Annealed"},
+                {"id": "TEMPERED", "name": "Tempered (Safety)"},
             ],
             "finishes": [
                 {"id": "CLEAR_ANODIZED", "name": "Clear Anodized", "code": "0"},
@@ -525,6 +531,7 @@ class DoorConfigRequest(BaseModel):
     windowFrameColor: str = "BLACK"  # Commercial window frame color
     glazingType: Optional[str] = None
     glassPaneType: Optional[str] = None  # 'INSULATED' or 'SINGLE'
+    glassType: Optional[str] = "ANNEALED"  # 'ANNEALED' or 'TEMPERED' (safety)
     glassColor: Optional[str] = None     # 'CLEAR', 'ETCHED', 'SUPER_GREY'
     glassPocketsPerSection: Optional[Dict[str, int]] = None  # Per-section pocket overrides: {"0": 4, "1": 3, ...}
     trackRadius: str = "15"
@@ -573,6 +580,7 @@ class DoorCalculationRequest(BaseModel):
     doorType: str = "commercial"  # 'residential' or 'commercial'
     glazingType: Optional[str] = None  # 'glass' or 'polycarbonate' (aluminum doors)
     glassPaneType: Optional[str] = None  # 'INSULATED' or 'SINGLE' (aluminum doors)
+    glassType: Optional[str] = "ANNEALED"  # 'ANNEALED' or 'TEMPERED' (aluminum doors)
 
 
 # ============================================================================
@@ -972,6 +980,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "windowFrameColor": door.windowFrameColor,
                 "glazingType": door.glazingType,
                 "glassPaneType": door.glassPaneType,
+                "glassType": getattr(door, "glassType", "ANNEALED"),
                 "glassColor": door.glassColor,
                 "trackRadius": door.trackRadius,
                 "trackThickness": door.trackThickness,
@@ -1750,6 +1759,7 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "windowFrameColor": door.windowFrameColor,
                 "glazingType": door.glazingType,
                 "glassPaneType": door.glassPaneType,
+                "glassType": getattr(door, "glassType", "ANNEALED"),
                 "glassColor": door.glassColor,
                 "trackRadius": door.trackRadius,
                 "trackThickness": door.trackThickness,
