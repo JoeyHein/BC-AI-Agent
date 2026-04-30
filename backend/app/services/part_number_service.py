@@ -1562,31 +1562,32 @@ class PartNumberService:
         )
 
         if spring_result is None:
-            # Calculator couldn't find a standard spring — add editable placeholder
-            # Quote still creates so it can be completed manually in BC
+            # No standard spring fits this door at the requested cycle life.
+            # Common above 25K cycles on big high-lift doors. The quote
+            # still generates with everything else priced out — but a
+            # prominent comment line tells the customer (and the office
+            # reviewing the quote) that engineering has to size and price
+            # the springs before this quote can be approved.
             logger.warning(
                 f"Spring calculator returned no result for {door_weight:.0f} lbs, "
-                f"{config.door_height}\" height, {config.target_cycles} cycles"
+                f"{config.door_height}\" height, {config.target_cycles} cycles "
+                f"— flagged for office review"
             )
             parts.append(PartSelection(
                 part_number="",
                 description=(
-                    f"** SPRING — REQUIRES MANUAL ENTRY: No standard spring for "
-                    f"{door_weight:.0f} lbs, {config.door_height}\"H, {config.target_cycles:,} cycles. "
-                    f"Edit spring line in BC quote. **"
+                    f"** OFFICE REVIEW REQUIRED — SPRINGS: "
+                    f"{door_weight:.0f} lbs door at {config.target_cycles:,} cycles "
+                    f"exceeds standard spring sizing. Engineering must spec and "
+                    f"price the spring assembly before this quote is approved. **"
                 ),
                 quantity=0,
                 category="spring_warning",
-                notes="spring_calculation_failed",
+                notes="spring_office_review_required",
             ))
-            # Add a placeholder spring line that can be edited in BC
-            parts.append(PartSelection(
-                part_number="SP-CUSTOM",
-                description=f"CUSTOM SPRING - {door_weight:.0f}lbs {config.door_height}\"H {config.target_cycles:,} cycles - EDIT IN BC",
-                quantity=2,
-                category="spring",
-                notes="editable_placeholder",
-            ))
+            # Return spring_qty=2 (the default) so downstream shaft count and
+            # cone-set logic still emits sensible defaults; the office will
+            # finalize spring details when they review the quote.
             return parts, 2
         else:
             wire_size = spring_result.wire_diameter
@@ -1657,12 +1658,19 @@ class PartNumberService:
         # Get BC Part Number Mapper
         mapper = get_bc_mapper()
 
-        # Spring info comment line — door weight, drum, and turns
+        # Spring info comment line — door weight, drum, and turns. When the
+        # picker had to fall back to a tandem shaft (second shaft coupled
+        # to the primary to fit the spring count), call that out so the
+        # office knows extra hardware is required.
         drum_model = drums.model if drums else "N/A"
         spring_turns = spring_result.turns if spring_result else 0
+        is_tandem = bool(getattr(spring_result, "is_tandem", False)) if spring_result else False
+        info_desc = f"Door Weight: {door_weight:.0f} lbs | Drum: {drum_model} | Turns: {spring_turns:.1f}"
+        if is_tandem:
+            info_desc += " | TANDEM SHAFT REQUIRED"
         parts.append(PartSelection(
             part_number="",
-            description=f"Door Weight: {door_weight:.0f} lbs | Drum: {drum_model} | Turns: {spring_turns:.1f}",
+            description=info_desc,
             quantity=0,
             category="spring_comment",
             notes="spring_info_comment",

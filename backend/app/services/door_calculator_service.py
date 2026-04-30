@@ -514,6 +514,10 @@ class SpringSelection:
     inner_wire_diameter: Optional[float] = None
     inner_length: Optional[float] = None
     duplex_pairs: int = 0  # Number of shaft positions with duplex (each has outer+inner)
+    # When True the spring assembly uses a tandem shaft (a second shaft
+    # coupled to the primary one) to fit twice the springs. Drums stay
+    # on the primary shaft; the tandem holds the extra spring positions.
+    is_tandem: bool = False
 
 
 @dataclass
@@ -1574,11 +1578,14 @@ class DoorCalculatorService:
             )
             return None
 
-        # Shaft-fit filter: a duplex pair occupies ONE shaft position (inner
-        # nested inside outer), so spring footprint is pairs × outer_length.
-        # Reject pairs whose installed assembly won't fit on the shaft.
-        # Shaft length = door width + 18" of overhang (6" non-op + 12" op).
+        # Shaft-fit filter. A duplex pair occupies ONE shaft position
+        # (inner nested inside outer), so spring footprint per shaft is
+        # pairs_on_shaft × outer_length. Try single shaft first; if no
+        # pair fits, retry with tandem (two shafts coupled together,
+        # each carrying ceil(pairs/2)). Drums stay on the primary shaft.
+        # Shaft length = door width + 18" of overhang.
         shaft_length = width_inches + 18
+        is_tandem = False
         feasible_pairs = []
         for outer, inner in valid_pairs:
             installed_outer = outer.length + (outer.turns or 0) * (outer.wire_diameter or 0)
@@ -1586,10 +1593,28 @@ class DoorCalculatorService:
                 feasible_pairs.append((outer, inner))
 
         if not feasible_pairs:
-            logger.info(
-                f"Duplex {duplex_pairs} pairs: no pair fits on {shaft_length}\" shaft"
-            )
-            return None
+            # Try tandem: split the pair count across two coupled shafts.
+            # Primary holds drums + ceil(pairs/2) spring positions; tandem
+            # holds the rest. Both must fit on their respective shafts.
+            pairs_primary = (duplex_pairs + 1) // 2  # ceil
+            pairs_tandem = duplex_pairs // 2          # floor
+            for outer, inner in valid_pairs:
+                installed_outer = outer.length + (outer.turns or 0) * (outer.wire_diameter or 0)
+                primary_ok = _duplex_fits_on_shaft(shaft_length, installed_outer, pairs_primary, drum_model)
+                tandem_ok = _duplex_fits_on_shaft(shaft_length, installed_outer, pairs_tandem, drum_model=None) if pairs_tandem > 0 else True
+                if primary_ok and tandem_ok:
+                    feasible_pairs.append((outer, inner))
+            if feasible_pairs:
+                is_tandem = True
+                logger.info(
+                    f"Duplex {duplex_pairs} pairs: single shaft full → using tandem "
+                    f"({pairs_primary} primary + {pairs_tandem} tandem)"
+                )
+            else:
+                logger.info(
+                    f"Duplex {duplex_pairs} pairs: no pair fits even on tandem shaft"
+                )
+                return None
 
         best_outer, best_inner = min(feasible_pairs, key=lambda p: p[0].length)
 
@@ -1612,6 +1637,7 @@ class DoorCalculatorService:
             inner_wire_diameter=best_inner.wire_diameter,
             inner_length=best_inner.length,
             duplex_pairs=duplex_pairs,
+            is_tandem=is_tandem,
         )
 
     def _calculate_shaft(
