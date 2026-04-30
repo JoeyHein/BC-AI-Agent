@@ -795,7 +795,7 @@ def _generate_bc_quote_with_items(
         # together in the printed quote with no visual break between them.
         all_lines.append({
             "lineType": "Comment",
-            "description": " ",
+            "description": "-",
             "category": "COMMENT",
             "door_index": door_index,
             "is_separator": True,
@@ -1723,7 +1723,7 @@ def _edit_bc_quote_lines(
             })
 
         all_new_lines.append({
-            "lineType": "Comment", "description": " ", "category": "COMMENT",
+            "lineType": "Comment", "description": "-", "category": "COMMENT",
             "door_index": door_index, "is_separator": True,
         })
 
@@ -2144,7 +2144,7 @@ def _estimate_pricing_locally(
         # running together with no break).
         all_lines.append({
             "lineType": "Comment",
-            "description": " ",
+            "description": "-",
             "category": "COMMENT",
             "door_index": door_index,
             "is_separator": True,
