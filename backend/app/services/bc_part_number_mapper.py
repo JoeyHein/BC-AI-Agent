@@ -1122,8 +1122,9 @@ class BCPartNumberMapper:
         door_height_feet: int,
         num_sections: int = 4,
         commercial: bool = False,
-        lift_type: str = "standard",  # "standard", "high", or "vertical"
-        high_lift_inches: int = 0  # Additional high lift in inches (for high lift only)
+        lift_type: str = "standard",  # standard / high / vertical / low_headroom
+        high_lift_inches: int = 0,  # Additional high lift in inches (high-lift only)
+        door_type: str = "commercial",  # residential / commercial / aluminium
     ) -> BCPartNumber:
         """
         Get hardware box part number based on door size and type.
@@ -1219,43 +1220,60 @@ class BCPartNumberMapper:
         ww = ww_code(door_width_feet)
         ee = hl_ext_code(high_lift_inches) if lift_type == "high" else None
 
-        if lift_type == "high":
-            prefix = "HK13" if commercial else "HK12"
-            track_label = '3"' if commercial else '2"'
+        is_aluminum = (door_type or "").lower() in ("aluminium", "aluminum")
 
-            def build(d: str) -> str:
+        # Aluminum doors use a generic "complete alum hardware kit" SKU —
+        # not size-keyed like the steel-door families. BC has -AL variants
+        # in HK01/HK03/HK04/HK06; default to HK03-00000-AL since aluminum
+        # doors run on 3" hardware.
+        if is_aluminum:
+            return BCPartNumber(
+                part_number="HK03-00000-AL",
+                description=(
+                    self.bc_items.get("HK03-00000-AL", {}).get("displayName")
+                    or "COMPLETE ALUM HARDWARE KIT"
+                ),
+                category="HARDWARE",
+            )
+
+        # Steel doors — pick the prefix family by lift + track size.
+        # Track 2" → residential family, 3" → commercial family.
+        # std-lift  : HK02 / HK03    | format ...-{HH}{WW}{D}-RC
+        # high-lift : HK12 / HK13    | format ...-{HH}{WW}{D}{EE}-RC
+        # vertical  : HK22 / HK23    | format ...-{HH}{WW}{D}-RC
+        # low head  : HK32 / HK33    | format ...-{HH}{WW}{D}-RC
+        FAMILIES = {
+            "high":         ("HK12", "HK13", "HIGH LIFT", True),
+            "vertical":     ("HK22", "HK23", "VERTICAL LIFT", False),
+            "low_headroom": ("HK32", "HK33", "LHR FRONT", False),
+            "standard":     ("HK02", "HK03", "STD LIFT", False),
+        }
+        res_pfx, com_pfx, label, with_hl_ext = FAMILIES.get(lift_type, FAMILIES["standard"])
+        prefix = com_pfx if commercial else res_pfx
+        track_label = '3"' if commercial else '2"'
+
+        def build(d: str) -> str:
+            if with_hl_ext:
                 return f"{prefix}-{hh}{ww}{d}{ee}-RC"
+            return f"{prefix}-{hh}{ww}{d}-RC"
 
-            part_number = build("1" if forces_dec else "0")
-            cap_type = "DEC" if forces_dec else "SEC"
-            if not forces_dec and part_number not in self.bc_items:
-                dec_pn = build("1")
-                if dec_pn in self.bc_items:
-                    part_number = dec_pn
-                    cap_type = "DEC"
+        part_number = build("1" if forces_dec else "0")
+        cap_type = "DEC" if forces_dec else "SEC"
+        if not forces_dec and part_number not in self.bc_items:
+            dec_pn = build("1")
+            if dec_pn in self.bc_items:
+                part_number = dec_pn
+                cap_type = "DEC"
 
+        if with_hl_ext:
             description = (
-                f"HARDWARE KIT, HIGH LIFT {track_label}, "
+                f"HARDWARE KIT, {label} {track_label}, "
                 f"{door_width_feet}'W x {door_height_feet}'H, "
                 f"{cap_type}, +{int(ee)}' HL"
             )
         else:
-            prefix = "HK03" if commercial else "HK02"
-            track_label = '3"' if commercial else '2"'
-
-            def build(d: str) -> str:
-                return f"{prefix}-{hh}{ww}{d}-RC"
-
-            part_number = build("1" if forces_dec else "0")
-            cap_type = "DEC" if forces_dec else "SEC"
-            if not forces_dec and part_number not in self.bc_items:
-                dec_pn = build("1")
-                if dec_pn in self.bc_items:
-                    part_number = dec_pn
-                    cap_type = "DEC"
-
             description = (
-                f"HARDWARE KIT, STD LIFT {track_label}, "
+                f"HARDWARE KIT, {label} {track_label}, "
                 f"{door_width_feet}'W x {door_height_feet}'H, {cap_type}"
             )
 

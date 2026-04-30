@@ -829,13 +829,17 @@ class PartNumberService:
         # 9. SPRINGS (computed before shafts — spring count drives shaft count)
         spring_parts = []
         spring_count = 2  # default (number of individual springs, NOT inches)
+        is_tandem = False
         if hardware.get("springs", True):
-            spring_parts, spring_count = self._get_spring_parts(config)
+            spring_parts, spring_count, is_tandem = self._get_spring_parts(config)
             parts.extend(spring_parts)
 
-        # 10. SHAFT (uses spring_count to determine shaft count)
+        # 10. SHAFT (uses spring_count to determine shaft count). When the
+        # spring picker fell back to a tandem assembly (second shaft coupled
+        # to the primary), the shaft picker doubles its shaft + coupler
+        # quantities to physically support that.
         if hardware.get("shafts", True):
-            shaft_parts = self._get_shaft_parts(config, spring_count=spring_count)
+            shaft_parts = self._get_shaft_parts(config, spring_count=spring_count, is_tandem=is_tandem)
             parts.extend(shaft_parts)
 
         # 11. WEATHER SEAL (sides and header)
@@ -1502,7 +1506,7 @@ class PartNumberService:
 
         return parts
 
-    def _get_spring_parts(self, config: DoorConfiguration) -> Tuple[List[PartSelection], int]:
+    def _get_spring_parts(self, config: DoorConfiguration) -> Tuple[List[PartSelection], int, bool]:
         """
         Get spring part numbers using door_calculator for spring selection + BC part number mapper.
 
@@ -1588,7 +1592,7 @@ class PartNumberService:
             # Return spring_qty=2 (the default) so downstream shaft count and
             # cone-set logic still emits sensible defaults; the office will
             # finalize spring details when they review the quote.
-            return parts, 2
+            return parts, 2, False
         else:
             wire_size = spring_result.wire_diameter
             coil_id = spring_result.coil_diameter
@@ -1836,9 +1840,9 @@ class PartNumberService:
             category="spring_accessory"
         ))
 
-        return parts, spring_qty
+        return parts, spring_qty, is_tandem
 
-    def _get_shaft_parts(self, config: DoorConfiguration, spring_count: int = 2) -> List[PartSelection]:
+    def _get_shaft_parts(self, config: DoorConfiguration, spring_count: int = 2, is_tandem: bool = False) -> List[PartSelection]:
         """Get shaft part numbers using actual BC parts.
 
         Shaft type selection:
@@ -1987,27 +1991,46 @@ class PartNumberService:
                     f"(need {total_needed}\"): {N-1}× {shaft_std.part_number} + {shaft_op.part_number}"
                 )
 
+            # Tandem assembly: a second shaft coupled to the primary to
+            # carry additional spring positions. Doubles every shaft &
+            # coupler in this section. The connector that ties the two
+            # shafts together is a custom OPENDC SKU still being created;
+            # for now a comment line surfaces the requirement to the
+            # office reviewing the quote.
+            shaft_multiplier = 2 if is_tandem else 1
+
             parts = []
+            if is_tandem:
+                parts.append(PartSelection(
+                    part_number="",
+                    description=(
+                        "** TANDEM SHAFT ASSEMBLY: 2x shafts + 2x couplers below. "
+                        "Tandem connector SKU pending — office to add when assigned. **"
+                    ),
+                    quantity=0,
+                    category="shaft_comment",
+                    notes="tandem_shaft_required",
+                ))
             # N-1 standard (non-operator) shafts
             if N - 1 > 0:
                 parts.append(PartSelection(
                     part_number=shaft_std.part_number,
                     description=shaft_std.description,
-                    quantity=N - 1,
+                    quantity=(N - 1) * shaft_multiplier,
                     category="shaft"
                 ))
-            # 1 operator shaft
+            # 1 operator shaft per shaft assembly (1 single, 2 tandem)
             parts.append(PartSelection(
                 part_number=shaft_op.part_number,
                 description=shaft_op.description,
-                quantity=1,
+                quantity=1 * shaft_multiplier,
                 category="shaft"
             ))
-            # N-1 couplers
+            # N-1 couplers per assembly
             parts.append(PartSelection(
                 part_number=coupler.part_number,
                 description=coupler.description,
-                quantity=N - 1,
+                quantity=(N - 1) * shaft_multiplier,
                 category="shaft"
             ))
             return parts
@@ -2096,11 +2119,21 @@ class PartNumberService:
                 quantity=1,
                 category="hardware"
             )]
-        # Hardware box type follows track thickness, not door type
-        # 3" track → commercial HW box (HK03/HW), 2" track → residential HW box (HK02/HK10)
+        # Hardware box family by track thickness — 3" → commercial (HK03/13/
+        # 23/33), 2" → residential (HK02/12/22/32). Aluminum doors override
+        # to a generic -AL kit inside the mapper.
         is_commercial = config.track_thickness == '3'
+        # Map config.lift_type → the mapper's lift_type vocabulary so all
+        # four families (standard / high / vertical / low-headroom) can pick
+        # the right HK prefix.
+        lift_map = {
+            'standard':     'standard',
+            'high_lift':    'high',
+            'vertical':     'vertical',
+            'low_headroom': 'low_headroom',
+        }
+        mapper_lift = lift_map.get(config.lift_type, 'standard')
 
-        # Calculate number of sections based on door height
         num_sections = self._calculate_panel_count(config.door_height)
 
         hardware = mapper.get_hardware_box(
@@ -2108,8 +2141,9 @@ class PartNumberService:
             door_height_feet=door_height_feet,
             num_sections=num_sections,
             commercial=is_commercial,
-            lift_type='high' if config.lift_type == 'high_lift' else ('vertical' if config.lift_type == 'vertical' else 'standard'),
-            high_lift_inches=config.high_lift_inches or 0
+            lift_type=mapper_lift,
+            high_lift_inches=config.high_lift_inches or 0,
+            door_type=config.door_type or "commercial",
         )
 
         return [PartSelection(
