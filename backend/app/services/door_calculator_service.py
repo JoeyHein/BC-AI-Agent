@@ -258,46 +258,93 @@ _CLEARANCE_PER_GAP = 0.25
 _WINDER_CONE_WIDTHS = {2.0: 3.0, 2.625: 3.5, 3.75: 4.5, 6.0: 6.0}
 
 
+def _duplex_fits_on_shaft(
+    shaft_length_inches: float,
+    installed_outer_length: float,
+    duplex_pairs: int,
+    drum_model: Optional[str] = None,
+) -> bool:
+    """Fit check for a duplex spring assembly.
+
+    Each duplex pair (outer + inner nested) occupies ONE shaft position
+    sized by the outer's installed length and a 6" outer winder cone. The
+    inner cone sits inside the outer cone — no extra axial space needed.
+    """
+    drum = DRUM_TABLE.get(drum_model, {}) if drum_model else {}
+    drum_w = drum.get("width", _DRUM_WIDTH_DEFAULT)
+    outer_winder_w = _WINDER_CONE_WIDTHS.get(6.0, 6.0)
+    num_couplers = max(0, duplex_pairs - 1)
+    required = (
+        2 * drum_w +                              # 2 drums
+        2 * _BEARING_END_PLATE_WIDTH +            # 2 end plates
+        num_couplers * _COUPLER_WIDTH +
+        num_couplers * _CENTER_BEARING_WIDTH +
+        duplex_pairs * outer_winder_w +           # one outer winder per pair
+        duplex_pairs * installed_outer_length +   # one outer spring per pair
+        (4 + duplex_pairs + num_couplers) * _CLEARANCE_PER_GAP
+    )
+    return required <= shaft_length_inches
+
+
 def _springs_fit_on_shaft(
     door_width_inches: int,
     spring_length: float,
     spring_qty: int,
     coil_diameter: float,
     drum_model: str = None,
+    turns: float = 0.0,
+    wire_diameter: float = 0.0,
 ) -> bool:
-    """Quick check: do the springs + shaft components fit within the door width?"""
+    """Quick check: do the springs + shaft components fit within the door width?
+
+    Spring length passed in is the Canimex *manufactured* length; on the
+    shaft the spring grows by `turns × wire_diameter` once it's wound up
+    to its preload. We use that installed length for the fit math so a
+    high-cycle/high-turn spring doesn't get a green light at install
+    time only to overrun the shaft after winding.
+
+    Drum width comes from DRUM_TABLE per model (D400 ~ 4.5", D6375/D800 ~
+    8", verticals up to 9.5"). Falling back to a 5" default for unknown
+    models keeps legacy paths working.
+    """
     winder_w = _WINDER_CONE_WIDTHS.get(coil_diameter, 3.0)
     num_couplers = max(0, (spring_qty // 2) - 1)
+    drum = DRUM_TABLE.get(drum_model, {}) if drum_model else {}
+    drum_w = drum.get("width", _DRUM_WIDTH_DEFAULT)
+    installed_spring_length = spring_length + (turns * wire_diameter if turns and wire_diameter else 0)
     required = (
-        2 * _DRUM_WIDTH_DEFAULT +           # 2 drums
-        2 * _BEARING_END_PLATE_WIDTH +       # 2 end plates
+        2 * drum_w +                          # 2 drums (model-specific)
+        2 * _BEARING_END_PLATE_WIDTH +        # 2 end plates
         num_couplers * _COUPLER_WIDTH +       # shaft couplers
         num_couplers * _CENTER_BEARING_WIDTH + # center bearing plates
         spring_qty * winder_w +               # winder cones
-        spring_qty * spring_length +          # springs
+        spring_qty * installed_spring_length + # springs (installed/wound)
         (2 + 2 + spring_qty + spring_qty + num_couplers) * _CLEARANCE_PER_GAP  # gaps
     )
     return required <= door_width_inches
 
 
 # Drum selection table
-# Format: {drum_model: {max_height: int, max_weight: int, offset: float, cable_diameters: [small, large]}}
+# Format: {drum_model: {max_height, max_weight, offset, cables, lift, radius, width}}
+# `width` is axial footprint of the drum on the shaft in inches — needed for
+# the spring/shaft fit check. Larger drums (D6375, D800-120, vertical-lift
+# 1100/1350) take more shaft length.
 DRUM_TABLE = {
     # Standard Lift Drums
-    "D400-96": {"max_height": 96, "max_weight": 530, "offset": 3.375, "cables": [0.125, 0.125], "lift": "standard", "radius": 12},
-    "D400-144": {"max_height": 144, "max_weight": 750, "offset": 3.375, "cables": [0.125, 0.15625], "lift": "standard", "radius": 12},
-    "D525-216": {"max_height": 216, "max_weight": 1500, "offset": 4.375, "cables": [0.15625, 0.1875], "lift": "standard", "radius": 15},
-    "D800-384": {"max_height": 384, "max_weight": 2200, "offset": 5.0, "cables": [0.1875, 0.25], "lift": "standard", "radius": 15},
+    "D400-96":   {"max_height": 96,  "max_weight": 530,  "offset": 3.375, "cables": [0.125, 0.125],     "lift": "standard", "radius": 12, "width": 4.5},
+    "D400-144":  {"max_height": 144, "max_weight": 750,  "offset": 3.375, "cables": [0.125, 0.15625],   "lift": "standard", "radius": 12, "width": 4.5},
+    "D525-216":  {"max_height": 216, "max_weight": 1500, "offset": 4.375, "cables": [0.15625, 0.1875],  "lift": "standard", "radius": 15, "width": 5.5},
+    "D800-384":  {"max_height": 384, "max_weight": 2200, "offset": 5.0,   "cables": [0.1875, 0.25],     "lift": "standard", "radius": 15, "width": 7.0},
     # High Lift Drums
-    "D400-54": {"max_height": 174, "max_weight": 550, "offset": 4.375, "cables": [0.125, 0.15625], "lift": "high", "radius": 12},
-    "D525-54": {"max_height": 234, "max_weight": 1000, "offset": 4.375, "cables": [0.15625, 0.1875], "lift": "high", "radius": 15},
-    "D575-120": {"max_height": 264, "max_weight": 1000, "offset": 5.0, "cables": [0.15625, 0.1875], "lift": "high", "radius": 15},
-    "D6375-164": {"max_height": 393, "max_weight": 1600, "offset": 6.0, "cables": [0.1875, 0.25], "lift": "high", "radius": 15},
-    "D800-120": {"max_height": 384, "max_weight": 2200, "offset": 6.0, "cables": [0.1875, 0.25], "lift": "high", "radius": 15},
+    "D400-54":   {"max_height": 174, "max_weight": 550,  "offset": 4.375, "cables": [0.125, 0.15625],   "lift": "high",     "radius": 12, "width": 5.0},
+    "D525-54":   {"max_height": 234, "max_weight": 1000, "offset": 4.375, "cables": [0.15625, 0.1875],  "lift": "high",     "radius": 15, "width": 6.0},
+    "D575-120":  {"max_height": 264, "max_weight": 1000, "offset": 5.0,   "cables": [0.15625, 0.1875],  "lift": "high",     "radius": 15, "width": 6.5},
+    "D6375-164": {"max_height": 393, "max_weight": 1600, "offset": 6.0,   "cables": [0.1875, 0.25],     "lift": "high",     "radius": 15, "width": 8.0},
+    "D800-120":  {"max_height": 384, "max_weight": 2200, "offset": 6.0,   "cables": [0.1875, 0.25],     "lift": "high",     "radius": 15, "width": 8.0},
     # Vertical Lift Drums
-    "850-132": {"max_height": 132, "max_weight": 850, "offset": 5.0, "cables": [0.15625, 0.1875], "lift": "vertical", "radius": 15},
-    "1100-216": {"max_height": 216, "max_weight": 1000, "offset": 6.0, "cables": [0.15625, 0.1875], "lift": "vertical", "radius": 15},
-    "1350-336": {"max_height": 336, "max_weight": 2200, "offset": 7.0, "cables": [0.1875, 0.25], "lift": "vertical", "radius": 15},
+    "850-132":   {"max_height": 132, "max_weight": 850,  "offset": 5.0,   "cables": [0.15625, 0.1875],  "lift": "vertical", "radius": 15, "width": 6.5},
+    "1100-216":  {"max_height": 216, "max_weight": 1000, "offset": 6.0,   "cables": [0.15625, 0.1875],  "lift": "vertical", "radius": 15, "width": 8.0},
+    "1350-336":  {"max_height": 336, "max_weight": 2200, "offset": 7.0,   "cables": [0.1875, 0.25],     "lift": "vertical", "radius": 15, "width": 9.5},
 }
 
 # Spring Maximum Inch Pound (MIP) Capacity Table
@@ -1152,7 +1199,10 @@ class DoorCalculatorService:
             )
             if result is None:
                 continue
-            if not _springs_fit_on_shaft(width_inches, result.length, qty, result.coil_diameter, drum_model):
+            if not _springs_fit_on_shaft(
+                width_inches, result.length, qty, result.coil_diameter, drum_model,
+                turns=result.turns, wire_diameter=result.wire_diameter,
+            ):
                 logger.info(
                     f"Skipping {qty}x {result.coil_diameter}\" coil / {result.wire_diameter}\" wire "
                     f"({result.length}\" long) — doesn't fit on {width_inches}\" wide door"
@@ -1170,6 +1220,7 @@ class DoorCalculatorService:
                 track_radius, inventory=None, duplex_pairs=duplex_pairs,
                 drum_model=drum_model,
                 high_lift_inches=high_lift_inches,
+                width_inches=width_inches,
             )
             if duplex is None:
                 continue
@@ -1297,7 +1348,10 @@ class DoorCalculatorService:
                     mip_capacity = spring_calculator.get_mip_capacity(wire_diam, target_cycles)
                     if mip_capacity and mip_capacity >= result.mip_per_spring:
                         # Verify springs physically fit on the shaft
-                        if not _springs_fit_on_shaft(width_inches, result.length, spring_qty, coil_diam, drum_model):
+                        if not _springs_fit_on_shaft(
+                            width_inches, result.length, spring_qty, coil_diam, drum_model,
+                            turns=result.turns, wire_diameter=result.wire_diameter,
+                        ):
                             logger.info(
                                 f"Skipping stocked {spring_qty}x {coil_diam}\"/{wire_diam}\" "
                                 f"({result.length}\" long) — doesn't fit on {width_inches}\" wide door"
@@ -1334,6 +1388,7 @@ class DoorCalculatorService:
                 track_radius, inventory, duplex_pairs,
                 drum_model=drum_model,
                 high_lift_inches=high_lift_inches,
+                width_inches=width_inches,
             )
             if duplex is not None:
                 all_candidates.append(duplex)
@@ -1392,6 +1447,7 @@ class DoorCalculatorService:
         duplex_pairs: int = 2,
         drum_model: Optional[str] = None,
         high_lift_inches: int = 0,
+        width_inches: int = 240,
     ) -> Optional[SpringSelection]:
         """
         Calculate duplex spring configuration.
@@ -1518,7 +1574,24 @@ class DoorCalculatorService:
             )
             return None
 
-        best_outer, best_inner = min(valid_pairs, key=lambda p: p[0].length)
+        # Shaft-fit filter: a duplex pair occupies ONE shaft position (inner
+        # nested inside outer), so spring footprint is pairs × outer_length.
+        # Reject pairs whose installed assembly won't fit on the shaft.
+        # Shaft length = door width + 18" of overhang (6" non-op + 12" op).
+        shaft_length = width_inches + 18
+        feasible_pairs = []
+        for outer, inner in valid_pairs:
+            installed_outer = outer.length + (outer.turns or 0) * (outer.wire_diameter or 0)
+            if _duplex_fits_on_shaft(shaft_length, installed_outer, duplex_pairs, drum_model):
+                feasible_pairs.append((outer, inner))
+
+        if not feasible_pairs:
+            logger.info(
+                f"Duplex {duplex_pairs} pairs: no pair fits on {shaft_length}\" shaft"
+            )
+            return None
+
+        best_outer, best_inner = min(feasible_pairs, key=lambda p: p[0].length)
 
         logger.info(
             f"Duplex option: {duplex_pairs} pairs ({total_qty} total springs) - "
