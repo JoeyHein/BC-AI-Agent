@@ -1495,9 +1495,30 @@ class DoorCalculatorService:
         if not outer_candidates or not inner_candidates:
             return None
 
-        # Pick best: smallest wire that works (shortest spring)
-        best_outer = min(outer_candidates, key=lambda r: r.length)
-        best_inner = min(inner_candidates, key=lambda r: r.length)
+        # Cones require the inner spring to assemble inside the outer with at
+        # least 1" of clearance, so inner.length must be <= outer.length - 1.
+        # Pick the (outer, inner) pair that minimises outer length while
+        # honoring the constraint, with the longest feasible inner (closest
+        # to outer - 1") as a balance preference.
+        CONE_CLEARANCE_IN = 1.0
+        valid_pairs = []
+        for outer in outer_candidates:
+            feasible_inners = [
+                i for i in inner_candidates if i.length <= outer.length - CONE_CLEARANCE_IN
+            ]
+            if not feasible_inners:
+                continue
+            best_inner_for_outer = max(feasible_inners, key=lambda i: i.length)
+            valid_pairs.append((outer, best_inner_for_outer))
+
+        if not valid_pairs:
+            logger.info(
+                f"Duplex {duplex_pairs} pairs: no (outer, inner) pair with "
+                f"inner ≥ 1\" shorter than outer at {target_cycles} cycles"
+            )
+            return None
+
+        best_outer, best_inner = min(valid_pairs, key=lambda p: p[0].length)
 
         logger.info(
             f"Duplex option: {duplex_pairs} pairs ({total_qty} total springs) - "
