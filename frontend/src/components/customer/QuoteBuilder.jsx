@@ -2358,6 +2358,14 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
               <div className="text-xs text-gray-500 mt-1">{option.description}</div>
             </button>
           ))}
+          <div
+            aria-disabled="true"
+            title="Contact us for steel mount or reverse angle"
+            className="col-span-2 p-3 rounded-lg border-2 border-dashed border-gray-200 bg-gray-50 text-center cursor-not-allowed select-none"
+          >
+            <div className="text-sm font-medium text-gray-500">Steel Mount / Reverse Angle</div>
+            <div className="text-xs text-gray-400 mt-1">Contact us for these options — standard is wood mount</div>
+          </div>
         </div>
       </div>
 
