@@ -314,6 +314,7 @@ COLORS = {
     "KANATA": [
         # Solid Colors (RAL)
         {"id": "WHITE", "name": "White", "hex": "#F4F4F4", "ral": "RAL 9003", "type": "solid"},
+        {"id": "NEW_ALMOND", "name": "New Almond", "hex": "#E3DCCA", "ral": "RAL 1015", "type": "solid"},
         {"id": "BLACK", "name": "Black", "hex": "#282828", "ral": "RAL 9004", "type": "solid"},
         {"id": "NEW_BROWN", "name": "New Brown", "hex": "#4C4842", "ral": "RAL 7022", "type": "solid"},
         {"id": "HAZELWOOD", "name": "Hazelwood", "hex": "#756F61", "ral": "RAL 7006", "type": "solid"},
