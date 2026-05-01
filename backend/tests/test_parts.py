@@ -64,15 +64,32 @@ class TestStruts:
 # ── Hardware boxes ────────────────────────────────────────────────────────
 
 class TestHardwareBoxes:
-    def test_residential_hardware_generated(self):
-        """HK02 kits follow a deterministic pattern — verify they're generated (not generic)."""
-        for width in [8, 9, 10, 12, 16, 18]:
-            parts = _get_parts({"doorWidth": width * 12})
-            hw = _by_category(parts, "hardware")
-            assert len(hw) >= 1, f"{width}ft: no hardware kit"
-            pn = hw[0]["part_number"]
-            assert pn.startswith("HK02-"), f"{width}ft: expected HK02, got {pn}"
-            assert pn != "HK02-00000-RC", f"{width}ft: got generic fallback instead of sized kit"
+    def test_residential_hk10_for_standard_sizes(self):
+        """Residential KANATA/CRAFT, std lift, ≤8' tall, ≤18' wide → HK10 prebuilt box."""
+        cases = [
+            # (width_ft, height_in, expected SKU)
+            ( 9, 84, "HK10-00704-0809"),
+            (10, 84, "HK10-00704-0809"),
+            (11, 84, "HK10-00704-0809"),  # 11' bucketed into smaller box
+            (12, 84, "HK10-00704-1316"),
+            (16, 84, "HK10-00704-1316"),
+            (18, 84, "HK10-00704-1316"),
+            ( 9, 96, "HK10-00804-0809"),
+            (16, 96, "HK10-00804-1316"),
+        ]
+        for width, height, expected in cases:
+            parts = _get_parts({"doorWidth": width * 12, "doorHeight": height})
+            pn = _by_category(parts, "hardware")[0]["part_number"]
+            assert pn == expected, f"{width}'x{height}\": expected {expected}, got {pn}"
+
+    def test_residential_falls_back_to_hk02_outside_hk10_envelope(self):
+        """Heights >8' or widths >18' use the per-size HK02 kits."""
+        # 9' tall → no HK10 SKU
+        pn = _by_category(_get_parts({"doorWidth": 16*12, "doorHeight": 108}), "hardware")[0]["part_number"]
+        assert pn.startswith("HK02-"), f"9' tall: expected HK02, got {pn}"
+        # 20' wide → no HK10 SKU
+        pn = _by_category(_get_parts({"doorWidth": 20*12, "doorHeight": 96}), "hardware")[0]["part_number"]
+        assert pn.startswith("HK02-"), f"20' wide: expected HK02, got {pn}"
 
     def test_commercial_hardware_generated(self):
         """HK03 kits follow a deterministic pattern — verify they're generated (not generic)."""

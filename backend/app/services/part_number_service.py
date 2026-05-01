@@ -2093,15 +2093,37 @@ class PartNumberService:
     def _get_hardware_kit_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get hardware box part numbers using actual BC part numbers.
 
-        Uses bc_part_number_mapper to generate correct part numbers:
-        - Residential (2" track): HK10-0HHSS-WWWW pattern
-        - Commercial (3" track): HWww-hhhhh-00 pattern
-        - CRAFT: specific HK02-xxxxx-CR part numbers
+        Selection order:
+        - Residential KANATA/CRAFT, std lift, ≤8' tall, ≤18' wide → HK10 prebuilt box
+        - CRAFT (other sizes) → HK02-xxxxx-CR per rulebook
+        - Everything else → bc_part_number_mapper (HK02/03/12/13/22/23/32/33)
         """
         mapper = get_bc_mapper()
 
         door_width_feet = int(config.door_width / 12)
         door_height_feet = int(config.door_height / 12)
+
+        # HK10 prebuilt residential boxes: KANATA & CRAFT, std lift, 2" track,
+        # height ≤ 8', width ≤ 18'. Outside that envelope, fall through to the
+        # per-size HK02 / CRAFT-specific kits below.
+        if (
+            (config.door_type or "").lower() == "residential"
+            and config.door_series in ("KANATA", "CRAFT")
+            and (config.lift_type or "standard") == "standard"
+            and config.door_height <= 96
+            and door_width_feet <= 18
+        ):
+            hh = "07" if config.door_height <= 84 else "08"
+            ww = "0809" if door_width_feet <= 11 else "1316"
+            pn = f"HK10-0{hh}04-{ww}"
+            desc = mapper.bc_items.get(pn, {}).get("displayName") \
+                or f"HARDWARE BOX, 2R, {door_width_feet}'W x {hh}'H, STANDARD"
+            return [PartSelection(
+                part_number=pn,
+                description=desc,
+                quantity=1,
+                category="hardware",
+            )]
 
         # CRAFT series: specific hardware kits per rulebook
         if config.door_series == "CRAFT":
