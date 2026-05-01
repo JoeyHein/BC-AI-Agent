@@ -42,27 +42,26 @@ function CustomerLayout() {
       {/* Header + Navigation */}
       <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-14">
-            <div className="flex items-center">
+          <div className="flex items-center justify-between h-14 gap-6">
+            <div className="flex items-center gap-6 min-w-0">
               <Link to="/" className="flex-shrink-0 flex items-center">
-                <img src="/assets/opendc-logo.jpg" alt="OpenDC" className="h-8" />
-                <span className="ml-3 text-sm font-medium text-gray-400">Customer Portal</span>
+                <img src="/assets/opendc-logo.jpg" alt="OpenDC" className="h-8 w-auto" />
               </Link>
-              <div className="flex ml-8">
+              <div className="flex items-center">
                 {navItems.map((item) => (
                   <Link
                     key={item.path}
                     to={item.path}
-                    className={`relative inline-flex items-center px-3 h-14 border-b-2 text-sm font-medium transition-colors ${
+                    className={`relative inline-flex items-center gap-1.5 px-3 h-14 border-b-2 text-sm font-medium whitespace-nowrap transition-colors ${
                       isActive(item.path)
                         ? 'border-odc-600 text-odc-700'
                         : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                     }`}
                   >
-                    <item.icon className="h-4 w-4 mr-1.5" />
+                    <item.icon className="h-4 w-4" />
                     {item.label}
                     {item.badge && itemCount > 0 && (
-                      <span className="absolute -top-0.5 right-0 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold leading-none text-white bg-red-500 rounded-full">
+                      <span className="absolute top-2 -right-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold leading-none text-white bg-red-500 rounded-full">
                         {itemCount}
                       </span>
                     )}
@@ -71,18 +70,27 @@ function CustomerLayout() {
               </div>
             </div>
 
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center gap-3 flex-shrink-0">
               {!isBCLinked && (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                  Account not linked
+                <span className="hidden md:inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 whitespace-nowrap">
+                  Not linked
                 </span>
               )}
-              <span className="text-sm text-gray-500">
-                {user?.name || user?.email}
-                {user?.bc_company_name && (
-                  <span className="ml-1 text-gray-400">({user.bc_company_name})</span>
-                )}
-              </span>
+              {(() => {
+                const primary = user?.bc_company_name || user?.name || user?.email
+                const secondary = user?.bc_company_name && user?.name && user.name !== user.bc_company_name
+                  ? user.name : null
+                return (
+                  <div className="hidden lg:flex flex-col items-end leading-tight max-w-[200px]">
+                    <span className="text-sm font-medium text-gray-700 truncate w-full text-right">
+                      {primary}
+                    </span>
+                    {secondary && (
+                      <span className="text-xs text-gray-400 truncate w-full text-right">{secondary}</span>
+                    )}
+                  </div>
+                )
+              })()}
               <button
                 onClick={handleLogout}
                 className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded-md text-gray-600 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-odc-500"
