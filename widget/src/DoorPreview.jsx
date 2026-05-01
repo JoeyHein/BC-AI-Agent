@@ -76,7 +76,7 @@ const COLOR_MAP = {
   NEW_ALMOND: '#E3DCCA',
   WALNUT: '#673D27',
   ENGLISH_CHESTNUT: '#7F583F',
-  FRENCH_OAK: '#A48468',
+  FRENCH_OAK: '#D6B880',
   CANYON: '#8B6F47',
   CLEAR_ANODIZED: '#C0C0C0',
   BLACK_ANODIZED: '#1a1a1a',
@@ -86,7 +86,7 @@ const COLOR_MAP = {
 const WOODGRAIN_COLORS = {
   WALNUT: { base: '#673D27', light: '#8A5A40', dark: '#3D2010' },
   ENGLISH_CHESTNUT: { base: '#7F583F', light: '#B88A72', dark: '#4A2D1A' },
-  FRENCH_OAK: { base: '#A48468', light: '#C8AA8D', dark: '#6C523C' },
+  FRENCH_OAK: { base: '#D6B880', light: '#E8CD9C', dark: '#8A6B44' },
 }
 
 const isWoodgrain = (colorId) => ['WALNUT', 'ENGLISH_CHESTNUT', 'FRENCH_OAK'].includes(colorId)
@@ -1130,43 +1130,79 @@ function DoorPreview({
                 </pattern>
               )
             } else {
+              // French Oak: warm honey tan with bold ring-porous structure.
               return (
                 <pattern id={pid} patternUnits="userSpaceOnUse" width="480" height="120">
                   <rect width="480" height="120" fill={g.base} />
-                  <path d="M0,6 Q240,5 480,7" stroke={g.dark} strokeWidth="0.6" fill="none" opacity="0.55" />
-                  <path d="M0,14 Q240,13 480,14" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
-                  <path d="M0,20 Q240,19 480,21" stroke={g.dark} strokeWidth="0.7" fill="none" opacity="0.6" />
-                  <path d="M0,28 Q240,27 480,28" stroke={g.dark} strokeWidth="0.3" fill="none" opacity="0.35" />
-                  <path d="M0,34 Q240,33 480,35" stroke={g.dark} strokeWidth="0.8" fill="none" opacity="0.65" />
-                  <path d="M0,42 Q240,41 480,42" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
-                  <path d="M0,48 Q240,47 480,49" stroke={g.dark} strokeWidth="0.6" fill="none" opacity="0.55" />
-                  <path d="M0,56 Q240,55 480,56" stroke={g.dark} strokeWidth="0.3" fill="none" opacity="0.35" />
-                  <path d="M0,62 Q240,61 480,63" stroke={g.dark} strokeWidth="0.7" fill="none" opacity="0.6" />
-                  <path d="M0,70 Q240,69 480,70" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
-                  <path d="M0,76 Q240,75 480,77" stroke={g.dark} strokeWidth="0.6" fill="none" opacity="0.55" />
-                  <path d="M0,84 Q240,83 480,84" stroke={g.dark} strokeWidth="0.3" fill="none" opacity="0.35" />
-                  <path d="M0,90 Q240,89 480,91" stroke={g.dark} strokeWidth="0.8" fill="none" opacity="0.6" />
-                  <path d="M0,98 Q240,97 480,98" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.4" />
-                  <path d="M0,106 Q240,105 480,107" stroke={g.dark} strokeWidth="0.6" fill="none" opacity="0.5" />
-                  <path d="M0,114 Q240,113 480,114" stroke={g.dark} strokeWidth="0.3" fill="none" opacity="0.35" />
-                  <path d="M0,10 Q240,9 480,10" stroke={g.light} strokeWidth="0.3" fill="none" opacity="0.45" />
-                  <path d="M0,24 Q240,23 480,24" stroke={g.light} strokeWidth="0.3" fill="none" opacity="0.4" />
-                  <path d="M0,38 Q240,37 480,38" stroke={g.light} strokeWidth="0.3" fill="none" opacity="0.45" />
-                  <path d="M0,52 Q240,51 480,52" stroke={g.light} strokeWidth="0.3" fill="none" opacity="0.4" />
-                  <path d="M0,66 Q240,65 480,66" stroke={g.light} strokeWidth="0.3" fill="none" opacity="0.45" />
-                  <path d="M0,80 Q240,79 480,80" stroke={g.light} strokeWidth="0.3" fill="none" opacity="0.4" />
-                  <path d="M0,94 Q240,93 480,94" stroke={g.light} strokeWidth="0.3" fill="none" opacity="0.45" />
-                  <path d="M0,110 Q240,109 480,110" stroke={g.light} strokeWidth="0.3" fill="none" opacity="0.4" />
-                  <line x1="45" y1="8" x2="45" y2="16" stroke={g.light} strokeWidth="0.5" opacity="0.35" />
-                  <line x1="130" y1="30" x2="130" y2="38" stroke={g.light} strokeWidth="0.4" opacity="0.3" />
-                  <line x1="210" y1="55" x2="210" y2="62" stroke={g.light} strokeWidth="0.5" opacity="0.35" />
-                  <line x1="310" y1="15" x2="310" y2="22" stroke={g.light} strokeWidth="0.4" opacity="0.3" />
-                  <line x1="380" y1="72" x2="380" y2="80" stroke={g.light} strokeWidth="0.5" opacity="0.35" />
-                  <line x1="85" y1="85" x2="85" y2="93" stroke={g.light} strokeWidth="0.4" opacity="0.3" />
-                  <line x1="260" y1="95" x2="260" y2="103" stroke={g.light} strokeWidth="0.5" opacity="0.35" />
-                  <line x1="440" y1="40" x2="440" y2="48" stroke={g.light} strokeWidth="0.4" opacity="0.3" />
-                  <line x1="170" y1="105" x2="170" y2="113" stroke={g.light} strokeWidth="0.5" opacity="0.35" />
-                  <line x1="350" y1="50" x2="350" y2="57" stroke={g.light} strokeWidth="0.4" opacity="0.3" />
+                  <rect x="0" y="0" width="480" height="22" fill={g.light} opacity="0.08" />
+                  <rect x="0" y="44" width="480" height="18" fill={g.dark} opacity="0.06" />
+                  <rect x="0" y="78" width="480" height="20" fill={g.light} opacity="0.07" />
+                  <path d="M0,8 Q120,3 240,10 Q360,4 480,9" stroke={g.dark} strokeWidth="1.2" fill="none" opacity="0.85" />
+                  <path d="M0,20 Q140,16 280,22 Q400,17 480,21" stroke={g.dark} strokeWidth="1.0" fill="none" opacity="0.8" />
+                  <path d="M0,33 Q100,28 200,34 Q320,40 440,32 T480,33" stroke={g.dark} strokeWidth="1.3" fill="none" opacity="0.9" />
+                  <path d="M0,46 Q160,42 320,48 T480,46" stroke={g.dark} strokeWidth="0.9" fill="none" opacity="0.75" />
+                  <path d="M0,58 Q120,53 240,60 Q360,66 480,57" stroke={g.dark} strokeWidth="1.1" fill="none" opacity="0.85" />
+                  <path d="M0,70 Q140,66 280,72 Q400,77 480,71" stroke={g.dark} strokeWidth="0.9" fill="none" opacity="0.75" />
+                  <path d="M0,82 Q100,77 200,83 Q320,89 440,80 T480,82" stroke={g.dark} strokeWidth="1.2" fill="none" opacity="0.88" />
+                  <path d="M0,95 Q160,90 320,97 T480,94" stroke={g.dark} strokeWidth="1.0" fill="none" opacity="0.8" />
+                  <path d="M0,108 Q120,103 240,110 Q360,116 480,107" stroke={g.dark} strokeWidth="1.1" fill="none" opacity="0.82" />
+                  <path d="M0,14 Q150,12 300,15 T480,13" stroke={g.dark} strokeWidth="0.5" fill="none" opacity="0.55" />
+                  <path d="M0,27 Q120,25 240,28 T480,26" stroke={g.dark} strokeWidth="0.45" fill="none" opacity="0.5" />
+                  <path d="M0,40 Q160,38 320,41 T480,39" stroke={g.dark} strokeWidth="0.5" fill="none" opacity="0.55" />
+                  <path d="M0,52 Q140,50 280,53 T480,51" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.5" />
+                  <path d="M0,64 Q100,62 200,65 T400,63 T480,65" stroke={g.dark} strokeWidth="0.5" fill="none" opacity="0.55" />
+                  <path d="M0,76 Q150,74 300,77 T480,75" stroke={g.dark} strokeWidth="0.45" fill="none" opacity="0.5" />
+                  <path d="M0,88 Q120,86 240,89 T480,87" stroke={g.dark} strokeWidth="0.5" fill="none" opacity="0.55" />
+                  <path d="M0,101 Q160,99 320,102 T480,100" stroke={g.dark} strokeWidth="0.45" fill="none" opacity="0.5" />
+                  <path d="M0,114 Q140,112 280,115 T480,113" stroke={g.dark} strokeWidth="0.5" fill="none" opacity="0.55" />
+                  <path d="M0,11 Q140,9 280,12 T480,10" stroke={g.light} strokeWidth="0.6" fill="none" opacity="0.65" />
+                  <path d="M0,24 Q160,22 320,25 T480,23" stroke={g.light} strokeWidth="0.5" fill="none" opacity="0.55" />
+                  <path d="M0,37 Q120,35 240,38 T480,36" stroke={g.light} strokeWidth="0.6" fill="none" opacity="0.6" />
+                  <path d="M0,50 Q140,48 280,51 T480,49" stroke={g.light} strokeWidth="0.5" fill="none" opacity="0.55" />
+                  <path d="M0,62 Q160,60 320,63 T480,61" stroke={g.light} strokeWidth="0.6" fill="none" opacity="0.65" />
+                  <path d="M0,74 Q120,72 240,75 T480,73" stroke={g.light} strokeWidth="0.5" fill="none" opacity="0.55" />
+                  <path d="M0,86 Q140,84 280,87 T480,85" stroke={g.light} strokeWidth="0.6" fill="none" opacity="0.6" />
+                  <path d="M0,99 Q160,97 320,100 T480,98" stroke={g.light} strokeWidth="0.5" fill="none" opacity="0.55" />
+                  <path d="M0,112 Q120,110 240,113 T480,111" stroke={g.light} strokeWidth="0.6" fill="none" opacity="0.6" />
+                  {(() => {
+                    const poreRows = [6, 18, 31, 44, 56, 68, 80, 93, 106]
+                    const offsets = [12, 38, 67, 95, 128, 158, 192, 224, 258, 292, 328, 360, 398, 432, 464]
+                    const dashes = []
+                    poreRows.forEach((y, ri) => {
+                      offsets.forEach((x, xi) => {
+                        if ((xi + ri) % 5 === 0) return
+                        const yJitter = ((xi * 7 + ri * 3) % 5) - 2
+                        const len = 1.2 + ((xi + ri) % 3) * 0.4
+                        const op = 0.55 + (((xi * 3 + ri) % 4) * 0.08)
+                        dashes.push(
+                          <line
+                            key={`pore-${ri}-${xi}`}
+                            x1={x}
+                            y1={y + yJitter}
+                            x2={x + len}
+                            y2={y + yJitter}
+                            stroke={g.dark}
+                            strokeWidth="0.7"
+                            strokeLinecap="round"
+                            opacity={op}
+                          />
+                        )
+                      })
+                    })
+                    return dashes
+                  })()}
+                  <line x1="45" y1="6" x2="45" y2="17" stroke={g.light} strokeWidth="0.6" opacity="0.45" />
+                  <line x1="92" y1="42" x2="92" y2="52" stroke={g.light} strokeWidth="0.5" opacity="0.4" />
+                  <line x1="130" y1="28" x2="130" y2="39" stroke={g.light} strokeWidth="0.6" opacity="0.45" />
+                  <line x1="178" y1="65" x2="178" y2="74" stroke={g.light} strokeWidth="0.5" opacity="0.4" />
+                  <line x1="210" y1="53" x2="210" y2="63" stroke={g.light} strokeWidth="0.6" opacity="0.45" />
+                  <line x1="248" y1="92" x2="248" y2="102" stroke={g.light} strokeWidth="0.5" opacity="0.4" />
+                  <line x1="288" y1="14" x2="288" y2="25" stroke={g.light} strokeWidth="0.6" opacity="0.45" />
+                  <line x1="318" y1="78" x2="318" y2="88" stroke={g.light} strokeWidth="0.5" opacity="0.4" />
+                  <line x1="356" y1="36" x2="356" y2="46" stroke={g.light} strokeWidth="0.6" opacity="0.45" />
+                  <line x1="392" y1="104" x2="392" y2="114" stroke={g.light} strokeWidth="0.5" opacity="0.4" />
+                  <line x1="428" y1="60" x2="428" y2="70" stroke={g.light} strokeWidth="0.6" opacity="0.45" />
+                  <line x1="462" y1="22" x2="462" y2="32" stroke={g.light} strokeWidth="0.5" opacity="0.4" />
                 </pattern>
               )
             }
