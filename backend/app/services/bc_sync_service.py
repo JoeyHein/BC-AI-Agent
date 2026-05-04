@@ -511,39 +511,6 @@ class BCSyncService:
 
         return results
 
-    async def sync_single_customer(
-        self,
-        db: Session,
-        bc_customer_id: str
-    ) -> Dict[str, Any]:
-        """
-        Sync a single BC customer by ID for on-demand refresh.
-        """
-        results = {
-            "customers_synced": 0,
-            "customers_updated": 0,
-            "errors": []
-        }
-
-        try:
-            bc_cust = self.client.get_customer_with_multiplier(bc_customer_id)
-            # Single-customer Customer_Price_Group lookup via OData V4.
-            cust_no = bc_cust.get("number")
-            price_group_by_no: Dict[str, str] = {}
-            if cust_no:
-                card = self.client.get_customer_card(cust_no)
-                if card and card.get("Customer_Price_Group"):
-                    price_group_by_no[cust_no] = (card["Customer_Price_Group"] or "").strip().upper()
-            self._upsert_customer(db, bc_cust, results, price_group_by_no)
-            db.commit()
-            logger.info(f"Single customer sync complete: {bc_cust.get('displayName', bc_customer_id)}")
-        except Exception as e:
-            db.rollback()
-            logger.error(f"Single customer sync error: {e}")
-            results["errors"].append(str(e))
-
-        return results
-
     def _fetch_price_groups_by_customer_no(self) -> Dict[str, str]:
         """Bulk-fetch Customer_Price_Group via OData V4 CustomerList. Returns
         {customer_No: PRICE_GROUP_CODE}. Empty if the page isn't published."""

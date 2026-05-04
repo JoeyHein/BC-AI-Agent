@@ -239,3 +239,89 @@ class TestBCClientFilterStrings:
         assert client._odata_escape("o'connor") == "o''connor"
         assert client._odata_escape("PLAIN") == "PLAIN"
         assert client._odata_escape("") == ""
+
+
+class TestRealOPENDCPriceGroups:
+    """Verify the lookup chain works with the actual BC price-group codes
+    configured in OPENDC's tenant: BRON, GOLD, OPIN, PLAT, SILV, UNLI."""
+
+    def setup_method(self):
+        pricing_service.clear_pricing_cache()
+
+    @pytest.mark.parametrize("group_code", ["BRON", "GOLD", "OPIN", "PLAT", "SILV", "UNLI"])
+    def test_real_codes_pass_through_to_bc_filter_unchanged(self, group_code):
+        """The pre-fix bug whitelisted only {gold, silver, bronze, retail}
+        and silently coerced everything else to 'retail'. After the fix,
+        all six BC group codes flow into the OData filter verbatim
+        (uppercased)."""
+        with patch("app.integrations.bc.client.bc_client") as mock_bc:
+            mock_bc.get_item_master.return_value = {
+                "No": "PN10-X", "Base_Unit_of_Measure": "EA", "Unit_Price": 99.99,
+            }
+            mock_bc.get_sales_price.return_value = {"Unit_Price": 42.00}
+
+            price = pricing_service.calculate_selling_price(
+                "PN10-X", bc_price_group=group_code,
+            )
+            assert price == 42.00
+            mock_bc.get_sales_price.assert_called_once_with("PN10-X", group_code, "EA")
+
+
+class TestGetCustomerPricingTier:
+    """Verify the customer-portal helper returns the raw BC group code
+    (the bug fix) and tolerates None / missing rows."""
+
+    def _make_db_with_customer(self, bc_id, bc_price_group=None, pricing_tier=None):
+        """Build an in-memory stub DB session that returns a stub BCCustomer."""
+        from types import SimpleNamespace
+        cust = SimpleNamespace(
+            bc_customer_id=bc_id,
+            bc_price_group=bc_price_group,
+            pricing_tier=pricing_tier,
+            company_name="Acme Inc.",
+        )
+
+        class StubQuery:
+            def __init__(self, result): self._result = result
+            def filter(self, *a, **k): return self
+            def first(self): return self._result
+
+        class StubDB:
+            def __init__(self, result): self._result = result
+            def query(self, *a, **k): return StubQuery(self._result)
+
+        return StubDB(cust)
+
+    @pytest.mark.parametrize("bc_code", ["BRON", "GOLD", "OPIN", "PLAT", "SILV", "UNLI"])
+    def test_returns_real_bc_codes_unchanged(self, bc_code):
+        from app.api.customer_portal import _get_customer_pricing_tier
+        db = self._make_db_with_customer("BC0001", bc_price_group=bc_code)
+        result = _get_customer_pricing_tier("BC0001", db)
+        assert result == bc_code
+
+    def test_returns_uppercased_lowercase_input(self):
+        from app.api.customer_portal import _get_customer_pricing_tier
+        db = self._make_db_with_customer("BC0001", bc_price_group="gold")
+        assert _get_customer_pricing_tier("BC0001", db) == "GOLD"
+
+    def test_returns_none_when_no_group(self):
+        from app.api.customer_portal import _get_customer_pricing_tier
+        db = self._make_db_with_customer("BC0001", bc_price_group=None, pricing_tier=None)
+        assert _get_customer_pricing_tier("BC0001", db) is None
+
+    def test_falls_back_to_pricing_tier_when_bc_price_group_empty(self):
+        """For pre-migration rows that only have pricing_tier set."""
+        from app.api.customer_portal import _get_customer_pricing_tier
+        db = self._make_db_with_customer("BC0001", bc_price_group="", pricing_tier="GOLD")
+        assert _get_customer_pricing_tier("BC0001", db) == "GOLD"
+
+    def test_returns_none_when_customer_missing(self):
+        from app.api.customer_portal import _get_customer_pricing_tier
+
+        class StubQuery:
+            def filter(self, *a, **k): return self
+            def first(self): return None
+        class StubDB:
+            def query(self, *a, **k): return StubQuery()
+
+        assert _get_customer_pricing_tier("UNKNOWN", StubDB()) is None

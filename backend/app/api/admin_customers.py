@@ -308,6 +308,114 @@ async def sync_bc_customers(
     }
 
 
+@router.get("/pricing-trace")
+async def pricing_trace(
+    bc_customer_id: str,
+    part_number: str,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Diagnostic: trace exactly which lookup tier produced the price for a
+    given (customer, part) pair. Returns the customer's BC price group, the
+    item's UoM, the result of each tier (1=group, 2=All Customers, 3=item
+    card), and which tier ultimately matched.
+    """
+    from app.services.pricing_service import (
+        clear_pricing_cache,
+        calculate_selling_price,
+    )
+
+    bc_cust = db.query(BCCustomer).filter(
+        BCCustomer.bc_customer_id == bc_customer_id
+    ).first()
+    if not bc_cust:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"BC customer {bc_customer_id} not found in local cache. Run BC customer sync first.",
+        )
+
+    price_group = (bc_cust.bc_price_group or "").strip().upper() or None
+
+    clear_pricing_cache()  # ensure we hit BC live, not stale cache
+
+    item_master = bc_client.get_item_master(part_number)
+    uom = (item_master.get("Base_Unit_of_Measure") if item_master else None) or None
+
+    tier1 = None
+    tier1_url_filter = None
+    if price_group and uom:
+        row = bc_client.get_sales_price(part_number, price_group, uom)
+        tier1 = {
+            "matched": bool(row and row.get("Unit_Price")),
+            "unit_price": float(row["Unit_Price"]) if row and row.get("Unit_Price") else None,
+            "row": row,
+        }
+        tier1_url_filter = (
+            f"Product_No eq '{part_number}' and "
+            f"Assign_to_No eq '{price_group}' and "
+            f"Unit_of_Measure_Code eq '{uom}'"
+        )
+
+    tier2 = None
+    tier2_url_filter = None
+    if uom:
+        row = bc_client.get_default_sales_price(part_number, uom)
+        tier2 = {
+            "matched": bool(row and row.get("Unit_Price")),
+            "unit_price": float(row["Unit_Price"]) if row and row.get("Unit_Price") else None,
+            "row": row,
+        }
+        tier2_url_filter = (
+            f"Product_No eq '{part_number}' and "
+            f"Assign_to_No eq '' and "
+            f"Unit_of_Measure_Code eq '{uom}'"
+        )
+
+    tier3 = None
+    if item_master:
+        tier3_price = item_master.get("Unit_Price")
+        tier3 = {
+            "matched": bool(tier3_price and tier3_price > 0),
+            "unit_price": float(tier3_price) if tier3_price else None,
+            "row": item_master,
+        }
+
+    # Now run the live lookup chain for the final answer
+    clear_pricing_cache()
+    final_price = calculate_selling_price(
+        part_number=part_number, bc_price_group=price_group, db=db,
+    )
+
+    matched_tier = None
+    if tier1 and tier1["matched"]:
+        matched_tier = 1
+    elif tier2 and tier2["matched"]:
+        matched_tier = 2
+    elif tier3 and tier3["matched"]:
+        matched_tier = 3
+
+    return {
+        "customer": {
+            "bc_customer_id": bc_customer_id,
+            "company_name": bc_cust.company_name,
+            "bc_price_group": price_group,
+        },
+        "part_number": part_number,
+        "uom": uom,
+        "tier1_customer_price_group": {
+            "filter": tier1_url_filter,
+            **(tier1 or {"matched": False, "unit_price": None}),
+        },
+        "tier2_all_customers": {
+            "filter": tier2_url_filter,
+            **(tier2 or {"matched": False, "unit_price": None}),
+        },
+        "tier3_item_master_unit_price": tier3 or {"matched": False, "unit_price": None},
+        "matched_tier": matched_tier,
+        "final_price": final_price,
+    }
+
+
 @router.post("/bulk-create-from-bc")
 def bulk_create_from_bc(
     current_admin: User = Depends(get_current_admin),

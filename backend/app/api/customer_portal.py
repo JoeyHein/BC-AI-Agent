@@ -1891,16 +1891,23 @@ def _edit_bc_quote_lines(
     }
 
 
-def _get_customer_pricing_tier(bc_customer_id: str, db: Session) -> str:
-    """Look up the pricing tier for a BC customer. Returns 'retail' if not set."""
+def _get_customer_pricing_tier(bc_customer_id: str, db: Session) -> Optional[str]:
+    """Return the BC Customer_Price_Group code for a customer (e.g. GOLD,
+    SILV, PLAT, BRON, UNLI, OPIN). The value is passed verbatim to BC's
+    SalesPriceLists $filter, so we keep the BC code unchanged — no
+    whitelist, no remap. Returns None if the customer has no group, in
+    which case the lookup chain falls through to the All-Customers
+    Sales Price List.
+    """
     bc_customer = db.query(BCCustomer).filter(
         BCCustomer.bc_customer_id == bc_customer_id
     ).first()
+    if bc_customer and bc_customer.bc_price_group:
+        return bc_customer.bc_price_group.strip().upper() or None
+    # Backwards-compat: some older rows may only have pricing_tier set
     if bc_customer and bc_customer.pricing_tier:
-        tier = bc_customer.pricing_tier.lower().strip()
-        if tier in {"gold", "silver", "bronze", "retail"}:
-            return tier
-    return "retail"
+        return bc_customer.pricing_tier.strip().upper() or None
+    return None
 
 
 def _estimate_pricing_locally(

@@ -30,16 +30,18 @@ function PricingSettings() {
         <p className="mt-3 text-sm text-blue-700">
           To adjust pricing for a tier or part, edit the BC{' '}
           <strong>Customer Price Group</strong> entries (<code>PLAT</code>,{' '}
-          <code>GOLD</code>, <code>SILV</code>, <code>BRNZ</code>,{' '}
-          <code>RETL</code>, etc.) and their corresponding{' '}
-          <strong>Sales Price List</strong> lines.
+          <code>GOLD</code>, <code>SILV</code>, <code>BRON</code>,{' '}
+          <code>UNLI</code>, <code>OPIN</code>) and their corresponding{' '}
+          <strong>Sales Price List</strong> headers (<code>PLAT-01</code>,{' '}
+          <code>GOLD-01</code>, etc., plus <code>ALL CUSTOMERS</code> for
+          the default list price).
         </p>
       </div>
 
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
         There is no app-side margin override. Cost adjustments, tier-margin
         matrices, and prefix overrides have been retired — BC is the single
-        source of truth.
+        source of truth. Customer assignments sync from BC every 30 minutes.
       </div>
     </div>
   )
