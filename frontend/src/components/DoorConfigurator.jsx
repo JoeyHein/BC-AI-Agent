@@ -91,6 +91,7 @@ function DoorConfigurator() {
       windowPositions: [],  // Array of {section, col} for multi-stamp windows
       windowSize: 'long',   // 'short' (GK15-10xxx) or 'long' (GK15-11xxx)
       glassPaneType: null,  // 'INSULATED' or 'SINGLE'
+      glassType: 'ANNEALED',  // 'ANNEALED' or 'TEMPERED' (safety)
       glassColor: null,  // 'CLEAR', 'ETCHED', 'SUPER_GREY'
       hasInserts: false,  // Whether decorative inserts are added (LONG windows only)
       windowInsert: 'NONE',  // Insert style if hasInserts is true
@@ -122,6 +123,7 @@ function DoorConfigurator() {
       // Upgrades
       includeTopSeal: false, // optional upgrade for commercial doors below auto-threshold
       includePusherSprings: false, // optional upgrade: adds TR13-00031-00 + TR13-00032-00
+      bumperSpring: false, // leaf bumper spring pair (TR13-00029/00030)
       // High lift inches (only used for high_lift)
       highLiftInches: null,  // extra inches above door opening
     }
@@ -211,6 +213,7 @@ function DoorConfigurator() {
         windowSize: door.windowSize || 'long',
         windowCount: (door.windowPositions || []).length,
         glassPaneType: door.glassPaneType,
+        glassType: door.glassType || 'ANNEALED',
         glassColor: door.glassColor,
         hasInserts: door.hasInserts || false,
         windowInsert: door.doorType === 'commercial'
@@ -240,6 +243,7 @@ function DoorConfigurator() {
         endCapType: door.endCapType || 'auto',
         includeTopSeal: door.includeTopSeal || false,
         includePusherSprings: door.includePusherSprings || false,
+        bumperSpring: door.bumperSpring || false,
       })),
       tagName: `Configurator Quote - ${doors.length} door(s)`,
       customerId: selectedCustomer?.bc_customer_id || null,
@@ -1360,6 +1364,7 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
           ? (seriesData?.glazingOptions || [{ id: 'CLEAR', name: 'Clear' }, { id: 'ETCHED', name: 'Etched' }, { id: 'SUPER_GREY', name: 'Super Grey' }])
           : (seriesData?.polycarbonateOptions || seriesData?.glazingOptions || [{ id: 'CLEAR', name: 'Clear' }, { id: 'LIGHT_BRONZE', name: 'Light Bronze' }])
         const paneTypes = seriesData?.paneTypes || []
+        const glassTypes = seriesData?.glassTypes || []
         return (
           <div className="space-y-4">
             <div className="p-3 bg-odc-50 rounded-md">
@@ -1390,10 +1395,10 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
               </div>
             )}
 
-            {/* Glass Type — only for glass glazing */}
+            {/* Pane (insulated vs single) — only for glass glazing */}
             {isGlass && paneTypes.length > 0 && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Glass Type</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Pane</label>
                 <div className="flex space-x-3">
                   {paneTypes.map(pt => (
                     <button
@@ -1406,6 +1411,28 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
                       }`}
                     >
                       {pt.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Glass type (annealed vs tempered) — independent of pane */}
+            {isGlass && glassTypes.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Glass Type</label>
+                <div className="flex space-x-3">
+                  {glassTypes.map(gt => (
+                    <button
+                      key={gt.id}
+                      onClick={() => onChange({ glassType: gt.id })}
+                      className={`px-4 py-2 text-sm rounded-md border ${
+                        (door.glassType || 'ANNEALED') === gt.id
+                          ? 'border-odc-500 bg-odc-100 text-odc-700'
+                          : 'border-gray-300 hover:border-gray-400'
+                      }`}
+                    >
+                      {gt.name}
                     </button>
                   ))}
                 </div>
@@ -2340,33 +2367,42 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         </div>
       </div>
 
-      {/* Track Mount Type */}
-      {door.liftType === 'standard' && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Track Mount
-          </label>
-          <div className="grid grid-cols-2 gap-3 max-w-md">
-            {[
-              { id: 'bracket', name: 'Bracket Mount', description: 'Standard bracket mounting' },
-              { id: 'angle', name: 'Continuous Angle Mount', description: 'Continuous angle mounting' },
-            ].map((option) => (
-              <button
-                key={option.id}
-                onClick={() => onChange({ trackMount: option.id })}
-                className={`p-3 rounded-lg border-2 text-center transition-all ${
-                  (door.trackMount || 'bracket') === option.id
-                    ? 'border-odc-500 bg-odc-50'
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                <div className="text-sm font-medium">{option.name}</div>
-                <div className="text-xs text-gray-500 mt-1">{option.description}</div>
-              </button>
-            ))}
+      {/* Track Mount — bracket vs continuous angle. Applies to every
+          lift type since the horizontal track is the same standard-lift
+          assembly; high-lift / low-headroom / vertical add extension or
+          conversion kits on top of that base track. */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Track Mount
+        </label>
+        <div className="grid grid-cols-2 gap-3 max-w-md">
+          {[
+            { id: 'bracket', name: 'Bracket Mount', description: 'Standard bracket mounting' },
+            { id: 'angle', name: 'Continuous Angle Mount', description: 'Continuous angle mounting' },
+          ].map((option) => (
+            <button
+              key={option.id}
+              onClick={() => onChange({ trackMount: option.id })}
+              className={`p-3 rounded-lg border-2 text-center transition-all ${
+                (door.trackMount || 'bracket') === option.id
+                  ? 'border-odc-500 bg-odc-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <div className="text-sm font-medium">{option.name}</div>
+              <div className="text-xs text-gray-500 mt-1">{option.description}</div>
+            </button>
+          ))}
+          <div
+            aria-disabled="true"
+            title="Contact us for steel mount or reverse angle"
+            className="col-span-2 p-3 rounded-lg border-2 border-dashed border-gray-200 bg-gray-50 text-center cursor-not-allowed select-none"
+          >
+            <div className="text-sm font-medium text-gray-500">Steel Mount / Reverse Angle</div>
+            <div className="text-xs text-gray-400 mt-1">Contact us for these options — standard is wood mount</div>
           </div>
         </div>
-      )}
+      </div>
 
       {/* Low headroom info */}
       {isLowHeadroom && (
@@ -2485,50 +2521,70 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         </div>
       </div>
 
-      {/* Upgrades — commercial doors */}
-      {door.doorType === 'commercial' && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Upgrades
-          </label>
-          {(() => {
-            const widthInches = door.doorWidth || 0
-            const heightInches = door.doorHeight || 0
-            const autoIncluded = widthInches >= 216 && heightInches >= 120
-            return (
-              <label className={`flex items-start p-3 border rounded-lg ${autoIncluded ? 'bg-green-50 border-green-200' : 'cursor-pointer hover:bg-gray-50'}`}>
-                <input
-                  type="checkbox"
-                  checked={autoIncluded || door.includeTopSeal}
-                  disabled={autoIncluded}
-                  onChange={(e) => onChange({ includeTopSeal: e.target.checked })}
-                  className="h-4 w-4 mt-0.5 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
-                />
-                <div className="ml-2">
-                  <span className="text-sm font-medium text-gray-700">Top Seal (Header Weatherstrip)</span>
-                  {autoIncluded ? (
-                    <p className="text-xs text-green-600">Automatically included for doors ≥ 18' wide and ≥ 10' tall</p>
-                  ) : (
-                    <p className="text-xs text-gray-500">Optional upgrade — adds rubber weatherstrip along the top of the door opening</p>
-                  )}
-                </div>
-              </label>
-            )
-          })()}
-          <label className="mt-2 flex items-start p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-            <input
-              type="checkbox"
-              checked={!!door.includePusherSprings}
-              onChange={(e) => onChange({ includePusherSprings: e.target.checked })}
-              className="h-4 w-4 mt-0.5 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
-            />
-            <div className="ml-2">
-              <span className="text-sm font-medium text-gray-700">Pusher Springs (LH + RH)</span>
-              <p className="text-xs text-gray-500">Adds TR13-00031-00 and TR13-00032-00</p>
-            </div>
-          </label>
-        </div>
-      )}
+      {/* Upgrades */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Upgrades
+        </label>
+
+        {/* Top Seal — commercial only (auto-included on big commercial doors) */}
+        {door.doorType === 'commercial' && (() => {
+          const widthInches = door.doorWidth || 0
+          const heightInches = door.doorHeight || 0
+          const autoIncluded = widthInches >= 216 && heightInches >= 120
+          return (
+            <label className={`flex items-start p-3 border rounded-lg ${autoIncluded ? 'bg-green-50 border-green-200' : 'cursor-pointer hover:bg-gray-50'}`}>
+              <input
+                type="checkbox"
+                checked={autoIncluded || door.includeTopSeal}
+                disabled={autoIncluded}
+                onChange={(e) => onChange({ includeTopSeal: e.target.checked })}
+                className="h-4 w-4 mt-0.5 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
+              />
+              <div className="ml-2">
+                <span className="text-sm font-medium text-gray-700">Top Seal (Header Weatherstrip)</span>
+                {autoIncluded ? (
+                  <p className="text-xs text-green-600">Automatically included for doors ≥ 18' wide and ≥ 10' tall</p>
+                ) : (
+                  <p className="text-xs text-gray-500">Optional upgrade — adds rubber weatherstrip along the top of the door opening</p>
+                )}
+              </div>
+            </label>
+          )
+        })()}
+
+        {/* Pusher Springs — available on all door types (typical for high-lift) */}
+        <label className="mt-2 flex items-start p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+          <input
+            type="checkbox"
+            checked={!!door.includePusherSprings}
+            onChange={(e) => onChange({ includePusherSprings: e.target.checked })}
+            className="h-4 w-4 mt-0.5 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
+          />
+          <div className="ml-2">
+            <span className="text-sm font-medium text-gray-700">Pusher Springs (LH + RH)</span>
+            <p className="text-xs text-gray-500">
+              Typical for high-lift configurations — adds TR13-00031-00 and TR13-00032-00
+            </p>
+          </div>
+        </label>
+
+        {/* Bumper Springs — available on all door types (typical for high-lift) */}
+        <label className="mt-2 flex items-start p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+          <input
+            type="checkbox"
+            checked={!!door.bumperSpring}
+            onChange={(e) => onChange({ bumperSpring: e.target.checked })}
+            className="h-4 w-4 mt-0.5 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
+          />
+          <div className="ml-2">
+            <span className="text-sm font-medium text-gray-700">Bumper Springs (LH + RH)</span>
+            <p className="text-xs text-gray-500">
+              Typical for high-lift configurations — adds TR13-00029-00 and TR13-00030-00
+            </p>
+          </div>
+        </label>
+      </div>
 
       {/* Operator */}
       <div>

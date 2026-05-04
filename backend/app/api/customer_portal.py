@@ -712,6 +712,7 @@ def _generate_bc_quote_with_items(
             "windowFrameColor": door.get("windowFrameColor", "BLACK"),
             "glazingType": door.get("glazingType"),
             "glassPaneType": door.get("glassPaneType"),
+            "glassType": door.get("glassType", "ANNEALED"),
             "glassColor": door.get("glassColor"),
             "trackRadius": door.get("trackRadius", "15"),
             "trackThickness": door.get("trackThickness", "2"),
@@ -794,7 +795,7 @@ def _generate_bc_quote_with_items(
         # together in the printed quote with no visual break between them.
         all_lines.append({
             "lineType": "Comment",
-            "description": " ",
+            "description": "-",
             "category": "COMMENT",
             "door_index": door_index,
             "is_separator": True,
@@ -895,7 +896,12 @@ def _generate_bc_quote_with_items(
                         bc_price_group=pricing_tier,
                         db=db,
                     )
-                    logger.info(f"PRICING [{part_num}]: group={pricing_tier} -> price={selling_price}")
+                    # Weather stripping using a stand-in (next-biggest) SKU
+                    # is billed per-foot: scale by requested_ft / sku_ft.
+                    ratio = line.get("length_adjustment_ratio")
+                    if ratio and selling_price is not None:
+                        selling_price = round(selling_price * ratio, 2)
+                    logger.info(f"PRICING [{part_num}]: group={pricing_tier} -> price={selling_price} ratio={ratio}")
                     if selling_price is not None:
                         patch_data["unitPrice"] = selling_price
                     else:
@@ -982,16 +988,31 @@ def _generate_bc_quote_with_items(
                         "freight": None,
                     }
 
-            # ── AI substitute lookup ────────────────────────────────────────
-            # Before falling back to a comment, ask Claude to find the closest
-            # matching BC item so the quote has real billable lines.
+            # ── Substitute lookup ──────────────────────────────────────────
+            # 1) Deterministic step-up: if the SKU ends in a 4-digit width
+            #    code, pick the smallest BC SKU with the same prefix and a
+            #    LARGER width — never a smaller one. Catches PN80, PN10/12,
+            #    PN20, PN70, PN97 and anything else size-keyed.
+            # 2) Fallback to Claude for non-size-keyed parts (e.g. shafts,
+            #    accessory items where AI similarity matching makes sense).
             ai_used = False
+            substitute = None
             if line.get("lineType") != "Comment" and line.get("part_number"):
-                substitute = _find_ai_substitute(
-                    part_number=line["part_number"],
-                    description=line.get("description", ""),
-                    bc_items_cache=bc_items_cache,
-                )
+                from app.services.bc_part_number_mapper import get_bc_mapper
+                from app.api.door_configurator import _next_bigger_width_skus
+                mapper = get_bc_mapper()
+                bigger_pn = _next_bigger_width_skus(line["part_number"], mapper.bc_items)
+                if bigger_pn:
+                    substitute = mapper.bc_items.get(bigger_pn) or {"number": bigger_pn}
+                    if "number" not in substitute:
+                        substitute = dict(substitute, number=bigger_pn)
+                    logger.info(f"Step-up substitute: {line['part_number']} → {bigger_pn}")
+                else:
+                    substitute = _find_ai_substitute(
+                        part_number=line["part_number"],
+                        description=line.get("description", ""),
+                        bc_items_cache=bc_items_cache,
+                    )
                 if substitute and substitute.get("number"):
                     try:
                         original_desc = line.get("description", "") or substitute.get('displayName', substitute['number'])
@@ -1488,6 +1509,7 @@ def _build_door_config_dict(door: dict) -> dict:
         "windowFrameColor": door.get("windowFrameColor", "BLACK"),
         "glazingType": door.get("glazingType"),
         "glassPaneType": door.get("glassPaneType"),
+        "glassType": door.get("glassType", "ANNEALED"),
         "glassColor": door.get("glassColor"),
         "trackRadius": door.get("trackRadius", "15"),
         "trackThickness": door.get("trackThickness", "2"),
@@ -1623,7 +1645,7 @@ def _edit_bc_quote_lines(
             })
 
         all_new_lines.append({
-            "lineType": "Comment", "description": " ", "category": "COMMENT",
+            "lineType": "Comment", "description": "-", "category": "COMMENT",
             "door_index": door_index, "is_separator": True,
         })
 
@@ -1968,6 +1990,7 @@ def _estimate_pricing_locally(
             "windowFrameColor": door.get("windowFrameColor", "BLACK"),
             "glazingType": door.get("glazingType"),
             "glassPaneType": door.get("glassPaneType"),
+            "glassType": door.get("glassType", "ANNEALED"),
             "glassColor": door.get("glassColor"),
             "trackRadius": door.get("trackRadius", "15"),
             "trackThickness": door.get("trackThickness", "2"),
@@ -2049,7 +2072,7 @@ def _estimate_pricing_locally(
         # running together with no break).
         all_lines.append({
             "lineType": "Comment",
-            "description": " ",
+            "description": "-",
             "category": "COMMENT",
             "door_index": door_index,
             "is_separator": True,

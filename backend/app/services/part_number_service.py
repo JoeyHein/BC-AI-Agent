@@ -92,6 +92,11 @@ class PartSelection:
     category: str  # panel, track, hardware, spring, etc.
     unit_price: Optional[float] = None
     notes: Optional[str] = None
+    # Scale the calculated unit price by this ratio when adding to BC.
+    # Used by weather stripping when we substitute the next-biggest SKU
+    # for an unstocked size: ratio = requested_ft / sku_ft, so the
+    # customer pays a per-foot rate instead of the full bigger strip.
+    length_adjustment_ratio: Optional[float] = None
 
 
 @dataclass
@@ -113,6 +118,7 @@ class DoorConfiguration:
     window_frame_color: str = "BLACK"  # Commercial window frame color
     glazing_type: Optional[str] = None
     glass_pane_type: Optional[str] = None  # 'INSULATED' or 'SINGLE'
+    glass_type: Optional[str] = "ANNEALED"  # 'ANNEALED' or 'TEMPERED' (safety)
     glass_color: Optional[str] = None      # 'CLEAR', 'ETCHED', 'SUPER_GREY'
     track_radius: str = "15"
     track_thickness: str = "2"
@@ -823,13 +829,17 @@ class PartNumberService:
         # 9. SPRINGS (computed before shafts — spring count drives shaft count)
         spring_parts = []
         spring_count = 2  # default (number of individual springs, NOT inches)
+        is_tandem = False
         if hardware.get("springs", True):
-            spring_parts, spring_count = self._get_spring_parts(config)
+            spring_parts, spring_count, is_tandem = self._get_spring_parts(config)
             parts.extend(spring_parts)
 
-        # 10. SHAFT (uses spring_count to determine shaft count)
+        # 10. SHAFT (uses spring_count to determine shaft count). When the
+        # spring picker fell back to a tandem assembly (second shaft coupled
+        # to the primary), the shaft picker doubles its shaft + coupler
+        # quantities to physically support that.
         if hardware.get("shafts", True):
-            shaft_parts = self._get_shaft_parts(config, spring_count=spring_count)
+            shaft_parts = self._get_shaft_parts(config, spring_count=spring_count, is_tandem=is_tandem)
             parts.extend(shaft_parts)
 
         # 11. WEATHER SEAL (sides and header)
@@ -892,26 +902,17 @@ class PartNumberService:
             entry = SECTION_HEIGHT_TABLE[door_height]
             return {"21": entry["21"], "24": entry["24"], "total": entry["total"]}
 
-        # Fallback algorithm for heights not in the table
-        if door_height <= 72:
-            panel_count = 3
-        elif door_height <= 96:
-            panel_count = 4
-        elif door_height <= 120:
-            panel_count = 5
-        elif door_height <= 144:
-            panel_count = 6
-        elif door_height <= 168:
-            panel_count = 7
-        elif door_height <= 192:
-            panel_count = 8
-        elif door_height <= 216:
-            panel_count = 9
-        else:
-            panel_count = 10
-
+        # Fallback algorithm for heights not in the table — packs the door
+        # height with as many 24" panels as possible and swaps in 21"
+        # panels (each saving 3") to absorb the remainder. Works for any
+        # door height ≥ 63" (3 × 21").
+        # SECTION_HEIGHT_TABLE covers 63"–240" exactly; this branch handles
+        # anything outside that range (e.g. 28' = 336" tall industrial doors).
+        panel_count = max(3, -(-door_height // 24))  # ceil(door_height / 24)
         diff = panel_count * 24 - door_height
-        n21 = diff // 3
+        # diff is in [0, 24); each 24"→21" swap saves 3", so n21 = diff/3.
+        # Clamp to [0, panel_count] in case of edge cases.
+        n21 = max(0, min(panel_count, diff // 3))
         n24 = panel_count - n21
         return {"21": n21, "24": n24, "total": panel_count}
 
@@ -1130,12 +1131,14 @@ class PartNumberService:
         # 5. End cap seals
         seal_weight = (n21 * 2 * SEAL_WEIGHT_21) + (n24 * 2 * SEAL_WEIGHT_24)
 
-        # 6. Strut weight (from Thermalex strutting chart)
-        # Per Thermalex, spring weight includes 20ga/16ga struts but NOT Z struts.
-        # Z struts are structural reinforcement excluded from spring balance weight.
+        # 6. Strut weight (from Thermalex strutting chart). All strut types
+        # (20ga, 16ga, Z) hang from the springs as part of the physical
+        # door, so all are included in the spring balance weight. The
+        # earlier Thermalex-derived exclusion of Z struts undersized
+        # springs on the very heavy 28'+ doors that need them.
         strut_info = self._get_strut_requirements(config.door_width, config.door_height)
         strut_weight = 0.0
-        if strut_info["count"] > 0 and strut_info["type"] != "z":
+        if strut_info["count"] > 0:
             strut_weight = strut_info["count"] * door_width_ft * strut_info["weight_per_ft"]
 
         # 7. Hardware kit weight (HK02 residential / HK03 commercial)
@@ -1503,7 +1506,7 @@ class PartNumberService:
 
         return parts
 
-    def _get_spring_parts(self, config: DoorConfiguration) -> Tuple[List[PartSelection], int]:
+    def _get_spring_parts(self, config: DoorConfiguration) -> Tuple[List[PartSelection], int, bool]:
         """
         Get spring part numbers using door_calculator for spring selection + BC part number mapper.
 
@@ -1563,32 +1566,33 @@ class PartNumberService:
         )
 
         if spring_result is None:
-            # Calculator couldn't find a standard spring — add editable placeholder
-            # Quote still creates so it can be completed manually in BC
+            # No standard spring fits this door at the requested cycle life.
+            # Common above 25K cycles on big high-lift doors. The quote
+            # still generates with everything else priced out — but a
+            # prominent comment line tells the customer (and the office
+            # reviewing the quote) that engineering has to size and price
+            # the springs before this quote can be approved.
             logger.warning(
                 f"Spring calculator returned no result for {door_weight:.0f} lbs, "
-                f"{config.door_height}\" height, {config.target_cycles} cycles"
+                f"{config.door_height}\" height, {config.target_cycles} cycles "
+                f"— flagged for office review"
             )
             parts.append(PartSelection(
                 part_number="",
                 description=(
-                    f"** SPRING — REQUIRES MANUAL ENTRY: No standard spring for "
-                    f"{door_weight:.0f} lbs, {config.door_height}\"H, {config.target_cycles:,} cycles. "
-                    f"Edit spring line in BC quote. **"
+                    f"** OFFICE REVIEW REQUIRED — SPRINGS: "
+                    f"{door_weight:.0f} lbs door at {config.target_cycles:,} cycles "
+                    f"exceeds standard spring sizing. Engineering must spec and "
+                    f"price the spring assembly before this quote is approved. **"
                 ),
                 quantity=0,
                 category="spring_warning",
-                notes="spring_calculation_failed",
+                notes="spring_office_review_required",
             ))
-            # Add a placeholder spring line that can be edited in BC
-            parts.append(PartSelection(
-                part_number="SP-CUSTOM",
-                description=f"CUSTOM SPRING - {door_weight:.0f}lbs {config.door_height}\"H {config.target_cycles:,} cycles - EDIT IN BC",
-                quantity=2,
-                category="spring",
-                notes="editable_placeholder",
-            ))
-            return parts, 2
+            # Return spring_qty=2 (the default) so downstream shaft count and
+            # cone-set logic still emits sensible defaults; the office will
+            # finalize spring details when they review the quote.
+            return parts, 2, False
         else:
             wire_size = spring_result.wire_diameter
             coil_id = spring_result.coil_diameter
@@ -1658,12 +1662,19 @@ class PartNumberService:
         # Get BC Part Number Mapper
         mapper = get_bc_mapper()
 
-        # Spring info comment line — door weight, drum, and turns
+        # Spring info comment line — door weight, drum, and turns. When the
+        # picker had to fall back to a tandem shaft (second shaft coupled
+        # to the primary to fit the spring count), call that out so the
+        # office knows extra hardware is required.
         drum_model = drums.model if drums else "N/A"
         spring_turns = spring_result.turns if spring_result else 0
+        is_tandem = bool(getattr(spring_result, "is_tandem", False)) if spring_result else False
+        info_desc = f"Door Weight: {door_weight:.0f} lbs | Drum: {drum_model} | Turns: {spring_turns:.1f}"
+        if is_tandem:
+            info_desc += " | TANDEM SHAFT REQUIRED"
         parts.append(PartSelection(
             part_number="",
-            description=f"Door Weight: {door_weight:.0f} lbs | Drum: {drum_model} | Turns: {spring_turns:.1f}",
+            description=info_desc,
             quantity=0,
             category="spring_comment",
             notes="spring_info_comment",
@@ -1829,9 +1840,9 @@ class PartNumberService:
             category="spring_accessory"
         ))
 
-        return parts, spring_qty
+        return parts, spring_qty, is_tandem
 
-    def _get_shaft_parts(self, config: DoorConfiguration, spring_count: int = 2) -> List[PartSelection]:
+    def _get_shaft_parts(self, config: DoorConfiguration, spring_count: int = 2, is_tandem: bool = False) -> List[PartSelection]:
         """Get shaft part numbers using actual BC parts.
 
         Shaft type selection:
@@ -2018,41 +2029,59 @@ class PartNumberService:
 
         shaft1_ff, shaft2_ff = match
 
+        # Tandem assembly: a second shaft coupled to the primary to carry
+        # additional spring positions. Doubles every shaft & coupler.
+        # Connector SKU is pending — surface a comment for the office.
+        shaft_multiplier = 2 if is_tandem else 1
+        parts: List[PartSelection] = []
+
+        if is_tandem:
+            parts.append(PartSelection(
+                part_number="",
+                description=(
+                    "** TANDEM SHAFT ASSEMBLY: 2x shafts + 2x couplers below. "
+                    "Tandem connector SKU pending — office to add when assigned. **"
+                ),
+                quantity=0,
+                category="shaft_comment",
+                notes="tandem_shaft_required",
+            ))
+
         if shaft2_ff is None:
-            # Single shaft
+            # Single shaft (with optional tandem doubling)
             shaft = mapper.get_shaft(door_width_feet=shaft1_ff, shaft_type="solid")
-            return [PartSelection(
+            parts.append(PartSelection(
                 part_number=shaft.part_number,
                 description=shaft.description,
-                quantity=1,
-                category="shaft"
-            )]
-        else:
-            # Dual shaft + coupler
-            shaft1 = mapper.get_shaft(door_width_feet=shaft1_ff, shaft_type="solid")
-            shaft2 = mapper.get_shaft(door_width_feet=shaft2_ff, shaft_type="solid")
-            coupler = mapper.get_shaft_coupler(bore_size=1.0)
-
-            parts = []
-            parts.append(PartSelection(
-                part_number=shaft1.part_number,
-                description=shaft1.description,
-                quantity=1,
-                category="shaft"
-            ))
-            parts.append(PartSelection(
-                part_number=shaft2.part_number,
-                description=shaft2.description,
-                quantity=1,
-                category="shaft"
-            ))
-            parts.append(PartSelection(
-                part_number=coupler.part_number,
-                description=coupler.description,
-                quantity=1,
+                quantity=1 * shaft_multiplier,
                 category="shaft"
             ))
             return parts
+
+        # Dual shaft + coupler (with optional tandem doubling)
+        shaft1 = mapper.get_shaft(door_width_feet=shaft1_ff, shaft_type="solid")
+        shaft2 = mapper.get_shaft(door_width_feet=shaft2_ff, shaft_type="solid")
+        coupler = mapper.get_shaft_coupler(bore_size=1.0)
+
+        parts.append(PartSelection(
+            part_number=shaft1.part_number,
+            description=shaft1.description,
+            quantity=1 * shaft_multiplier,
+            category="shaft"
+        ))
+        parts.append(PartSelection(
+            part_number=shaft2.part_number,
+            description=shaft2.description,
+            quantity=1 * shaft_multiplier,
+            category="shaft"
+        ))
+        parts.append(PartSelection(
+            part_number=coupler.part_number,
+            description=coupler.description,
+            quantity=1 * shaft_multiplier,
+            category="shaft"
+        ))
+        return parts
 
     def _get_strut_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get strut part numbers using Thermalex strutting chart.
@@ -2112,15 +2141,37 @@ class PartNumberService:
     def _get_hardware_kit_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get hardware box part numbers using actual BC part numbers.
 
-        Uses bc_part_number_mapper to generate correct part numbers:
-        - Residential (2" track): HK10-0HHSS-WWWW pattern
-        - Commercial (3" track): HWww-hhhhh-00 pattern
-        - CRAFT: specific HK02-xxxxx-CR part numbers
+        Selection order:
+        - Residential KANATA/CRAFT, std lift, ≤8' tall, ≤18' wide → HK10 prebuilt box
+        - CRAFT (other sizes) → HK02-xxxxx-CR per rulebook
+        - Everything else → bc_part_number_mapper (HK02/03/12/13/22/23/32/33)
         """
         mapper = get_bc_mapper()
 
         door_width_feet = int(config.door_width / 12)
         door_height_feet = int(config.door_height / 12)
+
+        # HK10 prebuilt residential boxes: KANATA & CRAFT, std lift, 2" track,
+        # height ≤ 8', width ≤ 18'. Outside that envelope, fall through to the
+        # per-size HK02 / CRAFT-specific kits below.
+        if (
+            (config.door_type or "").lower() == "residential"
+            and config.door_series in ("KANATA", "CRAFT")
+            and (config.lift_type or "standard") == "standard"
+            and config.door_height <= 96
+            and door_width_feet <= 18
+        ):
+            hh = "07" if config.door_height <= 84 else "08"
+            ww = "0809" if door_width_feet <= 11 else "1316"
+            pn = f"HK10-0{hh}04-{ww}"
+            desc = mapper.bc_items.get(pn, {}).get("displayName") \
+                or f"HARDWARE BOX, 2R, {door_width_feet}'W x {hh}'H, STANDARD"
+            return [PartSelection(
+                part_number=pn,
+                description=desc,
+                quantity=1,
+                category="hardware",
+            )]
 
         # CRAFT series: specific hardware kits per rulebook
         if config.door_series == "CRAFT":
@@ -2138,11 +2189,21 @@ class PartNumberService:
                 quantity=1,
                 category="hardware"
             )]
-        # Hardware box type follows track thickness, not door type
-        # 3" track → commercial HW box (HK03/HW), 2" track → residential HW box (HK02/HK10)
+        # Hardware box family by track thickness — 3" → commercial (HK03/13/
+        # 23/33), 2" → residential (HK02/12/22/32). Aluminum doors override
+        # to a generic -AL kit inside the mapper.
         is_commercial = config.track_thickness == '3'
+        # Map config.lift_type → the mapper's lift_type vocabulary so all
+        # four families (standard / high / vertical / low-headroom) can pick
+        # the right HK prefix.
+        lift_map = {
+            'standard':     'standard',
+            'high_lift':    'high',
+            'vertical':     'vertical',
+            'low_headroom': 'low_headroom',
+        }
+        mapper_lift = lift_map.get(config.lift_type, 'standard')
 
-        # Calculate number of sections based on door height
         num_sections = self._calculate_panel_count(config.door_height)
 
         hardware = mapper.get_hardware_box(
@@ -2150,8 +2211,9 @@ class PartNumberService:
             door_height_feet=door_height_feet,
             num_sections=num_sections,
             commercial=is_commercial,
-            lift_type='high' if config.lift_type == 'high_lift' else ('vertical' if config.lift_type == 'vertical' else 'standard'),
-            high_lift_inches=config.high_lift_inches or 0
+            lift_type=mapper_lift,
+            high_lift_inches=config.high_lift_inches or 0,
+            door_type=config.door_type or "commercial",
         )
 
         return [PartSelection(
@@ -2211,7 +2273,8 @@ class PartNumberService:
                 f" {color_upper}, {actual_h_display} (SIDES)"
             ),
             quantity=2,  # Always 2 for left and right jambs
-            category="weather_stripping"
+            category="weather_stripping",
+            length_adjustment_ratio=height_strip.length_adjustment_ratio,
         ))
 
         # Get weather strip for WIDTH (header)
@@ -2232,7 +2295,8 @@ class PartNumberService:
                     f" {color_upper}, {actual_w_display} (HEADER - SPLIT 2PCS)"
                 ),
                 quantity=2,
-                category="weather_stripping"
+                category="weather_stripping",
+                length_adjustment_ratio=width_strip.length_adjustment_ratio,
             ))
         else:
             width_strip = mapper.get_weather_stripping(
@@ -2249,7 +2313,8 @@ class PartNumberService:
                     f" {color_upper}, {actual_w_display} (HEADER)"
                 ),
                 quantity=1,
-                category="weather_stripping"
+                category="weather_stripping",
+                length_adjustment_ratio=width_strip.length_adjustment_ratio,
             ))
 
         return parts
@@ -2681,21 +2746,33 @@ class PartNumberService:
                 notes=f"Polycarbonate for {panel_count} sections ({glazing_sqft_per_section:.2f} sqft each)"
             ))
         else:
-            # AL976 — GK17 aluminum glazing kits
+            # AL976 / SWD — GK17 aluminum glazing kits
+            # Three independent axes: color × pane (insulated/single) × glass
+            # type (annealed/tempered). Lookup is keyed (color, pane, glass).
             glass_color = (config.glass_color or "CLEAR").upper()
             pane_type = (config.glass_pane_type or "INSULATED").upper()
+            glass_treatment = (getattr(config, "glass_type", None) or "ANNEALED").upper()
 
             gk17_glass_map = {
-                ("CLEAR", "INSULATED"):      ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR"),
-                ("CLEAR", "SINGLE"):         ("GK17-10100-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
-                ("ETCHED", "INSULATED"):     ("GK17-11700-00", "GLAZING KIT, ALUM, THERM, ETCHED/CLEAR"),
-                ("ETCHED", "SINGLE"):        ("GK17-10300-00", "GLAZING KIT, ALUM, SINGLE 3MM, ETCHED"),
-                ("SUPER_GREY", "INSULATED"): ("GK17-12300-00", "GLAZING KIT, ALUM, THERM, TINTED GR/CLEAR"),
-                ("SUPER_GREY", "SINGLE"):    ("GK17-12300-00", "GLAZING KIT, ALUM, THERM, TINTED GR/CLEAR"),
+                # INSULATED + ANNEALED
+                ("CLEAR",      "INSULATED", "ANNEALED"): ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR"),
+                ("ETCHED",     "INSULATED", "ANNEALED"): ("GK17-11700-00", "GLAZING KIT, ALUM, THERM, ETCHED/CLEAR"),
+                ("SUPER_GREY", "INSULATED", "ANNEALED"): ("GK17-12400-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/CLEAR"),
+                # INSULATED + TEMPERED
+                ("CLEAR",      "INSULATED", "TEMPERED"): ("GK17-11500-00", "GLAZING KIT, ALUM, THERM, TEMP/CLEAR"),
+                ("ETCHED",     "INSULATED", "TEMPERED"): ("GK17-13120-00", "GLAZING KIT, ALUM, THERM, TEMPERED/ETCHED"),
+                # SINGLE + ANNEALED
+                ("CLEAR",      "SINGLE",    "ANNEALED"): ("GK17-10100-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
+                ("ETCHED",     "SINGLE",    "ANNEALED"): ("GK17-10300-00", "GLAZING KIT, ALUM, SINGLE 3MM, ETCHED"),
+                # SINGLE + TEMPERED
+                ("CLEAR",      "SINGLE",    "TEMPERED"): ("GK17-10200-00", "GLAZING KIT, ALUM, SINGLE (3MM), TEMP"),
+                # Combinations not yet stocked in BC fall through to the
+                # default below — the warning surfaces on the quote so the
+                # office can swap to an in-stock SKU if needed.
             }
             glass_pn, glass_desc = gk17_glass_map.get(
-                (glass_color, pane_type),
-                ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR")
+                (glass_color, pane_type, glass_treatment),
+                ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR"),
             )
 
             parts.append(PartSelection(
@@ -3323,7 +3400,8 @@ class PartNumberService:
                 "description": part.description,
                 "quantity": part.quantity,
                 "category": part.category,
-                "notes": part.notes
+                "notes": part.notes,
+                "length_adjustment_ratio": part.length_adjustment_ratio,
             })
 
         return summary
@@ -3401,6 +3479,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         window_frame_color=config_dict.get("windowFrameColor", "BLACK"),
         glazing_type=config_dict.get("glazingType"),
         glass_pane_type=config_dict.get("glassPaneType"),
+        glass_type=(config_dict.get("glassType") or "ANNEALED").upper(),
         glass_color=config_dict.get("glassColor"),
         track_radius=config_dict.get("trackRadius", "15"),
         track_thickness=config_dict.get("trackThickness", "2"),

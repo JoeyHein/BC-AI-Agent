@@ -117,6 +117,13 @@ class BCPartNumber:
     category: str
     unit_price: Optional[float] = None
     bc_item_id: Optional[str] = None
+    # Set when the requested size doesn't have its own SKU and the next
+    # bigger SKU is used as a stand-in. The caller scales the unit price
+    # by this ratio so the customer pays for the size they actually need
+    # rather than the bigger SKU's full strip.
+    length_adjustment_ratio: Optional[float] = None
+    requested_length_ft: Optional[int] = None
+    resolved_length_ft: Optional[int] = None
 
 
 @dataclass
@@ -274,7 +281,10 @@ class BCPartNumberMapper:
     # PL10 format: PL10-{height}203-{color} (galvanized steel/flexible vinyl)
     # PL11 format: PL11-{1|2}2{height}2-{color} (dual fin, alum/vinyl)
     #   1 = residential, 2 = commercial
-    WEATHER_STRIP_LENGTHS = [7, 8, 9, 10, 12, 14, 16, 18, 20]
+    # BC carries 7/8/9/10/12/14/16/18 (no 11/13/15/17 — those are billed
+    # via the next-bigger SKU with a length_adjustment_ratio so the
+    # customer pays per-foot rather than the full bigger strip).
+    WEATHER_STRIP_LENGTHS = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
 
     # Colors that use PL11 (dual fin) instead of PL10
     PL11_COLOR_CODES = {"25", "30", "40", "55"}  # Iron Ore, New Almond, Hazelwood, English Chestnut
@@ -633,35 +643,59 @@ class BCPartNumberMapper:
         Returns:
             BCPartNumber for weather stripping
         """
-        # Round up to the next available strip length (smallest available >= requested)
+        # Resolve the requested length to a stocked SKU length. We carry
+        # 7/8/9/10/12/14/16/18/20 — anything else (11/13/15/17/19) needs
+        # the next-biggest SKU as a stand-in, with the unit price scaled
+        # down by requested/stocked so the customer only pays for the
+        # length they actually need.
         available_heights = self.WEATHER_STRIP_LENGTHS
-        heights_at_or_above = [h for h in available_heights if h >= door_height_feet]
-        if heights_at_or_above:
-            height = min(heights_at_or_above)
-        else:
-            height = max(available_heights)
+        # Verify which lengths are actually in the BC catalog (a length
+        # listed in WEATHER_STRIP_LENGTHS but missing from BC — e.g. 20'
+        # — should also be substituted up).
+        def _exists(length_ft: int, color_code: str, use_pl11: bool, prefix: str) -> bool:
+            if use_pl11:
+                pn = f"PL11-{prefix}{length_ft:02d}2-{color_code}"
+            else:
+                pn = f"PL10-{length_ft:02d}203-{color_code}"
+            return pn in self.bc_items
 
         color_code = self.COLOR_CODES.get(color.upper(), "00")
         color_upper = color.upper()
 
-        # Determine if this door qualifies for PL11 (dual fin)
         is_aluminum = door_type and door_type.lower() in ("aluminium", "aluminum")
         is_clear_ano_aluminum = is_aluminum and color_upper in ("CLEAR ANODIZED", "CLEAR_ANODIZED")
         is_kanata = door_series.upper() in ("KANATA",) if door_series else False
         use_pl11 = is_clear_ano_aluminum or (is_kanata and color_code in self.PL11_COLOR_CODES)
+        prefix = ("22" if commercial or is_aluminum else "12") if use_pl11 else None
+
+        requested = max(door_height_feet, min(available_heights))
+        candidates = [h for h in available_heights if h >= requested]
+        resolved = None
+        for cand in sorted(candidates):
+            if _exists(cand, color_code, use_pl11, prefix or ""):
+                resolved = cand
+                break
+        if resolved is None:
+            # No bigger size in BC either — fall back to the largest
+            # nominal length and let the caller flag/handle it.
+            resolved = max(available_heights)
 
         if use_pl11:
-            prefix = "22" if commercial or is_aluminum else "12"
-            part_number = f"PL11-{prefix}{height:02d}2-{color_code}"
-            desc = f"WEATHER STRIP, DUAL FIN, {height:02d}' 2\", {color_upper}"
+            part_number = f"PL11-{prefix}{resolved:02d}2-{color_code}"
+            desc = f"WEATHER STRIP, DUAL FIN, {requested}' 2\", {color_upper}"
         else:
-            part_number = f"PL10-{height:02d}203-{color_code}"
-            desc = f"PLASTICS, WEATHER STRIP, GALVANIZED STEEL/FLEXIBLE VINYL, {color_upper}, {height:02d}'"
+            part_number = f"PL10-{resolved:02d}203-{color_code}"
+            desc = f"PLASTICS, WEATHER STRIP, GALVANIZED STEEL/FLEXIBLE VINYL, {color_upper}, {requested}'"
+
+        ratio = (requested / resolved) if resolved and requested != resolved else None
 
         return BCPartNumber(
             part_number=part_number,
             description=desc,
-            category="WEATHER_STRIPPING"
+            category="WEATHER_STRIPPING",
+            length_adjustment_ratio=ratio,
+            requested_length_ft=requested,
+            resolved_length_ft=resolved,
         )
 
     def get_astragal(self, door_width_feet: float, door_height_inches: int = 0, door_type: str = "residential") -> BCPartNumber:
@@ -1088,8 +1122,9 @@ class BCPartNumberMapper:
         door_height_feet: int,
         num_sections: int = 4,
         commercial: bool = False,
-        lift_type: str = "standard",  # "standard", "high", or "vertical"
-        high_lift_inches: int = 0  # Additional high lift in inches (for high lift only)
+        lift_type: str = "standard",  # standard / high / vertical / low_headroom
+        high_lift_inches: int = 0,  # Additional high lift in inches (high-lift only)
+        door_type: str = "commercial",  # residential / commercial / aluminium
     ) -> BCPartNumber:
         """
         Get hardware box part number based on door size and type.
@@ -1185,43 +1220,60 @@ class BCPartNumberMapper:
         ww = ww_code(door_width_feet)
         ee = hl_ext_code(high_lift_inches) if lift_type == "high" else None
 
-        if lift_type == "high":
-            prefix = "HK13" if commercial else "HK12"
-            track_label = '3"' if commercial else '2"'
+        is_aluminum = (door_type or "").lower() in ("aluminium", "aluminum")
 
-            def build(d: str) -> str:
+        # Aluminum doors use a generic "complete alum hardware kit" SKU —
+        # not size-keyed like the steel-door families. BC has -AL variants
+        # in HK01/HK03/HK04/HK06; default to HK03-00000-AL since aluminum
+        # doors run on 3" hardware.
+        if is_aluminum:
+            return BCPartNumber(
+                part_number="HK03-00000-AL",
+                description=(
+                    self.bc_items.get("HK03-00000-AL", {}).get("displayName")
+                    or "COMPLETE ALUM HARDWARE KIT"
+                ),
+                category="HARDWARE",
+            )
+
+        # Steel doors — pick the prefix family by lift + track size.
+        # Track 2" → residential family, 3" → commercial family.
+        # std-lift  : HK02 / HK03    | format ...-{HH}{WW}{D}-RC
+        # high-lift : HK12 / HK13    | format ...-{HH}{WW}{D}{EE}-RC
+        # vertical  : HK22 / HK23    | format ...-{HH}{WW}{D}-RC
+        # low head  : HK32 / HK33    | format ...-{HH}{WW}{D}-RC
+        FAMILIES = {
+            "high":         ("HK12", "HK13", "HIGH LIFT", True),
+            "vertical":     ("HK22", "HK23", "VERTICAL LIFT", False),
+            "low_headroom": ("HK32", "HK33", "LHR FRONT", False),
+            "standard":     ("HK02", "HK03", "STD LIFT", False),
+        }
+        res_pfx, com_pfx, label, with_hl_ext = FAMILIES.get(lift_type, FAMILIES["standard"])
+        prefix = com_pfx if commercial else res_pfx
+        track_label = '3"' if commercial else '2"'
+
+        def build(d: str) -> str:
+            if with_hl_ext:
                 return f"{prefix}-{hh}{ww}{d}{ee}-RC"
+            return f"{prefix}-{hh}{ww}{d}-RC"
 
-            part_number = build("1" if forces_dec else "0")
-            cap_type = "DEC" if forces_dec else "SEC"
-            if not forces_dec and part_number not in self.bc_items:
-                dec_pn = build("1")
-                if dec_pn in self.bc_items:
-                    part_number = dec_pn
-                    cap_type = "DEC"
+        part_number = build("1" if forces_dec else "0")
+        cap_type = "DEC" if forces_dec else "SEC"
+        if not forces_dec and part_number not in self.bc_items:
+            dec_pn = build("1")
+            if dec_pn in self.bc_items:
+                part_number = dec_pn
+                cap_type = "DEC"
 
+        if with_hl_ext:
             description = (
-                f"HARDWARE KIT, HIGH LIFT {track_label}, "
+                f"HARDWARE KIT, {label} {track_label}, "
                 f"{door_width_feet}'W x {door_height_feet}'H, "
                 f"{cap_type}, +{int(ee)}' HL"
             )
         else:
-            prefix = "HK03" if commercial else "HK02"
-            track_label = '3"' if commercial else '2"'
-
-            def build(d: str) -> str:
-                return f"{prefix}-{hh}{ww}{d}-RC"
-
-            part_number = build("1" if forces_dec else "0")
-            cap_type = "DEC" if forces_dec else "SEC"
-            if not forces_dec and part_number not in self.bc_items:
-                dec_pn = build("1")
-                if dec_pn in self.bc_items:
-                    part_number = dec_pn
-                    cap_type = "DEC"
-
             description = (
-                f"HARDWARE KIT, STD LIFT {track_label}, "
+                f"HARDWARE KIT, {label} {track_label}, "
                 f"{door_width_feet}'W x {door_height_feet}'H, {cap_type}"
             )
 

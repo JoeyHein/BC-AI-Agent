@@ -101,6 +101,7 @@ function QuoteBuilder() {
       windowPositions: [],  // Array of {section, col} for multi-stamp windows
       windowSize: 'long',   // 'short' (GK15-10xxx) or 'long' (GK15-11xxx)
       glassPaneType: null,  // 'INSULATED' or 'SINGLE'
+      glassType: 'ANNEALED',  // 'ANNEALED' or 'TEMPERED' (safety)
       glassColor: null,  // 'CLEAR', 'ETCHED', 'SUPER_GREY'
       hasInserts: false,  // Whether decorative inserts are added (LONG windows only)
       windowInsert: 'NONE',  // Insert style if hasInserts is true
@@ -1025,6 +1026,7 @@ function DesignStep({ door, colors, panelDesigns, config, onChange }) {
       : [{ id: 'CLEAR', name: 'Clear' }, { id: 'LIGHT_BRONZE', name: 'Light Bronze' }]
     )
     const paneTypes = seriesData?.paneTypes || []
+    const glassTypes = seriesData?.glassTypes || []
     const seriesName = seriesData?.name || door.doorSeries
 
     return (
@@ -1058,10 +1060,10 @@ function DesignStep({ door, colors, panelDesigns, config, onChange }) {
           )}
         </div>
 
-        {/* Glass Type — only for glass series (AL976) */}
+        {/* Pane (insulated vs single) */}
         {isGlass && paneTypes.length > 0 && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Glass Type</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Pane</label>
             <div className="flex space-x-3">
               {paneTypes.map(pt => (
                 <button
@@ -1074,6 +1076,28 @@ function DesignStep({ door, colors, panelDesigns, config, onChange }) {
                   }`}
                 >
                   {pt.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Glass type (annealed vs tempered) */}
+        {isGlass && glassTypes.length > 0 && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Glass Type</label>
+            <div className="flex space-x-3">
+              {glassTypes.map(gt => (
+                <button
+                  key={gt.id}
+                  onClick={() => onChange({ glassType: gt.id })}
+                  className={`px-4 py-2 text-sm rounded-md border ${
+                    (door.glassType || 'ANNEALED') === gt.id
+                      ? 'border-odc-500 bg-odc-100 text-odc-700'
+                      : 'border-gray-300 hover:border-gray-400'
+                  }`}
+                >
+                  {gt.name}
                 </button>
               ))}
             </div>
@@ -2308,33 +2332,42 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         </div>
       )}
 
-      {/* Track Mount Type */}
-      {door.liftType === 'standard' && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Track Mount
-          </label>
-          <div className="grid grid-cols-2 gap-3 max-w-md">
-            {[
-              { id: 'bracket', name: 'Bracket Mount', description: 'Standard bracket mounting' },
-              { id: 'angle', name: 'Angle Mount', description: 'Angle iron mounting' },
-            ].map((option) => (
-              <button
-                key={option.id}
-                onClick={() => onChange({ trackMount: option.id })}
-                className={`p-3 rounded-lg border-2 text-center transition-all ${
-                  (door.trackMount || 'bracket') === option.id
-                    ? 'border-odc-500 bg-odc-50'
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                <div className="text-sm font-medium">{option.name}</div>
-                <div className="text-xs text-gray-500 mt-1">{option.description}</div>
-              </button>
-            ))}
+      {/* Track Mount — bracket vs continuous angle. Applies to every
+          lift type since the horizontal track is the same standard-lift
+          assembly; high-lift / low-headroom / vertical add extension or
+          conversion kits on top of that base track. */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Track Mount
+        </label>
+        <div className="grid grid-cols-2 gap-3 max-w-md">
+          {[
+            { id: 'bracket', name: 'Bracket Mount', description: 'Standard bracket mounting' },
+            { id: 'angle', name: 'Continuous Angle Mount', description: 'Continuous angle mounting' },
+          ].map((option) => (
+            <button
+              key={option.id}
+              onClick={() => onChange({ trackMount: option.id })}
+              className={`p-3 rounded-lg border-2 text-center transition-all ${
+                (door.trackMount || 'bracket') === option.id
+                  ? 'border-odc-500 bg-odc-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <div className="text-sm font-medium">{option.name}</div>
+              <div className="text-xs text-gray-500 mt-1">{option.description}</div>
+            </button>
+          ))}
+          <div
+            aria-disabled="true"
+            title="Contact us for steel mount or reverse angle"
+            className="col-span-2 p-3 rounded-lg border-2 border-dashed border-gray-200 bg-gray-50 text-center cursor-not-allowed select-none"
+          >
+            <div className="text-sm font-medium text-gray-500">Steel Mount / Reverse Angle</div>
+            <div className="text-xs text-gray-400 mt-1">Contact us for these options — standard is wood mount</div>
           </div>
         </div>
-      )}
+      </div>
 
       {/* Low headroom info */}
       {isLowHeadroom && (

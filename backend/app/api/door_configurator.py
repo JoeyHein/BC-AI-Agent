@@ -26,6 +26,45 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/door-config", tags=["door-configurator"])
 
 
+def _next_bigger_width_skus(part_number: str, bc_items: Dict[str, Any]) -> Optional[str]:
+    """
+    For a SKU that ends in a 4-digit width code (e.g. "PN80-24100-2402"),
+    find the smallest BC SKU with the same prefix and a LARGER width code.
+
+    Used as the step-up substitute for any part keyed on door width when
+    the exact size isn't stocked. Returns the substitute SKU number, or
+    None if the input doesn't have a width suffix or no bigger size exists.
+    """
+    if not part_number or "-" not in part_number:
+        return None
+    prefix, _, suffix = part_number.rpartition("-")
+    if not suffix.isdigit() or len(suffix) != 4:
+        return None
+    try:
+        requested = int(suffix)
+    except ValueError:
+        return None
+
+    candidates = []
+    prefix_with_dash = prefix + "-"
+    for bc_pn in bc_items:
+        if not bc_pn.startswith(prefix_with_dash):
+            continue
+        tail = bc_pn[len(prefix_with_dash):]
+        if not tail.isdigit() or len(tail) != 4:
+            continue
+        try:
+            w = int(tail)
+        except ValueError:
+            continue
+        if w > requested:
+            candidates.append((w, bc_pn))
+    if not candidates:
+        return None
+    candidates.sort()
+    return candidates[0][1]
+
+
 # ============================================================================
 # CONFIGURATION DATA (from UPWARDOR_PORTAL_CONFIGURATION.md)
 # ============================================================================
@@ -148,6 +187,10 @@ DOOR_SERIES = {
                 {"id": "INSULATED", "name": "Insulated (Thermal)"},
                 {"id": "SINGLE", "name": "Single Pane"},
             ],
+            "glassTypes": [
+                {"id": "ANNEALED", "name": "Annealed"},
+                {"id": "TEMPERED", "name": "Tempered (Safety)"},
+            ],
             "finishes": [
                 {"id": "CLEAR_ANODIZED", "name": "Clear Anodized", "code": "0"},
                 {"id": "WHITE", "name": "White", "code": "3"},
@@ -179,6 +222,10 @@ DOOR_SERIES = {
             "paneTypes": [
                 {"id": "INSULATED", "name": "Insulated (Thermal)"},
                 {"id": "SINGLE", "name": "Single Pane"},
+            ],
+            "glassTypes": [
+                {"id": "ANNEALED", "name": "Annealed"},
+                {"id": "TEMPERED", "name": "Tempered (Safety)"},
             ],
             "finishes": [
                 {"id": "CLEAR_ANODIZED", "name": "Clear Anodized", "code": "0"},
@@ -214,7 +261,7 @@ DOOR_SERIES = {
             "specs": {
                 "thickness": "1 3/4\" (44.5mm)",
                 "material": "Extruded Aluminum",
-                "maxWidth": 290,  # 24'2" in inches
+                "maxWidth": 362,  # 30'2" in inches
                 "finishWarranty": "5 Year Limited",
                 "workmanshipWarranty": "1 Year Limited"
             }
@@ -267,6 +314,7 @@ COLORS = {
     "KANATA": [
         # Solid Colors (RAL)
         {"id": "WHITE", "name": "White", "hex": "#F4F4F4", "ral": "RAL 9003", "type": "solid"},
+        {"id": "NEW_ALMOND", "name": "New Almond", "hex": "#E3DCCA", "ral": "RAL 1015", "type": "solid"},
         {"id": "BLACK", "name": "Black", "hex": "#282828", "ral": "RAL 9004", "type": "solid"},
         {"id": "NEW_BROWN", "name": "New Brown", "hex": "#4C4842", "ral": "RAL 7022", "type": "solid"},
         {"id": "HAZELWOOD", "name": "Hazelwood", "hex": "#756F61", "ral": "RAL 7006", "type": "solid"},
@@ -493,6 +541,7 @@ class DoorConfigRequest(BaseModel):
     windowFrameColor: str = "BLACK"  # Commercial window frame color
     glazingType: Optional[str] = None
     glassPaneType: Optional[str] = None  # 'INSULATED' or 'SINGLE'
+    glassType: Optional[str] = "ANNEALED"  # 'ANNEALED' or 'TEMPERED' (safety)
     glassColor: Optional[str] = None     # 'CLEAR', 'ETCHED', 'SUPER_GREY'
     glassPocketsPerSection: Optional[Dict[str, int]] = None  # Per-section pocket overrides: {"0": 4, "1": 3, ...}
     trackRadius: str = "15"
@@ -508,6 +557,7 @@ class DoorConfigRequest(BaseModel):
     shaftType: str = "auto"  # 'auto', 'single', 'split'
     includeTopSeal: bool = False  # optional upgrade for commercial doors
     includePusherSprings: bool = False  # optional upgrade: adds TR13-00031-00 + TR13-00032-00
+    bumperSpring: bool = False  # leaf bumper spring pair: TR13-00029-00 + TR13-00030-00
 
 
 class QuoteGenerationRequest(BaseModel):
@@ -541,6 +591,7 @@ class DoorCalculationRequest(BaseModel):
     doorType: str = "commercial"  # 'residential' or 'commercial'
     glazingType: Optional[str] = None  # 'glass' or 'polycarbonate' (aluminum doors)
     glassPaneType: Optional[str] = None  # 'INSULATED' or 'SINGLE' (aluminum doors)
+    glassType: Optional[str] = "ANNEALED"  # 'ANNEALED' or 'TEMPERED' (aluminum doors)
 
 
 # ============================================================================
@@ -951,6 +1002,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "windowFrameColor": door.windowFrameColor,
                 "glazingType": door.glazingType,
                 "glassPaneType": door.glassPaneType,
+                "glassType": getattr(door, "glassType", "ANNEALED"),
                 "glassColor": door.glassColor,
                 "trackRadius": door.trackRadius,
                 "trackThickness": door.trackThickness,
@@ -964,6 +1016,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "shaftType": door.shaftType,
                 "includeTopSeal": getattr(door, 'includeTopSeal', False),
                 "includePusherSprings": getattr(door, 'includePusherSprings', False),
+                "bumperSpring": getattr(door, 'bumperSpring', False),
             }
 
             try:
@@ -1109,55 +1162,46 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
             if any(pn.startswith(pfx) for pfx in SKIP_VALIDATION_PREFIXES) and pn != f"{pn[:4]}-00000-RC":
                 continue
 
-            # PANEL: step up to next biggest width available in BC.
-            # Panel format: PN{series}-{height}{stamp}{color}-{widthFFII}
-            # Try incrementally larger widths until one is found.
-            if line.get("category") == "panel":
-                # Extract prefix (everything before the width code)
-                parts_split = pn.rsplit("-", 1)
-                if len(parts_split) == 2:
-                    pn_prefix = parts_split[0]  # e.g. "PN45-24400"
-                    width_code = parts_split[1]  # e.g. "1402"
-                    try:
-                        orig_feet = int(width_code[:2])
-                        orig_inches = int(width_code[2:])
-                    except (ValueError, IndexError):
-                        orig_feet = 0
-                        orig_inches = 0
-
-                    stepped_up = False
-                    # Try next foot sizes up to 30'
-                    for try_feet in range(orig_feet + 1, 31):
-                        for try_inches in [0, 2]:  # standard widths: even feet or +2"
-                            try_pn = f"{pn_prefix}-{try_feet:02d}{try_inches:02d}"
-                            if try_pn in mapper.bc_items:
-                                part_warnings.append({
-                                    "original": pn,
-                                    "substituted": try_pn,
-                                    "description": line.get("description", ""),
-                                    "message": f"Panel {pn} not in BC. Stepped up to next size: {try_pn}"
-                                })
-                                logger.info(f"Panel {pn} not in BC — stepped up to {try_pn}")
-                                line["part_number"] = try_pn
-                                line["_original_part_number"] = pn
-                                stepped_up = True
-                                break
-                        if stepped_up:
-                            break
-
-                    if not stepped_up:
-                        logger.error(f"PANEL NOT IN BC and no larger size found — aborting quote {bc_quote_number}. Part: {pn}")
-                        try:
-                            bc_client.delete_sales_quote(bc_quote_id)
-                        except Exception:
-                            pass
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"Panel part {pn} not found in BC inventory and no larger size available. Please contact the office."
-                        )
+            # Step-up substitution: if the failed SKU ends in a 4-digit
+            # width code (e.g. "...-2402"), pick the smallest BC SKU with
+            # the same prefix and a LARGER width — i.e. the next biggest
+            # available size, never the smallest. Applies to steel panels,
+            # aluminum sections (PN80/PN20/PN70/PN97), V130G sections, and
+            # anything else built with a {prefix}-{wwww} pattern.
+            is_panel_like = line.get("category") in (
+                "panel", "aluminum_section", "v130g_section"
+            )
+            stepped_up_pn = _next_bigger_width_skus(pn, mapper.bc_items)
+            if stepped_up_pn:
+                part_warnings.append({
+                    "original": pn,
+                    "substituted": stepped_up_pn,
+                    "description": line.get("description", ""),
+                    "message": f"{pn} not in BC. Stepped up to next size: {stepped_up_pn}",
+                })
+                logger.info(f"{pn} not in BC — stepped up to {stepped_up_pn}")
+                line["part_number"] = stepped_up_pn
+                line["_original_part_number"] = pn
                 continue
 
-            # Non-panel part doesn't exist — find closest match
+            if is_panel_like:
+                # No bigger size in BC for a panel/section — abort the
+                # quote rather than ship a wrong-size SKU.
+                logger.error(f"{line.get('category','panel').upper()} {pn} not in BC and no larger size found — aborting quote {bc_quote_number}")
+                try:
+                    bc_client.delete_sales_quote(bc_quote_id)
+                except Exception:
+                    pass
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{line.get('category','Panel')} part {pn} not found in BC and no larger size available. Please contact the office."
+                )
+
+            # Non-panel part with no width-code suffix — find a sibling in
+            # the same prefix family. Prefer the next-biggest where any
+            # numeric suffix is comparable; otherwise pick by description
+            # similarity (length proximity is a poor heuristic and was
+            # picking the smallest SKU every time).
             prefix = pn.split("-")[0] if "-" in pn else pn[:4]
             candidates = [
                 (bc_pn, item.get("displayName", ""))
@@ -1234,7 +1278,13 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                         bc_price_group=pricing_tier,
                         db=db,
                     )
-                    logger.info(f"PRICING [{part_num}]: group={pricing_tier} -> price={selling_price}")
+                    # Weather stripping in a non-stocked size uses the next-
+                    # biggest SKU but is billed at the per-foot rate, so
+                    # selling_price * (requested_ft / sku_ft).
+                    ratio = line.get("length_adjustment_ratio")
+                    if ratio and selling_price is not None:
+                        selling_price = round(selling_price * ratio, 2)
+                    logger.info(f"PRICING [{part_num}]: group={pricing_tier} -> price={selling_price} ratio={ratio}")
                     if selling_price is not None:
                         etag = added_line.get("@odata.etag", "*")
                         try:
@@ -1592,6 +1642,7 @@ async def get_part_numbers(config: DoorConfigRequest, db: Session = Depends(get_
             "targetCycles": config.targetCycles,
             "includeTopSeal": getattr(config, 'includeTopSeal', False),
             "includePusherSprings": getattr(config, 'includePusherSprings', False),
+            "bumperSpring": getattr(config, 'bumperSpring', False),
         }
 
         # Get parts from service (with BC spring inventory for consistency with specs tab)
@@ -1641,6 +1692,7 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "windowFrameColor": door.windowFrameColor,
                 "glazingType": door.glazingType,
                 "glassPaneType": door.glassPaneType,
+                "glassType": getattr(door, "glassType", "ANNEALED"),
                 "glassColor": door.glassColor,
                 "trackRadius": door.trackRadius,
                 "trackThickness": door.trackThickness,
@@ -1654,6 +1706,7 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "shaftType": door.shaftType,
                 "includeTopSeal": getattr(door, 'includeTopSeal', False),
                 "includePusherSprings": getattr(door, 'includePusherSprings', False),
+                "bumperSpring": getattr(door, 'bumperSpring', False),
             }
 
             spring_inv = get_bc_spring_inventory()
