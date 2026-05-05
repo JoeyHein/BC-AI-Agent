@@ -150,10 +150,6 @@ class CustomerDetailResponse(BaseModel):
         from_attributes = True
 
 
-class UpdatePricingTierRequest(BaseModel):
-    pricing_tier: Optional[str]  # gold, silver, bronze, retail, or null to clear
-
-
 class LinkCustomerRequest(BaseModel):
     bc_customer_id: str
 
@@ -309,6 +305,114 @@ async def sync_bc_customers(
         "customers_synced": results.get("customers_synced", 0),
         "customers_updated": results.get("customers_updated", 0),
         "errors": results.get("errors", [])
+    }
+
+
+@router.get("/pricing-trace")
+async def pricing_trace(
+    bc_customer_id: str,
+    part_number: str,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Diagnostic: trace exactly which lookup tier produced the price for a
+    given (customer, part) pair. Returns the customer's BC price group, the
+    item's UoM, the result of each tier (1=group, 2=All Customers, 3=item
+    card), and which tier ultimately matched.
+    """
+    from app.services.pricing_service import (
+        clear_pricing_cache,
+        calculate_selling_price,
+    )
+
+    bc_cust = db.query(BCCustomer).filter(
+        BCCustomer.bc_customer_id == bc_customer_id
+    ).first()
+    if not bc_cust:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"BC customer {bc_customer_id} not found in local cache. Run BC customer sync first.",
+        )
+
+    price_group = (bc_cust.bc_price_group or "").strip().upper() or None
+
+    clear_pricing_cache()  # ensure we hit BC live, not stale cache
+
+    item_master = bc_client.get_item_master(part_number)
+    uom = (item_master.get("Base_Unit_of_Measure") if item_master else None) or None
+
+    tier1 = None
+    tier1_url_filter = None
+    if price_group and uom:
+        row = bc_client.get_sales_price(part_number, price_group, uom)
+        tier1 = {
+            "matched": bool(row and row.get("Unit_Price")),
+            "unit_price": float(row["Unit_Price"]) if row and row.get("Unit_Price") else None,
+            "row": row,
+        }
+        tier1_url_filter = (
+            f"Product_No eq '{part_number}' and "
+            f"Assign_to_No eq '{price_group}' and "
+            f"Unit_of_Measure_Code eq '{uom}'"
+        )
+
+    tier2 = None
+    tier2_url_filter = None
+    if uom:
+        row = bc_client.get_default_sales_price(part_number, uom)
+        tier2 = {
+            "matched": bool(row and row.get("Unit_Price")),
+            "unit_price": float(row["Unit_Price"]) if row and row.get("Unit_Price") else None,
+            "row": row,
+        }
+        tier2_url_filter = (
+            f"Product_No eq '{part_number}' and "
+            f"Assign_to_No eq '' and "
+            f"Unit_of_Measure_Code eq '{uom}'"
+        )
+
+    tier3 = None
+    if item_master:
+        tier3_price = item_master.get("Unit_Price")
+        tier3 = {
+            "matched": bool(tier3_price and tier3_price > 0),
+            "unit_price": float(tier3_price) if tier3_price else None,
+            "row": item_master,
+        }
+
+    # Now run the live lookup chain for the final answer
+    clear_pricing_cache()
+    final_price = calculate_selling_price(
+        part_number=part_number, bc_price_group=price_group, db=db,
+    )
+
+    matched_tier = None
+    if tier1 and tier1["matched"]:
+        matched_tier = 1
+    elif tier2 and tier2["matched"]:
+        matched_tier = 2
+    elif tier3 and tier3["matched"]:
+        matched_tier = 3
+
+    return {
+        "customer": {
+            "bc_customer_id": bc_customer_id,
+            "company_name": bc_cust.company_name,
+            "bc_price_group": price_group,
+        },
+        "part_number": part_number,
+        "uom": uom,
+        "tier1_customer_price_group": {
+            "filter": tier1_url_filter,
+            **(tier1 or {"matched": False, "unit_price": None}),
+        },
+        "tier2_all_customers": {
+            "filter": tier2_url_filter,
+            **(tier2 or {"matched": False, "unit_price": None}),
+        },
+        "tier3_item_master_unit_price": tier3 or {"matched": False, "unit_price": None},
+        "matched_tier": matched_tier,
+        "final_price": final_price,
     }
 
 
@@ -883,63 +987,6 @@ def create_customer(
     logger.info(f"Admin {current_admin.email} created customer account {customer.email}")
 
     return get_customer(customer.id, current_admin, db)
-
-
-@router.patch("/{customer_id}/pricing-tier")
-def update_customer_pricing_tier(
-    customer_id: int,
-    update_data: UpdatePricingTierRequest,
-    current_admin: User = Depends(get_current_admin),
-    db: Session = Depends(get_db)
-):
-    """Set the pricing tier for a customer's linked BC account"""
-    customer = db.query(User).filter(
-        User.id == customer_id,
-        User.user_type == 'CUSTOMER'
-    ).first()
-
-    if not customer:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Customer not found"
-        )
-
-    if not customer.bc_customer_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Customer is not linked to a BC account"
-        )
-
-    bc_customer = db.query(BCCustomer).filter(
-        BCCustomer.bc_customer_id == customer.bc_customer_id
-    ).first()
-
-    if not bc_customer:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="BC customer record not found"
-        )
-
-    # Validate tier value
-    valid_tiers = {"gold", "silver", "bronze", "retail"}
-    tier = update_data.pricing_tier
-    if tier is not None:
-        tier = tier.lower().strip()
-        if tier not in valid_tiers:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid pricing tier: {tier}. Must be one of: {', '.join(sorted(valid_tiers))}"
-            )
-
-    bc_customer.pricing_tier = tier
-    db.commit()
-
-    logger.info(
-        f"Admin {current_admin.email} set pricing tier for "
-        f"{bc_customer.company_name} ({bc_customer.bc_customer_id}) to '{tier}'"
-    )
-
-    return get_customer(customer_id, current_admin, db)
 
 
 class SetPasswordRequest(BaseModel):

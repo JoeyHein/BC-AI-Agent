@@ -838,7 +838,6 @@ def _generate_bc_quote_with_items(
     lines_added = 0
     lines_failed = []
     bc_items_cache: dict = {}  # category prefix → list of BC items (populated lazily)
-    tier_prices_by_line_id = {}  # Track tier prices for escalating margin
 
     # Per-door + shared BC line ID map (persisted on SavedQuoteConfig.bc_line_map).
     # Enables surgical per-door edits later without recreating the BC quote.
@@ -900,14 +899,12 @@ def _generate_bc_quote_with_items(
                     if bc_desc != intended_desc:
                         patch_data["description"] = intended_desc[:100]
 
-                # Apply customer-tier pricing
+                # Apply BC SalesPriceLists pricing for the customer's group
                 if pricing_tier and db:
                     part_num = line["part_number"]
-                    door_tp = line.get("door_type", "residential")
                     selling_price = calculate_selling_price(
                         part_number=part_num,
-                        door_type=door_tp,
-                        tier=pricing_tier,
+                        bc_price_group=pricing_tier,
                         db=db,
                     )
                     # Weather stripping using a stand-in (next-biggest) SKU
@@ -915,17 +912,13 @@ def _generate_bc_quote_with_items(
                     ratio = line.get("length_adjustment_ratio")
                     if ratio and selling_price is not None:
                         selling_price = round(selling_price * ratio, 2)
-                    logger.info(f"PRICING DEBUG [{part_num}]: tier={pricing_tier}, door_type={door_tp}, selling_price={selling_price}, ratio={ratio}")
+                    logger.info(f"PRICING [{part_num}]: group={pricing_tier} -> price={selling_price} ratio={ratio}")
                     if selling_price is not None:
                         patch_data["unitPrice"] = selling_price
-                        tier_prices_by_line_id[added_line["id"]] = {
-                            "price": selling_price,
-                            "qty": line.get("quantity", 1),
-                        }
                     else:
-                        logger.warning(f"PRICING DEBUG [{part_num}]: selling_price is None, SKIPPING PATCH")
+                        logger.warning(f"PRICING [{part_num}]: no SalesPriceLists match — line uses BC item-card price")
                 else:
-                    logger.info(f"PRICING DEBUG: skip price PATCH - pricing_tier={pricing_tier}, db={db is not None}")
+                    logger.info(f"PRICING: skip price PATCH - bc_price_group={pricing_tier}, db={db is not None}")
 
                 if patch_data:
                     etag = added_line.get("@odata.etag", "*")
@@ -1004,7 +997,6 @@ def _generate_bc_quote_with_items(
                         "line_pricing": None,
                         "door_results": None,
                         "freight": None,
-                        "escalating_margin": None,
                     }
 
             # ── Substitute lookup ──────────────────────────────────────────
@@ -1056,8 +1048,7 @@ def _generate_bc_quote_with_items(
                         if pricing_tier and db:
                             selling_price = calculate_selling_price(
                                 part_number=substitute["number"],
-                                door_type=line.get("door_type", "residential"),
-                                tier=pricing_tier,
+                                bc_price_group=pricing_tier,
                                 db=db,
                             )
                             if selling_price is not None:
@@ -1177,74 +1168,6 @@ def _generate_bc_quote_with_items(
 
     except Exception as pricing_error:
         logger.warning(f"Could not fetch pricing for quote {bc_quote_number}: {pricing_error}")
-
-    # Step 4c: Escalating margin adjustment (client-specific volume discount)
-    # Uses tracked tier prices so multiplier applies to GOLD TIER price, not list price.
-    escalating_result = None
-    if tier_prices_by_line_id and db:
-        try:
-            from app.services.escalating_margin_service import get_escalating_margin
-            bc_cust_for_esc = db.query(BCCustomer).filter(
-                BCCustomer.bc_customer_id == bc_customer_id
-            ).first()
-            customer_display_name = bc_cust_for_esc.company_name if bc_cust_for_esc else ""
-            esc_profile = get_escalating_margin(customer_display_name)
-
-            if esc_profile:
-                tier_subtotal = sum(
-                    lp["price"] * lp["qty"]
-                    for lp in tier_prices_by_line_id.values()
-                )
-                esc_calc = esc_profile.calculate(tier_subtotal)
-                multiplier = esc_calc["multiplier"]
-
-                if multiplier < 1.0:
-                    logger.info(
-                        f"Applying escalating margin [{esc_profile.name}]: "
-                        f"tier subtotal ${tier_subtotal:,.0f} × {multiplier:.4f}"
-                    )
-
-                    # PATCH each tracked line: tier_price × multiplier
-                    esc_quote_lines = bc_client.get_quote_lines(bc_quote_id)
-                    for ql in esc_quote_lines:
-                        line_id = ql.get("id")
-                        if line_id in tier_prices_by_line_id:
-                            tier_price = tier_prices_by_line_id[line_id]["price"]
-                            adj_price = round(tier_price * multiplier, 2)
-                            try:
-                                etag = ql.get("@odata.etag", "*")
-                                bc_client.update_quote_line(
-                                    bc_quote_id, line_id, etag,
-                                    {"unitPrice": adj_price},
-                                )
-                            except Exception as esc_patch_err:
-                                logger.warning(f"Escalating margin PATCH failed for {ql.get('lineObjectNumber')}: {esc_patch_err}")
-
-                    # Add a comment noting the volume discount
-                    try:
-                        added_vol_comment = bc_client.add_quote_line(bc_quote_id, {
-                            "lineType": "Comment",
-                            "description": (
-                                f"** VOLUME PRICING: {esc_profile.name} — "
-                                f"{esc_calc['discount_pct']:.1f}% volume discount applied **"
-                            ),
-                        })
-                        _track_shared_line("volume_discount", added_vol_comment)
-                    except Exception:
-                        pass
-
-                    # Re-fetch pricing totals after adjustment
-                    try:
-                        updated = bc_client.get_sales_quote(bc_quote_id)
-                        pricing["subtotal"] = round(updated.get("totalAmountExcludingTax", 0), 2)
-                        pricing["total"] = round(updated.get("totalAmountIncludingTax", 0), 2)
-                        pricing["tax"] = round(pricing["total"] - pricing["subtotal"], 2)
-                    except Exception:
-                        pass
-
-                    escalating_result = esc_calc
-        except Exception as esc_err:
-            logger.warning(f"Escalating margin check failed: {esc_err}")
 
     # Step 5: Add freight line if delivery
     freight_info = None
@@ -1527,7 +1450,6 @@ def _generate_bc_quote_with_items(
         "line_pricing": line_pricing if line_pricing else None,
         "door_results": door_results,
         "freight": freight_info,
-        "escalating_margin": escalating_result,
         "line_map": line_map,
     }
 
@@ -1787,8 +1709,7 @@ def _edit_bc_quote_lines(
                 if pricing_tier:
                     selling_price = calculate_selling_price(
                         part_number=line["part_number"],
-                        door_type=line.get("door_type", "residential"),
-                        tier=pricing_tier, db=db,
+                        bc_price_group=pricing_tier, db=db,
                     )
                     if selling_price is not None:
                         patch_data["unitPrice"] = selling_price
@@ -2011,16 +1932,23 @@ def _edit_bc_quote_lines(
     }
 
 
-def _get_customer_pricing_tier(bc_customer_id: str, db: Session) -> str:
-    """Look up the pricing tier for a BC customer. Returns 'retail' if not set."""
+def _get_customer_pricing_tier(bc_customer_id: str, db: Session) -> Optional[str]:
+    """Return the BC Customer_Price_Group code for a customer (e.g. GOLD,
+    SILV, PLAT, BRON, UNLI, OPIN). The value is passed verbatim to BC's
+    SalesPriceLists $filter, so we keep the BC code unchanged — no
+    whitelist, no remap. Returns None if the customer has no group, in
+    which case the lookup chain falls through to the All-Customers
+    Sales Price List.
+    """
     bc_customer = db.query(BCCustomer).filter(
         BCCustomer.bc_customer_id == bc_customer_id
     ).first()
+    if bc_customer and bc_customer.bc_price_group:
+        return bc_customer.bc_price_group.strip().upper() or None
+    # Backwards-compat: some older rows may only have pricing_tier set
     if bc_customer and bc_customer.pricing_tier:
-        tier = bc_customer.pricing_tier.lower().strip()
-        if tier in {"gold", "silver", "bronze", "retail"}:
-            return tier
-    return "retail"
+        return bc_customer.pricing_tier.strip().upper() or None
+    return None
 
 
 def _estimate_pricing_locally(
@@ -2200,12 +2128,10 @@ def _estimate_pricing_locally(
         else:
             part_number = line.get("part_number", "")
             quantity = line.get("quantity", 1)
-            door_type = line.get("door_type", "residential")
 
             unit_price = calculate_selling_price(
                 part_number=part_number,
-                door_type=door_type,
-                tier=pricing_tier,
+                bc_price_group=pricing_tier,
                 db=db,
             ) or 0.0
 
@@ -3790,11 +3716,10 @@ def create_cart_quote(
                 }
                 added_line = bc_client.add_quote_line(bc_quote_id, line_data)
 
-                # Apply tier pricing
+                # Apply BC SalesPriceLists pricing for the customer's price group
                 selling_price = calculate_selling_price(
                     part_number=item.item_number,
-                    door_type="residential",
-                    tier=pricing_tier,
+                    bc_price_group=pricing_tier,
                     db=db,
                 )
                 if selling_price is not None:

@@ -1,385 +1,251 @@
 """
 Pricing Service
-Margin-based pricing tier system for door quotes.
+BC-driven pricing — Business Central is the single source of truth.
 
-Formula: selling_price = (unitCost * (1 + cost_adjustment%/100)) / (1 - margin%/100)
+Lookup order (matches Upwardor portal PriceController.js):
+  1. SalesPriceLists where Product_No=PN, Assign_to_No=PRICE_GROUP, UoM=UOM
+     (the customer's tier-specific list price)
+  2. SalesPriceLists where Product_No=PN, UoM=UOM
+     (the "all customer" / default list price)
+  3. ItemMasterList Unit_Price (item card fallback)
 
-Tiers (Residential): Gold 30%, Silver 35%, Bronze 40%, Retail 50%
-Tiers (Commercial):  Gold 30%, Silver 33%, Bronze 36%, Retail 42%
+There is NO app-side margin math, cost adjustment, or door-type rule.
+Tier-to-price mapping lives entirely in BC's published price lists.
 """
 
 import logging
 import time
-from typing import Optional, Tuple, Dict, Any, List
+from typing import Optional, Dict, List, Tuple
 
 from sqlalchemy.orm import Session
-
-from app.db.models import AppSettings
-from app.services.bc_part_number_mapper import get_bc_mapper
 
 logger = logging.getLogger(__name__)
 
 # ============================================================================
-# Setting keys in AppSettings
-# ============================================================================
-TIER_MARGINS_KEY = "pricing_tier_margins"
-COST_ADJUSTMENTS_KEY = "pricing_cost_adjustments"
-BC_GROUP_MAPPING_KEY = "bc_group_tier_mapping"
-PREFIX_MARGINS_KEY = "pricing_prefix_margins"
-
-VALID_TIERS = {"platinum", "unlisted", "gold", "silver", "bronze", "retail"}
-
-# ============================================================================
-# Hardcoded defaults (used when no AppSettings saved yet)
+# Module-level caches (per-process, TTL-bounded)
 # ============================================================================
 
-def get_default_tier_margins() -> dict:
-    """Default margin percentages by door_type and tier."""
-    return {
-        "residential": {
-            "platinum": 25,
-            "unlisted": 20,
-            "gold": 30,
-            "silver": 35,
-            "bronze": 40,
-            "retail": 50,
-        },
-        "commercial": {
-            "platinum": 27,
-            "unlisted": 24,
-            "gold": 30,
-            "silver": 33,
-            "bronze": 36,
-            "retail": 42,
-        },
-        "aluminium": {
-            "platinum": 45,
-            "unlisted": 40,
-            "gold": 49,
-            "silver": 51,
-            "bronze": 55,
-            "retail": 65,
-        },
-        "glazing": {
-            "platinum": 60,
-            "unlisted": 55,
-            "gold": 62,
-            "silver": 64,
-            "bronze": 66,
-            "retail": 73,
-        },
-    }
-
-
-# Friendly labels for BC posting group codes
-POSTING_GROUP_LABELS = {
-    "RESI": "Panels (Residential)",
-    "COMM": "Panels (Commercial)",
-    "SPRI": "Springs",
-    "HARD": "Hardware",
-    "TRAC": "Tracks",
-    "OPER": "Operators",
-    "GLAZ": "Glazing / Windows",
-    "ALUM": "Aluminum",
-    "PLAS": "Plastics / Weather Stripping",
-    "ACS": "Accessories",
-    "GO": "Garage Openers",
-    "MISC": "Miscellaneous",
-    "CONS": "Consumables",
-    "UPCW": "UPCW",
-    "SAMP": "Samples",
-    "LABR": "Labour",
-    "FREIGHT": "Freight",
-    "TARIFF": "Tariff",
-}
-
-
-def get_default_cost_adjustments() -> dict:
-    """Default cost adjustments (all zeros), keyed by BC posting group codes."""
-    mapper = get_bc_mapper()
-    groups = set()
-    for item in mapper.bc_items.values():
-        code = item.get("generalProductPostingGroupCode", "")
-        if code:
-            groups.add(code)
-
-    # If no items loaded, use known codes
-    if not groups:
-        groups = set(POSTING_GROUP_LABELS.keys())
-
-    return {code: {"adjustment": 0, "note": ""} for code in sorted(groups)}
-
-
-# ============================================================================
-# Settings loaders
-# ============================================================================
-
-def _load_tier_margins(db: Session) -> dict:
-    """Load tier margins from AppSettings, merged with defaults for any missing categories."""
-    defaults = get_default_tier_margins()
-    setting = db.query(AppSettings).filter(
-        AppSettings.setting_key == TIER_MARGINS_KEY
-    ).first()
-    if setting and setting.setting_value:
-        # Merge: saved settings override defaults, but new categories (e.g. glazing) get defaults
-        merged = dict(defaults)
-        merged.update(setting.setting_value)
-        return merged
-    return defaults
-
-
-def _load_cost_adjustments(db: Session) -> dict:
-    """Load cost adjustments from AppSettings or return defaults."""
-    setting = db.query(AppSettings).filter(
-        AppSettings.setting_key == COST_ADJUSTMENTS_KEY
-    ).first()
-    if setting and setting.setting_value:
-        return setting.setting_value
-    return get_default_cost_adjustments()
-
-
-def _load_prefix_margins(db: Session) -> dict:
-    """Load part-number prefix margin overrides from AppSettings."""
-    setting = db.query(AppSettings).filter(
-        AppSettings.setting_key == PREFIX_MARGINS_KEY
-    ).first()
-    if setting and setting.setting_value:
-        return setting.setting_value
-    return {}
-
-
-def _load_bc_group_mapping(db: Session) -> dict:
-    """Load BC price group → portal tier mapping from AppSettings."""
-    setting = db.query(AppSettings).filter(
-        AppSettings.setting_key == BC_GROUP_MAPPING_KEY
-    ).first()
-    if setting and setting.setting_value:
-        return setting.setting_value
-    return {}
-
-
-def resolve_tier_from_bc_group(bc_price_group: Optional[str], db: Session) -> Optional[str]:
-    """
-    Look up which portal tier a BC price group maps to.
-    Returns the tier string (e.g. 'gold') or None if no mapping exists.
-    """
-    if not bc_price_group:
-        return None
-    mapping = _load_bc_group_mapping(db)
-    tier = mapping.get(bc_price_group.upper().strip())
-    return tier if tier in VALID_TIERS else None
-
-
-# ============================================================================
-# Live BC cost cache
-# ============================================================================
-
-_bc_cost_cache: Dict[str, dict] = {}
+_price_cache: Dict[Tuple[str, str, str], Optional[float]] = {}
+_uom_cache: Dict[str, str] = {}
+_item_card_price_cache: Dict[str, Optional[float]] = {}
 _cache_expiry: float = 0.0
 _CACHE_TTL = 3600  # 1 hour
 
+# Sentinels for the price cache key
+_DEFAULT = "__DEFAULT__"
 
-def warm_bc_cost_cache(part_numbers: List[str]) -> None:
-    """
-    Batch-fetch item costs from live BC and populate the module cache.
-    Call once before a pricing loop to avoid per-line API calls.
-    """
-    global _bc_cost_cache, _cache_expiry
 
+def _norm_group(g: Optional[str]) -> str:
+    return (g or "").upper().strip()
+
+
+def _norm_uom(u: Optional[str]) -> str:
+    return (u or "").upper().strip()
+
+
+def _expired() -> bool:
+    return time.time() >= _cache_expiry
+
+
+def _refresh_expiry() -> None:
+    global _cache_expiry
+    _cache_expiry = time.time() + _CACHE_TTL
+
+
+def clear_pricing_cache() -> None:
+    """Force-clear all pricing caches (useful after BC price list edits)."""
+    global _price_cache, _uom_cache, _item_card_price_cache, _cache_expiry
+    _price_cache = {}
+    _uom_cache = {}
+    _item_card_price_cache = {}
+    _cache_expiry = 0.0
+
+
+# ============================================================================
+# Cache-warming helpers
+# ============================================================================
+
+def warm_sales_price_cache(
+    part_numbers: List[str],
+    bc_price_group: Optional[str] = None,
+) -> None:
+    """Pre-populate the price + UoM caches for a batch of parts.
+
+    Loads ItemMasterList records (one batched call) so each part's Base UoM
+    and item-card Unit_Price is cached. SalesPriceLists lookups happen
+    lazily on first hit, but having the UoM up-front avoids a per-line
+    item card round-trip later.
+    """
     if not part_numbers:
         return
+    if _expired():
+        clear_pricing_cache()
 
-    # Deduplicate
-    unique_pns = list(set(part_numbers))
+    from app.integrations.bc.client import bc_client
+    unique = list({pn for pn in part_numbers if pn})
 
     try:
-        from app.integrations.bc.client import bc_client
-        items = bc_client.get_items_by_numbers(unique_pns)
-        _bc_cost_cache.update(items)
-        _cache_expiry = time.time() + _CACHE_TTL
-        missing = [pn for pn in unique_pns if pn not in items]
-        logger.info(f"Warmed BC cost cache with {len(items)} items (requested {len(unique_pns)})")
-        if missing:
-            logger.warning(f"BC cost cache MISSING items: {missing}")
-        # Log unitCost for each cached item
-        for pn, data in items.items():
-            logger.info(f"CACHE [{pn}]: unitCost={data.get('unitCost', 'N/A')}, postingGroup={data.get('generalProductPostingGroupCode', 'N/A')}")
+        items = bc_client.get_item_masters(unique)
     except Exception as e:
-        logger.warning(f"Failed to warm BC cost cache: {e}")
+        logger.warning(f"warm_sales_price_cache: ItemMasterList batch failed: {e}")
+        items = {}
+
+    for pn, row in items.items():
+        uom = row.get("Base_Unit_of_Measure") or ""
+        _uom_cache[pn] = _norm_uom(uom)
+        unit_price = row.get("Unit_Price")
+        try:
+            _item_card_price_cache[pn] = float(unit_price) if unit_price else None
+        except (TypeError, ValueError):
+            _item_card_price_cache[pn] = None
+
+    missing = [pn for pn in unique if pn not in items]
+    logger.info(
+        f"warm_sales_price_cache: loaded {len(items)} items, "
+        f"{len(missing)} not found in ItemMasterList"
+        + (f" (group={bc_price_group})" if bc_price_group else "")
+    )
+    if missing:
+        logger.warning(f"ItemMasterList missing: {missing}")
+    _refresh_expiry()
 
 
-def _get_live_item(part_number: str) -> Optional[dict]:
-    """
-    Return item data (unitCost, generalProductPostingGroupCode) from the
-    live BC cache.  On cache miss, makes a single BC API call.
-    Falls back to the static bc_items mapper if BC API fails entirely.
-    """
-    global _bc_cost_cache, _cache_expiry
-
-    # Check cache (still valid?)
-    if time.time() < _cache_expiry and part_number in _bc_cost_cache:
-        return _bc_cost_cache[part_number]
-
-    # Cache miss — try single-item fetch from live BC
-    try:
-        from app.integrations.bc.client import bc_client
-        items = bc_client.get_items_by_numbers([part_number])
-        if part_number in items:
-            _bc_cost_cache[part_number] = items[part_number]
-            return items[part_number]
-    except Exception as e:
-        logger.warning(f"Live BC lookup failed for {part_number}: {e}")
-
-    # Final fallback: static mapper
-    mapper = get_bc_mapper()
-    return mapper.bc_items.get(part_number)
+# Backwards-compat alias — old call sites import warm_bc_cost_cache
+warm_bc_cost_cache = warm_sales_price_cache
 
 
 # ============================================================================
-# Core pricing functions
+# UoM + item-card lookup helpers (single-part fallback)
 # ============================================================================
 
-def resolve_tier(customer_tier: Optional[str], door_type: str, db: Session) -> Tuple[str, float]:
-    """
-    Resolve what tier and margin % to use for a customer + door type.
+def _get_uom(part_number: str) -> Optional[str]:
+    """Resolve a part's Base UoM from cache or via a single ItemMasterList call."""
+    if part_number in _uom_cache:
+        return _uom_cache[part_number] or None
+    try:
+        from app.integrations.bc.client import bc_client
+        item = bc_client.get_item_master(part_number)
+        if item:
+            uom = _norm_uom(item.get("Base_Unit_of_Measure"))
+            _uom_cache[part_number] = uom
+            try:
+                p = item.get("Unit_Price")
+                _item_card_price_cache[part_number] = float(p) if p else None
+            except (TypeError, ValueError):
+                _item_card_price_cache[part_number] = None
+            return uom or None
+    except Exception as e:
+        logger.warning(f"_get_uom: ItemMasterList lookup failed for {part_number}: {e}")
+    return None
 
-    Returns (tier_name, margin_pct).
-    """
-    margins = _load_tier_margins(db)
-    door_type_lower = (door_type or "residential").lower()
 
-    # Normalize door type
-    if door_type_lower not in ("residential", "commercial", "aluminium", "glazing"):
-        door_type_lower = "residential"
+def _get_item_card_price(part_number: str) -> Optional[float]:
+    """Resolve item-card Unit_Price from cache or via a single call."""
+    if part_number in _item_card_price_cache:
+        return _item_card_price_cache[part_number]
+    # Trigger UoM lookup which also populates item-card price cache
+    _get_uom(part_number)
+    return _item_card_price_cache.get(part_number)
 
-    type_margins = margins.get(door_type_lower, {})
-    tier = (customer_tier or "").lower().strip()
 
-    # Handle missing/unknown/legacy tier values — always fall back to retail
-    valid_tiers = set(type_margins.keys())
-    if tier not in valid_tiers:
-        tier = "retail"
-
-    margin_pct = type_margins.get(tier, 40)  # safe fallback
-    return tier, margin_pct
-
+# ============================================================================
+# Core pricing function — 3-step lookup, no math
+# ============================================================================
 
 def calculate_selling_price(
     part_number: str,
-    door_type: str,
-    tier: str,
-    db: Session,
+    bc_price_group: Optional[str] = None,
+    db: Optional[Session] = None,  # unused; kept for API compatibility
 ) -> Optional[float]:
-    """
-    Calculate margin-based selling price for a part number.
+    """Look up the unit price for a part from BC.
 
-    Returns rounded selling price, or None if unitCost is 0/missing
-    (let BC use its default pricing in that case).
+    Lookup chain (matches Upwardor portal):
+      1. SalesPriceLists with Assign_to_No = customer's BC price group
+      2. SalesPriceLists with no group filter (default list price)
+      3. ItemMasterList Unit_Price (item card)
+
+    Returns the BC-defined unit price rounded to 2 decimals, or None if no
+    price exists anywhere — in which case the caller should treat the line
+    as needing manual pricing (e.g. CONTACT REP FOR PRICING).
     """
-    item = _get_live_item(part_number)
-    if not item:
-        logger.warning(f"PRICING CALC [{part_number}]: _get_live_item returned None")
+    if not part_number:
         return None
 
-    unit_cost = item.get("unitCost", 0)
-    if not unit_cost or unit_cost <= 0:
-        logger.warning(f"PRICING CALC [{part_number}]: unitCost={unit_cost} (zero/missing), skipping")
+    if _expired():
+        clear_pricing_cache()
+
+    from app.integrations.bc.client import bc_client
+
+    uom = _get_uom(part_number)
+    if not uom:
+        # Without a UoM we can't filter SalesPriceLists; skip to item card.
+        card_price = _get_item_card_price(part_number)
+        if card_price and card_price > 0:
+            return round(card_price, 2)
+        logger.warning(
+            f"PRICING [{part_number}]: no UoM resolved and no item-card price — "
+            f"item likely missing from BC"
+        )
         return None
 
-    # Get posting group for cost adjustment lookup
-    posting_group = item.get("generalProductPostingGroupCode", "")
+    group = _norm_group(bc_price_group)
 
-    # Load cost adjustments
-    adjustments = _load_cost_adjustments(db)
-    adj_entry = adjustments.get(posting_group, {})
-    cost_adj_pct = adj_entry.get("adjustment", 0) if isinstance(adj_entry, dict) else 0
+    # Tier 1 — customer-group-specific price
+    if group:
+        key = (part_number, group, uom)
+        if key in _price_cache:
+            cached = _price_cache[key]
+            if cached is not None:
+                return round(cached, 2)
+        else:
+            try:
+                row = bc_client.get_sales_price(part_number, group, uom)
+                price = _extract_unit_price(row)
+                _price_cache[key] = price
+                if price is not None:
+                    return round(price, 2)
+            except Exception as e:
+                logger.warning(
+                    f"PRICING [{part_number}/{group}]: SalesPriceLists lookup failed: {e}"
+                )
 
-    # Determine effective door type for margin lookup
-    effective_door_type = door_type
-    door_type_lower = (door_type or "").lower()
-    pn_upper = part_number.upper()
+    # Tier 2 — default list price (no group)
+    default_key = (part_number, _DEFAULT, uom)
+    if default_key in _price_cache:
+        cached = _price_cache[default_key]
+        if cached is not None:
+            return round(cached, 2)
+    else:
+        try:
+            row = bc_client.get_default_sales_price(part_number, uom)
+            price = _extract_unit_price(row)
+            _price_cache[default_key] = price
+            if price is not None:
+                return round(price, 2)
+        except Exception as e:
+            logger.warning(
+                f"PRICING [{part_number}/default]: SalesPriceLists lookup failed: {e}"
+            )
 
-    # GK17 glazing and PN10 V130G frames ALWAYS use AL976/glazing margins
-    # regardless of what door type they're on
-    if posting_group == "GLAZ" or (posting_group == "ALUM" and (pn_upper.startswith("PN10") or pn_upper.startswith("PN12"))):
-        effective_door_type = "glazing"
-    elif door_type_lower == "aluminium":
-        if posting_group == "ALUM":
-            # Other aluminium panels/sections keep standard aluminium margins
-            pass
-        elif posting_group in ("HARD", "TRAC", "SPRI", "OPER", "PLAS", "ACS"):
-            # Hardware/non-panel items on aluminium doors use customer's commercial tier
-            effective_door_type = "commercial"
+    # Tier 3 — item card Unit_Price
+    card_price = _get_item_card_price(part_number)
+    if card_price and card_price > 0:
+        return round(card_price, 2)
 
-    # Resolve margin
-    _tier_name, margin_pct = resolve_tier(tier, effective_door_type, db)
-
-    # Check for part-number prefix override (longest prefix wins)
-    prefix_overrides = _load_prefix_margins(db)
-    if prefix_overrides:
-        pn_upper = part_number.upper()
-        best_prefix = ""
-        for prefix in prefix_overrides:
-            if pn_upper.startswith(prefix.upper()) and len(prefix) > len(best_prefix):
-                best_prefix = prefix
-        if best_prefix:
-            override_margin = prefix_overrides[best_prefix].get("margin")
-            if override_margin is not None:
-                margin_pct = float(override_margin)
-
-    # Spring waste factor: 15% added to cost on all door types (residential/commercial/aluminium)
-    # Springs are sold by the inch and cut-to-length; waste is inherent in production
-    SPRING_WASTE_FACTOR = 0.15
-    if posting_group == "SPRI" or pn_upper.startswith("SP11"):
-        unit_cost = unit_cost * (1 + SPRING_WASTE_FACTOR)
-
-    # Apply formula: selling_price = (unitCost * (1 + adj%/100)) / (1 - margin%/100)
-    adjusted_cost = unit_cost * (1 + cost_adj_pct / 100)
-    if margin_pct >= 100:
-        margin_pct = 99  # safety cap
-    selling_price = adjusted_cost / (1 - margin_pct / 100)
-
-    return round(selling_price, 2)
+    logger.info(
+        f"PRICING [{part_number}]: no price found "
+        f"(group={group or 'n/a'}, uom={uom}) — caller should flag for review"
+    )
+    return None
 
 
-def calculate_selling_price_at_margin(
-    part_number: str,
-    margin_pct: float,
-    db: Session,
-) -> Optional[float]:
-    """
-    Calculate selling price at a specific gross margin percentage.
-
-    Uses the same cost + cost adjustments as calculate_selling_price(),
-    but with an explicit margin instead of tier-based lookup.
-    Used by the escalating margin module to price directly from cost.
-
-    Returns rounded selling price, or None if cost unavailable.
-    """
-    item = _get_live_item(part_number)
-    if not item:
+def _extract_unit_price(row: Optional[Dict]) -> Optional[float]:
+    if not row:
         return None
-
-    unit_cost = item.get("unitCost", 0)
-    if not unit_cost or unit_cost <= 0:
+    val = row.get("Unit_Price")
+    if val in (None, "", 0):
         return None
-
-    posting_group = item.get("generalProductPostingGroupCode", "")
-
-    # Cost adjustments (same as tier pricing)
-    adjustments = _load_cost_adjustments(db)
-    adj_entry = adjustments.get(posting_group, {})
-    cost_adj_pct = adj_entry.get("adjustment", 0) if isinstance(adj_entry, dict) else 0
-
-    # Spring waste factor
-    pn_upper = part_number.upper()
-    SPRING_WASTE_FACTOR = 0.15
-    if posting_group == "SPRI" or pn_upper.startswith("SP11"):
-        unit_cost = unit_cost * (1 + SPRING_WASTE_FACTOR)
-
-    adjusted_cost = unit_cost * (1 + cost_adj_pct / 100)
-    if margin_pct >= 100:
-        margin_pct = 99
-    selling_price = adjusted_cost / (1 - margin_pct / 100)
-
-    return round(selling_price, 2)
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None

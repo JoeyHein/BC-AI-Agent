@@ -69,23 +69,27 @@ const setCustomerPassword = async ({ id, newPassword }) => {
   return response.data
 }
 
-// Pricing Tier Badge
+// BC Customer Price Group badge. Codes come from BC verbatim
+// (PLAT/GOLD/SILV/BRON/UNLI/OPIN on the OPENDC tenant) so we color the
+// known ones and fall through to a neutral style for anything else.
 const TIER_STYLES = {
-  platinum: 'bg-violet-100 text-violet-800',
-  unlisted: 'bg-teal-100 text-teal-800',
-  gold: 'bg-amber-100 text-amber-800',
-  silver: 'bg-gray-200 text-gray-700',
-  bronze: 'bg-orange-100 text-orange-800',
-  retail: 'bg-blue-100 text-blue-800',
+  PLAT: 'bg-violet-100 text-violet-800',
+  GOLD: 'bg-amber-100 text-amber-800',
+  SILV: 'bg-gray-200 text-gray-700',
+  BRON: 'bg-orange-100 text-orange-800',
+  UNLI: 'bg-teal-100 text-teal-800',
+  OPIN: 'bg-pink-100 text-pink-800',
 }
 
 function PricingTierBadge({ tier }) {
-  if (!tier || !TIER_STYLES[tier]) {
+  if (!tier) {
     return <span className="text-sm text-gray-400">Not set</span>
   }
+  const code = String(tier).trim().toUpperCase()
+  const style = TIER_STYLES[code] || 'bg-blue-100 text-blue-800'
   return (
-    <span className={`inline-flex px-2 text-xs leading-5 font-semibold rounded-full capitalize ${TIER_STYLES[tier]}`}>
-      {tier}
+    <span className={`inline-flex px-2 text-xs leading-5 font-semibold rounded-full ${style}`}>
+      {code}
     </span>
   )
 }
@@ -602,30 +606,10 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
                   <p className="font-medium text-gray-900">{customer.bc_company_name}</p>
                   <p className="text-gray-500">ID: {customer.bc_customer_id}</p>
                   <div className="mt-2">
-                    <label className="text-xs font-medium text-gray-500">Pricing Tier</label>
+                    <label className="text-xs font-medium text-gray-500">BC Price Group</label>
                     <div className="mt-1 flex items-center gap-2">
-                      <select
-                        value={customer.pricing_tier || ''}
-                        onChange={async (e) => {
-                          const newTier = e.target.value || null
-                          try {
-                            await customersApi.updatePricingTier(customer.id, newTier)
-                            onRefresh()
-                          } catch (err) {
-                            console.error('Failed to update pricing tier:', err)
-                            alert(err.response?.data?.detail || 'Failed to update pricing tier')
-                          }
-                        }}
-                        disabled={!customer.bc_customer_id}
-                        className="border border-gray-300 rounded-md shadow-sm py-1 px-2 text-sm focus:outline-none focus:ring-odc-500 focus:border-odc-500 disabled:opacity-50"
-                      >
-                        <option value="">Not set</option>
-                        <option value="gold">Gold</option>
-                        <option value="silver">Silver</option>
-                        <option value="bronze">Bronze</option>
-                        <option value="retail">Retail</option>
-                      </select>
                       <PricingTierBadge tier={customer.pricing_tier} />
+                      <span className="text-xs text-gray-400">edit in Business Central</span>
                     </div>
                   </div>
                   {customer.bc_contact_name && (

@@ -93,9 +93,16 @@ function CustomerDetail() {
               {profile.salesperson && <span>Rep: {profile.salesperson}</span>}
               {customerData?.pricing_tier && (
                 <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${
-                  { gold: 'bg-yellow-100 text-yellow-800', silver: 'bg-gray-100 text-gray-800', bronze: 'bg-amber-100 text-amber-800' }[customerData.pricing_tier] || 'bg-blue-100 text-blue-800'
+                  ({
+                    PLAT: 'bg-violet-100 text-violet-800',
+                    GOLD: 'bg-amber-100 text-amber-800',
+                    SILV: 'bg-gray-200 text-gray-700',
+                    BRON: 'bg-orange-100 text-orange-800',
+                    UNLI: 'bg-teal-100 text-teal-800',
+                    OPIN: 'bg-pink-100 text-pink-800',
+                  })[String(customerData.pricing_tier).trim().toUpperCase()] || 'bg-blue-100 text-blue-800'
                 }`}>
-                  {customerData.pricing_tier?.toUpperCase()}
+                  {String(customerData.pricing_tier).trim().toUpperCase()}
                 </span>
               )}
             </div>

@@ -1431,12 +1431,18 @@ class DoorCalculatorService:
 
         best = min(all_candidates, key=candidate_sort_key)
 
+        # Pull the duplex-inner suffix out of the f-string so we don't have
+        # nested f-strings with backslash escapes (illegal on Python <3.12).
+        inner_suffix = (
+            f' + inner {best.inner_coil_diameter}"/{best.inner_wire_diameter}"'
+            if best.is_duplex else ''
+        )
         logger.info(
             f"Selected {'duplex ' if best.is_duplex else ''}"
             f"spring: {best.quantity}x "
-            f"{best.coil_diameter}\" coil / {best.wire_diameter}\" wire "
-            f"({best.length}\" long)"
-            f"{f' + inner {best.inner_coil_diameter}\"/{best.inner_wire_diameter}\"' if best.is_duplex else ''}"
+            f'{best.coil_diameter}" coil / {best.wire_diameter}" wire '
+            f'({best.length}" long)'
+            f"{inner_suffix}"
             f" from inventory"
         )
         return best

@@ -509,38 +509,7 @@ export const settingsApi = {
   getSpringInventorySummary: () =>
     apiClient.get('/api/settings/spring-inventory/summary'),
 
-  // Pricing Tier endpoints
-  getPricingTiers: () =>
-    apiClient.get('/api/settings/pricing-tiers/current'),
-
-  updatePricingTiers: (margins) =>
-    apiClient.put('/api/settings/pricing-tiers', { margins }),
-
-  getPricingCostAdjustments: () =>
-    apiClient.get('/api/settings/pricing-cost-adjustments/current'),
-
-  updatePricingCostAdjustments: (adjustments) =>
-    apiClient.put('/api/settings/pricing-cost-adjustments', { adjustments }),
-
-  getPricingCategories: () =>
-    apiClient.get('/api/settings/pricing-categories'),
-
-  // Part-number prefix margin overrides
-  getPrefixMargins: () =>
-    apiClient.get('/api/settings/pricing-prefix-margins/current'),
-
-  updatePrefixMargins: (overrides) =>
-    apiClient.put('/api/settings/pricing-prefix-margins', { overrides }),
-
-  // BC Group → Tier mapping
-  getBCGroupMapping: () =>
-    apiClient.get('/api/settings/bc-group-mapping/current'),
-
-  updateBCGroupMapping: (mapping) =>
-    apiClient.put('/api/settings/bc-group-mapping', { mapping }),
-
-  getBCPriceGroups: () =>
-    apiClient.get('/api/settings/bc-group-mapping/bc-groups'),
+  // Pricing is read live from BC SalesPriceLists — no portal-side endpoints.
 
   // Freight config
   getFreightConfig: () =>
@@ -580,11 +549,6 @@ export const quoteLeadsApi = {
 export const customersApi = {
   getCustomer: (customerId) =>
     apiClient.get(`/api/admin/customers/${customerId}`),
-
-  updatePricingTier: (customerId, pricingTier) =>
-    apiClient.patch(`/api/admin/customers/${customerId}/pricing-tier`, {
-      pricing_tier: pricingTier,
-    }),
 
   // Pending registrations
   getPendingRegistrations: () =>

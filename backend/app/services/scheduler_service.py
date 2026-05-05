@@ -80,6 +80,18 @@ class SchedulerService:
         )
         logger.info("✓ Scheduled: PO generation every 12 hours")
 
+        # Add BC customer sync (every 30 minutes) — picks up changes to
+        # Customer_Price_Group on customer cards so portal pricing follows
+        # within ~30 min of a BC edit.
+        self.scheduler.add_job(
+            func=self._customer_sync_job,
+            trigger=IntervalTrigger(minutes=30),
+            id='bc_customer_sync',
+            name='BC Customer Sync - Customer_Price_Group / multiplier refresh',
+            replace_existing=True
+        )
+        logger.info("✓ Scheduled: BC customer sync every 30 minutes")
+
         # Start scheduler
         self.scheduler.start()
         self.is_running = True
@@ -174,6 +186,31 @@ class SchedulerService:
                 db.close()
             except Exception:
                 pass
+
+    def _customer_sync_job(self):
+        """Sync BC customers (incl. Customer_Price_Group) into the local
+        BCCustomer table. Wraps the async sync_customers in a fresh event
+        loop because APScheduler's BackgroundScheduler runs sync jobs."""
+        import asyncio
+        db = None
+        try:
+            from app.services.bc_sync_service import bc_sync_service
+            db = SessionLocal()
+            results = asyncio.run(bc_sync_service.sync_customers(db=db))
+            logger.info(
+                f"BC customer sync complete: "
+                f"{results.get('customers_synced', 0)} new, "
+                f"{results.get('customers_updated', 0)} updated, "
+                f"{len(results.get('errors', []))} errors"
+            )
+        except Exception as e:
+            logger.error(f"BC customer sync job failed: {e}", exc_info=True)
+        finally:
+            if db is not None:
+                try:
+                    db.close()
+                except Exception:
+                    pass
 
     def _po_generation_job(self):
         """Run PO generation if enabled."""
