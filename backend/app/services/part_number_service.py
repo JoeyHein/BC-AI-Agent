@@ -1019,9 +1019,9 @@ class PartNumberService:
         # Get mixed-height breakdown
         breakdown = self._get_section_breakdown(config.door_height)
 
-        # V130G replaces insulated sections — subtract from 24" first, then 21"
+        # V130G/V230G/PANORAMA replace insulated sections — subtract from 24" first, then 21"
         v130g_reduction = 0
-        if config.window_insert in ("V130G", "V230G") and config.window_qty > 0:
+        if config.window_insert in ("V130G", "V230G", "PANORAMA") and config.window_qty > 0:
             v130g_reduction = config.window_qty
 
         # Build part selections for each height (24" first since they're top sections)
@@ -1167,17 +1167,48 @@ class PartNumberService:
             "TX500": {"18x8": 2.5, "24x12": 5.0, "34x16": 9.0},
             "TX500-20": {"18x8": 2.3, "24x12": 4.88, "34x16": 9.0},
         }
+        FULL_VIEW_INSERTS = ("V130G", "V230G", "PANORAMA")
         window_weight = 0.0
+        panel_credit = 0.0  # weight removed when full-view sections replace steel panels
+
         if series in RESI_WINDOW_WEIGHTS and config.window_count > 0:
             win_size = config.window_size or "long"
             wt_per = RESI_WINDOW_WEIGHTS[series].get(win_size, 7.0)
             window_weight = wt_per * config.window_count
+        elif config.window_insert in FULL_VIEW_INSERTS and config.window_qty > 0:
+            # Full-view sections REPLACE the regular panel: subtract steel
+            # panel weight for the replaced sections, then add the aluminum
+            # frame + glazing weight for each full-view section.
+            # Replaced sections are taken from 24" first, then 21" (matches
+            # _get_panel_parts subtraction order so weight tracks parts list).
+            remaining = config.window_qty
+            for h in (24, 21):
+                if remaining <= 0:
+                    break
+                avail = breakdown[str(h)]
+                take = min(remaining, avail)
+                if take > 0:
+                    weight_per_ft = model_weights.get(str(h), model_weights.get("21", 4.0))
+                    panel_credit += weight_per_ft * door_width_ft * take
+                    section_h_ft = h / 12
+                    section_area = door_width_ft * section_h_ft
+                    if config.window_insert == "PANORAMA":
+                        # Aluminum frame + multiwall polycarbonate: 1.5 lbs/ft²
+                        per_section = section_area * 1.5
+                    else:
+                        # V130G/V230G: aluminum frame (1.39 lbs/ft²) + insulated glass
+                        # (3.32 lbs/ft² over ~85% of section area, frame takes the rest)
+                        per_section = section_area * 1.39 + section_area * 0.85 * 3.32
+                    window_weight += per_section * take
+                    remaining -= take
         elif series in COMM_WINDOW_WEIGHTS and config.window_qty > 0:
-            # Commercial window_insert maps to window type
-            comm_window_sizes = {"V130G": "24x12", "V230G": "24x12"}
-            wt_key = comm_window_sizes.get(config.window_insert, "24x12")
-            wt_per = COMM_WINDOW_WEIGHTS[series].get(wt_key, 5.0)
+            # Small thermopane windows cut into the panel — keep panel weight,
+            # add the window weight on top.
+            wt_per = COMM_WINDOW_WEIGHTS[series].get("24x12", 5.0)
             window_weight = wt_per * config.window_qty
+
+        # Apply panel credit (steel panels removed by V130G/V230G/PANORAMA replacements)
+        panel_weight -= panel_credit
 
         total_weight = panel_weight + end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight + hardware_weight + top_seal_weight + window_weight
 
@@ -1185,9 +1216,10 @@ class PartNumberService:
             f"{breakdown[h]}x{h}\"" for h in ["24", "21"] if breakdown[h] > 0
         )
         extras = end_cap_weight + retainer_weight + astragal_weight + seal_weight + strut_weight + hardware_weight + top_seal_weight + window_weight
+        credit_str = f", panel_credit=-{panel_credit:.1f}" if panel_credit > 0 else ""
         logger.info(
             f"Door weight: {series} {door_width_ft:.1f}'x{door_height_in}\" "
-            f"= [{breakdown_str}] panels={panel_weight:.1f} + extras={extras:.1f} "
+            f"= [{breakdown_str}] panels={panel_weight:.1f}{credit_str} + extras={extras:.1f} "
             f"(endcaps={end_cap_weight:.1f}, retainer={retainer_weight:.1f}, "
             f"astragal={astragal_weight:.1f}, struts={strut_weight:.1f}, "
             f"hardware={hardware_weight:.1f}, top_seal={top_seal_weight:.1f}, "
