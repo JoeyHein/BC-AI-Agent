@@ -348,14 +348,19 @@ function DoorPreview({
       return renderAluminumSection(sectionY, sectionHeight, padding, panelWidth, sectionIndex)
     }
 
-    // V130G/V230G/PANORAMA full-view section: renders entire section as aluminum/glass or polycarbonate
-    const isFullViewInsert = windowInsert === 'V130G' || windowInsert === 'V230G' || windowInsert === 'PANORAMA'
-    if (isCommercial && isFullViewInsert && windowQty > 0) {
+    // V130G/V230G/PANORAMA full-view section: renders entire section as aluminum/glass or polycarbonate.
+    // With mixed-type windowPanels, each panel can carry its own `type` — fall back to the
+    // door-level windowInsert when the entry has none (back-compat with older saved quotes).
+    const panelNum = sectionIndex + 1  // panels are 1-indexed
+    const panelEntry = windowPanels ? windowPanels[panelNum] : null
+    const panelType = (panelEntry?.type || windowInsert || '').toUpperCase()
+    const isFullViewType = panelType === 'V130G' || panelType === 'V230G' || panelType === 'PANORAMA'
+    if (isCommercial && isFullViewType) {
       const hasFullView = windowPanels
-        ? !!(windowPanels[sectionIndex + 1]?.qty)
+        ? !!(panelEntry?.qty)
         : (sectionIndex >= ((windowSection || 1) - 1) && sectionIndex < ((windowSection || 1) - 1) + windowQty)
       if (hasFullView) {
-        if (windowInsert === 'PANORAMA') {
+        if (panelType === 'PANORAMA') {
           return renderPanoramaInsertSection(sectionY, sectionHeight, padding, panelWidth, sectionIndex)
         }
         return renderV130GSection(sectionY, sectionHeight, padding, panelWidth)
@@ -363,9 +368,8 @@ function DoorPreview({
     }
 
     // Check if this section has commercial thermopane windows (not full-view insert)
-    const panelNum = sectionIndex + 1  // panels are 1-indexed
-    const panelWindowQty = windowPanels ? (windowPanels[panelNum]?.qty || 0) : (sectionIndex === (windowSection - 1) ? windowQty : 0)
-    const hasCommercialWindows = isCommercial && windowInsert && windowInsert !== 'NONE' && !isFullViewInsert &&
+    const panelWindowQty = windowPanels ? (panelEntry?.qty || 0) : (sectionIndex === (windowSection - 1) ? windowQty : 0)
+    const hasCommercialWindows = isCommercial && panelType && panelType !== 'NONE' && !isFullViewType &&
         panelWindowQty > 0
 
     // Craft series designs: delegate to Craft-specific renderer
@@ -396,7 +400,7 @@ function DoorPreview({
 
     // Overlay commercial thermopane windows on top of the panel design
     if (hasCommercialWindows) {
-      const windowOverlay = renderCommercialWindows(sectionY + padding, panelWidth, panelHeight, padding, sectionIndex, panelWindowQty)
+      const windowOverlay = renderCommercialWindows(sectionY + padding, panelWidth, panelHeight, padding, sectionIndex, panelWindowQty, panelType)
       return <>{baseElements}{windowOverlay}</>
     }
 
@@ -713,7 +717,7 @@ function DoorPreview({
   }
 
   // Render commercial windows (multiple windows across a section)
-  const renderCommercialWindows = (y, w, h, padding, sectionIdx = 0, qty = windowQty) => {
+  const renderCommercialWindows = (y, w, h, padding, sectionIdx = 0, qty = windowQty, typeOverride = null) => {
     const elements = []
     const frameColor = windowFrameColor === 'BLACK' ? '#1a1a1a' : '#FFFFFF'
     const frameStroke = windowFrameColor === 'BLACK' ? '#000' : '#888'
@@ -724,7 +728,8 @@ function DoorPreview({
       '34X16_THERMOPANE': { width: 34, height: 16 },
       '18X8_THERMOPANE': { width: 18, height: 8 },
     }
-    const windowSize = windowSizes[windowInsert] || { width: 24, height: 12 }
+    const effectiveType = typeOverride || windowInsert
+    const windowSize = windowSizes[effectiveType] || { width: 24, height: 12 }
 
     // Get actual section height in inches for proper vertical scaling
     const sectionInches = sectionConfig[sectionIdx] || 24

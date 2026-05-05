@@ -2039,52 +2039,78 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
             )
           })()}
 
-          {/* Window Panel Selection (multi-panel toggle) */}
+          {/* Window Panel Selection (multi-panel toggle, per-panel type) */}
           {door.windowInsert && door.windowInsert !== 'NONE' && (() => {
             const windowPanels = door.windowPanels || {}
-            const isV130G = door.windowInsert === 'V130G' || door.windowInsert === 'V230G' || door.windowInsert === 'PANORAMA'
-            const windowSize = config?.commercialWindowSizes?.[door.windowInsert]
-            const windowWidth = windowSize?.width || 24
-            const maxQtyPerPanel = isV130G ? 1 : Math.max(1, Math.floor((door.doorWidth - 10) / (windowWidth + 10)))
+            const FULL_VIEW = ['V130G', 'V230G', 'PANORAMA']
+            const isFullViewType = (t) => FULL_VIEW.includes(t)
+            const effectiveType = (panelNum) => windowPanels[panelNum]?.type || door.windowInsert
+            const maxQtyForType = (t) => {
+              if (isFullViewType(t)) return 1
+              const ws = config?.commercialWindowSizes?.[t]
+              const ww = ws?.width || 24
+              return Math.max(1, Math.floor((door.doorWidth - 10) / (ww + 10)))
+            }
+
+            // Available types for the per-panel dropdown — flatten the
+            // commercial window list and apply the same series filter as the
+            // door-level picker so customers don't see options that don't fit.
+            const availableTypes = []
+            if (config?.commercialWindowTypes) {
+              for (const [, types] of Object.entries(config.commercialWindowTypes)) {
+                for (const t of types) {
+                  if (!t.series || t.series.includes(door.doorSeries)) {
+                    availableTypes.push({ id: t.id, name: t.name })
+                  }
+                }
+              }
+            }
+
+            const recomputeLegacy = (updated) => {
+              const enabledPanels = Object.keys(updated).map(Number).sort((a, b) => a - b)
+              const totalQty = enabledPanels.reduce((sum, p) => sum + (updated[p]?.qty || 0), 0)
+              return {
+                windowPanels: enabledPanels.length > 0 ? updated : undefined,
+                windowSection: enabledPanels[0] || 1,
+                windowQty: totalQty,
+              }
+            }
 
             const togglePanel = (panelNum) => {
               const updated = { ...windowPanels }
               if (updated[panelNum]) {
                 delete updated[panelNum]
               } else {
-                updated[panelNum] = { qty: isV130G ? 1 : maxQtyPerPanel }
+                const t = door.windowInsert
+                updated[panelNum] = { type: t, qty: maxQtyForType(t) }
               }
-              // Derive legacy fields for backward compat
-              const enabledPanels = Object.keys(updated).map(Number).sort((a, b) => a - b)
-              const totalQty = enabledPanels.reduce((sum, p) => sum + (updated[p]?.qty || 0), 0)
-              onChange({
-                windowPanels: enabledPanels.length > 0 ? updated : undefined,
-                windowSection: enabledPanels[0] || 1,
-                windowQty: totalQty,
-              })
+              onChange(recomputeLegacy(updated))
             }
 
             const updatePanelQty = (panelNum, qty) => {
-              const updated = { ...windowPanels, [panelNum]: { qty } }
-              const enabledPanels = Object.keys(updated).map(Number).sort((a, b) => a - b)
-              const totalQty = enabledPanels.reduce((sum, p) => sum + (updated[p]?.qty || 0), 0)
-              onChange({
-                windowPanels: updated,
-                windowSection: enabledPanels[0] || 1,
-                windowQty: totalQty,
-              })
+              const existing = windowPanels[panelNum] || {}
+              const updated = { ...windowPanels, [panelNum]: { ...existing, qty } }
+              onChange(recomputeLegacy(updated))
+            }
+
+            const changePanelType = (panelNum, newType) => {
+              const updated = { ...windowPanels, [panelNum]: { type: newType, qty: maxQtyForType(newType) } }
+              onChange(recomputeLegacy(updated))
             }
 
             return (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  {isV130G ? `${door.windowInsert === 'PANORAMA' ? 'Panorama' : door.windowInsert} Panels (1 = Top)` : 'Window Panels (1 = Top)'}
+                  Window Panels (1 = Top)
                 </label>
                 <div className="flex flex-wrap gap-3">
                   {[...Array(panelCount)].map((_, i) => {
                     const panelNum = i + 1
                     const isEnabled = !!windowPanels[panelNum]
+                    const panelType = effectiveType(panelNum)
+                    const isFullView = isFullViewType(panelType)
                     const panelQty = windowPanels[panelNum]?.qty || 0
+                    const maxQty = maxQtyForType(panelType)
                     return (
                       <div key={panelNum} className="flex flex-col items-center gap-1">
                         <button
@@ -2097,7 +2123,19 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
                         >
                           {panelNum}
                         </button>
-                        {isEnabled && !isV130G && (
+                        {isEnabled && availableTypes.length > 1 && (
+                          <select
+                            value={panelType}
+                            onChange={(e) => changePanelType(panelNum, e.target.value)}
+                            className="text-xs px-1 py-0.5 border border-gray-300 rounded bg-white max-w-[7rem]"
+                            title="Window type for this panel"
+                          >
+                            {availableTypes.map((t) => (
+                              <option key={t.id} value={t.id}>{t.name}</option>
+                            ))}
+                          </select>
+                        )}
+                        {isEnabled && !isFullView && (
                           <div className="flex items-center gap-1">
                             <button
                               onClick={() => updatePanelQty(panelNum, Math.max(1, panelQty - 1))}
@@ -2105,10 +2143,10 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
                             >-</button>
                             <span className="text-xs font-medium w-5 text-center">{panelQty}</span>
                             <button
-                              onClick={() => updatePanelQty(panelNum, Math.min(maxQtyPerPanel, panelQty + 1))}
-                              disabled={panelQty >= maxQtyPerPanel}
+                              onClick={() => updatePanelQty(panelNum, Math.min(maxQty, panelQty + 1))}
+                              disabled={panelQty >= maxQty}
                               className={`w-6 h-6 rounded border text-xs font-bold ${
-                                panelQty >= maxQtyPerPanel
+                                panelQty >= maxQty
                                   ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
                                   : 'border-gray-300 bg-white hover:bg-gray-50'
                               }`}
@@ -2120,7 +2158,7 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
                   })}
                 </div>
                 <p className="mt-1 text-xs text-gray-500">
-                  Click panels to toggle windows on/off. {!isV130G && `Max ${maxQtyPerPanel} windows per panel.`}
+                  Click panels to toggle windows on/off. Use the per-panel dropdown to mix window types (e.g. 1 row Panorama + 1 row thermopane).
                 </p>
               </div>
             )

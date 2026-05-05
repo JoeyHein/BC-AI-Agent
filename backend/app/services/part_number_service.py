@@ -1019,9 +1019,16 @@ class PartNumberService:
         # Get mixed-height breakdown
         breakdown = self._get_section_breakdown(config.door_height)
 
-        # V130G/V230G/PANORAMA replace insulated sections — subtract from 24" first, then 21"
+        # V130G/V230G/PANORAMA replace insulated sections — subtract from 24" first, then 21".
+        # Count panels with a full-view type, supporting mixed-type windowPanels
+        # (e.g. some panels Panorama, others thermopane).
+        FULL_VIEW = {"V130G", "V230G", "PANORAMA"}
         v130g_reduction = 0
-        if config.window_insert in ("V130G", "V230G", "PANORAMA") and config.window_qty > 0:
+        if config.window_panels:
+            for entry in config.window_panels.values():
+                if self._resolve_panel_type(entry, config.window_insert) in FULL_VIEW:
+                    v130g_reduction += 1
+        elif config.window_insert in FULL_VIEW and config.window_qty > 0:
             v130g_reduction = config.window_qty
 
         # Build part selections for each height (24" first since they're top sections)
@@ -1167,20 +1174,52 @@ class PartNumberService:
             "TX500": {"18x8": 2.5, "24x12": 5.0, "34x16": 9.0},
             "TX500-20": {"18x8": 2.3, "24x12": 4.88, "34x16": 9.0},
         }
-        FULL_VIEW_INSERTS = ("V130G", "V230G", "PANORAMA")
+        FULL_VIEW_INSERTS = {"V130G", "V230G", "PANORAMA"}
+        THERMOPANE_INSERTS = {"24X12_THERMOPANE", "34X16_THERMOPANE", "18X8_THERMOPANE"}
         window_weight = 0.0
         panel_credit = 0.0  # weight removed when full-view sections replace steel panels
+
+        def full_view_section_weight(t: str, area_sqft: float) -> float:
+            if t == "PANORAMA":
+                # Aluminum frame + multiwall polycarbonate: 1.5 lbs/ft²
+                return area_sqft * 1.5
+            # V130G/V230G: aluminum frame (1.39 lbs/ft²) + insulated glass
+            # (3.32 lbs/ft² over ~85% of section area, frame takes the rest)
+            return area_sqft * 1.39 + area_sqft * 0.85 * 3.32
 
         if series in RESI_WINDOW_WEIGHTS and config.window_count > 0:
             win_size = config.window_size or "long"
             wt_per = RESI_WINDOW_WEIGHTS[series].get(win_size, 7.0)
             window_weight = wt_per * config.window_count
+        elif config.window_panels:
+            # Per-panel walk: each panel may carry its own type (mixed configs).
+            # Allocate section heights from the breakdown in 24"-first order so
+            # the credit matches _get_panel_parts subtraction.
+            remaining_h = {24: breakdown["24"], 21: breakdown["21"]}
+            full_view_panels = []  # [(panel_num, type)]
+            thermopane_qty = 0
+            for panel_num, entry in config.window_panels.items():
+                t = self._resolve_panel_type(entry, config.window_insert)
+                if t in FULL_VIEW_INSERTS:
+                    full_view_panels.append((panel_num, t))
+                elif t in THERMOPANE_INSERTS or (t and series in COMM_WINDOW_WEIGHTS):
+                    # Treat any non-full-view commercial type as a thermopane window cut
+                    thermopane_qty += int((entry or {}).get("qty", 1))
+            for _, t in full_view_panels:
+                # Take a 24" section if any remain, else a 21"
+                h = 24 if remaining_h[24] > 0 else 21
+                if remaining_h[h] <= 0:
+                    break  # more replacements than panels — defensive
+                remaining_h[h] -= 1
+                weight_per_ft = model_weights.get(str(h), model_weights.get("21", 4.0))
+                panel_credit += weight_per_ft * door_width_ft
+                section_area = door_width_ft * (h / 12)
+                window_weight += full_view_section_weight(t, section_area)
+            if thermopane_qty > 0 and series in COMM_WINDOW_WEIGHTS:
+                wt_per = COMM_WINDOW_WEIGHTS[series].get("24x12", 5.0)
+                window_weight += wt_per * thermopane_qty
         elif config.window_insert in FULL_VIEW_INSERTS and config.window_qty > 0:
-            # Full-view sections REPLACE the regular panel: subtract steel
-            # panel weight for the replaced sections, then add the aluminum
-            # frame + glazing weight for each full-view section.
-            # Replaced sections are taken from 24" first, then 21" (matches
-            # _get_panel_parts subtraction order so weight tracks parts list).
+            # Legacy door-level full-view insert (no per-panel windowPanels)
             remaining = config.window_qty
             for h in (24, 21):
                 if remaining <= 0:
@@ -1190,16 +1229,8 @@ class PartNumberService:
                 if take > 0:
                     weight_per_ft = model_weights.get(str(h), model_weights.get("21", 4.0))
                     panel_credit += weight_per_ft * door_width_ft * take
-                    section_h_ft = h / 12
-                    section_area = door_width_ft * section_h_ft
-                    if config.window_insert == "PANORAMA":
-                        # Aluminum frame + multiwall polycarbonate: 1.5 lbs/ft²
-                        per_section = section_area * 1.5
-                    else:
-                        # V130G/V230G: aluminum frame (1.39 lbs/ft²) + insulated glass
-                        # (3.32 lbs/ft² over ~85% of section area, frame takes the rest)
-                        per_section = section_area * 1.39 + section_area * 0.85 * 3.32
-                    window_weight += per_section * take
+                    section_area = door_width_ft * (h / 12)
+                    window_weight += full_view_section_weight(config.window_insert, section_area) * take
                     remaining -= take
         elif series in COMM_WINDOW_WEIGHTS and config.window_qty > 0:
             # Small thermopane windows cut into the panel — keep panel weight,
@@ -2770,6 +2801,27 @@ class PartNumberService:
 
         return self._consolidate_parts(parts)
 
+    @staticmethod
+    def _resolve_panel_type(entry: dict, default_type: Optional[str]) -> str:
+        """Effective window type for a panel entry — falls back to door-level windowInsert."""
+        return ((entry or {}).get("type") or default_type or "").upper()
+
+    def _split_panels_by_type(self, config: DoorConfiguration) -> Dict[str, Dict[int, dict]]:
+        """Group windowPanels by effective type. Returns {} when no per-panel config.
+
+        Each panel entry inherits the door-level windowInsert when it has no explicit
+        `type` field (back-compat with older saved quotes).
+        """
+        if not config.window_panels:
+            return {}
+        by_type: Dict[str, Dict[int, dict]] = {}
+        for panel_num, entry in config.window_panels.items():
+            t = self._resolve_panel_type(entry, config.window_insert)
+            if not t:
+                continue
+            by_type.setdefault(t, {})[panel_num] = entry
+        return by_type
+
     def _build_window_placement_note(self, config: DoorConfiguration) -> Optional[str]:
         """Build a human-readable note describing where windows should be placed.
 
@@ -2786,12 +2838,18 @@ class PartNumberService:
                 return f"{num} FROM TOP"
 
         if config.window_panels:
-            # Per-panel config: e.g. {1: {"qty": 3}, 3: {"qty": 2}}
+            # Per-panel config: e.g. {1: {"qty": 3, "type": "24X12_THERMOPANE"}, 3: {"qty": 1, "type": "PANORAMA"}}
             panel_descs = []
             for panel_num in sorted(config.window_panels.keys()):
-                qty = config.window_panels[panel_num].get("qty", 1)
+                entry = config.window_panels[panel_num] or {}
+                qty = entry.get("qty", 1)
+                ptype = self._resolve_panel_type(entry, config.window_insert)
                 label = panel_label(panel_num)
-                panel_descs.append(f"{label} PANEL ({qty} window{'s' if qty > 1 else ''})")
+                # Include type when it differs from the door-level default so mixed
+                # configurations are explicit on the quote
+                door_default = (config.window_insert or "").upper()
+                type_suffix = f" — {ptype}" if ptype and ptype != door_default else ""
+                panel_descs.append(f"{label} PANEL ({qty} window{'s' if qty > 1 else ''}{type_suffix})")
             return "WINDOW PLACEMENT: " + ", ".join(panel_descs)
         elif config.window_positions:
             # Residential stamp-based positions: group by section
@@ -2819,7 +2877,34 @@ class PartNumberService:
             No decorative frame inserts available (BC catalog has none for short).
           LONG windows (GK15-11xxx): fit one long stamp on SHXL/BCXL, or span 2
             short stamps on SH/BC.  Decorative GL18 frame inserts are available.
+
+        Mixed-type windowPanels (e.g. 1 row Panorama + 1 row 24x12 thermopane on
+        the same commercial door) are dispatched by recursing once per type with
+        a sub-config so each generator only sees panels of its own type.
         """
+        import dataclasses
+        panels_by_type = self._split_panels_by_type(config)
+        if len(panels_by_type) > 1:
+            # Mixed: dispatch each type as its own sub-config and concatenate
+            parts: List[PartSelection] = []
+            for ptype, panels in panels_by_type.items():
+                sub_qty = sum((p or {}).get("qty", 1) for p in panels.values())
+                sub = dataclasses.replace(
+                    config,
+                    window_insert=ptype,
+                    window_panels=panels,
+                    window_qty=sub_qty,
+                )
+                parts.extend(self._get_window_parts(sub))
+            return self._consolidate_parts(parts)
+
+        # Single-type path: if the only type came from per-panel `type` fields
+        # rather than the door-level windowInsert, normalize before dispatch.
+        if len(panels_by_type) == 1:
+            only_type = next(iter(panels_by_type))
+            if only_type != (config.window_insert or "").upper():
+                config = dataclasses.replace(config, window_insert=only_type)
+
         # V130G/V230G: full-view aluminum section + glass (separate line items)
         if config.window_insert in ("V130G", "V230G"):
             return self._get_v130g_parts(config)
