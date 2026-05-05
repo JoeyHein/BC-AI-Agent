@@ -69,23 +69,27 @@ const setCustomerPassword = async ({ id, newPassword }) => {
   return response.data
 }
 
-// Pricing Tier Badge
+// BC Customer Price Group badge. Codes come from BC verbatim
+// (PLAT/GOLD/SILV/BRON/UNLI/OPIN on the OPENDC tenant) so we color the
+// known ones and fall through to a neutral style for anything else.
 const TIER_STYLES = {
-  platinum: 'bg-violet-100 text-violet-800',
-  unlisted: 'bg-teal-100 text-teal-800',
-  gold: 'bg-amber-100 text-amber-800',
-  silver: 'bg-gray-200 text-gray-700',
-  bronze: 'bg-orange-100 text-orange-800',
-  retail: 'bg-blue-100 text-blue-800',
+  PLAT: 'bg-violet-100 text-violet-800',
+  GOLD: 'bg-amber-100 text-amber-800',
+  SILV: 'bg-gray-200 text-gray-700',
+  BRON: 'bg-orange-100 text-orange-800',
+  UNLI: 'bg-teal-100 text-teal-800',
+  OPIN: 'bg-pink-100 text-pink-800',
 }
 
 function PricingTierBadge({ tier }) {
-  if (!tier || !TIER_STYLES[tier]) {
+  if (!tier) {
     return <span className="text-sm text-gray-400">Not set</span>
   }
+  const code = String(tier).trim().toUpperCase()
+  const style = TIER_STYLES[code] || 'bg-blue-100 text-blue-800'
   return (
-    <span className={`inline-flex px-2 text-xs leading-5 font-semibold rounded-full capitalize ${TIER_STYLES[tier]}`}>
-      {tier}
+    <span className={`inline-flex px-2 text-xs leading-5 font-semibold rounded-full ${style}`}>
+      {code}
     </span>
   )
 }

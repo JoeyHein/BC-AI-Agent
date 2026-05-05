@@ -1084,19 +1084,24 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
         # Step 2: Create BC Quote
         quote_data = {}
 
-        # Set customer - use customerId if provided, otherwise use default
-        pricing_tier = "retail"
+        # Set customer - use customerId if provided, otherwise reject.
+        # bc_price_group flows verbatim from BC's Customer_Price_Group field
+        # (PLAT/GOLD/SILV/BRON/UNLI/OPIN on this tenant) into the
+        # SalesPriceLists $filter — no whitelist coercion. None means the
+        # customer has no group set, which makes calculate_selling_price
+        # skip Tier 1 and try the All-Customers entry directly.
+        pricing_tier: Optional[str] = None
         if request.customerId:
             quote_data["customerId"] = request.customerId
-            # Look up pricing tier for this customer
             bc_customer = db.query(BCCustomer).filter(
                 BCCustomer.bc_customer_id == request.customerId
             ).first()
-            if bc_customer and bc_customer.pricing_tier:
-                tier = bc_customer.pricing_tier.lower().strip()
-                if tier in {"gold", "silver", "bronze", "retail"}:
-                    pricing_tier = tier
-            logger.info(f"Using pricing tier '{pricing_tier}' for customer {request.customerId}")
+            if bc_customer:
+                pricing_tier = (
+                    (bc_customer.bc_price_group or bc_customer.pricing_tier or "")
+                    .strip().upper() or None
+                )
+            logger.info(f"Using BC price group {pricing_tier!r} for customer {request.customerId}")
         else:
             raise HTTPException(
                 status_code=400,
