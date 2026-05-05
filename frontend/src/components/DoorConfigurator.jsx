@@ -119,6 +119,7 @@ function DoorConfigurator() {
       targetCycles: 10000,
       shaftType: 'auto', // 'auto', 'single', 'split'
       trackMount: 'bracket', // 'bracket' or 'angle'
+      mountSurface: 'wood', // 'wood' or 'steel' — install method, no pricing impact; 'steel' adds quote comment
       endCapType: 'auto', // 'auto', 'SEC', or 'DEC'
       // Upgrades
       includeTopSeal: false, // optional upgrade for commercial doors below auto-threshold
@@ -240,6 +241,7 @@ function DoorConfigurator() {
         targetCycles: door.targetCycles || 10000,
         shaftType: door.shaftType || 'auto',
         trackMount: door.trackMount || 'bracket',
+        mountSurface: door.mountSurface || 'wood',
         endCapType: door.endCapType || 'auto',
         includeTopSeal: door.includeTopSeal || false,
         includePusherSprings: door.includePusherSprings || false,
@@ -377,7 +379,7 @@ function DoorConfigurator() {
           <DoorTypeStep
             doorTypes={config.doorTypes}
             selected={currentDoor.doorType}
-            onSelect={(type) => updateCurrentDoor({ doorType: type, doorSeries: '', panelColor: '', panelDesign: '', hasWindows: false, windowInsert: null, windowPositions: [], windowQty: 0, glassPaneType: null, glassColor: null, trackMount: 'bracket' })}
+            onSelect={(type) => updateCurrentDoor({ doorType: type, doorSeries: '', panelColor: '', panelDesign: '', hasWindows: false, windowInsert: null, windowPositions: [], windowQty: 0, glassPaneType: null, glassColor: null, trackMount: 'bracket', mountSurface: 'wood' })}
           />
         )}
 
@@ -2392,14 +2394,33 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
               <div className="text-xs text-gray-500 mt-1">{option.description}</div>
             </button>
           ))}
-          <div
-            aria-disabled="true"
-            title="Contact us for steel mount or reverse angle"
-            className="col-span-2 p-3 rounded-lg border-2 border-dashed border-gray-200 bg-gray-50 text-center cursor-not-allowed select-none"
-          >
-            <div className="text-sm font-medium text-gray-500">Steel Mount / Reverse Angle</div>
-            <div className="text-xs text-gray-400 mt-1">Contact us for these options — standard is wood mount</div>
-          </div>
+        </div>
+      </div>
+
+      {/* Mounting Surface — wood vs steel jamb. No pricing impact; steel
+          adds a comment to the quote so the shop knows how to install. */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Mounting Surface
+        </label>
+        <div className="grid grid-cols-2 gap-3 max-w-md">
+          {[
+            { id: 'wood', name: 'Wood Mount', description: 'Standard install to wood jamb' },
+            { id: 'steel', name: 'Steel Mount / Reverse Angle', description: 'Adds note to quote — same price' },
+          ].map((option) => (
+            <button
+              key={option.id}
+              onClick={() => onChange({ mountSurface: option.id })}
+              className={`p-3 rounded-lg border-2 text-center transition-all ${
+                (door.mountSurface || 'wood') === option.id
+                  ? 'border-odc-500 bg-odc-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <div className="text-sm font-medium">{option.name}</div>
+              <div className="text-xs text-gray-500 mt-1">{option.description}</div>
+            </button>
+          ))}
         </div>
       </div>
 

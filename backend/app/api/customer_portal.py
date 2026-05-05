@@ -677,6 +677,16 @@ def _generate_bc_quote_with_items(
             "is_door_desc": True,
         })
 
+        # Steel mount install note (no pricing impact — affects shop install only)
+        if str(door.get("mountSurface", "wood")).lower() == "steel":
+            all_lines.append({
+                "lineType": "Comment",
+                "description": "** STEEL MOUNT / REVERSE ANGLE INSTALL **",
+                "category": "COMMENT",
+                "door_index": door_index,
+                "is_note": True,
+            })
+
         # Glass pockets comment for aluminium doors
         if door.get("doorType") == "aluminium":
             from app.services.part_number_service import _default_glass_pockets
@@ -717,6 +727,7 @@ def _generate_bc_quote_with_items(
             "trackRadius": door.get("trackRadius", "15"),
             "trackThickness": door.get("trackThickness", "2"),
             "trackMount": door.get("trackMount", "bracket"),
+            "mountSurface": door.get("mountSurface", "wood"),
             "liftType": door.get("liftType", "standard"),
             "highLiftInches": door.get("highLiftInches"),
             "hardware": door.get("hardware", {}),
@@ -1592,6 +1603,7 @@ def _build_door_config_dict(door: dict) -> dict:
         "trackRadius": door.get("trackRadius", "15"),
         "trackThickness": door.get("trackThickness", "2"),
         "trackMount": door.get("trackMount", "bracket"),
+        "mountSurface": door.get("mountSurface", "wood"),
         "liftType": door.get("liftType", "standard"),
         "highLiftInches": door.get("highLiftInches"),
         "hardware": door.get("hardware", {}),
@@ -1673,6 +1685,13 @@ def _edit_bc_quote_lines(
             "lineType": "Comment", "description": door_desc, "category": "COMMENT",
             "door_index": door_index, "is_door_desc": True,
         })
+
+        if str(door.get("mountSurface", "wood")).lower() == "steel":
+            all_new_lines.append({
+                "lineType": "Comment",
+                "description": "** STEEL MOUNT / REVERSE ANGLE INSTALL **",
+                "category": "COMMENT", "door_index": door_index, "is_note": True,
+            })
 
         if door.get("doorType") == "aluminium":
             from app.services.part_number_service import _default_glass_pockets
@@ -2030,6 +2049,14 @@ def _estimate_pricing_locally(
             "door_index": door_index,
         })
 
+        # Steel mount install note (no pricing impact — affects shop install only)
+        if str(door.get("mountSurface", "wood")).lower() == "steel":
+            all_lines.append({
+                "lineType": "Comment",
+                "description": "** STEEL MOUNT / REVERSE ANGLE INSTALL **",
+                "door_index": door_index,
+            })
+
         # Glass pockets comment for aluminium doors
         if door.get("doorType") == "aluminium":
             from app.services.part_number_service import _default_glass_pockets
@@ -2067,6 +2094,7 @@ def _estimate_pricing_locally(
             "trackRadius": door.get("trackRadius", "15"),
             "trackThickness": door.get("trackThickness", "2"),
             "trackMount": door.get("trackMount", "bracket"),
+            "mountSurface": door.get("mountSurface", "wood"),
             "liftType": door.get("liftType", "standard"),
             "highLiftInches": door.get("highLiftInches"),
             "hardware": door.get("hardware", {}),

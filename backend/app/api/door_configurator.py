@@ -538,6 +538,7 @@ class DoorConfigRequest(BaseModel):
     trackRadius: str = "15"
     trackThickness: str = "2"
     trackMount: str = "bracket"  # 'bracket' or 'angle'
+    mountSurface: str = "wood"  # 'wood' or 'steel' — install method, no pricing impact; 'steel' adds quote comment
     liftType: str = "standard"  # 'standard', 'low_headroom', 'high_lift', 'vertical'
     highLiftInches: Optional[int] = None
     hardware: Dict[str, bool] = {}
@@ -959,6 +960,16 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "is_door_desc": True,
             })
 
+            # Steel mount install note (no pricing impact — affects shop install only)
+            if str(getattr(door, 'mountSurface', 'wood') or 'wood').lower() == 'steel':
+                all_lines.append({
+                    "lineType": "Comment",
+                    "description": "** STEEL MOUNT / REVERSE ANGLE INSTALL **",
+                    "category": "COMMENT",
+                    "door_index": door_index,
+                    "is_note": True,
+                })
+
             # Get parts for this door configuration
             # Calculate window count from windowPositions array
             window_count = len(door.windowPositions) if door.windowPositions else (1 if door.windowSection else 0)
@@ -987,6 +998,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "trackRadius": door.trackRadius,
                 "trackThickness": door.trackThickness,
                 "trackMount": door.trackMount,
+                "mountSurface": getattr(door, 'mountSurface', 'wood'),
                 "liftType": door.liftType,
                 "highLiftInches": door.highLiftInches,
                 "hardware": door.hardware,
@@ -1707,6 +1719,7 @@ async def get_part_numbers(config: DoorConfigRequest, db: Session = Depends(get_
             "liftType": config.liftType,
             "highLiftInches": config.highLiftInches,
             "trackMount": config.trackMount,
+            "mountSurface": getattr(config, 'mountSurface', 'wood'),
             "shaftType": config.shaftType,
             "hardware": config.hardware,
             "operator": config.operator,
@@ -1768,6 +1781,7 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "trackRadius": door.trackRadius,
                 "trackThickness": door.trackThickness,
                 "trackMount": door.trackMount,
+                "mountSurface": getattr(door, 'mountSurface', 'wood'),
                 "liftType": door.liftType,
                 "highLiftInches": door.highLiftInches,
                 "hardware": door.hardware,
