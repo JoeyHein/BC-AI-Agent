@@ -348,20 +348,24 @@ function DoorPreview({
       return renderAluminumSection(sectionY, sectionHeight, padding, panelWidth, sectionIndex)
     }
 
-    // V130G full-view section: renders entire section as aluminum/glass
-    if (isCommercial && windowInsert === 'V130G' && windowQty > 0) {
-      const hasV130G = windowPanels
+    // V130G/V230G/PANORAMA full-view section: renders entire section as aluminum/glass or polycarbonate
+    const isFullViewInsert = windowInsert === 'V130G' || windowInsert === 'V230G' || windowInsert === 'PANORAMA'
+    if (isCommercial && isFullViewInsert && windowQty > 0) {
+      const hasFullView = windowPanels
         ? !!(windowPanels[sectionIndex + 1]?.qty)
         : (sectionIndex >= ((windowSection || 1) - 1) && sectionIndex < ((windowSection || 1) - 1) + windowQty)
-      if (hasV130G) {
+      if (hasFullView) {
+        if (windowInsert === 'PANORAMA') {
+          return renderPanoramaInsertSection(sectionY, sectionHeight, padding, panelWidth, sectionIndex)
+        }
         return renderV130GSection(sectionY, sectionHeight, padding, panelWidth)
       }
     }
 
-    // Check if this section has commercial thermopane windows (not V130G)
+    // Check if this section has commercial thermopane windows (not full-view insert)
     const panelNum = sectionIndex + 1  // panels are 1-indexed
     const panelWindowQty = windowPanels ? (windowPanels[panelNum]?.qty || 0) : (sectionIndex === (windowSection - 1) ? windowQty : 0)
-    const hasCommercialWindows = isCommercial && windowInsert && windowInsert !== 'NONE' && windowInsert !== 'V130G' &&
+    const hasCommercialWindows = isCommercial && windowInsert && windowInsert !== 'NONE' && !isFullViewInsert &&
         panelWindowQty > 0
 
     // Craft series designs: delegate to Craft-specific renderer
@@ -477,6 +481,80 @@ function DoorPreview({
     }
 
     return <g key="v130g-section">{elements}</g>
+  }
+
+  // Render Panorama insert section — full-view aluminum frame + polycarbonate
+  // (used when a Panorama section replaces a panel on a non-aluminum commercial door)
+  const renderPanoramaInsertSection = (sectionY, sectionHeight, padding, panelWidth, sectionIndex) => {
+    const elements = []
+    // Panorama frames: WHITE is not stocked (blocked in BC) — fall back to clear ano.
+    // Match the backend resolution so the visual reflects what actually ships.
+    const panoramaFrames = {
+      CLEAR_ANODIZED: { fill: '#B8B8B8', stroke: '#909090', highlight: '#D0D0D0' },
+      BLACK_ANODIZED: { fill: '#2A2A2A', stroke: '#111111', highlight: '#444444' },
+      MILL:           { fill: '#CCCCCC', stroke: '#A0A0A0', highlight: '#DDDDDD' },
+    }
+    const frame = panoramaFrames[color] || panoramaFrames.CLEAR_ANODIZED
+    const polyColors = {
+      'CLEAR':        { fill: '#D8E8EC', ribStroke: 'rgba(180,200,210,0.5)', ribHighlight: 'rgba(255,255,255,0.3)' },
+      'LIGHT_BRONZE': { fill: '#817F68', ribStroke: 'rgba(100,98,80,0.45)', ribHighlight: 'rgba(255,255,255,0.18)' },
+      'DARK_BRONZE':  { fill: '#4C4A44', ribStroke: 'rgba(55,53,48,0.5)', ribHighlight: 'rgba(255,255,255,0.10)' },
+      'WHITE_OPAL':   { fill: '#F4F4F4', ribStroke: 'rgba(210,210,210,0.45)', ribHighlight: 'rgba(255,255,255,0.4)' },
+    }
+    const poly = polyColors[glassColor] || polyColors['CLEAR']
+
+    const x = padding
+    const y = sectionY
+    const w = panelWidth
+    const h = sectionHeight
+    const frameW = 4
+
+    // Outer aluminum frame
+    elements.push(
+      <rect key={`pano-frame-${sectionIndex}`} x={x} y={y} width={w} height={h}
+        fill={frame.fill} stroke={frame.stroke} strokeWidth="1" rx="0.5" />
+    )
+
+    const innerX = x + frameW
+    const innerY = y + frameW
+    const innerW = w - frameW * 2
+    const innerH = h - frameW * 2
+
+    // Polycarbonate panel
+    elements.push(
+      <rect key={`pano-poly-${sectionIndex}`}
+        x={innerX} y={innerY} width={innerW} height={innerH}
+        fill={poly.fill} stroke={frame.stroke} strokeWidth="0.3" />
+    )
+
+    // Multiwall horizontal channel ribs
+    const ribSpacing = 1.8
+    const ribCount = Math.max(3, Math.floor(innerH / ribSpacing) - 1)
+    const actualSpacing = innerH / (ribCount + 1)
+    for (let r = 1; r <= ribCount; r++) {
+      const ry = innerY + r * actualSpacing
+      elements.push(
+        <line key={`pano-rib-${sectionIndex}-${r}`}
+          x1={innerX + 0.3} y1={ry}
+          x2={innerX + innerW - 0.3} y2={ry}
+          stroke={poly.ribStroke} strokeWidth="0.5" />
+      )
+      elements.push(
+        <line key={`pano-ribhl-${sectionIndex}-${r}`}
+          x1={innerX + 0.3} y1={ry + 0.5}
+          x2={innerX + innerW - 0.3} y2={ry + 0.5}
+          stroke={poly.ribHighlight} strokeWidth="0.3" />
+      )
+    }
+
+    // Subtle sheen at top of panel
+    elements.push(
+      <rect key={`pano-sheen-${sectionIndex}`}
+        x={innerX} y={innerY} width={innerW} height={innerH * 0.15}
+        fill="rgba(255,255,255,0.08)" />
+    )
+
+    return <g key={`pano-section-${sectionIndex}`}>{elements}</g>
   }
 
   // Render aluminum door section (AL976, Panorama, Solalite) — full-view glass panel

@@ -2529,10 +2529,11 @@ class PartNumberService:
                 ))
 
         elif series == "PANORAMA":
-            # PN80: simpler encoding
-            finish_map = {"CLEAR_ANODIZED": "00", "WHITE": "10", "MILL": "20", "BLACK_ANODIZED": "30"}
+            # PN80: simpler encoding. WHITE Panorama (PN80-xx110-xxxx) is blocked
+            # in BC — fall back to CLEAR ANODIZED so the line goes in as an Item.
+            finish_map = {"CLEAR_ANODIZED": "00", "MILL": "20", "BLACK_ANODIZED": "30"}
             ff = finish_map.get(finish_color, "00")
-            finish_name = {"00": "CLEAR ANODIZED", "10": "WHITE", "20": "MILL", "30": "BLACK ANODIZED"}.get(ff, "CLEAR ANODIZED")
+            finish_name = {"00": "CLEAR ANODIZED", "20": "MILL", "30": "BLACK ANODIZED"}.get(ff, "CLEAR ANODIZED")
 
             for section_num in range(1, panel_count + 1):
                 if section_num == panel_count:
@@ -3050,11 +3051,15 @@ class PartNumberService:
             width_extra -= 12
         wwww = f"{width_ft:02d}{width_extra:02d}"
 
-        # Finish code — Panorama uses PN80 finish map
-        finish_color = (config.panel_color or "CLEAR_ANODIZED").upper().replace(" ", "_")
-        finish_map = {"CLEAR_ANODIZED": "00", "WHITE": "10", "MILL": "20", "BLACK_ANODIZED": "30"}
+        # Finish code — Panorama uses PN80 finish map.
+        # WHITE PN80 SKUs are blocked in BC (not stocked) so we default
+        # to CLEAR ANODIZED when the panel color isn't a stocked frame finish.
+        # Allow an explicit override via config.panorama_frame_color.
+        raw = getattr(config, "panorama_frame_color", None) or config.panel_color or "CLEAR_ANODIZED"
+        finish_color = raw.upper().replace(" ", "_")
+        finish_map = {"CLEAR_ANODIZED": "00", "MILL": "20", "BLACK_ANODIZED": "30"}
         ff = finish_map.get(finish_color, "00")
-        finish_name = {"00": "CLEAR ANODIZED", "10": "WHITE", "20": "MILL", "30": "BLACK ANODIZED"}.get(ff, "CLEAR ANODIZED")
+        finish_name = {"00": "CLEAR ANODIZED", "20": "MILL", "30": "BLACK ANODIZED"}.get(ff, "CLEAR ANODIZED")
 
         panel_count = self._calculate_panel_count(config.door_height)
 
