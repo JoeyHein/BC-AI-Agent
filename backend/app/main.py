@@ -22,6 +22,7 @@ from app.api import public
 from app.api import email_agent
 from app.api import metrics
 from app.api import integrations
+from app.api import pricing_diagnostic
 
 # Import services
 from app.services.scheduler_service import get_scheduler
@@ -231,6 +232,10 @@ logger.info(f"Including public router: {public.public_router.prefix}")
 app.include_router(public.public_router)
 logger.info(f"Including admin_leads router: {public.admin_leads_router.prefix}")
 app.include_router(public.admin_leads_router)
+
+# Pricing diagnostic (read-only — compare legacy margin vs BC Sales Price hierarchy)
+logger.info(f"Including pricing_diagnostic router: {pricing_diagnostic.router.prefix}")
+app.include_router(pricing_diagnostic.router)
 
 logger.info(f"Total routes after including routers: {len(app.routes)}")
 

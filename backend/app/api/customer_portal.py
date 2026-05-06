@@ -834,11 +834,31 @@ def _generate_bc_quote_with_items(
         item_pns = [l["part_number"] for l in all_lines if l.get("part_number")]
         warm_bc_cost_cache(item_pns)
 
+    # BC SalesPriceLists is the single source of truth for unit prices.
+    # The portal does NOT patch unitPrice on quote lines — BC resolves the
+    # right price natively (Customer → Customer Price Group → All Customers
+    # → Item.unitPrice). The legacy margin engine and volume curve are
+    # disabled in the live path until BC costing is proven; once that's
+    # done, discount logic can be re-enabled via the feature flag below.
+    #
+    # AppSettings.pricing_enable_volume_curve (default False) gates the
+    # GNB-style escalating margin. While False the curve is skipped
+    # entirely; while True it applies to BC's resolved prices.
+    enable_volume_curve = False
+    if db:
+        flag_setting = db.query(AppSettings).filter(
+            AppSettings.setting_key == "pricing_enable_volume_curve"
+        ).first()
+        enable_volume_curve = bool(flag_setting and flag_setting.setting_value)
+    logger.info(
+        f"PRICING MODE: trust_bc=True, enable_volume_curve={enable_volume_curve}"
+    )
+
     # Step 4: Add line items
     lines_added = 0
     lines_failed = []
     bc_items_cache: dict = {}  # category prefix → list of BC items (populated lazily)
-    tier_prices_by_line_id = {}  # Track tier prices for escalating margin
+    tier_prices_by_line_id = {}  # Track per-line metadata for escalating margin
 
     # Per-door + shared BC line ID map (persisted on SavedQuoteConfig.bc_line_map).
     # Enables surgical per-door edits later without recreating the BC quote.
@@ -900,32 +920,21 @@ def _generate_bc_quote_with_items(
                     if bc_desc != intended_desc:
                         patch_data["description"] = intended_desc[:100]
 
-                # Apply customer-tier pricing
-                if pricing_tier and db:
+                # Trust BC. Track the line so the volume curve can find it
+                # if/when re-enabled, but do NOT PATCH unitPrice.
+                if line.get("lineType") != "Comment" and db:
                     part_num = line["part_number"]
-                    door_tp = line.get("door_type", "residential")
-                    selling_price = calculate_selling_price(
-                        part_number=part_num,
-                        door_type=door_tp,
-                        tier=pricing_tier,
-                        db=db,
+                    from app.services.pricing_service import _get_live_item
+                    live = _get_live_item(part_num) or {}
+                    posting_group = live.get("generalProductPostingGroupCode", "")
+                    tier_prices_by_line_id[added_line["id"]] = {
+                        "qty": line.get("quantity", 1),
+                        "posting_group": posting_group,
+                    }
+                    logger.info(
+                        f"PRICING [{part_num}]: trust BC SalesPriceLists "
+                        f"(no portal-side override)"
                     )
-                    # Weather stripping using a stand-in (next-biggest) SKU
-                    # is billed per-foot: scale by requested_ft / sku_ft.
-                    ratio = line.get("length_adjustment_ratio")
-                    if ratio and selling_price is not None:
-                        selling_price = round(selling_price * ratio, 2)
-                    logger.info(f"PRICING DEBUG [{part_num}]: tier={pricing_tier}, door_type={door_tp}, selling_price={selling_price}, ratio={ratio}")
-                    if selling_price is not None:
-                        patch_data["unitPrice"] = selling_price
-                        tier_prices_by_line_id[added_line["id"]] = {
-                            "price": selling_price,
-                            "qty": line.get("quantity", 1),
-                        }
-                    else:
-                        logger.warning(f"PRICING DEBUG [{part_num}]: selling_price is None, SKIPPING PATCH")
-                else:
-                    logger.info(f"PRICING DEBUG: skip price PATCH - pricing_tier={pricing_tier}, db={db is not None}")
 
                 if patch_data:
                     etag = added_line.get("@odata.etag", "*")
@@ -1178,10 +1187,12 @@ def _generate_bc_quote_with_items(
     except Exception as pricing_error:
         logger.warning(f"Could not fetch pricing for quote {bc_quote_number}: {pricing_error}")
 
-    # Step 4c: Escalating margin adjustment (client-specific volume discount)
-    # Uses tracked tier prices so multiplier applies to GOLD TIER price, not list price.
+    # Step 4c: Escalating margin (client-specific volume discount).
+    # DISABLED by default — set AppSettings.pricing_enable_volume_curve = True
+    # to re-enable once BC costing is reconciled. Until then BC's resolved
+    # Sales Price stands as-is and we don't apply any portal-side discount.
     escalating_result = None
-    if tier_prices_by_line_id and db:
+    if enable_volume_curve and tier_prices_by_line_id and db:
         try:
             from app.services.escalating_margin_service import get_escalating_margin
             bc_cust_for_esc = db.query(BCCustomer).filter(
@@ -1191,34 +1202,46 @@ def _generate_bc_quote_with_items(
             esc_profile = get_escalating_margin(customer_display_name)
 
             if esc_profile:
-                tier_subtotal = sum(
-                    lp["price"] * lp["qty"]
-                    for lp in tier_prices_by_line_id.values()
-                )
+                # Re-fetch lines so we read BC's resolved unitPrice (post-
+                # SalesPriceLists). Aluminum lines bypass the curve entirely.
+                esc_quote_lines = bc_client.get_quote_lines(bc_quote_id)
+                # Index by line_id for split + multiplier application
+                lines_indexed = {}
+                for ql in esc_quote_lines:
+                    line_id = ql.get("id")
+                    if line_id and line_id in tier_prices_by_line_id:
+                        lines_indexed[line_id] = {
+                            "price": ql.get("unitPrice") or 0,
+                            "qty": tier_prices_by_line_id[line_id]["qty"],
+                            "posting_group": tier_prices_by_line_id[line_id]["posting_group"],
+                            "etag": ql.get("@odata.etag", "*"),
+                            "part_num": ql.get("lineObjectNumber", ""),
+                        }
+                curve_lines, excluded_lines = esc_profile.split_lines(lines_indexed)
+                tier_subtotal = sum(lp["price"] * lp["qty"] for lp in curve_lines.values())
                 esc_calc = esc_profile.calculate(tier_subtotal)
                 multiplier = esc_calc["multiplier"]
 
                 if multiplier < 1.0:
                     logger.info(
                         f"Applying escalating margin [{esc_profile.name}]: "
-                        f"tier subtotal ${tier_subtotal:,.0f} × {multiplier:.4f}"
+                        f"BC-resolved subtotal ${tier_subtotal:,.0f} × {multiplier:.4f} "
+                        f"({len(excluded_lines)} aluminum line(s) excluded)"
                     )
 
-                    # PATCH each tracked line: tier_price × multiplier
-                    esc_quote_lines = bc_client.get_quote_lines(bc_quote_id)
-                    for ql in esc_quote_lines:
-                        line_id = ql.get("id")
-                        if line_id in tier_prices_by_line_id:
-                            tier_price = tier_prices_by_line_id[line_id]["price"]
-                            adj_price = round(tier_price * multiplier, 2)
-                            try:
-                                etag = ql.get("@odata.etag", "*")
-                                bc_client.update_quote_line(
-                                    bc_quote_id, line_id, etag,
-                                    {"unitPrice": adj_price},
-                                )
-                            except Exception as esc_patch_err:
-                                logger.warning(f"Escalating margin PATCH failed for {ql.get('lineObjectNumber')}: {esc_patch_err}")
+                    for line_id, lp in curve_lines.items():
+                        bc_price = lp["price"]
+                        adj_price = round(bc_price * multiplier, 2)
+                        try:
+                            bc_client.update_quote_line(
+                                bc_quote_id, line_id, lp["etag"],
+                                {"unitPrice": adj_price},
+                            )
+                        except Exception as esc_patch_err:
+                            logger.warning(
+                                f"Escalating margin PATCH failed for "
+                                f"{lp['part_num']}: {esc_patch_err}"
+                            )
 
                     # Add a comment noting the volume discount
                     try:

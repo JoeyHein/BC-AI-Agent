@@ -219,6 +219,82 @@ class BusinessCentralClient:
         result = self._make_request("GET", f"companies({cid})/customers({customer_id})")
         return result
 
+    # ==================== Customer Price Group (OData V4) ====================
+    # api/v2.0 customer endpoint does NOT expose customerPriceGroup.
+    # Pull it from OData V4 CustomerList page (field: Customer_Price_Group).
+
+    def get_all_customer_price_groups(self,
+                                       company_id: Optional[str] = None) -> Dict[str, str]:
+        """
+        Bulk fetch every customer's Customer_Price_Group from OData V4 CustomerList.
+        Returns {customer_no: group_code} for non-empty assignments.
+        Used by bc_sync_service to enrich api/v2.0 customer payloads which
+        omit the customerPriceGroup field.
+        """
+        company_segment = self._odata_v4_company_segment(company_id)
+        url = (
+            f"{self.odata_url}/{company_segment}/CustomerList"
+            f"?$select=No,Customer_Price_Group&$top=500"
+        )
+        result: Dict[str, str] = {}
+        try:
+            token = self._get_access_token()
+            while url:
+                resp = requests.get(
+                    url,
+                    headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+                    timeout=30,
+                )
+                if resp.status_code >= 400:
+                    logger.warning(f"get_all_customer_price_groups HTTP {resp.status_code}: {resp.text[:200]}")
+                    break
+                data = resp.json()
+                for row in data.get("value", []):
+                    no = row.get("No")
+                    grp = row.get("Customer_Price_Group")
+                    if no and grp:
+                        result[no] = grp
+                url = data.get("@odata.nextLink")
+        except Exception as e:
+            logger.warning(f"get_all_customer_price_groups failed: {e}")
+        logger.info(f"Fetched {len(result)} customer→price-group assignments from OData V4")
+        return result
+
+    def get_customer_price_group(self, customer_no: str,
+                                  company_id: Optional[str] = None) -> Optional[str]:
+        """
+        Live lookup of a customer's BC Customer_Price_Group code (e.g. 'GOLD').
+        Returns the code string, or None if customer not found / no group assigned.
+        Caller should NOT rely on the local BCCustomer.bc_price_group cache —
+        it is populated from api/v2.0 which omits this field.
+        """
+        if not customer_no:
+            return None
+        company_segment = self._odata_v4_company_segment(company_id)
+        safe_no = customer_no.replace("'", "''")
+        url = (
+            f"{self.odata_url}/{company_segment}/CustomerList"
+            f"?$filter=No eq '{safe_no}'&$select=No,Customer_Price_Group&$top=1"
+        )
+        try:
+            token = self._get_access_token()
+            resp = requests.get(
+                url,
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+                timeout=30,
+            )
+            if resp.status_code >= 400:
+                logger.warning(f"get_customer_price_group({customer_no}) HTTP {resp.status_code}: {resp.text[:200]}")
+                return None
+            rows = resp.json().get("value", [])
+            if not rows:
+                return None
+            group = rows[0].get("Customer_Price_Group")
+            return group or None
+        except Exception as e:
+            logger.warning(f"get_customer_price_group({customer_no}) failed: {e}")
+            return None
+
     # ==================== Items ====================
 
     def get_items(self, company_id: Optional[str] = None, top: int = 100) -> List[Dict[str, Any]]:
@@ -226,6 +302,38 @@ class BusinessCentralClient:
         cid = company_id or self.company_id
         result = self._make_request("GET", f"companies({cid})/items?$top={top}")
         return result.get("value", [])
+
+    def get_all_items(self, company_id: Optional[str] = None,
+                      page_size: int = 1000,
+                      select: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Page through every item in BC. api/v2.0 items endpoint caps at 1000
+        per page AND does NOT emit @odata.nextLink, so we drive $skip
+        ourselves. Use `select` to trim payload (e.g. for cost-grid generation).
+        """
+        cid = company_id or self.company_id
+        select_clause = f"&$select={select}" if select else ""
+        all_items: List[Dict[str, Any]] = []
+        skip = 0
+        while True:
+            url = (f"{self.base_url}/companies({cid})/items"
+                   f"?$top={page_size}&$skip={skip}{select_clause}")
+            token = self._get_access_token()
+            resp = requests.get(
+                url,
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+                timeout=60,
+            )
+            if resp.status_code >= 400:
+                logger.error(f"get_all_items HTTP {resp.status_code}: {resp.text[:300]}")
+                break
+            page = resp.json().get("value", [])
+            all_items.extend(page)
+            if len(page) < page_size:
+                break
+            skip += page_size
+        logger.info(f"Fetched {len(all_items)} items from BC (paginated via $skip)")
+        return all_items
 
     def get_item(self, item_id: str, company_id: Optional[str] = None) -> Dict[str, Any]:
         """Get specific item"""
@@ -314,6 +422,128 @@ class BusinessCentralClient:
             f"companies({cid})/items?$filter={filter_query}"
         )
         return result.get("value", [])
+
+    # ==================== Sales Prices (OData V4) ====================
+    # BC's modern Sales Pricing experience exposes price-list lines via the
+    # SalesPriceLists OData V4 page in this tenant. Field shape (verified
+    # against Production tenant 2026-05-06):
+    #   Price_List_Code, Line_No, Source_Type (str), Assign_to_No,
+    #   Product_No, Description, Unit_Price, Unit_Cost, Line_Discount_Percent,
+    #   Starting_Date, Ending_Date, Minimum_Quantity, Unit_of_Measure_Code.
+    # Source_Type values use SPACES, not underscores ("All Customers").
+    # 0001-01-01 is BC's sentinel for "no date set" (treat as always-active).
+    SALES_PRICE_ENTITY = "SalesPriceLists"
+    BC_NULL_DATE = "0001-01-01"
+
+    def _odata_v4_company_segment(self, company_id: Optional[str] = None) -> str:
+        """OData V4 uses Company('Display Name'), not the api/v2.0 GUID form."""
+        cid = company_id or self.company_id
+        # Caller can pass the display name; if a GUID was passed, we still need
+        # the display name for OData V4. Resolve via api/v2.0 once.
+        if cid and "-" in cid and len(cid) >= 32:
+            company = self.get_company(cid)
+            display = company.get("displayName") or company.get("name") or ""
+        else:
+            display = cid or ""
+        # OData V4 wants single-quoted, URL-encoded display name
+        from urllib.parse import quote
+        safe = display.replace("'", "''")
+        return f"Company('{quote(safe, safe='')}')"
+
+    # Source_Type values used in SalesPriceLists (note: spaces, not underscores)
+    _SOURCE_TYPE_LABEL = {
+        0: "All Customers",
+        1: "Customer",
+        2: "Customer Price Group",
+    }
+
+    def get_sales_price_lines(
+        self,
+        item_no: str,
+        source_type: int,
+        source_no: str = "",
+        qty: float = 1.0,
+        as_of_date: Optional[str] = None,
+        company_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Query BC SalesPriceLists for entries matching (item_no, source_type, source_no).
+
+        source_type:
+          0 = All Customers (source_no ignored)
+          1 = Customer       (source_no = customer number, e.g. "C00100")
+          2 = Customer Price Group (source_no = group code, e.g. "GOLD")
+
+        as_of_date: ISO date string (YYYY-MM-DD); defaults to today.
+        Returns dict with: available, entity, entries, error, queried_url.
+        """
+        if not as_of_date:
+            as_of_date = datetime.utcnow().strftime("%Y-%m-%d")
+
+        company_segment = self._odata_v4_company_segment(company_id)
+        safe_item = item_no.replace("'", "''")
+        safe_source = source_no.replace("'", "''")
+        source_label = self._SOURCE_TYPE_LABEL.get(source_type, "All Customers")
+        null_date = self.BC_NULL_DATE
+
+        # SalesPriceLists field shape — see SALES_PRICE_ENTITY notes above.
+        # Active-date window: a row is active when its Starting_Date is the
+        # BC null sentinel OR <= today, AND Ending_Date is the sentinel OR >= today.
+        filter_expr = (
+            f"Product_No eq '{safe_item}' "
+            f"and Source_Type eq '{source_label}'"
+            + (f" and Assign_to_No eq '{safe_source}'" if source_type != 0 else "")
+            + f" and Minimum_Quantity le {qty}"
+            + f" and (Starting_Date eq {null_date} or Starting_Date le {as_of_date})"
+            + f" and (Ending_Date eq {null_date} or Ending_Date ge {as_of_date})"
+        )
+
+        url = (
+            f"{self.odata_url}/{company_segment}/{self.SALES_PRICE_ENTITY}"
+            f"?$filter={filter_expr}"
+        )
+        try:
+            token = self._get_access_token()
+            resp = requests.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/json",
+                },
+                timeout=30,
+            )
+            if resp.status_code == 404:
+                return {
+                    "available": False,
+                    "entity": None,
+                    "entries": [],
+                    "error": f"{self.SALES_PRICE_ENTITY} not exposed in this BC tenant (404)",
+                    "queried_url": url,
+                }
+            if resp.status_code >= 400:
+                return {
+                    "available": False,
+                    "entity": self.SALES_PRICE_ENTITY,
+                    "entries": [],
+                    "error": f"HTTP {resp.status_code} — {resp.text[:300]}",
+                    "queried_url": url,
+                }
+            data = resp.json()
+            return {
+                "available": True,
+                "entity": self.SALES_PRICE_ENTITY,
+                "entries": data.get("value", []),
+                "error": None,
+                "queried_url": url,
+            }
+        except Exception as e:
+            return {
+                "available": False,
+                "entity": self.SALES_PRICE_ENTITY,
+                "entries": [],
+                "error": f"{type(e).__name__}: {e}",
+                "queried_url": url,
+            }
 
     # ==================== Sales Quotes ====================
 

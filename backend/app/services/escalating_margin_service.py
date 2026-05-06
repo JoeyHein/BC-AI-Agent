@@ -20,9 +20,15 @@ Usage:
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+# Posting groups that bypass the volume escalation curve. ALUM products are
+# always priced at the standard gold-tier aluminum margin (49% GM); they do
+# not contribute to the volume threshold and do not receive the multiplier.
+DEFAULT_CURVE_EXCLUDED_POSTING_GROUPS: Set[str] = {"ALUM"}
 
 
 @dataclass
@@ -117,6 +123,37 @@ class EscalatingMarginProfile:
             "discount_pct": discount_pct,
             "adjusted_total": adjusted_total,
         }
+
+    def split_lines(
+        self,
+        lines: Dict,
+        excluded_posting_groups: Optional[Set[str]] = None,
+    ) -> Tuple[Dict, Dict]:
+        """
+        Split a {line_id: {price, qty, posting_group}} dict into
+        (curve_lines, excluded_lines) by posting group. Used by callers to
+        compute the volume threshold from non-aluminum lines only and to
+        skip aluminum lines when patching.
+        """
+        excluded = excluded_posting_groups or DEFAULT_CURVE_EXCLUDED_POSTING_GROUPS
+        curve_lines: Dict = {}
+        excluded_lines: Dict = {}
+        for line_id, lp in lines.items():
+            pg = (lp.get("posting_group") or "").upper()
+            if pg in excluded:
+                excluded_lines[line_id] = lp
+            else:
+                curve_lines[line_id] = lp
+        return curve_lines, excluded_lines
+
+    def curve_subtotal(
+        self,
+        lines: Dict,
+        excluded_posting_groups: Optional[Set[str]] = None,
+    ) -> float:
+        """Sum (price × qty) over lines that participate in the volume curve."""
+        curve_lines, _ = self.split_lines(lines, excluded_posting_groups)
+        return sum(lp["price"] * lp["qty"] for lp in curve_lines.values())
 
 
 # ============================================================================

@@ -487,11 +487,19 @@ class BCSyncService:
         try:
             bc_customers = self.client.get_customers_with_multiplier()
 
+            # api/v2.0 omits customerPriceGroup. Pull the real assignments
+            # from OData V4 CustomerList in bulk and merge by customer number.
+            price_groups_by_no = self.client.get_all_customer_price_groups()
+
             # Load group mapping once for the whole batch
             group_mapping = self._load_group_mapping(db)
 
             for bc_cust in bc_customers:
                 try:
+                    # Inject the real price group so _upsert_customer picks it up
+                    cust_no = bc_cust.get("number")
+                    if cust_no and cust_no in price_groups_by_no:
+                        bc_cust["customerPriceGroup"] = price_groups_by_no[cust_no]
                     self._upsert_customer(db, bc_cust, results, group_mapping)
                 except Exception as e:
                     results["errors"].append(f"Error syncing customer {bc_cust.get('displayName', '?')}: {e}")
@@ -525,6 +533,12 @@ class BCSyncService:
 
         try:
             bc_cust = self.client.get_customer_with_multiplier(bc_customer_id)
+            # Enrich with live price group from OData V4 (api/v2.0 omits it)
+            cust_no = bc_cust.get("number")
+            if cust_no:
+                live_group = self.client.get_customer_price_group(cust_no)
+                if live_group:
+                    bc_cust["customerPriceGroup"] = live_group
             group_mapping = self._load_group_mapping(db)
             self._upsert_customer(db, bc_cust, results, group_mapping)
             db.commit()
@@ -572,14 +586,14 @@ class BCSyncService:
             bc_cust.get("price_multiplier_percent"),
         )
 
-        # Capture BC customer price group.
-        # The standard BC API v2.0 does not expose customerPriceGroup directly,
-        # so we fall back to salespersonCode as the grouping mechanism.
+        # Capture BC customer price group. api/v2.0 omits customerPriceGroup,
+        # so sync_customers() injects it from OData V4 CustomerList. NEVER
+        # fall back to salespersonCode — that's a different field (sales rep
+        # initials like BD/JH) and conflating them produced bogus tier mappings.
         bc_price_group = (
             bc_cust.get("customerPriceGroup")
             or bc_cust.get("priceGroup")
             or bc_cust.get("customer_price_group")
-            or bc_cust.get("salespersonCode")   # fallback: use salesperson as grouping
             or ""
         ).strip().upper() or None
 

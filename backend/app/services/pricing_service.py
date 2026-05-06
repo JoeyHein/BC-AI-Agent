@@ -27,14 +27,22 @@ COST_ADJUSTMENTS_KEY = "pricing_cost_adjustments"
 BC_GROUP_MAPPING_KEY = "bc_group_tier_mapping"
 PREFIX_MARGINS_KEY = "pricing_prefix_margins"
 
-VALID_TIERS = {"platinum", "unlisted", "gold", "silver", "bronze", "retail"}
+VALID_TIERS = {"platinum", "unlisted", "gold", "silver", "bronze", "retail", "gnb"}
 
 # ============================================================================
 # Hardcoded defaults (used when no AppSettings saved yet)
 # ============================================================================
 
 def get_default_tier_margins() -> dict:
-    """Default margin percentages by door_type and tier."""
+    """
+    Default margin percentages by door_type and tier.
+
+    The 'gnb' tier represents GNB Manitoba's BASE list (30% GM across all
+    door types). Their actual quote price is this base × the volume
+    multiplier from escalating_margin_service.py, applied at quote-creation
+    time. The static 30% here lets the diagnostic show the pre-discount
+    list price; the volume curve handles the real adjustment.
+    """
     return {
         "residential": {
             "platinum": 25,
@@ -43,6 +51,7 @@ def get_default_tier_margins() -> dict:
             "silver": 35,
             "bronze": 40,
             "retail": 50,
+            "gnb": 30,
         },
         "commercial": {
             "platinum": 27,
@@ -51,6 +60,7 @@ def get_default_tier_margins() -> dict:
             "silver": 33,
             "bronze": 36,
             "retail": 42,
+            "gnb": 30,
         },
         "aluminium": {
             "platinum": 45,
@@ -59,6 +69,9 @@ def get_default_tier_margins() -> dict:
             "silver": 51,
             "bronze": 55,
             "retail": 65,
+            # GNB exception: aluminum is NOT on the volume curve. Always
+            # priced at the standard gold-tier aluminum margin.
+            "gnb": 49,
         },
         "glazing": {
             "platinum": 60,
@@ -67,6 +80,7 @@ def get_default_tier_margins() -> dict:
             "silver": 64,
             "bronze": 66,
             "retail": 73,
+            "gnb": 30,
         },
     }
 

@@ -1076,11 +1076,13 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
         # Step 2: Create BC Quote
         quote_data = {}
 
-        # Set customer - use customerId if provided, otherwise use default
+        # Set customer - use customerId if provided, otherwise use default.
+        # NOTE: pricing_tier is no longer used to override BC prices on quote
+        # lines. It's kept here for legacy diagnostic reporting only — the
+        # actual price on every line comes from BC SalesPriceLists.
         pricing_tier = "retail"
         if request.customerId:
             quote_data["customerId"] = request.customerId
-            # Look up pricing tier for this customer
             bc_customer = db.query(BCCustomer).filter(
                 BCCustomer.bc_customer_id == request.customerId
             ).first()
@@ -1088,10 +1090,22 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 tier = bc_customer.pricing_tier.lower().strip()
                 if tier in {"gold", "silver", "bronze", "retail"}:
                     pricing_tier = tier
-            logger.info(f"Using pricing tier '{pricing_tier}' for customer {request.customerId}")
+            logger.info(
+                f"Customer {request.customerId}: bc_group="
+                f"{bc_customer.bc_price_group if bc_customer else None!r} "
+                f"(BC SalesPriceLists is authoritative; portal does not override)"
+            )
         else:
-            # Default to standard customer number
             quote_data["customerNumber"] = "CASH"
+
+        # Volume curve gate — see customer_portal.py for the same flag.
+        enable_volume_curve = False
+        if db:
+            from app.db.models import AppSettings as _AppSettings
+            flag_setting = db.query(_AppSettings).filter(
+                _AppSettings.setting_key == "pricing_enable_volume_curve"
+            ).first()
+            enable_volume_curve = bool(flag_setting and flag_setting.setting_value)
 
         # Set external document number for tracking
         po_number = request.poNumber or f"CFG-{len(request.doors)}-DOORS"
@@ -1260,45 +1274,22 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                     except Exception as out_err:
                         logger.warning(f"Failed to set Output flag on line: {out_err}")
 
-                # BC's item price list overrides unitPrice on POST.
-                # PATCH the line afterward to lock in the customer-tier price.
+                # Trust BC. Track the line for the volume curve (if re-enabled
+                # later) but never PATCH unitPrice — BC's SalesPriceLists is
+                # the only source of truth.
                 if request.customerId and line.get("lineType") != "Comment":
                     part_num = line["part_number"]
-                    door_tp = line.get("door_type", "residential")
-                    selling_price = calculate_selling_price(
-                        part_number=part_num,
-                        door_type=door_tp,
-                        tier=pricing_tier,
-                        db=db,
+                    from app.services.pricing_service import _get_live_item
+                    live = _get_live_item(part_num) or {}
+                    posting_group = live.get("generalProductPostingGroupCode", "")
+                    tier_prices_by_line_id[added_line["id"]] = {
+                        "qty": line.get("quantity", 1),
+                        "posting_group": posting_group,
+                    }
+                    logger.info(
+                        f"PRICING [{part_num}]: trust BC SalesPriceLists "
+                        f"(no portal-side override)"
                     )
-                    # Weather stripping in a non-stocked size uses the next-
-                    # biggest SKU but is billed at the per-foot rate, so
-                    # selling_price * (requested_ft / sku_ft).
-                    ratio = line.get("length_adjustment_ratio")
-                    if ratio and selling_price is not None:
-                        selling_price = round(selling_price * ratio, 2)
-                    logger.info(f"PRICING DEBUG [{part_num}]: tier={pricing_tier}, door_type={door_tp}, selling_price={selling_price}, ratio={ratio}")
-                    if selling_price is not None:
-                        etag = added_line.get("@odata.etag", "*")
-                        try:
-                            bc_client.update_quote_line(
-                                bc_quote_id,
-                                added_line["id"],
-                                etag,
-                                {"unitPrice": selling_price},
-                            )
-                            # Track for escalating margin
-                            tier_prices_by_line_id[added_line["id"]] = {
-                                "price": selling_price,
-                                "qty": line.get("quantity", 1),
-                            }
-                            logger.info(f"PRICING DEBUG [{part_num}]: PATCH SUCCESS unitPrice={selling_price}")
-                        except Exception as patch_err:
-                            logger.error(f"PRICING DEBUG [{part_num}]: PATCH FAILED: {patch_err}")
-                    else:
-                        logger.warning(f"PRICING DEBUG [{part_num}]: selling_price is None, SKIPPING PATCH")
-                else:
-                    logger.info(f"PRICING DEBUG: skip PATCH - customerId={request.customerId}, lineType={line.get('lineType')}")
                 logger.debug(f"Added line: {line.get('part_number', line.get('description', ''))[:30]}")
 
             except Exception as line_error:
@@ -1375,12 +1366,12 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
         except Exception as pricing_error:
             logger.warning(f"Could not fetch pricing for quote {bc_quote_number}: {pricing_error}")
 
-        # Step 4b: Escalating margin adjustment (client-specific volume discount)
-        # Calculates final price directly FROM COST at the target GM%.
-        # Does NOT multiply the tier price — computes from scratch so the
-        # discount is always relative to the actual product cost.
+        # Step 4b: Escalating margin (client-specific volume discount).
+        # DISABLED by default — set AppSettings.pricing_enable_volume_curve = True
+        # to re-enable once BC costing is reconciled. Until then BC's resolved
+        # Sales Price stands as-is and we don't apply any portal-side discount.
         escalating_result = None
-        if tier_prices_by_line_id and request.customerId:
+        if enable_volume_curve and tier_prices_by_line_id and request.customerId:
             try:
                 from app.services.escalating_margin_service import get_escalating_margin
                 from app.services.pricing_service import calculate_selling_price_at_margin
@@ -1391,41 +1382,50 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 esc_profile = get_escalating_margin(cust_name)
 
                 if esc_profile:
-                    tier_subtotal = sum(
-                        lp["price"] * lp["qty"]
-                        for lp in tier_prices_by_line_id.values()
-                    )
+                    # Re-fetch lines so we read BC's resolved unitPrice (post-
+                    # SalesPriceLists). Aluminum lines bypass the curve.
+                    esc_lines = bc_client.get_quote_lines(bc_quote_id)
+                    lines_indexed = {}
+                    for ql in esc_lines:
+                        line_id = ql.get("id")
+                        if line_id and line_id in tier_prices_by_line_id:
+                            lines_indexed[line_id] = {
+                                "price": ql.get("unitPrice") or 0,
+                                "qty": tier_prices_by_line_id[line_id]["qty"],
+                                "posting_group": tier_prices_by_line_id[line_id]["posting_group"],
+                                "etag": ql.get("@odata.etag", "*"),
+                                "part_num": ql.get("lineObjectNumber", ""),
+                            }
+                    curve_lines, excluded_lines = esc_profile.split_lines(lines_indexed)
+                    tier_subtotal = sum(lp["price"] * lp["qty"] for lp in curve_lines.values())
                     esc_calc = esc_profile.calculate(tier_subtotal)
                     target_gm = esc_calc["target_gm"]
+                    multiplier = esc_calc["multiplier"]
 
                     if target_gm < esc_profile.base_gm_pct:
                         logger.info(
                             f"Applying escalating margin [{esc_profile.name}]: "
-                            f"tier subtotal ${tier_subtotal:,.0f} → {target_gm:.1f}% GM from cost"
+                            f"BC-resolved subtotal ${tier_subtotal:,.0f} -> {target_gm:.1f}% GM "
+                            f"({len(excluded_lines)} aluminum line(s) excluded)"
                         )
 
-                        esc_lines = bc_client.get_quote_lines(bc_quote_id)
                         patched_count = 0
-                        for ql in esc_lines:
-                            line_id = ql.get("id")
-                            part_num = ql.get("lineObjectNumber", "")
-                            if line_id in tier_prices_by_line_id and part_num:
-                                tier_price = tier_prices_by_line_id[line_id]["price"]
-                                esc_price = calculate_selling_price_at_margin(part_num, target_gm, db)
-                                if esc_price is not None:
-                                    etag = ql.get("@odata.etag", "*")
-                                    try:
-                                        bc_client.update_quote_line(
-                                            bc_quote_id, line_id, etag,
-                                            {"unitPrice": esc_price},
-                                        )
-                                        patched_count += 1
-                                        logger.info(
-                                            f"ESC PATCH: {part_num} "
-                                            f"30%GM=${tier_price} → {target_gm:.1f}%GM=${esc_price}"
-                                        )
-                                    except Exception as esc_err:
-                                        logger.error(f"ESC PATCH FAILED [{part_num}]: {esc_err}")
+                        for line_id, lp in curve_lines.items():
+                            part_num = lp["part_num"]
+                            bc_price = lp["price"]
+                            esc_price = round(bc_price * multiplier, 2)
+                            try:
+                                bc_client.update_quote_line(
+                                    bc_quote_id, line_id, lp["etag"],
+                                    {"unitPrice": esc_price},
+                                )
+                                patched_count += 1
+                                logger.info(
+                                    f"ESC PATCH: {part_num} "
+                                    f"BC=${bc_price} -> {target_gm:.1f}%GM=${esc_price}"
+                                )
+                            except Exception as esc_err:
+                                logger.error(f"ESC PATCH FAILED [{part_num}]: {esc_err}")
                         logger.info(f"Escalating margin: {patched_count} lines re-priced at {target_gm:.1f}% GM")
 
                         try:
