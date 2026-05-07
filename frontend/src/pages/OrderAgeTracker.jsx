@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { metricsApi } from '../api/client'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ComposedChart, Line, CartesianGrid, Legend } from 'recharts'
 import { formatDate, formatDateTime } from '../utils/datetime'
 
 // Bucket colors — match the row coloring legend.
@@ -70,6 +70,113 @@ function KpiTile({ label, value, suffix = '%', count, color, bgClass }) {
 
 function Skeleton({ h = 'h-4', w = 'w-full' }) {
   return <div className={`animate-pulse bg-gray-200 rounded ${h} ${w}`} />
+}
+
+function fmtMonthLabel(yyyymm) {
+  if (!yyyymm) return ''
+  // 'YYYY-MM' → 'MMM YY'
+  const [y, m] = yyyymm.split('-')
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  return `${months[parseInt(m, 10) - 1]} ${y.slice(2)}`
+}
+
+function CycleTimeTrend({ trend, loading }) {
+  if (!loading && (!trend || trend.length === 0)) return null
+  const chart = (trend || []).map(m => ({
+    month: fmtMonthLabel(m.month),
+    avg_days: m.avg_days || 0,
+    median_days: m.median_days || 0,
+    count: m.invoice_count || 0,
+  }))
+  return (
+    <section className="mb-8 bg-white rounded-lg border border-gray-200 p-5">
+      <div className="flex items-baseline justify-between mb-4">
+        <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+          12-Month Trend
+          <span className="ml-2 text-xs text-gray-400 font-normal normal-case">
+            (cycle time + volume)
+          </span>
+        </h2>
+      </div>
+      {loading ? (
+        <Skeleton h="h-64" />
+      ) : (
+        <ResponsiveContainer width="100%" height={260}>
+          <ComposedChart data={chart} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+            <YAxis yAxisId="left" tick={{ fontSize: 11 }} label={{ value: 'days', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: '#6b7280' } }} />
+            <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} label={{ value: 'invoices', angle: 90, position: 'insideRight', style: { fontSize: 11, fill: '#6b7280' } }} />
+            <Tooltip />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <Bar yAxisId="right" dataKey="count" name="Invoices" fill="#dbeafe" />
+            <Line yAxisId="left" type="monotone" dataKey="avg_days" name="Avg days" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
+            <Line yAxisId="left" type="monotone" dataKey="median_days" name="Median days" stroke="#10b981" strokeWidth={2} strokeDasharray="4 4" dot={{ r: 3 }} />
+          </ComposedChart>
+        </ResponsiveContainer>
+      )}
+    </section>
+  )
+}
+
+function CycleTimeByCustomer({ rows, loading, lookbackDays }) {
+  if (!loading && (!rows || rows.length === 0)) return null
+  return (
+    <section className="mb-8 bg-white rounded-lg border border-gray-200 overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-200 flex items-baseline justify-between">
+        <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+          Slowest Customers by Avg Cycle Time
+          <span className="ml-2 text-xs text-gray-400 font-normal normal-case">
+            (last {lookbackDays || 90} days · ≥ 2 invoices)
+          </span>
+        </h2>
+      </div>
+      {loading ? (
+        <div className="p-5 space-y-2">
+          {Array(6).fill(0).map((_, i) => <Skeleton key={i} h="h-6" />)}
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Customer</th>
+                <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Invoices</th>
+                <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Avg cycle</th>
+                <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Median</th>
+                <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Worst</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {(rows || []).map((c, i) => (
+                <tr key={`${c.customer_no || c.customer_name}-${i}`} className="hover:bg-gray-50">
+                  <td className="px-4 py-2 text-sm text-gray-900 whitespace-nowrap">
+                    {c.customer_name || c.customer_no || '—'}
+                    {c.customer_no && c.customer_name && (
+                      <span className="text-xs text-gray-400 ml-1">#{c.customer_no}</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 text-sm text-right text-gray-700 whitespace-nowrap">{c.invoice_count}</td>
+                  <td className="px-4 py-2 text-sm text-right whitespace-nowrap font-medium">
+                    <span className={
+                      c.avg_days > 56 ? 'text-red-700'
+                      : c.avg_days > 42 ? 'text-orange-700'
+                      : c.avg_days > 28 ? 'text-yellow-700'
+                      : 'text-green-700'
+                    }>
+                      {c.avg_days}d
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-sm text-right text-gray-600 whitespace-nowrap">{c.median_days}d</td>
+                  <td className="px-4 py-2 text-sm text-right text-gray-500 whitespace-nowrap">{c.max_days}d</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
 }
 
 function CycleTimeSection({ cycle, loading }) {
@@ -307,6 +414,16 @@ export default function OrderAgeTracker() {
 
       {/* Order-to-invoice cycle time (closed orders, live from BC) */}
       <CycleTimeSection cycle={data?.cycle_time} loading={loading} />
+
+      {/* 12-month trend — always 12 months regardless of selector */}
+      <CycleTimeTrend trend={data?.cycle_time?.monthly_trend} loading={loading} />
+
+      {/* Customer breakdown for the selected window */}
+      <CycleTimeByCustomer
+        rows={data?.cycle_time?.by_customer}
+        loading={loading}
+        lookbackDays={data?.cycle_time?.lookback_days}
+      />
 
       {/* Open orders distribution + summary */}
       <section className="mb-8 grid grid-cols-1 lg:grid-cols-3 gap-4">

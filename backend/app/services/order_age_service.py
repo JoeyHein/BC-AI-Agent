@@ -94,27 +94,50 @@ def _parse_iso_date(s: Optional[str]) -> Optional[datetime]:
         return None
 
 
+def _median(values: List[float]) -> Optional[float]:
+    if not values:
+        return None
+    s = sorted(values)
+    n = len(s)
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
+
+
+def _enrich_invoice(inv: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Parse one BC invoice row into our internal shape; None if unusable."""
+    order_no = inv.get("Order_No") or ""
+    order_date = _parse_iso_date(inv.get("Order_Date"))
+    posting_date = _parse_iso_date(inv.get("Posting_Date"))
+    if not (order_no and order_date and posting_date):
+        return None
+    return {
+        "order_no": order_no,
+        "invoice_no": inv.get("No"),
+        "customer": inv.get("Sell_to_Customer_Name"),
+        "customer_no": inv.get("Bill_to_Customer_No") or "",
+        "order_date": inv.get("Order_Date"),
+        "invoice_date": inv.get("Posting_Date"),
+        "_order_dt": order_date,
+        "_invoice_dt": posting_date,
+        "cycle_days": max(0, (posting_date - order_date).days),
+        "amount": float(inv.get("Amount_Including_VAT") or 0),
+    }
+
+
 def _compute_cycle_time(lookback_days: int) -> Dict[str, Any]:
     """
-    Pull BC PostedSalesInvoices in the lookback window and compute the
-    order-to-invoice cycle time per record. Cached per process so repeat
-    dashboard loads don't re-hit BC every time.
+    Pull a fixed 365-day window of posted invoices once, then derive THREE
+    views from the same data:
 
-    Returns:
-      {
-        "lookback_days": int,
-        "invoice_count": int,
-        "avg_days": float | None,
-        "median_days": float | None,
-        "buckets": {"under_4w": int, ..., "over_8w": int},
-        "bucket_pct": {"under_4w": float, ...},
-        "samples": [
-          {"order_no", "invoice_no", "customer", "order_date",
-           "invoice_date", "cycle_days"},
-          ...
-        ],
-        "error": str | None,
-      }
+      1. Bucket stats for the user-selected window (lookback_days).
+      2. Monthly trend over the full 12 months (avg / median / count per
+         month) — always 12 months regardless of selector, so the team can
+         see whether things are improving over time independent of the
+         current page selection.
+      3. Customer breakdown for the selected window (top customers by avg
+         cycle time, with their volume).
+
+    Cached per-process by lookback_days for 5 min so repeat dashboard
+    loads don't re-hit BC.
     """
     now = time.time()
     cached = _CYCLE_CACHE.get(lookback_days)
@@ -123,66 +146,123 @@ def _compute_cycle_time(lookback_days: int) -> Dict[str, Any]:
 
     from app.integrations.bc.client import bc_client
     today = datetime.utcnow()
-    since = (today - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    # Always pull a full year — Phase 1 trend requires it, and the
+    # selected-window slice is just a filter on top.
+    since = (today - timedelta(days=365)).strftime("%Y-%m-%d")
+
+    empty_response = {
+        "lookback_days": lookback_days,
+        "invoice_count": 0,
+        "avg_days": None,
+        "median_days": None,
+        "buckets": {"under_4w": 0, "under_6w": 0, "under_8w": 0, "over_8w": 0},
+        "bucket_pct": {"under_4w": 0.0, "under_6w": 0.0, "under_8w": 0.0, "over_8w": 0.0},
+        "samples": [],
+        "monthly_trend": [],
+        "by_customer": [],
+        "error": None,
+    }
 
     try:
-        rows = bc_client.get_posted_sales_invoices(since_date=since)
+        raw = bc_client.get_posted_sales_invoices(since_date=since)
     except Exception as e:
         logger.error(f"Cycle-time fetch failed: {e}", exc_info=True)
-        return {
-            "lookback_days": lookback_days,
-            "invoice_count": 0,
-            "avg_days": None,
-            "median_days": None,
-            "buckets": {"under_4w": 0, "under_6w": 0, "under_8w": 0, "over_8w": 0},
-            "bucket_pct": {"under_4w": 0.0, "under_6w": 0.0, "under_8w": 0.0, "over_8w": 0.0},
-            "samples": [],
-            "error": str(e),
-        }
+        empty_response["error"] = str(e)
+        return empty_response
 
-    cycles: List[int] = []
-    samples: List[Dict[str, Any]] = []
+    enriched: List[Dict[str, Any]] = []
+    for inv in raw:
+        e = _enrich_invoice(inv)
+        if e:
+            enriched.append(e)
+
+    if not enriched:
+        return empty_response
+
+    # ---- View 1: bucket stats for the selected window ----
+    cutoff = today - timedelta(days=lookback_days)
+    in_window = [e for e in enriched if e["_invoice_dt"] >= cutoff]
+    cycles_w = [e["cycle_days"] for e in in_window]
     bucket_counts = {"under_4w": 0, "under_6w": 0, "under_8w": 0, "over_8w": 0}
-
-    for inv in rows:
-        order_no = inv.get("Order_No") or ""
-        order_date = _parse_iso_date(inv.get("Order_Date"))
-        posting_date = _parse_iso_date(inv.get("Posting_Date"))
-        if not (order_no and order_date and posting_date):
-            continue  # standalone invoices (no source SO) don't have a cycle
-        cycle_days = max(0, (posting_date - order_date).days)
-        cycles.append(cycle_days)
-        bucket_counts[_bucket_for_delivery_age(cycle_days)] += 1
-        samples.append({
-            "order_no": order_no,
-            "invoice_no": inv.get("No"),
-            "customer": inv.get("Sell_to_Customer_Name"),
-            "order_date": inv.get("Order_Date"),
-            "invoice_date": inv.get("Posting_Date"),
-            "cycle_days": cycle_days,
-            "amount": float(inv.get("Amount_Including_VAT") or 0),
-        })
-
-    n = len(cycles)
-    avg = round(sum(cycles) / n, 1) if n else None
-    median = None
-    if n:
-        sorted_c = sorted(cycles)
-        median = sorted_c[n // 2] if n % 2 else (sorted_c[n // 2 - 1] + sorted_c[n // 2]) / 2.0
+    for c in cycles_w:
+        bucket_counts[_bucket_for_delivery_age(c)] += 1
+    n_w = len(cycles_w)
 
     def pct(c: int) -> float:
-        return round((c / n) * 100, 1) if n else 0.0
+        return round((c / n_w) * 100, 1) if n_w else 0.0
 
-    samples.sort(key=lambda s: s["cycle_days"], reverse=True)
+    samples = sorted(in_window, key=lambda s: s["cycle_days"], reverse=True)[:50]
+    samples_clean = [
+        {k: v for k, v in s.items() if not k.startswith("_")} for s in samples
+    ]
+
+    # ---- View 2: monthly trend (always last 12 months) ----
+    by_month: Dict[str, List[int]] = {}
+    by_month_amount: Dict[str, float] = {}
+    for e in enriched:
+        key = e["_invoice_dt"].strftime("%Y-%m")
+        by_month.setdefault(key, []).append(e["cycle_days"])
+        by_month_amount[key] = by_month_amount.get(key, 0) + e["amount"]
+    # Build ordered list of last 12 months (including months with no data
+    # so the chart x-axis is continuous)
+    monthly_trend: List[Dict[str, Any]] = []
+    cursor = today.replace(day=1)
+    months: List[str] = []
+    for _ in range(12):
+        months.append(cursor.strftime("%Y-%m"))
+        # step back one month
+        if cursor.month == 1:
+            cursor = cursor.replace(year=cursor.year - 1, month=12)
+        else:
+            cursor = cursor.replace(month=cursor.month - 1)
+    for key in reversed(months):
+        cycles_m = by_month.get(key, [])
+        monthly_trend.append({
+            "month": key,
+            "invoice_count": len(cycles_m),
+            "avg_days": round(sum(cycles_m) / len(cycles_m), 1) if cycles_m else None,
+            "median_days": _median(cycles_m),
+            "amount": round(by_month_amount.get(key, 0), 2),
+        })
+
+    # ---- View 3: customer breakdown (selected window) ----
+    by_cust: Dict[str, List[int]] = {}
+    cust_meta: Dict[str, Dict[str, Any]] = {}
+    for e in in_window:
+        # Group by customer number when available; fall back to name.
+        key = e["customer_no"] or e["customer"] or "(unknown)"
+        by_cust.setdefault(key, []).append(e["cycle_days"])
+        if key not in cust_meta:
+            cust_meta[key] = {
+                "customer_no": e["customer_no"],
+                "customer_name": e["customer"],
+            }
+    by_customer = []
+    for key, cycles in by_cust.items():
+        avg = round(sum(cycles) / len(cycles), 1)
+        by_customer.append({
+            **cust_meta[key],
+            "invoice_count": len(cycles),
+            "avg_days": avg,
+            "median_days": _median(cycles),
+            "max_days": max(cycles),
+        })
+    # Filter out customers with very low volume (1 order isn't a pattern),
+    # then sort slowest first
+    by_customer = [c for c in by_customer if c["invoice_count"] >= 2]
+    by_customer.sort(key=lambda c: c["avg_days"], reverse=True)
+    by_customer = by_customer[:15]
 
     data = {
         "lookback_days": lookback_days,
-        "invoice_count": n,
-        "avg_days": avg,
-        "median_days": median,
+        "invoice_count": n_w,
+        "avg_days": round(sum(cycles_w) / n_w, 1) if n_w else None,
+        "median_days": _median(cycles_w),
         "buckets": bucket_counts,
         "bucket_pct": {k: pct(v) for k, v in bucket_counts.items()},
-        "samples": samples[:50],  # cap payload — full list isn't needed for the dashboard
+        "samples": samples_clean,
+        "monthly_trend": monthly_trend,
+        "by_customer": by_customer,
         "error": None,
     }
     _CYCLE_CACHE[lookback_days] = {"_t": now, "data": data}
