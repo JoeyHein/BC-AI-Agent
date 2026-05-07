@@ -10,7 +10,7 @@ from fastapi.responses import Response
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Optional, List, Any, Dict
+from typing import Optional, List, Any, Dict, Tuple
 
 from app.db.database import SessionLocal
 from app.db.models import User, SavedQuoteConfig, SalesOrder, OrderStatus, Shipment, Invoice, BCCustomer, Part, SpecialOrderRequest, AppSettings
@@ -441,6 +441,67 @@ def delete_saved_quote(
     logger.info(f"Saved quote config deleted: {config_id}")
 
     return {"message": "Configuration deleted successfully"}
+
+
+@router.post("/saved-quotes/{config_id}/duplicate", response_model=SavedQuoteConfigResponse)
+def duplicate_saved_quote(
+    config_id: int,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db),
+):
+    """Create a fresh copy of a saved quote.
+
+    Use case: a customer wants to base a new quote on an existing one without
+    losing the original (e.g. "same install but different door series"). The
+    copy starts as a clean draft — fresh door uids, no BC quote linkage, no
+    pricing, no line map, prefixed name. The original is untouched.
+    """
+    import uuid as _uuid
+
+    source = db.query(SavedQuoteConfig).filter(
+        SavedQuoteConfig.id == config_id,
+        SavedQuoteConfig.user_id == current_user.id,
+    ).first()
+    if not source:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Saved configuration not found",
+        )
+
+    # Deep-clone the config_data and assign fresh door_uids so the copy diverges
+    # from the original even if both go through edits independently. Strip any
+    # state that's tied to the original BC quote (line counts, etc).
+    src_data = source.config_data or {}
+    new_doors = []
+    for d in (src_data.get("doors") or []):
+        clone = dict(d)
+        clone["door_uid"] = str(_uuid.uuid4())
+        new_doors.append(clone)
+    new_data = {**src_data, "doors": new_doors}
+
+    new_name = source.name or "Untitled Quote"
+    if not new_name.lower().startswith("copy of "):
+        new_name = f"Copy of {new_name}"
+
+    copy = SavedQuoteConfig(
+        user_id=current_user.id,
+        name=new_name,
+        description=source.description,
+        config_data=new_data,
+        is_submitted=False,
+        # Explicitly NO bc_quote_id, bc_quote_number, bc_line_map — fresh draft.
+    )
+
+    db.add(copy)
+    db.commit()
+    db.refresh(copy)
+
+    logger.info(
+        f"Saved quote config duplicated: {source.id} -> {copy.id} "
+        f"for user {current_user.email}"
+    )
+
+    return _config_to_response(copy, db)
 
 
 # ============================================================================
@@ -1577,23 +1638,72 @@ def _has_sales_order_for_quote(config: SavedQuoteConfig, db: Session) -> bool:
     ).first() is not None
 
 
-def _diff_doors(old_doors: List[dict], new_doors: List[dict]) -> Dict[str, List[int]]:
-    """Position-based diff. Returns 1-based door indices that changed, were added, or removed."""
+def _diff_doors(old_doors: List[dict], new_doors: List[dict]) -> Dict[str, Any]:
+    """Diff old vs new door configs.
+
+    Identity-based when every door carries a `door_uid` — so reordering or
+    inserting a door doesn't trigger spurious BC line regeneration.
+    Falls back to position-based (legacy) when any uid is missing.
+
+    Returns a dict with 1-based positions:
+      changed: NEW positions whose uid existed in old but content differs
+      added:   NEW positions whose uid is new
+      removed: OLD positions whose uid is no longer present
+      moved:   list of (old_pos, new_pos) — uid unchanged, content unchanged,
+               but the door shifted position; pure line_map remap, no BC writes
+    """
+    def _content_only(d: dict) -> dict:
+        # Compare door content WITHOUT the uid (the uid is identity, not content).
+        return {k: v for k, v in d.items() if k != "door_uid"}
+
+    have_all_uids = (
+        bool(old_doors) and bool(new_doors)
+        and all(d.get("door_uid") for d in old_doors)
+        and all(d.get("door_uid") for d in new_doors)
+    )
+
+    if not have_all_uids:
+        # Legacy positional diff
+        changed: List[int] = []
+        added: List[int] = []
+        removed: List[int] = []
+        max_len = max(len(old_doors), len(new_doors))
+        for i in range(max_len):
+            old = old_doors[i] if i < len(old_doors) else None
+            new = new_doors[i] if i < len(new_doors) else None
+            idx = i + 1
+            if old is None:
+                added.append(idx)
+            elif new is None:
+                removed.append(idx)
+            elif _content_only(old) != _content_only(new):
+                changed.append(idx)
+        return {"changed": changed, "added": added, "removed": removed, "moved": []}
+
+    # Identity-based diff
+    old_by_uid = {d["door_uid"]: (i + 1, d) for i, d in enumerate(old_doors)}
+    new_by_uid = {d["door_uid"]: (i + 1, d) for i, d in enumerate(new_doors)}
+
     changed = []
     added = []
     removed = []
-    max_len = max(len(old_doors), len(new_doors))
-    for i in range(max_len):
-        old = old_doors[i] if i < len(old_doors) else None
-        new = new_doors[i] if i < len(new_doors) else None
-        idx = i + 1
-        if old is None:
-            added.append(idx)
-        elif new is None:
-            removed.append(idx)
-        elif old != new:
-            changed.append(idx)
-    return {"changed": changed, "added": added, "removed": removed}
+    moved: List[Tuple[int, int]] = []
+
+    for uid, (new_pos, new_d) in new_by_uid.items():
+        if uid not in old_by_uid:
+            added.append(new_pos)
+        else:
+            old_pos, old_d = old_by_uid[uid]
+            if _content_only(old_d) != _content_only(new_d):
+                changed.append(new_pos)
+            elif old_pos != new_pos:
+                moved.append((old_pos, new_pos))
+
+    for uid, (old_pos, _) in old_by_uid.items():
+        if uid not in new_by_uid:
+            removed.append(old_pos)
+
+    return {"changed": changed, "added": added, "removed": removed, "moved": moved}
 
 
 def _delete_bc_lines(bc_quote_id: str, line_ids: List[str]) -> int:
@@ -1688,21 +1798,22 @@ def _edit_bc_quote_lines(
 
     indices_to_regenerate = sorted(set(diff["changed"] + diff["added"]))
     indices_to_delete = sorted(set(diff["changed"] + diff["removed"]))
+    moves = diff.get("moved") or []
 
-    # ── Step 1: Delete lines for changed/removed doors ──────────────────────
-    for idx in indices_to_delete:
-        line_ids = line_map["doors"].pop(str(idx), [])
-        if line_ids:
-            _delete_bc_lines(bc_quote_id, line_ids)
-            logger.info(f"Deleted {len(line_ids)} line(s) for door {idx}")
+    # ── Step 1 (precompute): Build new line dicts BEFORE touching BC ────────
+    # Doing precompute first means a failure here (bad part numbers, BC
+    # spring-inventory fetch error, etc.) raises cleanly without leaving the
+    # BC quote in a half-deleted state. Only after precompute succeeds do we
+    # commit to the destructive delete-then-recreate sequence below.
+    try:
+        spring_inventory = get_bc_spring_inventory()
+    except Exception as inv_err:
+        logger.error(f"Pre-edit spring inventory fetch failed: {inv_err}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach BC to validate edit. No changes were made — please try again.",
+        )
 
-    # ── Step 2: Delete all shared lines (always regenerated) ────────────────
-    for bucket, line_ids in list(line_map["shared"].items()):
-        _delete_bc_lines(bc_quote_id, line_ids)
-    line_map["shared"] = {}
-
-    # ── Step 3: Build line dicts for doors that need regeneration ───────────
-    spring_inventory = get_bc_spring_inventory()
     all_new_lines: List[dict] = []
     door_results: List[dict] = []
     aluminum_panel_categories = {
@@ -1785,6 +1896,39 @@ def _edit_bc_quote_lines(
     item_pns = [l["part_number"] for l in all_new_lines if l.get("part_number")]
     if item_pns:
         warm_bc_cost_cache(item_pns)
+
+    # ── Step 2: Delete old door lines for changed/removed doors ─────────────
+    # Done AFTER precompute so a precompute failure leaves BC untouched.
+    # Done BEFORE move remap so we delete from the ORIGINAL position keys.
+    for idx in indices_to_delete:
+        line_ids = line_map["doors"].pop(str(idx), [])
+        if line_ids:
+            _delete_bc_lines(bc_quote_id, line_ids)
+            logger.info(f"Deleted {len(line_ids)} line(s) for door {idx}")
+
+    # ── Step 2b: Remap line_map for doors that just moved position ──────────
+    # An identity-based diff produces "moved" entries when a door's content is
+    # unchanged but its index shifted (e.g. the user removed door 1 so door 2
+    # is now door 1). The BC lines don't need to change — only our internal
+    # index → line-id mapping.
+    if moves:
+        moving_old_keys = {str(old_pos) for old_pos, _ in moves}
+        relocations = {
+            str(new_pos): line_map["doors"].get(str(old_pos), [])
+            for old_pos, new_pos in moves
+        }
+        target_keys = set(relocations.keys())
+        preserved = {
+            k: v for k, v in line_map["doors"].items()
+            if k not in moving_old_keys and k not in target_keys
+        }
+        line_map["doors"] = {**preserved, **relocations}
+        logger.info(f"Remapped {len(moves)} door position(s) without BC writes: {moves}")
+
+    # ── Step 3: Delete all shared lines (always regenerated) ────────────────
+    for bucket, line_ids in list(line_map["shared"].items()):
+        _delete_bc_lines(bc_quote_id, line_ids)
+    line_map["shared"] = {}
 
     # ── Step 4: Push new lines to BC with tier pricing ──────────────────────
     lines_added = 0

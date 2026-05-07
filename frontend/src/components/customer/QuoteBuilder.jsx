@@ -72,7 +72,14 @@ function QuoteBuilder() {
       setQuoteDescription(existingQuote.description || '')
       setDeliveryType(existingQuote.config_data?.deliveryType || '')
       if (existingQuote.config_data?.doors) {
-        setDoors(existingQuote.config_data.doors)
+        // Backfill door_uid on legacy doors that pre-date identity-based diffing.
+        // Once saved, these uids stick — so subsequent edits get the cheap path.
+        const genUid = () => (typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `door-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`)
+        setDoors(existingQuote.config_data.doors.map(d =>
+          d?.door_uid ? d : { ...d, door_uid: genUid() }
+        ))
       } else if (existingQuote.config_data) {
         // Legacy single door format
         setDoors([{
@@ -89,6 +96,13 @@ function QuoteBuilder() {
 
   function createEmptyDoor() {
     return {
+      // Stable identity for identity-based diffing on edit. Generated once
+      // when the door is first created; preserved across edits so the backend
+      // can recognize moves vs. real content changes without spurious BC
+      // line regeneration.
+      door_uid: typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `door-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
       doorType: '',
       doorSeries: '',
       doorWidth: 96,

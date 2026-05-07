@@ -79,6 +79,10 @@ function DoorConfigurator() {
 
   function createEmptyDoor() {
     return {
+      // Stable identity for identity-based edit-diff (see customer_portal._diff_doors).
+      door_uid: typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `door-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
       doorType: '',
       doorSeries: '',
       doorWidth: 96,

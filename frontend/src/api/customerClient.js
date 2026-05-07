@@ -83,6 +83,10 @@ export const savedQuotesApi = {
   delete: (id) =>
     customerApiClient.delete(`/api/customer/portal/saved-quotes/${id}`),
 
+  // Duplicate a saved quote — fresh draft, fresh door uids, no BC linkage
+  duplicate: (id) =>
+    customerApiClient.post(`/api/customer/portal/saved-quotes/${id}/duplicate`),
+
   // Submit saved quote to BC
   submit: (id) =>
     customerApiClient.post(`/api/customer/portal/saved-quotes/${id}/submit`),

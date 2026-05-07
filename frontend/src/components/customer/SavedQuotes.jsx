@@ -35,6 +35,18 @@ function SavedQuotes() {
     }
   })
 
+  const duplicateMutation = useMutation({
+    mutationFn: (id) => savedQuotesApi.duplicate(id),
+    onSuccess: (response) => {
+      queryClient.invalidateQueries(['savedQuotes'])
+      const newId = response.data?.id
+      if (newId) navigate(`/saved-quotes/${newId}`)
+    },
+    onError: (err) => {
+      alert(`Failed to duplicate: ${err.response?.data?.detail || err.message}`)
+    }
+  })
+
   const confirmMutation = useMutation({
     mutationFn: (id) => savedQuotesApi.confirm(id),
     onSuccess: () => {
@@ -375,6 +387,14 @@ function SavedQuotes() {
                                 {downloadingFraming[quote.id] ? 'Generating...' : 'Drawing PDF'}
                               </button>
                               <button
+                                onClick={() => duplicateMutation.mutate(quote.id)}
+                                disabled={duplicateMutation.isPending}
+                                className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                                title="Make a copy as a fresh draft"
+                              >
+                                {duplicateMutation.isPending ? 'Copying...' : 'Save as New'}
+                              </button>
+                              <button
                                 onClick={() => handleDelete(quote.id, quote.name)}
                                 disabled={deleteMutation.isPending}
                                 className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
@@ -426,6 +446,14 @@ function SavedQuotes() {
                             {downloadingPdf[quote.id] ? 'Downloading...' : 'Download PDF'}
                           </button>
                           <button
+                            onClick={() => duplicateMutation.mutate(quote.id)}
+                            disabled={duplicateMutation.isPending}
+                            className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                            title="Make a copy as a fresh draft"
+                          >
+                            {duplicateMutation.isPending ? 'Copying...' : 'Save as New'}
+                          </button>
+                          <button
                             onClick={() => handleDelete(quote.id, quote.name)}
                             disabled={deleteMutation.isPending}
                             className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
@@ -460,6 +488,14 @@ function SavedQuotes() {
                             className="inline-flex items-center px-3 py-1 border border-blue-300 text-xs font-medium rounded-md text-odc-700 bg-white hover:bg-blue-50 disabled:opacity-50"
                           >
                             Submit
+                          </button>
+                          <button
+                            onClick={() => duplicateMutation.mutate(quote.id)}
+                            disabled={duplicateMutation.isPending}
+                            className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                            title="Make a copy as a fresh draft"
+                          >
+                            {duplicateMutation.isPending ? 'Copying...' : 'Save as New'}
                           </button>
                           <button
                             onClick={() => handleDelete(quote.id, quote.name)}
