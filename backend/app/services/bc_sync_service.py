@@ -46,7 +46,12 @@ class BCSyncService:
     def _map_bc_status_to_enum(bc_status: Optional[str]) -> "OrderStatus":
         """
         Map BC's salesOrders.status string into our local OrderStatus enum.
-        BC values vary by tenant; we match defensively on substring.
+
+        Anything in BC's salesOrders table is by definition a real, confirmed
+        order — BC's "Draft" status just means "not yet released for
+        production", which is a workflow detail, not an indicator that the
+        order isn't real. Only treat "Pending Approval" / "Pending
+        Prepayment" as PENDING because those literally are blocked.
         """
         s = (bc_status or "").strip().lower()
         if not s:
@@ -59,9 +64,10 @@ class BCSyncService:
             return OrderStatus.SHIPPED
         if "release" in s or "production" in s:
             return OrderStatus.IN_PRODUCTION
-        if "draft" in s or "review" in s or "pending" in s:
+        # "Pending Approval" / "Pending Prepayment" — literally blocked
+        if "pending" in s:
             return OrderStatus.PENDING
-        # "Open" and unknowns → confirmed; tracker treats as in-flight
+        # "Draft" / "Open" / "In Review" / unknown — real orders, in-flight.
         return OrderStatus.CONFIRMED
 
     async def sync_sales_orders_with_lines(
