@@ -336,22 +336,30 @@ def get_order_age_metrics(
     )
 
     open_rows: List[Dict[str, Any]] = []
-    # Bucket counts split by schedule_status so the UI can render two
-    # parallel age charts: orders that need attention (behind / at-risk)
-    # vs orders that are old simply because the customer ordered far
-    # ahead of the requested delivery date.
-    bucket_counts = {"green": 0, "yellow": 0, "red": 0}
-    bucket_counts_behind = {"green": 0, "yellow": 0, "red": 0}
-    bucket_counts_on_schedule = {"green": 0, "yellow": 0, "red": 0}
-    APPROACHING_THRESHOLD_DAYS = 7  # within a week of due → at-risk
+    # Two parallel bucket counts so the UI can toggle between views:
+    #   - schedule_buckets: judges orders by their requested delivery
+    #     date (early / on_time / late). This is the default view —
+    #     a 9-week-old order whose customer wanted a 4-month lead
+    #     time is "Early", not "Late".
+    #   - age_buckets: judges orders by raw calendar age (under 4 wks
+    #     / 4-6 wks / over 6 wks). Kept as the legacy informational
+    #     view since some teams still find it useful.
+    age_buckets = {"green": 0, "yellow": 0, "red": 0}
+    schedule_buckets = {"early": 0, "on_time": 0, "late": 0, "no_schedule": 0}
+
+    # Schedule thresholds (in days from today to requested_delivery_date):
+    #   late      — days_until_due < 0  (past due)
+    #   on_time   — 0..14d out (actively being worked toward delivery)
+    #   early     — > 14d out (sitting in queue, customer wanted it later)
+    ON_TIME_WINDOW_DAYS = 14
 
     for o in open_orders_q.all():
         start = _start_date(o)
         if not start:
             continue
         age_days = max(0, (now - start).days)
-        bucket = _bucket_for_open_age(age_days)
-        bucket_counts[bucket] += 1
+        age_bucket = _bucket_for_open_age(age_days)
+        age_buckets[age_bucket] += 1
 
         # Days remaining until requested delivery — negative if past due.
         rdd = o.requested_delivery_date
@@ -359,27 +367,18 @@ def get_order_age_metrics(
         if rdd:
             days_until_due = (rdd - now).days
 
-        # Schedule status:
-        #   behind         — past requested delivery date
-        #   approaching    — due within the next week
-        #   on_schedule    — due >7d out
-        #   no_schedule    — no requested delivery date set on the order
+        # Schedule status — judges the order against ITS OWN requested
+        # delivery date, not against an arbitrary age threshold.
         if days_until_due is None:
             schedule_status = "no_schedule"
         elif days_until_due < 0:
-            schedule_status = "behind"
-        elif days_until_due <= APPROACHING_THRESHOLD_DAYS:
-            schedule_status = "approaching"
+            schedule_status = "late"
+        elif days_until_due <= ON_TIME_WINDOW_DAYS:
+            schedule_status = "on_time"
         else:
-            schedule_status = "on_schedule"
+            schedule_status = "early"
 
-        # For the two-chart split: behind+approaching+no_schedule are the
-        # "needs attention" pile; on_schedule is the "fine, keep waiting"
-        # pile. no_schedule defaults to behind so missing dates get flagged.
-        if schedule_status == "on_schedule":
-            bucket_counts_on_schedule[bucket] += 1
-        else:
-            bucket_counts_behind[bucket] += 1
+        schedule_buckets[schedule_status] += 1
 
         open_rows.append({
             "id": o.id,
@@ -393,7 +392,7 @@ def get_order_age_metrics(
             "age_days": age_days,
             "age_weeks": round(age_days / 7, 1),
             "status": o.status.value if o.status else None,
-            "bucket": bucket,
+            "bucket": age_bucket,
             "schedule_status": schedule_status,
             "total_amount": float(o.total_amount) if o.total_amount is not None else None,
         })
@@ -410,11 +409,10 @@ def get_order_age_metrics(
         "open_orders": open_rows,
         "open_summary": {
             "total": len(open_rows),
-            **bucket_counts,
-            "behind": bucket_counts_behind,
-            "on_schedule": bucket_counts_on_schedule,
-            "behind_total": sum(bucket_counts_behind.values()),
-            "on_schedule_total": sum(bucket_counts_on_schedule.values()),
+            # Age view (legacy): green / yellow / red
+            **age_buckets,
+            # Schedule view (default): early / on_time / late / no_schedule
+            "by_schedule": schedule_buckets,
         },
         "cycle_time": cycle_time,
     }

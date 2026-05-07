@@ -72,20 +72,71 @@ function Skeleton({ h = 'h-4', w = 'w-full' }) {
   return <div className={`animate-pulse bg-gray-200 rounded ${h} ${w}`} />
 }
 
-function OpenOrdersChart({ title, subtitle, data, total, loading, accentClass }) {
+function OpenOrdersDistribution({ scheduleChart, ageChart, scheduleBuckets, total, loading }) {
+  const [view, setView] = useState('schedule')
+  const data = view === 'schedule' ? scheduleChart : ageChart
+  const subtitle = view === 'schedule'
+    ? 'Bucketed against each order’s requested delivery date'
+    : 'Bucketed by calendar age since order date'
+
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-5">
-      <div className="flex items-baseline justify-between mb-4">
+    <section className="mb-8 bg-white rounded-lg border border-gray-200 p-5">
+      <div className="flex items-baseline justify-between mb-1 gap-4 flex-wrap">
         <div>
-          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">{title}</h2>
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+            Open Orders Distribution
+          </h2>
           <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
         </div>
-        <div className={`text-2xl font-bold ${accentClass}`}>{total}</div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1 bg-gray-100 rounded-md p-1">
+            <button
+              onClick={() => setView('schedule')}
+              className={`px-3 py-1 text-xs font-medium rounded ${
+                view === 'schedule'
+                  ? 'bg-white shadow text-gray-900'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              By Schedule
+            </button>
+            <button
+              onClick={() => setView('age')}
+              className={`px-3 py-1 text-xs font-medium rounded ${
+                view === 'age'
+                  ? 'bg-white shadow text-gray-900'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              By Age
+            </button>
+          </div>
+          <div className="text-2xl font-bold text-gray-900">{total ?? 0}</div>
+        </div>
       </div>
+
+      {/* Quick-glance summary of schedule buckets so the team sees at a glance */}
+      {view === 'schedule' && !loading && (
+        <div className="grid grid-cols-3 gap-3 mt-4 mb-2">
+          <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2">
+            <p className="text-xs uppercase text-red-700 font-medium">Late</p>
+            <p className="text-xl font-bold text-red-700">{scheduleBuckets.late}</p>
+          </div>
+          <div className="rounded-md bg-green-50 border border-green-200 px-3 py-2">
+            <p className="text-xs uppercase text-green-700 font-medium">On Time</p>
+            <p className="text-xl font-bold text-green-700">{scheduleBuckets.on_time}</p>
+          </div>
+          <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2">
+            <p className="text-xs uppercase text-blue-700 font-medium">Early</p>
+            <p className="text-xl font-bold text-blue-700">{scheduleBuckets.early}</p>
+          </div>
+        </div>
+      )}
+
       {loading ? (
-        <Skeleton h="h-44" />
+        <Skeleton h="h-52" />
       ) : (
-        <ResponsiveContainer width="100%" height={180}>
+        <ResponsiveContainer width="100%" height={220}>
           <BarChart data={data} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
             <XAxis dataKey="label" tick={{ fontSize: 12 }} />
             <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
@@ -96,14 +147,14 @@ function OpenOrdersChart({ title, subtitle, data, total, loading, accentClass })
           </BarChart>
         </ResponsiveContainer>
       )}
-    </div>
+    </section>
   )
 }
 
 const SCHEDULE_LABELS = {
-  behind: { text: 'Behind', cls: 'bg-red-100 text-red-700' },
-  approaching: { text: 'Due soon', cls: 'bg-yellow-100 text-yellow-700' },
-  on_schedule: { text: 'On schedule', cls: 'bg-green-100 text-green-700' },
+  late: { text: 'Late', cls: 'bg-red-100 text-red-700' },
+  on_time: { text: 'On Time', cls: 'bg-green-100 text-green-700' },
+  early: { text: 'Early', cls: 'bg-blue-100 text-blue-700' },
   no_schedule: { text: 'No date', cls: 'bg-gray-100 text-gray-600' },
 }
 
@@ -367,19 +418,21 @@ export default function OrderAgeTracker() {
   const openRows = data?.open_orders || []
   const openSummary = data?.open_summary || { total: 0, green: 0, yellow: 0, red: 0 }
 
-  // Two parallel chart datasets — orders that need attention vs orders
-  // that are old simply because the customer ordered ahead of schedule.
-  const behindBuckets = openSummary.behind || { green: 0, yellow: 0, red: 0 }
-  const onScheduleBuckets = openSummary.on_schedule || { green: 0, yellow: 0, red: 0 }
-  const behindChart = [
-    { label: 'Under 4 wks', count: behindBuckets.green, color: OPEN_BUCKET_COLORS.green },
-    { label: '4 – 6 wks',   count: behindBuckets.yellow, color: OPEN_BUCKET_COLORS.yellow },
-    { label: 'Over 6 wks',  count: behindBuckets.red,    color: OPEN_BUCKET_COLORS.red },
-  ]
-  const onScheduleChart = [
-    { label: 'Under 4 wks', count: onScheduleBuckets.green, color: OPEN_BUCKET_COLORS.green },
-    { label: '4 – 6 wks',   count: onScheduleBuckets.yellow, color: OPEN_BUCKET_COLORS.yellow },
-    { label: 'Over 6 wks',  count: onScheduleBuckets.red,    color: OPEN_BUCKET_COLORS.red },
+  // Two views on the open-order distribution. "Schedule" is the default
+  // because it judges each order against its own requested delivery date —
+  // a 9-week-old order whose customer wanted a 4-month lead time is Early,
+  // not Late. "Age" is the calendar-time view and is informational.
+  const scheduleBuckets = openSummary.by_schedule || { early: 0, on_time: 0, late: 0, no_schedule: 0 }
+  const scheduleChart = [
+    { label: 'Late',        count: scheduleBuckets.late,        color: '#EF4444' },
+    { label: 'On Time',     count: scheduleBuckets.on_time,     color: '#10B981' },
+    { label: 'Early',       count: scheduleBuckets.early,       color: '#3B82F6' },
+    { label: 'No date',     count: scheduleBuckets.no_schedule, color: '#9CA3AF' },
+  ].filter(b => b.count > 0 || b.label !== 'No date')
+  const ageChart = [
+    { label: 'Under 4 wks', count: openSummary.green || 0,  color: OPEN_BUCKET_COLORS.green },
+    { label: '4 – 6 wks',   count: openSummary.yellow || 0, color: OPEN_BUCKET_COLORS.yellow },
+    { label: 'Over 6 wks',  count: openSummary.red || 0,    color: OPEN_BUCKET_COLORS.red },
   ]
 
   const periods = [
@@ -425,28 +478,17 @@ export default function OrderAgeTracker() {
         lookbackDays={data?.cycle_time?.lookback_days}
       />
 
-      {/* Open orders distribution — split by schedule status. Orders that
-          are old but whose requested delivery date is still in the future
-          aren't actually behind; they appear in the right-hand chart and
-          don't pull the team's attention. */}
-      <section className="mb-8 grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <OpenOrdersChart
-          title="Behind / At Risk"
-          subtitle="Past due or due within 7 days"
-          data={behindChart}
-          total={openSummary.behind_total ?? 0}
-          loading={loading}
-          accentClass="text-red-700"
-        />
-        <OpenOrdersChart
-          title="On Schedule"
-          subtitle="Due more than 7 days out"
-          data={onScheduleChart}
-          total={openSummary.on_schedule_total ?? 0}
-          loading={loading}
-          accentClass="text-green-700"
-        />
-      </section>
+      {/* Open orders distribution — schedule view by default, age view
+          is opt-in. Schedule view buckets each order against its own
+          requested delivery date (Early / On Time / Late) so a long
+          customer-requested lead time doesn't show up as "Late". */}
+      <OpenOrdersDistribution
+        scheduleChart={scheduleChart}
+        ageChart={ageChart}
+        scheduleBuckets={scheduleBuckets}
+        total={openSummary.total}
+        loading={loading}
+      />
 
       {/* Order list */}
       <section className="bg-white rounded-lg border border-gray-200 overflow-hidden">
