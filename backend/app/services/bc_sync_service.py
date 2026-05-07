@@ -42,6 +42,28 @@ class BCSyncService:
 
     # ==================== Sales Orders Sync ====================
 
+    @staticmethod
+    def _map_bc_status_to_enum(bc_status: Optional[str]) -> "OrderStatus":
+        """
+        Map BC's salesOrders.status string into our local OrderStatus enum.
+        BC values vary by tenant; we match defensively on substring.
+        """
+        s = (bc_status or "").strip().lower()
+        if not s:
+            return OrderStatus.CONFIRMED
+        if "cancel" in s:
+            return OrderStatus.CANCELLED
+        if "complet" in s or "closed" in s or "invoic" in s:
+            return OrderStatus.COMPLETED
+        if "ship" in s:
+            return OrderStatus.SHIPPED
+        if "release" in s or "production" in s:
+            return OrderStatus.IN_PRODUCTION
+        if "draft" in s or "review" in s or "pending" in s:
+            return OrderStatus.PENDING
+        # "Open" and unknowns → confirmed; tracker treats as in-flight
+        return OrderStatus.CONFIRMED
+
     async def sync_sales_orders_with_lines(
         self,
         db: Session,
@@ -111,6 +133,107 @@ class BCSyncService:
 
         return results
 
+    async def sync_open_sales_orders_fast(self, db: Session,
+                                            page_size: int = 200) -> Dict[str, Any]:
+        """
+        Bulk-sync every BC sales order header (no line items) into the local
+        SalesOrder table. Designed for the 2-hourly tracker refresh: it pulls
+        order headers + status only, so it stays fast even with hundreds of
+        orders. Line-level detail is still fetched on demand by the existing
+        sync_sales_orders_with_lines() path.
+        """
+        import requests
+
+        base_url = settings.bc_api_url
+        headers = self._get_headers()
+        results: Dict[str, Any] = {
+            "orders_synced": 0,
+            "orders_updated": 0,
+            "errors": [],
+        }
+
+        page_url = (
+            f"{base_url}/companies({self.company_id})/salesOrders"
+            f"?$top={page_size}&$orderby=orderDate desc"
+        )
+        try:
+            while page_url:
+                r = requests.get(page_url, headers=headers, timeout=120)
+                if r.status_code >= 400:
+                    results["errors"].append(
+                        f"BC HTTP {r.status_code}: {r.text[:300]}"
+                    )
+                    break
+                data = r.json()
+                for bc_order in data.get("value", []):
+                    try:
+                        await self._sync_single_order_header(db, bc_order, results)
+                    except Exception as line_err:
+                        results["errors"].append(
+                            f"{bc_order.get('number', '?')}: {line_err}"
+                        )
+                page_url = data.get("@odata.nextLink")
+
+            db.commit()
+            logger.info(
+                f"Open-orders fast sync: {results['orders_synced']} new, "
+                f"{results['orders_updated']} updated, {len(results['errors'])} errors"
+            )
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Open-orders fast sync error: {e}", exc_info=True)
+            results["errors"].append(str(e))
+        return results
+
+    async def _sync_single_order_header(self, db: Session,
+                                          bc_order: Dict[str, Any],
+                                          results: Dict[str, Any]) -> None:
+        """Header-only upsert variant of _sync_single_order — skips line items
+        for speed."""
+        bc_order_number = bc_order.get("number")
+        bc_id = bc_order.get("id")
+        if not bc_order_number:
+            return
+
+        existing = db.query(SalesOrder).filter(
+            SalesOrder.bc_order_number == bc_order_number
+        ).first()
+
+        mapped_status = self._map_bc_status_to_enum(bc_order.get("status"))
+        external_doc = bc_order.get("externalDocumentNumber")
+
+        if existing:
+            existing.customer_name = bc_order.get("customerName")
+            existing.customer_number = bc_order.get("customerNumber")
+            existing.bc_customer_id = bc_order.get("customerId")
+            existing.total_amount = bc_order.get("totalAmountIncludingTax", 0)
+            existing.order_date = self._parse_date(bc_order.get("orderDate"))
+            existing.requested_delivery_date = self._parse_date(bc_order.get("requestedDeliveryDate"))
+            if existing.status not in (OrderStatus.SHIPPED, OrderStatus.COMPLETED):
+                existing.status = mapped_status
+            if external_doc and not existing.external_document_number:
+                existing.external_document_number = external_doc
+            existing.last_synced_at = datetime.utcnow()
+            results["orders_updated"] += 1
+        else:
+            db.add(SalesOrder(
+                bc_order_number=bc_order_number,
+                bc_id=bc_id,
+                customer_name=bc_order.get("customerName"),
+                customer_number=bc_order.get("customerNumber"),
+                bc_customer_id=bc_order.get("customerId"),
+                customer_email=bc_order.get("email"),
+                total_amount=bc_order.get("totalAmountIncludingTax", 0),
+                status=mapped_status,
+                order_date=self._parse_date(bc_order.get("orderDate")),
+                requested_delivery_date=self._parse_date(bc_order.get("requestedDeliveryDate")),
+                shipping_address=self._build_address(bc_order, "shipTo"),
+                billing_address=self._build_address(bc_order, "billTo"),
+                external_document_number=external_doc,
+                last_synced_at=datetime.utcnow(),
+            ))
+            results["orders_synced"] += 1
+
     async def _sync_single_order(
         self,
         db: Session,
@@ -127,6 +250,9 @@ class BCSyncService:
             SalesOrder.bc_order_number == bc_order_number
         ).first()
 
+        mapped_status = self._map_bc_status_to_enum(bc_order.get("status"))
+        external_doc = bc_order.get("externalDocumentNumber")
+
         if existing:
             # Update existing order
             existing.customer_name = bc_order.get("customerName")
@@ -135,6 +261,12 @@ class BCSyncService:
             existing.total_amount = bc_order.get("totalAmountIncludingTax", 0)
             existing.order_date = self._parse_date(bc_order.get("orderDate"))
             existing.requested_delivery_date = self._parse_date(bc_order.get("requestedDeliveryDate"))
+            # Only advance status forward — never overwrite a manually-set
+            # later state (SHIPPED/COMPLETED) with an earlier BC value.
+            if existing.status not in (OrderStatus.SHIPPED, OrderStatus.COMPLETED):
+                existing.status = mapped_status
+            if external_doc and not existing.external_document_number:
+                existing.external_document_number = external_doc
             existing.last_synced_at = datetime.utcnow()
             sales_order = existing
             results["orders_updated"] += 1
@@ -148,11 +280,12 @@ class BCSyncService:
                 bc_customer_id=bc_order.get("customerId"),
                 customer_email=bc_order.get("email"),
                 total_amount=bc_order.get("totalAmountIncludingTax", 0),
-                status=OrderStatus.PENDING,
+                status=mapped_status,
                 order_date=self._parse_date(bc_order.get("orderDate")),
                 requested_delivery_date=self._parse_date(bc_order.get("requestedDeliveryDate")),
                 shipping_address=self._build_address(bc_order, "shipTo"),
                 billing_address=self._build_address(bc_order, "billTo"),
+                external_document_number=external_doc,
                 last_synced_at=datetime.utcnow()
             )
             db.add(sales_order)
