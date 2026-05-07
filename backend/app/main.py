@@ -72,6 +72,27 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Email monitoring disabled (ENABLE_EMAIL_MONITORING=False)")
 
+    # Initial BC sales-order sync — only run in the worker that owns the
+    # scheduler lock, so we don't hammer BC with 4× the API calls under
+    # Gunicorn. Done as an `await` here because lifespan is already inside
+    # the asyncio event loop (asyncio.run can't nest).
+    if _owns_scheduler:
+        try:
+            from app.services.bc_sync_service import bc_sync_service
+            from app.db.database import SessionLocal as _SessionLocal
+            _db = _SessionLocal()
+            try:
+                _stats = await bc_sync_service.sync_open_sales_orders_fast(_db)
+                logger.info(
+                    f"✓ Initial sales-order sync: {_stats.get('orders_synced', 0)} new, "
+                    f"{_stats.get('orders_updated', 0)} updated, "
+                    f"{len(_stats.get('errors', []))} errors"
+                )
+            finally:
+                _db.close()
+        except Exception as _sync_err:
+            logger.error(f"Initial sales-order sync failed (non-fatal): {_sync_err}", exc_info=True)
+
     yield
 
     # Shutdown

@@ -111,10 +111,12 @@ class SchedulerService:
         # Run first check immediately
         logger.info("Running initial email check...")
         self._check_emails_job()
-        # Also run an initial order sync so the tracker has data on startup
-        # rather than waiting for the next 2-hour tick.
-        logger.info("Running initial sales order sync...")
-        self._sales_order_sync_job()
+        # NOTE: initial sales-order sync is invoked from main.lifespan via
+        # `await bc_sync_service.sync_open_sales_orders_fast(...)` because
+        # this method runs inside FastAPI's running event loop and asyncio
+        # can't nest. The cron-scheduled firings of _sales_order_sync_job
+        # run in BackgroundScheduler worker threads (no loop) so asyncio.run
+        # works there.
 
     def stop(self):
         """Stop the scheduler"""
