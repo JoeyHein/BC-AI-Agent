@@ -20,12 +20,21 @@ Aging conventions (matches CLAUDE.md):
 - Cancelled orders are excluded from both views.
 """
 
+import logging
+import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
 from app.db.models import OrderStatus, SalesOrder
+
+logger = logging.getLogger(__name__)
+
+# In-process cache for cycle-time data so multiple dashboard loads don't
+# hammer BC. Keyed by lookback_days.
+_CYCLE_CACHE: Dict[int, Dict[str, Any]] = {}
+_CYCLE_CACHE_TTL_SECONDS = 300  # 5 min
 
 
 # Buckets for the open-orders list coloring (matches the UI legend)
@@ -72,6 +81,112 @@ def _bucket_for_delivery_age(days: int) -> str:
     if days <= 56:
         return "under_8w"
     return "over_8w"
+
+
+def _parse_iso_date(s: Optional[str]) -> Optional[datetime]:
+    """Defensive ISO date parser. BC returns 'YYYY-MM-DD' or '0001-01-01'
+    sentinel for unset; both handled."""
+    if not s or s == "0001-01-01":
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _compute_cycle_time(lookback_days: int) -> Dict[str, Any]:
+    """
+    Pull BC PostedSalesInvoices in the lookback window and compute the
+    order-to-invoice cycle time per record. Cached per process so repeat
+    dashboard loads don't re-hit BC every time.
+
+    Returns:
+      {
+        "lookback_days": int,
+        "invoice_count": int,
+        "avg_days": float | None,
+        "median_days": float | None,
+        "buckets": {"under_4w": int, ..., "over_8w": int},
+        "bucket_pct": {"under_4w": float, ...},
+        "samples": [
+          {"order_no", "invoice_no", "customer", "order_date",
+           "invoice_date", "cycle_days"},
+          ...
+        ],
+        "error": str | None,
+      }
+    """
+    now = time.time()
+    cached = _CYCLE_CACHE.get(lookback_days)
+    if cached and (now - cached["_t"]) < _CYCLE_CACHE_TTL_SECONDS:
+        return cached["data"]
+
+    from app.integrations.bc.client import bc_client
+    today = datetime.utcnow()
+    since = (today - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+
+    try:
+        rows = bc_client.get_posted_sales_invoices(since_date=since)
+    except Exception as e:
+        logger.error(f"Cycle-time fetch failed: {e}", exc_info=True)
+        return {
+            "lookback_days": lookback_days,
+            "invoice_count": 0,
+            "avg_days": None,
+            "median_days": None,
+            "buckets": {"under_4w": 0, "under_6w": 0, "under_8w": 0, "over_8w": 0},
+            "bucket_pct": {"under_4w": 0.0, "under_6w": 0.0, "under_8w": 0.0, "over_8w": 0.0},
+            "samples": [],
+            "error": str(e),
+        }
+
+    cycles: List[int] = []
+    samples: List[Dict[str, Any]] = []
+    bucket_counts = {"under_4w": 0, "under_6w": 0, "under_8w": 0, "over_8w": 0}
+
+    for inv in rows:
+        order_no = inv.get("Order_No") or ""
+        order_date = _parse_iso_date(inv.get("Order_Date"))
+        posting_date = _parse_iso_date(inv.get("Posting_Date"))
+        if not (order_no and order_date and posting_date):
+            continue  # standalone invoices (no source SO) don't have a cycle
+        cycle_days = max(0, (posting_date - order_date).days)
+        cycles.append(cycle_days)
+        bucket_counts[_bucket_for_delivery_age(cycle_days)] += 1
+        samples.append({
+            "order_no": order_no,
+            "invoice_no": inv.get("No"),
+            "customer": inv.get("Sell_to_Customer_Name"),
+            "order_date": inv.get("Order_Date"),
+            "invoice_date": inv.get("Posting_Date"),
+            "cycle_days": cycle_days,
+            "amount": float(inv.get("Amount_Including_VAT") or 0),
+        })
+
+    n = len(cycles)
+    avg = round(sum(cycles) / n, 1) if n else None
+    median = None
+    if n:
+        sorted_c = sorted(cycles)
+        median = sorted_c[n // 2] if n % 2 else (sorted_c[n // 2 - 1] + sorted_c[n // 2]) / 2.0
+
+    def pct(c: int) -> float:
+        return round((c / n) * 100, 1) if n else 0.0
+
+    samples.sort(key=lambda s: s["cycle_days"], reverse=True)
+
+    data = {
+        "lookback_days": lookback_days,
+        "invoice_count": n,
+        "avg_days": avg,
+        "median_days": median,
+        "buckets": bucket_counts,
+        "bucket_pct": {k: pct(v) for k, v in bucket_counts.items()},
+        "samples": samples[:50],  # cap payload — full list isn't needed for the dashboard
+        "error": None,
+    }
+    _CYCLE_CACHE[lookback_days] = {"_t": now, "data": data}
+    return data
 
 
 def get_order_age_metrics(
@@ -211,6 +326,9 @@ def get_order_age_metrics(
         ),
     }
 
+    # ----- Order-to-invoice cycle time (live from BC PostedSalesInvoices) -----
+    cycle_time = _compute_cycle_time(success_lookback_days)
+
     return {
         "generated_at": now.isoformat() + "Z",
         "success_lookback_days": success_lookback_days,
@@ -220,4 +338,5 @@ def get_order_age_metrics(
             **bucket_counts,
         },
         "success_rate": success_rate,
+        "cycle_time": cycle_time,
     }

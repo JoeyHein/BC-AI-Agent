@@ -423,6 +423,49 @@ class BusinessCentralClient:
         )
         return result.get("value", [])
 
+    # ==================== Posted Sales Invoices (OData V4) ====================
+
+    def get_posted_sales_invoices(self, since_date: str,
+                                   page_size: int = 500,
+                                   company_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Fetch posted sales invoices with their originating Order_No /
+        Order_Date / Posting_Date / Shipment_Date so we can compute
+        order-to-invoice cycle time.
+
+        since_date: ISO 'YYYY-MM-DD'. Filters Posting_Date >= since.
+        Paginates via @odata.nextLink.
+        """
+        company_segment = self._odata_v4_company_segment(company_id)
+        select = (
+            "$select=No,Order_No,Order_Date,Posting_Date,Document_Date,"
+            "Shipment_Date,Quote_Date,Sell_to_Customer_Name,Bill_to_Customer_No,"
+            "Amount_Including_VAT,External_Document_No"
+        )
+        url = (
+            f"{self.odata_url}/{company_segment}/PostedSalesInvoices"
+            f"?$filter=Posting_Date ge {since_date}&{select}&$top={page_size}"
+        )
+        rows: List[Dict[str, Any]] = []
+        try:
+            token = self._get_access_token()
+            while url:
+                resp = requests.get(
+                    url,
+                    headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+                    timeout=120,
+                )
+                if resp.status_code >= 400:
+                    logger.error(f"get_posted_sales_invoices HTTP {resp.status_code}: {resp.text[:300]}")
+                    break
+                data = resp.json()
+                rows.extend(data.get("value", []))
+                url = data.get("@odata.nextLink")
+        except Exception as e:
+            logger.error(f"get_posted_sales_invoices failed: {e}")
+        logger.info(f"Fetched {len(rows)} PostedSalesInvoices since {since_date}")
+        return rows
+
     # ==================== Sales Prices (OData V4) ====================
     # BC's modern Sales Pricing experience exposes price-list lines via the
     # SalesPriceLists OData V4 page in this tenant. Field shape (verified

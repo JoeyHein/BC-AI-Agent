@@ -72,6 +72,113 @@ function Skeleton({ h = 'h-4', w = 'w-full' }) {
   return <div className={`animate-pulse bg-gray-200 rounded ${h} ${w}`} />
 }
 
+function CycleTimeSection({ cycle, loading }) {
+  if (!loading && !cycle) return null
+  const buckets = cycle?.buckets || { under_4w: 0, under_6w: 0, under_8w: 0, over_8w: 0 }
+  const pct = cycle?.bucket_pct || { under_4w: 0, under_6w: 0, under_8w: 0, over_8w: 0 }
+  const samples = cycle?.samples || []
+
+  return (
+    <section className="mb-8">
+      <div className="flex items-baseline justify-between mb-3">
+        <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+          Order → Invoice Cycle Time
+          <span className="ml-2 text-xs text-gray-400 font-normal normal-case">(closed orders)</span>
+        </h2>
+        {cycle && !loading && (
+          <p className="text-xs text-gray-500">
+            {cycle.invoice_count} invoiced in last {cycle.lookback_days} days
+            {cycle.avg_days != null && ` · avg ${cycle.avg_days}d`}
+            {cycle.median_days != null && ` · median ${cycle.median_days}d`}
+          </p>
+        )}
+      </div>
+      {cycle?.error && (
+        <p className="text-xs text-red-600 mb-2">Cycle time unavailable: {cycle.error}</p>
+      )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+        {loading ? (
+          Array(4).fill(0).map((_, i) => <Skeleton key={i} h="h-24" />)
+        ) : (
+          <>
+            <KpiTile
+              label="Closed ≤ 4 weeks"
+              value={pct.under_4w}
+              count={buckets.under_4w}
+              color={SUCCESS_BUCKET_COLORS.under_4w}
+              bgClass="bg-green-50 border-green-200"
+            />
+            <KpiTile
+              label="Closed ≤ 6 weeks"
+              value={pct.under_6w}
+              count={buckets.under_6w}
+              color={SUCCESS_BUCKET_COLORS.under_6w}
+              bgClass="bg-yellow-50 border-yellow-200"
+            />
+            <KpiTile
+              label="Closed ≤ 8 weeks"
+              value={pct.under_8w}
+              count={buckets.under_8w}
+              color={SUCCESS_BUCKET_COLORS.under_8w}
+              bgClass="bg-orange-50 border-orange-200"
+            />
+            <KpiTile
+              label="Over 8 weeks"
+              value={pct.over_8w}
+              count={buckets.over_8w}
+              color={SUCCESS_BUCKET_COLORS.over_8w}
+              bgClass="bg-red-50 border-red-200"
+            />
+          </>
+        )}
+      </div>
+      {samples.length > 0 && (
+        <details className="bg-white rounded-lg border border-gray-200">
+          <summary className="px-5 py-3 text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-50">
+            Slowest {samples.length} orders by cycle time
+          </summary>
+          <div className="overflow-x-auto border-t border-gray-200">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Order #</th>
+                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Customer</th>
+                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Order Date</th>
+                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Invoice Date</th>
+                  <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Cycle</th>
+                  <th className="px-4 py-2 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {samples.map((s, i) => (
+                  <tr key={`${s.invoice_no}-${i}`} className="hover:bg-gray-50">
+                    <td className="px-4 py-2 text-sm text-gray-900 whitespace-nowrap">{s.order_no || '—'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-700 whitespace-nowrap">{s.customer || '—'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-600 whitespace-nowrap">{fmtDate(s.order_date)}</td>
+                    <td className="px-4 py-2 text-sm text-gray-600 whitespace-nowrap">{fmtDate(s.invoice_date)}</td>
+                    <td className="px-4 py-2 text-sm text-right whitespace-nowrap font-medium">
+                      <span className={
+                        s.cycle_days > 56 ? 'text-red-700'
+                        : s.cycle_days > 42 ? 'text-orange-700'
+                        : s.cycle_days > 28 ? 'text-yellow-700'
+                        : 'text-green-700'
+                      }>
+                        {(s.cycle_days / 7).toFixed(1)} wks
+                      </span>
+                      <span className="text-gray-400 ml-1">({s.cycle_days}d)</span>
+                    </td>
+                    <td className="px-4 py-2 text-sm text-right text-gray-700 whitespace-nowrap">{fmtMoney(s.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
+    </section>
+  )
+}
+
 export default function OrderAgeTracker() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -197,6 +304,9 @@ export default function OrderAgeTracker() {
           )}
         </div>
       </section>
+
+      {/* Order-to-invoice cycle time (closed orders, live from BC) */}
+      <CycleTimeSection cycle={data?.cycle_time} loading={loading} />
 
       {/* Open orders distribution + summary */}
       <section className="mb-8 grid grid-cols-1 lg:grid-cols-3 gap-4">
