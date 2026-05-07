@@ -21,6 +21,7 @@ import CustomerDetail from './components/CustomerDetail'
 import QuoteLeads from './components/QuoteLeads'
 import QuoteSearch from './components/QuoteSearch'
 import QuotingAnalytics from './pages/QuotingAnalytics'
+import OrderAgeTracker from './pages/OrderAgeTracker'
 
 function Navigation() {
   const { user, logout, isAuthenticated } = useAuth()
@@ -64,6 +65,7 @@ function Navigation() {
     { path: '/business', label: 'Business' },
     { path: '/analytics', label: 'Analytics' },
     { path: '/analytics/quoting', label: 'Quoting' },
+    { path: '/analytics/order-age', label: 'Order Age Tracker' },
     { path: '/weekly-email', label: 'Weekly Email' },
   ]
 
@@ -215,6 +217,11 @@ function AppContent() {
           <Route path="/analytics/quoting" element={
             <ProtectedRoute requireReviewer>
               <QuotingAnalytics />
+            </ProtectedRoute>
+          } />
+          <Route path="/analytics/order-age" element={
+            <ProtectedRoute requireReviewer>
+              <OrderAgeTracker />
             </ProtectedRoute>
           } />
 

@@ -701,6 +701,9 @@ export const metricsApi = {
 
   getQuoting: (days = 30) =>
     apiClient.get(`/api/metrics/quoting?days=${days}`),
+
+  getOrderAge: (lookbackDays = 90) =>
+    apiClient.get(`/api/metrics/order-age?lookback_days=${lookbackDays}`),
 };
 
 // Weekly Email Agent API

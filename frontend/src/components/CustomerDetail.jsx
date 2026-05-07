@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-import { formatDate } from '../utils/datetime'
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
+import { formatDate } from '../utils/datetime'
 import { metricsApi, customersApi } from '../api/client'
 
 function fmt$(val) {

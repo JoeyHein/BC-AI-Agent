@@ -129,6 +129,26 @@ async def get_quoting_analytics(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# =============================================================================
+# ORDER AGE TRACKER — reviewer+
+# =============================================================================
+
+@router.get("/order-age")
+async def get_order_age(
+    lookback_days: int = 90,
+    current_user: User = Depends(require_reviewer),
+    db: Session = Depends(get_db),
+):
+    """Open-order aging + delivery success rate buckets for the team dashboard."""
+    try:
+        from app.services.order_age_service import get_order_age_metrics
+        data = get_order_age_metrics(db, success_lookback_days=lookback_days)
+        return {"success": True, "data": data}
+    except Exception as e:
+        logger.error(f"Order age metrics error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/customer/{customer_number}")
 async def get_customer_metrics(
     customer_number: str,
