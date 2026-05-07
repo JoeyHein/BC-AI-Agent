@@ -336,7 +336,15 @@ def get_order_age_metrics(
     )
 
     open_rows: List[Dict[str, Any]] = []
+    # Bucket counts split by schedule_status so the UI can render two
+    # parallel age charts: orders that need attention (behind / at-risk)
+    # vs orders that are old simply because the customer ordered far
+    # ahead of the requested delivery date.
     bucket_counts = {"green": 0, "yellow": 0, "red": 0}
+    bucket_counts_behind = {"green": 0, "yellow": 0, "red": 0}
+    bucket_counts_on_schedule = {"green": 0, "yellow": 0, "red": 0}
+    APPROACHING_THRESHOLD_DAYS = 7  # within a week of due → at-risk
+
     for o in open_orders_q.all():
         start = _start_date(o)
         if not start:
@@ -344,13 +352,35 @@ def get_order_age_metrics(
         age_days = max(0, (now - start).days)
         bucket = _bucket_for_open_age(age_days)
         bucket_counts[bucket] += 1
+
         # Days remaining until requested delivery — negative if past due.
-        # Lets the UI show "due in 12d" or "overdue 4d" without redoing
-        # the date math client-side.
         rdd = o.requested_delivery_date
         days_until_due: Optional[int] = None
         if rdd:
             days_until_due = (rdd - now).days
+
+        # Schedule status:
+        #   behind         — past requested delivery date
+        #   approaching    — due within the next week
+        #   on_schedule    — due >7d out
+        #   no_schedule    — no requested delivery date set on the order
+        if days_until_due is None:
+            schedule_status = "no_schedule"
+        elif days_until_due < 0:
+            schedule_status = "behind"
+        elif days_until_due <= APPROACHING_THRESHOLD_DAYS:
+            schedule_status = "approaching"
+        else:
+            schedule_status = "on_schedule"
+
+        # For the two-chart split: behind+approaching+no_schedule are the
+        # "needs attention" pile; on_schedule is the "fine, keep waiting"
+        # pile. no_schedule defaults to behind so missing dates get flagged.
+        if schedule_status == "on_schedule":
+            bucket_counts_on_schedule[bucket] += 1
+        else:
+            bucket_counts_behind[bucket] += 1
+
         open_rows.append({
             "id": o.id,
             "bc_order_number": o.bc_order_number,
@@ -364,6 +394,7 @@ def get_order_age_metrics(
             "age_weeks": round(age_days / 7, 1),
             "status": o.status.value if o.status else None,
             "bucket": bucket,
+            "schedule_status": schedule_status,
             "total_amount": float(o.total_amount) if o.total_amount is not None else None,
         })
 
@@ -380,6 +411,10 @@ def get_order_age_metrics(
         "open_summary": {
             "total": len(open_rows),
             **bucket_counts,
+            "behind": bucket_counts_behind,
+            "on_schedule": bucket_counts_on_schedule,
+            "behind_total": sum(bucket_counts_behind.values()),
+            "on_schedule_total": sum(bucket_counts_on_schedule.values()),
         },
         "cycle_time": cycle_time,
     }

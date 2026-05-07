@@ -72,6 +72,50 @@ function Skeleton({ h = 'h-4', w = 'w-full' }) {
   return <div className={`animate-pulse bg-gray-200 rounded ${h} ${w}`} />
 }
 
+function OpenOrdersChart({ title, subtitle, data, total, loading, accentClass }) {
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 p-5">
+      <div className="flex items-baseline justify-between mb-4">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">{title}</h2>
+          <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
+        </div>
+        <div className={`text-2xl font-bold ${accentClass}`}>{total}</div>
+      </div>
+      {loading ? (
+        <Skeleton h="h-44" />
+      ) : (
+        <ResponsiveContainer width="100%" height={180}>
+          <BarChart data={data} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+            <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+            <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+            <Tooltip />
+            <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+              {data.map((d, i) => <Cell key={i} fill={d.color} />)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  )
+}
+
+const SCHEDULE_LABELS = {
+  behind: { text: 'Behind', cls: 'bg-red-100 text-red-700' },
+  approaching: { text: 'Due soon', cls: 'bg-yellow-100 text-yellow-700' },
+  on_schedule: { text: 'On schedule', cls: 'bg-green-100 text-green-700' },
+  no_schedule: { text: 'No date', cls: 'bg-gray-100 text-gray-600' },
+}
+
+function ScheduleBadge({ status }) {
+  const meta = SCHEDULE_LABELS[status] || SCHEDULE_LABELS.no_schedule
+  return (
+    <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded ${meta.cls}`}>
+      {meta.text}
+    </span>
+  )
+}
+
 function fmtMonthLabel(yyyymm) {
   if (!yyyymm) return ''
   // 'YYYY-MM' → 'MMM YY'
@@ -323,11 +367,19 @@ export default function OrderAgeTracker() {
   const openRows = data?.open_orders || []
   const openSummary = data?.open_summary || { total: 0, green: 0, yellow: 0, red: 0 }
 
-  // Chart data for open-order distribution
-  const openChart = [
-    { label: 'Under 4 wks', count: openSummary.green, color: OPEN_BUCKET_COLORS.green },
-    { label: '4 – 6 wks',   count: openSummary.yellow, color: OPEN_BUCKET_COLORS.yellow },
-    { label: 'Over 6 wks',  count: openSummary.red,    color: OPEN_BUCKET_COLORS.red },
+  // Two parallel chart datasets — orders that need attention vs orders
+  // that are old simply because the customer ordered ahead of schedule.
+  const behindBuckets = openSummary.behind || { green: 0, yellow: 0, red: 0 }
+  const onScheduleBuckets = openSummary.on_schedule || { green: 0, yellow: 0, red: 0 }
+  const behindChart = [
+    { label: 'Under 4 wks', count: behindBuckets.green, color: OPEN_BUCKET_COLORS.green },
+    { label: '4 – 6 wks',   count: behindBuckets.yellow, color: OPEN_BUCKET_COLORS.yellow },
+    { label: 'Over 6 wks',  count: behindBuckets.red,    color: OPEN_BUCKET_COLORS.red },
+  ]
+  const onScheduleChart = [
+    { label: 'Under 4 wks', count: onScheduleBuckets.green, color: OPEN_BUCKET_COLORS.green },
+    { label: '4 – 6 wks',   count: onScheduleBuckets.yellow, color: OPEN_BUCKET_COLORS.yellow },
+    { label: 'Over 6 wks',  count: onScheduleBuckets.red,    color: OPEN_BUCKET_COLORS.red },
   ]
 
   const periods = [
@@ -373,54 +425,27 @@ export default function OrderAgeTracker() {
         lookbackDays={data?.cycle_time?.lookback_days}
       />
 
-      {/* Open orders distribution + summary */}
-      <section className="mb-8 grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 bg-white rounded-lg border border-gray-200 p-5">
-          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-4">
-            Open Orders by Age
-          </h2>
-          {loading ? (
-            <Skeleton h="h-64" />
-          ) : (
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={openChart} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-                <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                  {openChart.map((d, i) => <Cell key={i} fill={d.color} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-5">
-          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-4">
-            Currently Open
-          </h2>
-          {loading ? (
-            <div className="space-y-3"><Skeleton /><Skeleton /><Skeleton /><Skeleton /></div>
-          ) : (
-            <ul className="space-y-3">
-              <li className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Total open</span>
-                <span className="text-2xl font-semibold text-gray-900">{openSummary.total}</span>
-              </li>
-              <li className="flex items-center justify-between">
-                <span className="text-sm text-gray-600 flex items-center">{ageDot('green')}Under 4 weeks</span>
-                <span className="text-lg font-medium text-green-700">{openSummary.green}</span>
-              </li>
-              <li className="flex items-center justify-between">
-                <span className="text-sm text-gray-600 flex items-center">{ageDot('yellow')}4 – 6 weeks</span>
-                <span className="text-lg font-medium text-yellow-700">{openSummary.yellow}</span>
-              </li>
-              <li className="flex items-center justify-between">
-                <span className="text-sm text-gray-600 flex items-center">{ageDot('red')}Over 6 weeks</span>
-                <span className="text-lg font-medium text-red-700">{openSummary.red}</span>
-              </li>
-            </ul>
-          )}
-        </div>
+      {/* Open orders distribution — split by schedule status. Orders that
+          are old but whose requested delivery date is still in the future
+          aren't actually behind; they appear in the right-hand chart and
+          don't pull the team's attention. */}
+      <section className="mb-8 grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <OpenOrdersChart
+          title="Behind / At Risk"
+          subtitle="Past due or due within 7 days"
+          data={behindChart}
+          total={openSummary.behind_total ?? 0}
+          loading={loading}
+          accentClass="text-red-700"
+        />
+        <OpenOrdersChart
+          title="On Schedule"
+          subtitle="Due more than 7 days out"
+          data={onScheduleChart}
+          total={openSummary.on_schedule_total ?? 0}
+          loading={loading}
+          accentClass="text-green-700"
+        />
       </section>
 
       {/* Order list */}
@@ -451,6 +476,7 @@ export default function OrderAgeTracker() {
                   <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">PO</th>
                   <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Order Date</th>
                   <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Expected By</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Schedule</th>
                   <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Age</th>
                   <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
                   <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Total</th>
@@ -489,6 +515,9 @@ export default function OrderAgeTracker() {
                       ) : (
                         <span className="text-gray-400">—</span>
                       )}
+                    </td>
+                    <td className="px-4 py-2 text-sm whitespace-nowrap">
+                      <ScheduleBadge status={o.schedule_status} />
                     </td>
                     <td className="px-4 py-2 text-sm text-right whitespace-nowrap font-medium">
                       <span className={
