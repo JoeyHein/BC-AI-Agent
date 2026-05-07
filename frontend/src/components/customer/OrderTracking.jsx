@@ -2,6 +2,7 @@ import { Link, useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ordersApi } from '../../api/customerClient'
 import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
+import { formatDate } from '../../utils/datetime'
 
 function OrderTracking() {
   const { id } = useParams()
@@ -125,7 +126,7 @@ function OrderTracking() {
                 </p>
                 {step.timestamp && (
                   <p className="text-xs text-gray-500">
-                    {new Date(step.timestamp).toLocaleDateString()}
+                    {formatDate(step.timestamp)}
                   </p>
                 )}
               </div>
@@ -187,7 +188,7 @@ function OrderTracking() {
                       {event.timestamp && (
                         <div className="text-right text-sm whitespace-nowrap text-gray-500">
                           <time dateTime={event.timestamp}>
-                            {new Date(event.timestamp).toLocaleDateString('en-US', {
+                            {formatDate(event.timestamp, 'en-US', {
                               month: 'short',
                               day: 'numeric'
                             })}
@@ -217,7 +218,7 @@ function OrderTracking() {
                     </p>
                     {shipment.shipment_date && (
                       <p className="text-sm text-gray-500">
-                        Shipped: {new Date(shipment.shipment_date).toLocaleDateString()}
+                        Shipped: {formatDate(shipment.shipment_date)}
                       </p>
                     )}
                   </div>

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import CrmFeed from './CrmFeed'
 import apiClient, { customersApi } from '../api/client'
 import InstallPricingPanel from './InstallPricingPanel'
+import { formatDate, formatDateTime } from '../utils/datetime'
 
 // API functions
 const fetchCustomers = async () => {
@@ -282,7 +283,7 @@ function CustomerList({ customers, onSelect, selectedId, onCreateFromBC }) {
                 {customer.saved_quotes_count}
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                {new Date(customer.created_at).toLocaleDateString()}
+                {formatDate(customer.created_at)}
               </td>
             </tr>
           ))}
@@ -577,14 +578,14 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
             <div>
               <dt className="text-sm font-medium text-gray-500">Created</dt>
               <dd className="mt-1 text-sm text-gray-900">
-                {new Date(customer.created_at).toLocaleString()}
+                {formatDateTime(customer.created_at)}
               </dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-gray-500">Last Login</dt>
               <dd className="mt-1 text-sm text-gray-900">
                 {customer.last_login_at
-                  ? new Date(customer.last_login_at).toLocaleString()
+                  ? formatDateTime(customer.last_login_at)
                   : 'Never'}
               </dd>
             </div>
@@ -680,7 +681,7 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
                           }`}>
                             {q.status}
                           </span>
-                          <span className="text-gray-400">{q.created_at ? new Date(q.created_at).toLocaleDateString() : ''}</span>
+                          <span className="text-gray-400">{q.created_at ? formatDate(q.created_at) : ''}</span>
                         </div>
                       </div>
                     ))}
@@ -1215,7 +1216,7 @@ function PendingRegistrations({ onRefreshCustomers }) {
                   <AccountTypeBadge type={reg.account_type} />
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {reg.created_at ? new Date(reg.created_at).toLocaleDateString() : '-'}
+                  {reg.created_at ? formatDate(reg.created_at) : '-'}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                   <div className="flex items-center justify-end gap-2">

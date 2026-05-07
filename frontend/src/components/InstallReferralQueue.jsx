@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { installReferralsAdminApi } from '../api/client'
+import { formatDate } from '../utils/datetime'
 
 const STATUS_OPTIONS = [
   { value: 'new', label: 'New', color: 'bg-amber-100 text-amber-800' },
@@ -201,7 +202,7 @@ function ReferralRow({ referral, isExpanded, onToggle, onUpdate, isUpdating, upd
   const formatDate = (dateStr) => {
     if (!dateStr) return '-'
     try {
-      return new Date(dateStr).toLocaleDateString('en-US', {
+      return formatDate(dateStr, 'en-US', {
         year: 'numeric',
         month: 'short',
         day: 'numeric',

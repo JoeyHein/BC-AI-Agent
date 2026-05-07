@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
 import { savedQuotesApi, ordersApi, historyApi } from '../../api/customerClient'
 import { InstallReferralList } from './InstallReferralStatus'
+import { formatDate } from '../../utils/datetime'
 
 function CustomerDashboard() {
   const { user, isBCLinked, isDealer, isHomeBuilder } = useCustomerAuth()
@@ -186,7 +187,7 @@ function CustomerDashboard() {
                     <div>
                       <p className="text-sm font-medium text-gray-900">{quote.name || 'Unnamed Quote'}</p>
                       <p className="text-sm text-gray-500">
-                        Last updated: {new Date(quote.updated_at || quote.created_at).toLocaleDateString()}
+                        Last updated: {formatDate(quote.updated_at || quote.created_at)}
                       </p>
                     </div>
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
@@ -229,7 +230,7 @@ function CustomerDashboard() {
                         {order.bc_order_number || `Order #${order.id}`}
                       </p>
                       <p className="text-sm text-gray-500">
-                        {new Date(order.created_at).toLocaleDateString()}
+                        {formatDate(order.created_at)}
                       </p>
                     </div>
                     <StatusBadge status={order.status} />

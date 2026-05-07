@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ordersApi } from '../../api/customerClient'
 import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
+import { formatDate } from '../../utils/datetime'
 
 function MyOrders() {
   const [filter, setFilter] = useState('all')
@@ -112,7 +113,7 @@ function MyOrders() {
                     </h3>
                     {order.order_date && (
                       <p className="mt-1 text-sm text-gray-500">
-                        Placed on {new Date(order.order_date).toLocaleDateString('en-US', {
+                        Placed on {formatDate(order.order_date, 'en-US', {
                           year: 'numeric',
                           month: 'long',
                           day: 'numeric'
@@ -134,7 +135,7 @@ function MyOrders() {
                   {order.requested_delivery_date && order.requested_delivery_date !== '0001-01-01' && (
                     <p className="text-sm text-gray-700">
                       Est. Delivery: <span className="font-medium">
-                        {new Date(order.requested_delivery_date).toLocaleDateString('en-US', {
+                        {formatDate(order.requested_delivery_date, 'en-US', {
                           year: 'numeric',
                           month: 'long',
                           day: 'numeric'

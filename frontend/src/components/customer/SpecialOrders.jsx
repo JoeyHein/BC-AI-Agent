@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { springBuilderApi } from '../../api/customerClient';
+import { formatDate } from '../../utils/datetime'
 
 export default function SpecialOrders() {
   const [orders, setOrders] = useState([]);
@@ -76,7 +77,7 @@ export default function SpecialOrders() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-500">
-                    {order.created_at ? new Date(order.created_at).toLocaleDateString() : '-'}
+                    {order.created_at ? formatDate(order.created_at) : '-'}
                   </td>
                 </tr>
               ))}

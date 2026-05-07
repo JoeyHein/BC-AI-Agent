@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
+import { formatDateTime } from '../utils/datetime'
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend
 } from 'recharts'
@@ -313,7 +314,7 @@ function Analytics() {
             <p className="text-gray-500 mt-1">AI-powered insights from your quote history</p>
           </div>
           <div className="text-sm text-gray-500">
-            Last updated: {dashboardData?.analysis_date ? new Date(dashboardData.analysis_date).toLocaleString() : 'N/A'}
+            Last updated: {dashboardData?.analysis_date ? formatDateTime(dashboardData.analysis_date) : 'N/A'}
           </div>
         </div>
       </div>

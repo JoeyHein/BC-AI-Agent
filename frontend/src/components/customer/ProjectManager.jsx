@@ -5,6 +5,7 @@ import { projectsApi } from '../../api/customerClient'
 import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
 import InstallReferralForm from './InstallReferralForm'
 import { InstallReferralList } from './InstallReferralStatus'
+import { formatDate } from '../../utils/datetime'
 
 // ─── Status badge helpers ───────────────────────────────────────────────────
 
@@ -185,7 +186,7 @@ function ProjectList() {
                 )}
 
                 <p className="mt-3 text-xs text-gray-400">
-                  Created {new Date(project.created_at).toLocaleDateString()}
+                  Created {formatDate(project.created_at)}
                 </p>
               </Link>
             )
@@ -442,7 +443,7 @@ function ProjectDetail({ projectId }) {
             )}
           </div>
           <div className="text-sm text-gray-400">
-            Created {new Date(project.created_at).toLocaleDateString()}
+            Created {formatDate(project.created_at)}
           </div>
         </div>
       </div>

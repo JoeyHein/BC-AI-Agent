@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
+import { formatDate } from '../utils/datetime'
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { metricsApi, customersApi } from '../api/client'
@@ -309,10 +310,10 @@ function CustomerQuotes({ customerId }) {
                       </span>
                     </td>
                     <td className="px-6 py-3 text-sm text-gray-500">
-                      {q.created_at ? new Date(q.created_at).toLocaleDateString() : '—'}
+                      {q.created_at ? formatDate(q.created_at) : '—'}
                     </td>
                     <td className="px-6 py-3 text-sm text-gray-500">
-                      {q.updated_at ? new Date(q.updated_at).toLocaleDateString() : '—'}
+                      {q.updated_at ? formatDate(q.updated_at) : '—'}
                     </td>
                   </tr>
                 )

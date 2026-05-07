@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
 import { customerAuthApi } from '../../api/customerClient'
+import { formatDate } from '../../utils/datetime'
 
 function CustomerAccount() {
   const { user, updateProfile, isBCLinked, isEmailVerified } = useCustomerAuth()
@@ -280,7 +281,7 @@ function CustomerAccount() {
               <dt className="text-sm text-gray-500">Account Created</dt>
               <dd className="text-sm text-gray-900">
                 {user?.created_at
-                  ? new Date(user.created_at).toLocaleDateString('en-US', {
+                  ? formatDate(user.created_at, 'en-US', {
                       year: 'numeric',
                       month: 'long',
                       day: 'numeric'
@@ -292,7 +293,7 @@ function CustomerAccount() {
               <dt className="text-sm text-gray-500">Last Login</dt>
               <dd className="text-sm text-gray-900">
                 {user?.last_login_at
-                  ? new Date(user.last_login_at).toLocaleDateString('en-US', {
+                  ? formatDate(user.last_login_at, 'en-US', {
                       year: 'numeric',
                       month: 'long',
                       day: 'numeric',

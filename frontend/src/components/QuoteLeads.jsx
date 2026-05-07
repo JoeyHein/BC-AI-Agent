@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { quoteLeadsApi } from '../api/client'
+import { formatDate } from '../utils/datetime'
 
 const STATUS_OPTIONS = ['new', 'contacted', 'quoted', 'won', 'lost']
 const STATUS_COLORS = {
@@ -51,7 +52,7 @@ export default function QuoteLeads() {
 
   const formatDate = (iso) => {
     if (!iso) return '—'
-    return new Date(iso).toLocaleDateString('en-CA', {
+    return formatDate(iso, 'en-CA', {
       year: 'numeric', month: 'short', day: 'numeric',
       hour: '2-digit', minute: '2-digit',
     })

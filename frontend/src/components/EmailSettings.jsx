@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useSearchParams } from 'react-router-dom'
 import axios from 'axios'
+import { formatDateTime } from '../utils/datetime'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -225,7 +226,7 @@ function EmailSettings() {
                           </span>
                           {connection.last_checked_at && (
                             <span className="ml-2 text-xs text-gray-500">
-                              Last checked: {new Date(connection.last_checked_at).toLocaleString()}
+                              Last checked: {formatDateTime(connection.last_checked_at)}
                             </span>
                           )}
                         </div>

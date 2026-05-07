@@ -3,6 +3,7 @@ import { Link, useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ordersApi } from '../../api/customerClient'
 import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
+import { formatDate } from '../../utils/datetime'
 
 function OrderDetail() {
   const { id } = useParams()
@@ -120,7 +121,7 @@ function OrderDetail() {
             <div>
               <dt className="text-sm text-gray-500">Order Date</dt>
               <dd className="mt-1 text-sm font-medium text-gray-900">
-                {new Date(order.order_date).toLocaleDateString('en-US', {
+                {formatDate(order.order_date, 'en-US', {
                   year: 'numeric',
                   month: 'long',
                   day: 'numeric'
@@ -140,7 +141,7 @@ function OrderDetail() {
             <div>
               <dt className="text-sm text-gray-500">Requested Delivery</dt>
               <dd className="mt-1 text-sm font-medium text-gray-900">
-                {new Date(order.requested_delivery_date).toLocaleDateString('en-US', {
+                {formatDate(order.requested_delivery_date, 'en-US', {
                   year: 'numeric',
                   month: 'long',
                   day: 'numeric'
@@ -220,7 +221,7 @@ function OrderDetail() {
                     </p>
                     {shipment.shipment_date && (
                       <p className="text-sm text-gray-500">
-                        Shipped: {new Date(shipment.shipment_date).toLocaleDateString()}
+                        Shipped: {formatDate(shipment.shipment_date)}
                       </p>
                     )}
                   </div>
@@ -266,7 +267,7 @@ function OrderDetail() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {invoice.invoice_date
-                        ? new Date(invoice.invoice_date).toLocaleDateString()
+                        ? formatDate(invoice.invoice_date)
                         : '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -276,7 +277,7 @@ function OrderDetail() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {invoice.due_date
-                        ? new Date(invoice.due_date).toLocaleDateString()
+                        ? formatDate(invoice.due_date)
                         : '-'}
                     </td>
                   </tr>

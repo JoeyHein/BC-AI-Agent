@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { emailAgentApi } from '../api/client'
+import { formatDate, formatDateTime } from '../utils/datetime'
 
 const TONE_OPTIONS = [
   'Friendly & casual',
@@ -451,7 +452,7 @@ function WeeklyEmail() {
           </p>
           <div className="bg-gray-50 rounded-lg p-4 max-w-sm mx-auto text-left text-sm space-y-1 mb-6">
             <p><span className="text-gray-500">Campaign ID:</span> <span className="font-mono text-gray-700">{sendResult.campaign_id}</span></p>
-            <p><span className="text-gray-500">Sent at:</span> <span className="text-gray-700">{new Date(sendResult.sent_at).toLocaleString()}</span></p>
+            <p><span className="text-gray-500">Sent at:</span> <span className="text-gray-700">{formatDateTime(sendResult.sent_at)}</span></p>
           </div>
           <button
             onClick={handleStartNew}
@@ -520,7 +521,7 @@ function WeeklyEmail() {
                 {historyData.campaigns.map((c) => (
                   <tr key={c.id}>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {c.sent_at ? new Date(c.sent_at).toLocaleDateString() : '—'}
+                      {c.sent_at ? formatDate(c.sent_at) : '—'}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">{c.subject}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{c.recipient_count?.toLocaleString()}</td>

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { adminQuotesApi } from '../api/client'
+import { formatDate } from '../utils/datetime'
 
 function statusBadge(q) {
   if (q.order_placed) return { text: 'Ordered', cls: 'bg-gray-200 text-gray-800' }
@@ -110,7 +111,7 @@ function QuoteSearch() {
                         </span>
                       </td>
                       <td className="px-6 py-3 text-sm text-gray-500">
-                        {q.created_at ? new Date(q.created_at).toLocaleDateString() : '—'}
+                        {q.created_at ? formatDate(q.created_at) : '—'}
                       </td>
                     </tr>
                   )

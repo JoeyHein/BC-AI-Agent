@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { savedQuotesApi, bcQuotesApi } from '../../api/customerClient'
 import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
 import QuotePricingDisplay from './QuotePricingDisplay'
+import { formatDate } from '../../utils/datetime'
 
 function SavedQuotes() {
   const [filter, setFilter] = useState('all') // all, draft, submitted
@@ -293,11 +294,11 @@ function SavedQuotes() {
                     <div className="ml-4 flex-shrink-0 flex items-center space-x-4">
                       <div className="text-right">
                         <p className="text-sm text-gray-500">
-                          Created: {new Date(quote.created_at).toLocaleDateString()}
+                          Created: {formatDate(quote.created_at)}
                         </p>
                         {quote.updated_at && (
                           <p className="text-xs text-gray-400">
-                            Updated: {new Date(quote.updated_at).toLocaleDateString()}
+                            Updated: {formatDate(quote.updated_at)}
                           </p>
                         )}
                       </div>

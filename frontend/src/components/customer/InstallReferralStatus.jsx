@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { installReferralsApi } from '../../api/customerClient'
+import { formatDate } from '../../utils/datetime'
 
 const STATUS_COLORS = {
   new: 'bg-amber-100 text-amber-800',
@@ -45,7 +46,7 @@ function InstallReferralStatus({ referral: propReferral, referralId }) {
       </span>
       {referral.status === 'scheduled' && referral.scheduled_date && (
         <span className="text-gray-600">
-          {new Date(referral.scheduled_date).toLocaleDateString('en-US', {
+          {formatDate(referral.scheduled_date, 'en-US', {
             month: 'short',
             day: 'numeric',
             year: 'numeric',
@@ -96,7 +97,7 @@ function InstallReferralList() {
               </span>
               {referral.status === 'scheduled' && referral.scheduled_date && (
                 <span className="text-xs text-gray-500">
-                  {new Date(referral.scheduled_date).toLocaleDateString('en-US', {
+                  {formatDate(referral.scheduled_date, 'en-US', {
                     month: 'short',
                     day: 'numeric',
                   })}

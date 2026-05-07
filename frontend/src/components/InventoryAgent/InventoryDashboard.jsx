@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { inventoryAgentApi } from '../../api/client';
+import { formatDate } from '../../utils/datetime'
 
 export default function InventoryDashboard() {
   const [dashboard, setDashboard] = useState(null);
@@ -93,7 +94,7 @@ export default function InventoryDashboard() {
       {/* Observation Mode Warning */}
       {dashboard?.observation_mode && (
         <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg text-sm text-blue-800">
-          Observation mode active until {dashboard.observe_until ? new Date(dashboard.observe_until).toLocaleDateString() : 'TBD'}. Signals are generated but no automated actions will be taken.
+          Observation mode active until {dashboard.observe_until ? formatDate(dashboard.observe_until) : 'TBD'}. Signals are generated but no automated actions will be taken.
         </div>
       )}
 

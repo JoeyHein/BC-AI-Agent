@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { poAgentApi } from '../../api/client';
+import { formatDate } from '../../utils/datetime'
 
 export default function POAgentDashboard() {
   const [stats, setStats] = useState(null);
@@ -125,7 +126,7 @@ export default function POAgentDashboard() {
       {/* Draft-only period warning */}
       {stats?.draft_only_until && (
         <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg text-sm text-blue-800">
-          Draft-only period active until {new Date(stats.draft_only_until).toLocaleDateString()}. All POs require manual approval.
+          Draft-only period active until {formatDate(stats.draft_only_until)}. All POs require manual approval.
         </div>
       )}
 
