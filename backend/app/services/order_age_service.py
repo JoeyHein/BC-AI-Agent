@@ -128,9 +128,15 @@ def get_order_age_metrics(
     now = datetime.utcnow()
 
     # ----- Open orders -----
+    # last_synced_at IS NOT NULL filters out local orphans (rows that were
+    # created by some legacy code path but never made it into BC). BC is
+    # the source of truth — anything not synced from BC doesn't belong.
     open_orders_q = (
         db.query(SalesOrder)
-        .filter(SalesOrder.status.in_([s for s in OPEN_STATUSES]))
+        .filter(
+            SalesOrder.status.in_([s for s in OPEN_STATUSES]),
+            SalesOrder.last_synced_at.isnot(None),
+        )
         .order_by(SalesOrder.order_date.asc().nullslast())
     )
 
@@ -143,6 +149,13 @@ def get_order_age_metrics(
         age_days = max(0, (now - start).days)
         bucket = _bucket_for_open_age(age_days)
         bucket_counts[bucket] += 1
+        # Days remaining until requested delivery — negative if past due.
+        # Lets the UI show "due in 12d" or "overdue 4d" without redoing
+        # the date math client-side.
+        rdd = o.requested_delivery_date
+        days_until_due: Optional[int] = None
+        if rdd:
+            days_until_due = (rdd - now).days
         open_rows.append({
             "id": o.id,
             "bc_order_number": o.bc_order_number,
@@ -150,6 +163,8 @@ def get_order_age_metrics(
             "customer_number": o.customer_number,
             "po_number": o.external_document_number,
             "order_date": start.isoformat() if start else None,
+            "requested_delivery_date": rdd.isoformat() if rdd else None,
+            "days_until_due": days_until_due,
             "age_days": age_days,
             "age_weeks": round(age_days / 7, 1),
             "status": o.status.value if o.status else None,

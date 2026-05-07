@@ -275,6 +275,7 @@ export default function OrderAgeTracker() {
                   <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Customer</th>
                   <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">PO</th>
                   <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Order Date</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Expected By</th>
                   <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Age</th>
                   <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
                   <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Total</th>
@@ -291,6 +292,29 @@ export default function OrderAgeTracker() {
                     </td>
                     <td className="px-4 py-2 text-sm text-gray-600 whitespace-nowrap">{o.po_number || '—'}</td>
                     <td className="px-4 py-2 text-sm text-gray-600 whitespace-nowrap">{fmtDate(o.order_date)}</td>
+                    <td className="px-4 py-2 text-sm whitespace-nowrap">
+                      {o.requested_delivery_date ? (
+                        <>
+                          <span className="text-gray-700">{fmtDate(o.requested_delivery_date)}</span>
+                          {o.days_until_due != null && (
+                            <span className={
+                              "ml-1 text-xs " +
+                              (o.days_until_due < 0
+                                ? "text-red-600 font-medium"
+                                : o.days_until_due <= 7
+                                  ? "text-yellow-700"
+                                  : "text-gray-400")
+                            }>
+                              ({o.days_until_due < 0
+                                ? `${Math.abs(o.days_until_due)}d overdue`
+                                : `in ${o.days_until_due}d`})
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-2 text-sm text-right whitespace-nowrap font-medium">
                       <span className={
                         o.bucket === 'red' ? 'text-red-700'
