@@ -82,6 +82,10 @@ class SavedQuoteConfigResponse(BaseModel):
     # True once a SalesOrder has been placed against this quote.
     # Clients should treat this as the true edit lock — not is_submitted.
     order_placed: bool = False
+    # Multi-user accounts: who built this quote (the user the BC customer link
+    # is shared across). Lets staff at the same dealership see each other's work.
+    created_by_name: Optional[str] = None
+    created_by_email: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -207,8 +211,30 @@ def calculate_install_price(
 # SAVED QUOTE CONFIG ENDPOINTS
 # ============================================================================
 
+def _company_user_ids(current_user: User, db: Session) -> List[int]:
+    """All user IDs that share `current_user`'s BC customer link.
+
+    Multi-user company accounts: two staff at e.g. Global Overhead Doors each
+    have their own login, both linked to the same `bc_customer_id`. This helper
+    drives the company-scoped saved-quotes queries so each can see the other's
+    drafts. Falls back to just the current user when there's no BC link
+    (legacy / pre-approval / one-off accounts).
+    """
+    if not current_user.bc_customer_id:
+        return [current_user.id]
+    rows = db.query(User.id).filter(
+        User.bc_customer_id == current_user.bc_customer_id,
+        User.user_type == "CUSTOMER",
+    ).all()
+    ids = [r[0] for r in rows]
+    if current_user.id not in ids:
+        ids.append(current_user.id)
+    return ids
+
+
 def _config_to_response(config: SavedQuoteConfig, db: Session) -> dict:
     """Serialize one SavedQuoteConfig to the response shape, hydrating order_placed."""
+    creator = db.query(User).filter(User.id == config.user_id).first() if config.user_id else None
     return {
         "id": config.id,
         "name": config.name,
@@ -221,11 +247,13 @@ def _config_to_response(config: SavedQuoteConfig, db: Session) -> dict:
         "updated_at": config.updated_at,
         "submitted_at": config.submitted_at,
         "order_placed": _has_sales_order_for_quote(config, db),
+        "created_by_name": creator.name if creator else None,
+        "created_by_email": creator.email if creator else None,
     }
 
 
 def _hydrate_order_placed(configs: List[SavedQuoteConfig], db: Session) -> List[dict]:
-    """Hydrate order_placed flag for a list of configs in one query.
+    """Hydrate order_placed + creator fields in one round-trip per dimension.
     Returns list of dicts ready for SavedQuoteConfigResponse."""
     quote_nums = [c.bc_quote_number for c in configs if c.bc_quote_number]
     ordered_nums = set()
@@ -234,8 +262,16 @@ def _hydrate_order_placed(configs: List[SavedQuoteConfig], db: Session) -> List[
             SalesOrder.bc_quote_number.in_(quote_nums)
         ).all()
         ordered_nums = {r[0] for r in rows if r[0]}
+
+    user_ids = list({c.user_id for c in configs if c.user_id})
+    creators_by_id: Dict[int, User] = {}
+    if user_ids:
+        for u in db.query(User).filter(User.id.in_(user_ids)).all():
+            creators_by_id[u.id] = u
+
     result = []
     for c in configs:
+        creator = creators_by_id.get(c.user_id) if c.user_id else None
         result.append({
             "id": c.id,
             "name": c.name,
@@ -248,6 +284,8 @@ def _hydrate_order_placed(configs: List[SavedQuoteConfig], db: Session) -> List[
             "updated_at": c.updated_at,
             "submitted_at": c.submitted_at,
             "order_placed": bool(c.bc_quote_number and c.bc_quote_number in ordered_nums),
+            "created_by_name": creator.name if creator else None,
+            "created_by_email": creator.email if creator else None,
         })
     return result
 
@@ -263,7 +301,11 @@ def list_saved_quotes(
     Optional ?search= filters by name (tag) or BC quote number, case-insensitive
     substring match. Useful for the customer "look up by quote # or tag" box.
     """
-    q = db.query(SavedQuoteConfig).filter(SavedQuoteConfig.user_id == current_user.id)
+    # Company-scoped: any user sharing this BC customer link sees all the
+    # quotes built by anyone on the account.
+    q = db.query(SavedQuoteConfig).filter(
+        SavedQuoteConfig.user_id.in_(_company_user_ids(current_user, db))
+    )
     if search and search.strip():
         like = f"%{search.strip()}%"
         q = q.filter(or_(
@@ -307,7 +349,7 @@ def get_saved_quote(
     """Get a specific saved quote configuration"""
     config = db.query(SavedQuoteConfig).filter(
         SavedQuoteConfig.id == config_id,
-        SavedQuoteConfig.user_id == current_user.id
+        SavedQuoteConfig.user_id.in_(_company_user_ids(current_user, db)),
     ).first()
 
     if not config:
@@ -341,7 +383,7 @@ def update_saved_quote(
     """
     config = db.query(SavedQuoteConfig).filter(
         SavedQuoteConfig.id == config_id,
-        SavedQuoteConfig.user_id == current_user.id
+        SavedQuoteConfig.user_id.in_(_company_user_ids(current_user, db)),
     ).first()
 
     if not config:
@@ -412,7 +454,7 @@ def delete_saved_quote(
     """Delete a saved quote configuration"""
     config = db.query(SavedQuoteConfig).filter(
         SavedQuoteConfig.id == config_id,
-        SavedQuoteConfig.user_id == current_user.id
+        SavedQuoteConfig.user_id.in_(_company_user_ids(current_user, db)),
     ).first()
 
     if not config:
@@ -460,7 +502,7 @@ def duplicate_saved_quote(
 
     source = db.query(SavedQuoteConfig).filter(
         SavedQuoteConfig.id == config_id,
-        SavedQuoteConfig.user_id == current_user.id,
+        SavedQuoteConfig.user_id.in_(_company_user_ids(current_user, db)),
     ).first()
     if not source:
         raise HTTPException(
@@ -2457,7 +2499,7 @@ def get_pricing_for_saved_quote(
     """
     config = db.query(SavedQuoteConfig).filter(
         SavedQuoteConfig.id == config_id,
-        SavedQuoteConfig.user_id == current_user.id
+        SavedQuoteConfig.user_id.in_(_company_user_ids(current_user, db)),
     ).first()
 
     if not config:
@@ -2574,7 +2616,7 @@ def confirm_saved_quote(
     """
     config = db.query(SavedQuoteConfig).filter(
         SavedQuoteConfig.id == config_id,
-        SavedQuoteConfig.user_id == current_user.id
+        SavedQuoteConfig.user_id.in_(_company_user_ids(current_user, db)),
     ).first()
 
     if not config:
@@ -2623,7 +2665,7 @@ def refresh_pricing_for_saved_quote(
     """
     config = db.query(SavedQuoteConfig).filter(
         SavedQuoteConfig.id == config_id,
-        SavedQuoteConfig.user_id == current_user.id
+        SavedQuoteConfig.user_id.in_(_company_user_ids(current_user, db)),
     ).first()
 
     if not config:
@@ -2733,7 +2775,7 @@ def submit_saved_quote(
     """
     config = db.query(SavedQuoteConfig).filter(
         SavedQuoteConfig.id == config_id,
-        SavedQuoteConfig.user_id == current_user.id
+        SavedQuoteConfig.user_id.in_(_company_user_ids(current_user, db)),
     ).first()
 
     if not config:
@@ -2809,7 +2851,7 @@ def place_order_from_quote(
     """
     config = db.query(SavedQuoteConfig).filter(
         SavedQuoteConfig.id == config_id,
-        SavedQuoteConfig.user_id == current_user.id
+        SavedQuoteConfig.user_id.in_(_company_user_ids(current_user, db)),
     ).first()
 
     if not config:
@@ -2982,7 +3024,7 @@ def generate_framing_drawing_endpoint(
 
     config = db.query(SavedQuoteConfig).filter(
         SavedQuoteConfig.id == config_id,
-        SavedQuoteConfig.user_id == current_user.id,
+        SavedQuoteConfig.user_id.in_(_company_user_ids(current_user, db)),
     ).first()
     if not config:
         raise HTTPException(

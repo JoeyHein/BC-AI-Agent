@@ -603,6 +603,16 @@ export const customersApi = {
       account_type: accountType,
     }),
 
+  // Linked staff users — multiple logins under one BC customer
+  getLinkedUsers: (customerId) =>
+    apiClient.get(`/api/admin/customers/${customerId}/linked-users`),
+
+  addLinkedUser: (customerId, payload) =>
+    apiClient.post(`/api/admin/customers/${customerId}/linked-users`, payload),
+
+  removeLinkedUser: (customerId, linkedId) =>
+    apiClient.delete(`/api/admin/customers/${customerId}/linked-users/${linkedId}`),
+
   // Install pricing
   getInstallPricing: (customerId) =>
     apiClient.get(`/api/admin/customers/${customerId}/install-pricing`),

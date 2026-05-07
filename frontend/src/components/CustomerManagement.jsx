@@ -662,6 +662,11 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
             )}
           </div>
 
+          {/* Linked staff users — multi-user account support */}
+          {customer.bc_customer_id && (
+            <LinkedUsersPanel customer={customer} onRefresh={onRefresh} />
+          )}
+
           {/* Activity Section */}
           {activity && (
             <div className="border-t border-gray-200 pt-4">
@@ -1526,6 +1531,172 @@ function CustomerManagement() {
           }}
           prefillBc={createPrefillBc}
         />
+      )}
+    </div>
+  )
+}
+
+function LinkedUsersPanel({ customer, onRefresh }) {
+  const queryClient = useQueryClient()
+  const [showAdd, setShowAdd] = useState(false)
+  const [form, setForm] = useState({ email: '', name: '', password: '' })
+  const [error, setError] = useState(null)
+
+  const { data: linkedUsers = [], isLoading } = useQuery({
+    queryKey: ['linkedUsers', customer.id],
+    queryFn: async () => (await customersApi.getLinkedUsers(customer.id)).data,
+  })
+
+  const addMutation = useMutation({
+    mutationFn: (payload) => customersApi.addLinkedUser(customer.id, payload),
+    onSuccess: () => {
+      setShowAdd(false)
+      setForm({ email: '', name: '', password: '' })
+      setError(null)
+      queryClient.invalidateQueries(['linkedUsers', customer.id])
+      queryClient.invalidateQueries(['customers'])
+      onRefresh && onRefresh()
+    },
+    onError: (err) => setError(err.response?.data?.detail || 'Failed to add user'),
+  })
+
+  const removeMutation = useMutation({
+    mutationFn: (linkedId) => customersApi.removeLinkedUser(customer.id, linkedId),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['linkedUsers', customer.id])
+      queryClient.invalidateQueries(['customers'])
+      onRefresh && onRefresh()
+    },
+    onError: (err) => alert(err.response?.data?.detail || 'Failed to remove user'),
+  })
+
+  const handleAdd = (e) => {
+    e.preventDefault()
+    if (!form.email.trim()) {
+      setError('Email is required')
+      return
+    }
+    addMutation.mutate({
+      email: form.email.trim(),
+      name: form.name.trim() || null,
+      password: form.password.trim() || null,
+    })
+  }
+
+  return (
+    <div className="border-t border-gray-200 pt-4">
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-sm font-medium text-gray-900">Linked Users</h4>
+        {!showAdd && (
+          <button
+            onClick={() => setShowAdd(true)}
+            className="text-xs px-2 py-1 border border-gray-300 rounded text-gray-700 hover:bg-gray-50"
+          >
+            + Add User
+          </button>
+        )}
+      </div>
+      <p className="text-xs text-gray-500 mb-2">
+        Multiple staff at this dealer can each have their own login. Quotes built by anyone here will be visible to everyone on the account.
+      </p>
+
+      {isLoading ? (
+        <p className="text-xs text-gray-400">Loading...</p>
+      ) : (
+        <div className="space-y-1">
+          {linkedUsers.map((u) => {
+            const isAnchor = u.id === customer.id
+            return (
+              <div key={u.id} className="flex items-center justify-between text-sm bg-gray-50 rounded px-2 py-1.5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-gray-900 truncate">{u.name || u.email}</span>
+                    {isAnchor && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">primary</span>
+                    )}
+                    {!u.is_active && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700">inactive</span>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-500 truncate">{u.email}</div>
+                </div>
+                {!isAnchor && (
+                  <button
+                    onClick={() => {
+                      if (window.confirm(`Remove ${u.email} from this account?`)) {
+                        removeMutation.mutate(u.id)
+                      }
+                    }}
+                    disabled={removeMutation.isPending}
+                    className="text-xs text-red-600 hover:text-red-800 ml-2 flex-shrink-0"
+                    title="Unlink this user from this BC customer"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {showAdd && (
+        <form onSubmit={handleAdd} className="mt-3 bg-gray-50 rounded p-3 space-y-2">
+          <div>
+            <label className="block text-xs font-medium text-gray-700">Email</label>
+            <input
+              type="email"
+              required
+              value={form.email}
+              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+              className="mt-1 block w-full text-sm rounded border-gray-300 px-2 py-1"
+              placeholder="staff@dealer.com"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700">Name <span className="text-gray-400">(optional)</span></label>
+            <input
+              type="text"
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              className="mt-1 block w-full text-sm rounded border-gray-300 px-2 py-1"
+              placeholder="Jane Smith"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700">
+              Password <span className="text-gray-400">(required for new users, optional when linking existing)</span>
+            </label>
+            <input
+              type="text"
+              value={form.password}
+              onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+              className="mt-1 block w-full text-sm rounded border-gray-300 px-2 py-1"
+              placeholder="min 8 characters"
+            />
+          </div>
+          {error && <p className="text-xs text-red-600">{error}</p>}
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={addMutation.isPending}
+              className="text-xs px-3 py-1 bg-odc-600 text-white rounded hover:bg-odc-700 disabled:opacity-50"
+            >
+              {addMutation.isPending ? 'Adding...' : 'Add User'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowAdd(false)
+                setError(null)
+                setForm({ email: '', name: '', password: '' })
+              }}
+              className="text-xs px-3 py-1 border border-gray-300 rounded text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
       )}
     </div>
   )

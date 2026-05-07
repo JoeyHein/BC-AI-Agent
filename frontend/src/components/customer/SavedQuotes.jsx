@@ -301,6 +301,11 @@ function SavedQuotes() {
                         <p className="mt-1 text-sm text-gray-500">
                           {quote.description || 'No description'}
                         </p>
+                        {quote.created_by_name && (
+                          <p className="mt-1 text-xs text-gray-400">
+                            Built by <span className="font-medium text-gray-600">{quote.created_by_name}</span>
+                          </p>
+                        )}
                       </Link>
                     </div>
                     <div className="ml-4 flex-shrink-0 flex items-center space-x-4">

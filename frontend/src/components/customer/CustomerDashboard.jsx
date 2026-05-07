@@ -189,6 +189,11 @@ function CustomerDashboard() {
                       <p className="text-sm text-gray-500">
                         Last updated: {formatDate(quote.updated_at || quote.created_at)}
                       </p>
+                      {quote.created_by_name && (
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          Built by {quote.created_by_name}
+                        </p>
+                      )}
                     </div>
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
                       Draft

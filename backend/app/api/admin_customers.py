@@ -800,6 +800,180 @@ def unlink_customer_from_bc(
     return get_customer(customer_id, current_admin, db)
 
 
+# ============================================================================
+# LINKED USERS — multiple staff per BC customer (e.g. 2 quoters at one dealer)
+# ============================================================================
+
+class LinkedUserResponse(BaseModel):
+    id: int
+    email: str
+    name: Optional[str]
+    is_active: bool
+    account_status: Optional[str] = None
+    last_login_at: Optional[datetime]
+    created_at: datetime
+
+
+class AddLinkedUserRequest(BaseModel):
+    email: EmailStr
+    name: Optional[str] = None
+    password: Optional[str] = None
+    account_type: Optional[str] = None  # 'dealer' / 'home_builder' — defaults to anchor's
+
+
+@router.get("/{customer_id}/linked-users", response_model=List[LinkedUserResponse])
+def list_linked_users(
+    customer_id: int,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """List every customer-portal user sharing this customer's BC link.
+
+    The path id is a User row; we resolve its bc_customer_id and return all
+    customer users with that same link (including the anchor user itself).
+    For unlinked accounts this just returns the anchor.
+    """
+    anchor = db.query(User).filter(
+        User.id == customer_id,
+        User.user_type == "CUSTOMER",
+    ).first()
+    if not anchor:
+        raise HTTPException(404, "Customer not found")
+
+    if not anchor.bc_customer_id:
+        return [LinkedUserResponse.model_validate(anchor, from_attributes=True)]
+
+    users = db.query(User).filter(
+        User.bc_customer_id == anchor.bc_customer_id,
+        User.user_type == "CUSTOMER",
+    ).order_by(User.created_at.asc()).all()
+    return [LinkedUserResponse.model_validate(u, from_attributes=True) for u in users]
+
+
+@router.post("/{customer_id}/linked-users", response_model=LinkedUserResponse)
+def add_linked_user(
+    customer_id: int,
+    body: AddLinkedUserRequest,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Add another staff user under the same BC customer.
+
+    If a user with the given email already exists, we link them to this
+    BC customer (setting account_status='active' so they can log in
+    immediately). Otherwise we create a fresh approved user with an
+    admin-set password.
+    """
+    anchor = db.query(User).filter(
+        User.id == customer_id,
+        User.user_type == "CUSTOMER",
+    ).first()
+    if not anchor:
+        raise HTTPException(404, "Customer not found")
+    if not anchor.bc_customer_id:
+        raise HTTPException(
+            400,
+            "Anchor customer is not linked to a BC customer. Link the BC "
+            "customer first, then add staff users.",
+        )
+
+    target = db.query(User).filter(User.email == body.email).first()
+    if target:
+        if target.user_type != "CUSTOMER":
+            raise HTTPException(400, "That email belongs to a non-customer account.")
+        if target.bc_customer_id and target.bc_customer_id != anchor.bc_customer_id:
+            raise HTTPException(
+                400,
+                "That user is already linked to a different BC customer. "
+                "Unlink them from that account first.",
+            )
+        target.bc_customer_id = anchor.bc_customer_id
+        target.account_status = "active"
+        target.is_active = True
+        if body.name and not target.name:
+            target.name = body.name
+        if body.account_type:
+            target.account_type = body.account_type
+        elif not target.account_type and anchor.account_type:
+            target.account_type = anchor.account_type
+        if body.password:
+            target.password_hash = auth_service.get_password_hash(body.password)
+        db.commit()
+        db.refresh(target)
+        logger.info(
+            f"Admin {current_admin.email} linked existing user {target.email} "
+            f"to BC customer {anchor.bc_customer_id} (alongside {anchor.email})"
+        )
+        return LinkedUserResponse.model_validate(target, from_attributes=True)
+
+    # Create a fresh user. Require a password since they'll need to log in.
+    if not body.password or len(body.password) < 8:
+        raise HTTPException(
+            400,
+            "Password is required (min 8 chars) when creating a new staff user.",
+        )
+
+    new_user = User(
+        email=body.email,
+        password_hash=auth_service.get_password_hash(body.password),
+        name=body.name,
+        role=UserRole.VIEWER,
+        user_type="CUSTOMER",
+        is_active=True,
+        email_verified=True,
+        account_type=body.account_type or anchor.account_type or "dealer",
+        account_status="active",
+        company_name=anchor.company_name,
+        bc_customer_id=anchor.bc_customer_id,
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    logger.info(
+        f"Admin {current_admin.email} created new linked user {new_user.email} "
+        f"under BC customer {anchor.bc_customer_id} (alongside {anchor.email})"
+    )
+    return LinkedUserResponse.model_validate(new_user, from_attributes=True)
+
+
+@router.delete("/{customer_id}/linked-users/{linked_id}")
+def remove_linked_user(
+    customer_id: int,
+    linked_id: int,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Unlink (don't delete) a staff user from this BC customer.
+
+    Refuses if `linked_id == customer_id` — the anchor user itself can't be
+    unlinked from this endpoint; use the existing /unlink endpoint for that.
+    """
+    if linked_id == customer_id:
+        raise HTTPException(
+            400, "Cannot remove the anchor user via this endpoint. Use /unlink instead."
+        )
+    anchor = db.query(User).filter(
+        User.id == customer_id,
+        User.user_type == "CUSTOMER",
+    ).first()
+    if not anchor:
+        raise HTTPException(404, "Customer not found")
+    target = db.query(User).filter(
+        User.id == linked_id,
+        User.user_type == "CUSTOMER",
+        User.bc_customer_id == anchor.bc_customer_id,
+    ).first()
+    if not target:
+        raise HTTPException(404, "Linked user not found on this account")
+    target.bc_customer_id = None
+    db.commit()
+    logger.info(
+        f"Admin {current_admin.email} removed linked user {target.email} "
+        f"from BC customer {anchor.bc_customer_id}"
+    )
+    return {"message": f"Removed {target.email} from this account"}
+
+
 @router.patch("/{customer_id}", response_model=CustomerDetailResponse)
 def update_customer(
     customer_id: int,
