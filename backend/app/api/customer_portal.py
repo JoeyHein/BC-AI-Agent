@@ -829,6 +829,18 @@ def _generate_bc_quote_with_items(
     bc_quote_number = bc_quote.get("number")
     logger.info(f"Created BC quote: {bc_quote_number} (ID: {bc_quote_id})")
 
+    # Flag pickup orders at the top of the BC quote so production sees it
+    # without scrolling. Delivery quotes don't need a marker — that's the default.
+    if (delivery_type or "").lower() == "pickup":
+        try:
+            bc_client.add_quote_line(bc_quote_id, {
+                "lineType": "Comment",
+                "description": "** PICKUP: This order is quoted for customer pickup **",
+            })
+            logger.info(f"Added pickup comment to BC quote {bc_quote_number}")
+        except Exception as pickup_err:
+            logger.warning(f"Failed to add pickup comment to {bc_quote_number}: {pickup_err}")
+
     # Step 3: Warm the BC cost cache so pricing uses live production costs
     if pricing_tier and db:
         item_pns = [l["part_number"] for l in all_lines if l.get("part_number")]

@@ -1141,6 +1141,19 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
             bc_quote_number = bc_quote.get("number")
             logger.info(f"Created BC quote: {bc_quote_number} (ID: {bc_quote_id})")
 
+        # Flag pickup orders at the top of the BC quote so production sees it
+        # without scrolling. Reused quotes have already had their lines cleared
+        # above, so this lands at the top either way.
+        if (request.deliveryType or "").lower() == "pickup":
+            try:
+                bc_client.add_quote_line(bc_quote_id, {
+                    "lineType": "Comment",
+                    "description": "** PICKUP: This order is quoted for customer pickup **",
+                })
+                logger.info(f"Added pickup comment to BC quote {bc_quote_number}")
+            except Exception as pickup_err:
+                logger.warning(f"Failed to add pickup comment to {bc_quote_number}: {pickup_err}")
+
         # Warm the BC cost cache so pricing uses live production costs
         if request.customerId:
             item_pns = [l["part_number"] for l in all_lines if l.get("part_number")]
