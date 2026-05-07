@@ -320,7 +320,6 @@ export default function OrderAgeTracker() {
     )
   }
 
-  const sr = data?.success_rate
   const openRows = data?.open_orders || []
   const openSummary = data?.open_summary || { total: 0, green: 0, yellow: 0, red: 0 }
 
@@ -360,57 +359,6 @@ export default function OrderAgeTracker() {
           ))}
         </div>
       </div>
-
-      {/* Success rate KPI tiles */}
-      <section className="mb-8">
-        <div className="flex items-baseline justify-between mb-3">
-          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
-            Delivery Success Rate
-          </h2>
-          {sr && (
-            <p className="text-xs text-gray-500">
-              {sr.shipped_count} shipped in last {sr.lookback_days} days
-              {sr.avg_days_to_ship != null && ` · avg ${sr.avg_days_to_ship}d to ship`}
-            </p>
-          )}
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {loading || !sr ? (
-            Array(4).fill(0).map((_, i) => <Skeleton key={i} h="h-28" />)
-          ) : (
-            <>
-              <KpiTile
-                label="Shipped ≤ 4 weeks"
-                value={sr.under_4w}
-                count={sr.buckets.under_4w}
-                color={SUCCESS_BUCKET_COLORS.under_4w}
-                bgClass="bg-green-50 border-green-200"
-              />
-              <KpiTile
-                label="Shipped ≤ 6 weeks"
-                value={sr.under_6w}
-                count={sr.buckets.under_6w}
-                color={SUCCESS_BUCKET_COLORS.under_6w}
-                bgClass="bg-yellow-50 border-yellow-200"
-              />
-              <KpiTile
-                label="Shipped ≤ 8 weeks"
-                value={sr.under_8w}
-                count={sr.buckets.under_8w}
-                color={SUCCESS_BUCKET_COLORS.under_8w}
-                bgClass="bg-orange-50 border-orange-200"
-              />
-              <KpiTile
-                label="Over 8 weeks"
-                value={sr.over_8w}
-                count={sr.buckets.over_8w}
-                color={SUCCESS_BUCKET_COLORS.over_8w}
-                bgClass="bg-red-50 border-red-200"
-              />
-            </>
-          )}
-        </div>
-      </section>
 
       {/* Order-to-invoice cycle time (closed orders, live from BC) */}
       <CycleTimeSection cycle={data?.cycle_time} loading={loading} />

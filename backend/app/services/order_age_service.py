@@ -367,46 +367,10 @@ def get_order_age_metrics(
             "total_amount": float(o.total_amount) if o.total_amount is not None else None,
         })
 
-    # ----- Delivery success rate -----
-    cutoff = now - timedelta(days=success_lookback_days)
-    shipped_q = (
-        db.query(SalesOrder)
-        .filter(
-            SalesOrder.shipped_at.isnot(None),
-            SalesOrder.shipped_at >= cutoff,
-            SalesOrder.status != OrderStatus.CANCELLED,
-        )
-    )
-
-    bucket_counts_ship = {"under_4w": 0, "under_6w": 0, "under_8w": 0, "over_8w": 0}
-    days_to_ship: List[int] = []
-    for o in shipped_q.all():
-        start = _start_date(o)
-        if not start or not o.shipped_at:
-            continue
-        days = max(0, (o.shipped_at - start).days)
-        days_to_ship.append(days)
-        bucket_counts_ship[_bucket_for_delivery_age(days)] += 1
-
-    shipped_count = len(days_to_ship)
-
-    def pct(n: int) -> float:
-        return round((n / shipped_count) * 100, 1) if shipped_count else 0.0
-
-    success_rate = {
-        "lookback_days": success_lookback_days,
-        "shipped_count": shipped_count,
-        "under_4w": pct(bucket_counts_ship["under_4w"]),
-        "under_6w": pct(bucket_counts_ship["under_6w"]),
-        "under_8w": pct(bucket_counts_ship["under_8w"]),
-        "over_8w": pct(bucket_counts_ship["over_8w"]),
-        "buckets": bucket_counts_ship,
-        "avg_days_to_ship": (
-            round(sum(days_to_ship) / shipped_count, 1) if shipped_count else None
-        ),
-    }
-
     # ----- Order-to-invoice cycle time (live from BC PostedSalesInvoices) -----
+    # The local shipped_at-based "delivery success rate" was removed because
+    # shipped_at isn't reliably populated by the sync; cycle_time pulls
+    # straight from BC posted invoices and is the authoritative view.
     cycle_time = _compute_cycle_time(success_lookback_days)
 
     return {
@@ -417,6 +381,5 @@ def get_order_age_metrics(
             "total": len(open_rows),
             **bucket_counts,
         },
-        "success_rate": success_rate,
         "cycle_time": cycle_time,
     }
