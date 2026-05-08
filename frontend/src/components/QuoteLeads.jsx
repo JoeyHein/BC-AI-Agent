@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { quoteLeadsApi } from '../api/client'
-import { formatDate } from '../utils/datetime'
+import { formatDateTime } from '../utils/datetime'
 
 const STATUS_OPTIONS = ['new', 'contacted', 'quoted', 'won', 'lost']
 const STATUS_COLORS = {
@@ -50,9 +50,12 @@ export default function QuoteLeads() {
     }
   }
 
-  const formatDate = (iso) => {
+  // Renamed from `formatDate` — the prior version called itself
+  // recursively (it shadowed the imported formatDate), which blew the
+  // call stack and crashed the entire Leads page on first render.
+  const fmtTimestamp = (iso) => {
     if (!iso) return '—'
-    return formatDate(iso, 'en-CA', {
+    return formatDateTime(iso, {
       year: 'numeric', month: 'short', day: 'numeric',
       hour: '2-digit', minute: '2-digit',
     })
@@ -131,7 +134,7 @@ export default function QuoteLeads() {
                   className={`hover:bg-gray-50 cursor-pointer ${selected?.id === lead.id ? 'bg-blue-50' : ''}`}
                   onClick={() => setSelected(selected?.id === lead.id ? null : lead)}
                 >
-                  <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{formatDate(lead.createdAt)}</td>
+                  <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{fmtTimestamp(lead.createdAt)}</td>
                   <td className="px-4 py-3">
                     <p className="font-medium text-gray-900">{lead.name || '—'}</p>
                     <p className="text-xs text-gray-500">{lead.email}</p>

@@ -199,10 +199,13 @@ function ReferralRow({ referral, isExpanded, onToggle, onUpdate, isUpdating, upd
     onUpdate(editData)
   }
 
-  const formatDate = (dateStr) => {
+  // Renamed from `formatDate` — the prior version called itself
+  // recursively (it shadowed the imported formatDate), which would blow
+  // the call stack on first render. See QuoteLeads.jsx for the same fix.
+  const fmtDay = (dateStr) => {
     if (!dateStr) return '-'
     try {
-      return formatDate(dateStr, 'en-US', {
+      return formatDate(dateStr, {
         year: 'numeric',
         month: 'short',
         day: 'numeric',
@@ -228,7 +231,7 @@ function ReferralRow({ referral, isExpanded, onToggle, onUpdate, isUpdating, upd
           {referral.site_address || '-'}
         </td>
         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-          {formatDate(referral.preferred_date)}
+          {fmtDay(referral.preferred_date)}
         </td>
         <td className="px-6 py-4 whitespace-nowrap">
           <StatusBadge status={referral.status} />
@@ -237,7 +240,7 @@ function ReferralRow({ referral, isExpanded, onToggle, onUpdate, isUpdating, upd
           {referral.assigned_sub || '-'}
         </td>
         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-          {formatDate(referral.scheduled_date)}
+          {fmtDay(referral.scheduled_date)}
         </td>
       </tr>
 
@@ -262,7 +265,7 @@ function ReferralRow({ referral, isExpanded, onToggle, onUpdate, isUpdating, upd
                 </div>
                 <div>
                   <span className="font-medium text-gray-700">Created:</span>{' '}
-                  <span className="text-gray-600">{formatDate(referral.created_at)}</span>
+                  <span className="text-gray-600">{fmtDay(referral.created_at)}</span>
                 </div>
               </div>
 
