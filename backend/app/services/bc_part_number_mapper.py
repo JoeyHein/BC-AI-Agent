@@ -1330,6 +1330,141 @@ class BCPartNumberMapper:
         logger.debug(f"Glass kit {constructed_pn} not found in BC items, using constructed PN")
         return None
 
+    def find_closest_glass_kit(self, constructed_pn: str) -> Optional["BCPartNumber"]:
+        """
+        Find the closest existing GK15 or GK16 in bc_items when the requested
+        combo doesn't exist. Used so that windows priced via BC SalesPriceLists
+        fall back to a real SKU's price rather than producing fabricated pricing
+        on a non-existent part number.
+
+        Match priority preserves SIZE first, then DETAIL (glass type), then color:
+          1. Same size + same glass type, any color  (prefer color "00")
+          2. Same size + therm-clear (g=2 / GK16 g=2), any color
+          3. Same size, any glass type, any color
+          4. None
+
+        GK15 format: GK15-{ss}{g}{cc}-00      (ss=size, g=glass, cc=color)
+        GK16 format: GK16-{s}3{g}{cc}-{vv}    (s=series, g=glass, cc=color, vv=size variant)
+        For GK16 the analogous "size" is the {vv} suffix; substitution holds
+        {vv} fixed and varies cc/g.
+        """
+        if not constructed_pn or len(constructed_pn) < 7:
+            return None
+
+        prefix = constructed_pn[:5]  # "GK15-" or "GK16-"
+        if prefix not in ("GK15-", "GK16-"):
+            return None
+
+        try:
+            body, suffix = constructed_pn[5:].split("-", 1)
+        except ValueError:
+            return None
+
+        if prefix == "GK15-" and len(body) == 5:
+            # body = ss g cc
+            ss = body[0:2]
+            g = body[2:3]
+            cc = body[3:5]
+            digit_to_g = {"1", "2", "4", "9"}
+
+            def _candidates_gk15():
+                # Tier 1: same ss + same g, any cc — prefer "00" color first
+                for try_cc in ["00"] + sorted({c for c in self._gk_color_codes() if c != "00"}):
+                    pn = f"GK15-{ss}{g}{try_cc}-{suffix}"
+                    if pn != constructed_pn and pn in self.bc_items:
+                        yield pn, "same size + glass, different color"
+                # Tier 2: same ss + therm-clear (g=2), any cc — prefer "00"
+                if g != "2":
+                    for try_cc in ["00"] + sorted({c for c in self._gk_color_codes() if c != "00"}):
+                        pn = f"GK15-{ss}2{try_cc}-{suffix}"
+                        if pn in self.bc_items:
+                            yield pn, "same size, fallback to therm-clear"
+                # Tier 3: same ss, any g, any cc
+                for item_pn in self.bc_items:
+                    if item_pn.startswith(f"GK15-{ss}") and item_pn.endswith(f"-{suffix}"):
+                        if item_pn != constructed_pn:
+                            yield item_pn, "same size only"
+
+            for match_pn, reason in _candidates_gk15():
+                item = self.bc_items[match_pn]
+                logger.info(
+                    f"Glass kit substitute: {constructed_pn} -> {match_pn} ({reason})"
+                )
+                return BCPartNumber(
+                    part_number=match_pn,
+                    description=item.get("displayName", item.get("description", "")),
+                    category="GLASS_KIT",
+                    bc_item_id=item.get("id"),
+                )
+
+        elif prefix == "GK16-" and len(body) == 5:
+            # body = s 3 g cc; suffix = vv (size variant)
+            s = body[0:1]
+            # body[1] is the literal '3'
+            g = body[2:3]
+            cc = body[3:5]
+            vv = suffix
+
+            def _candidates_gk16():
+                # Tier 1: same s+g+vv, any cc
+                for item_pn in self.bc_items:
+                    if not item_pn.startswith(f"GK16-{s}3{g}"):
+                        continue
+                    if not item_pn.endswith(f"-{vv}"):
+                        continue
+                    if item_pn != constructed_pn:
+                        yield item_pn, "same series+size+glass, different color"
+                # Tier 2: same s+vv + therm-clear (g=2), any cc
+                if g != "2":
+                    for item_pn in self.bc_items:
+                        if item_pn.startswith(f"GK16-{s}32") and item_pn.endswith(f"-{vv}"):
+                            yield item_pn, "same series+size, fallback to therm-clear"
+                # Tier 3: same s+vv, any glass, any color
+                for item_pn in self.bc_items:
+                    if item_pn.startswith(f"GK16-{s}3") and item_pn.endswith(f"-{vv}"):
+                        if item_pn != constructed_pn:
+                            yield item_pn, "same series+size only"
+                # Tier 4: same s+g+cc, any vv (different size, same series+detail+color)
+                for item_pn in self.bc_items:
+                    if item_pn.startswith(f"GK16-{s}3{g}{cc}-"):
+                        if item_pn != constructed_pn:
+                            yield item_pn, "same series+glass+color, nearest size"
+                # Tier 5: same s, any g, any cc, any vv
+                for item_pn in self.bc_items:
+                    if item_pn.startswith(f"GK16-{s}3"):
+                        if item_pn != constructed_pn:
+                            yield item_pn, "same series only"
+
+            seen = set()
+            for match_pn, reason in _candidates_gk16():
+                if match_pn in seen:
+                    continue
+                seen.add(match_pn)
+                item = self.bc_items[match_pn]
+                logger.info(
+                    f"Glass kit substitute: {constructed_pn} -> {match_pn} ({reason})"
+                )
+                return BCPartNumber(
+                    part_number=match_pn,
+                    description=item.get("displayName", item.get("description", "")),
+                    category="GLASS_KIT",
+                    bc_item_id=item.get("id"),
+                )
+
+        logger.warning(
+            f"No closest-match glass kit found for {constructed_pn} — "
+            f"line will go to BC with the constructed PN"
+        )
+        return None
+
+    def _gk_color_codes(self) -> set:
+        """Color-code suffixes seen in cached GK15 part numbers."""
+        codes = set()
+        for pn in self.bc_items:
+            if pn.startswith("GK15-") and len(pn) >= 12:
+                codes.add(pn[8:10])
+        return codes
+
     def get_frame_insert(self, insert_style: str, panel_color: str, insert_prefix: str = "GL18") -> Optional["BCPartNumber"]:
         """
         Look up a decorative frame insert for residential windows.

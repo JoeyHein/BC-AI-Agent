@@ -2964,10 +2964,19 @@ class PartNumberService:
             part_number = validated.part_number
             description = validated.description
         else:
-            part_number = gk15_pn
-            glass_label = {"1": "SINGLE", "2": "THERM-CLEAR", "4": "THERM-ETCHED", "9": "SUPER GREY"}.get(g, "THERM-CLEAR")
-            size_label = "SHORT" if is_short else "LONG"
-            description = f"GLASS KIT, 1-3/4\" KANATA, {size_label}, {glass_label}, {panel_color_normalized}"
+            # Constructed combo isn't a real BC SKU — substitute the nearest
+            # existing GK15 so BC SalesPriceLists can resolve a real price.
+            # Without this, BC silently prices the unknown PN at 0 / item-card
+            # default and the quote shows fabricated pricing.
+            substitute = mapper.find_closest_glass_kit(gk15_pn)
+            if substitute:
+                part_number = substitute.part_number
+                description = substitute.description
+            else:
+                part_number = gk15_pn
+                glass_label = {"1": "SINGLE", "2": "THERM-CLEAR", "4": "THERM-ETCHED", "9": "SUPER GREY"}.get(g, "THERM-CLEAR")
+                size_label = "SHORT" if is_short else "LONG"
+                description = f"GLASS KIT, 1-3/4\" KANATA, {size_label}, {glass_label}, {panel_color_normalized}"
 
         # Window quantity: use actual window count from positions, or estimate from door width
         window_qty = config.window_count if config.window_count > 0 else max(1, config.door_width // 24)
@@ -3279,8 +3288,16 @@ class PartNumberService:
             part_number = validated.part_number
             description = validated.description
         else:
-            part_number = gk16_pn
-            description = f"GLASS KIT, COMMERCIAL, THERM-CLEAR, {ws['desc']}, {frame_color}"
+            # Constructed combo isn't a real BC SKU — substitute the nearest
+            # existing GK16 so BC SalesPriceLists resolves a real price rather
+            # than the portal letting BC default to fabricated pricing.
+            substitute = mapper.find_closest_glass_kit(gk16_pn)
+            if substitute:
+                part_number = substitute.part_number
+                description = substitute.description
+            else:
+                part_number = gk16_pn
+                description = f"GLASS KIT, COMMERCIAL, THERM-CLEAR, {ws['desc']}, {frame_color}"
 
         # Per-panel window generation: if windowPanels is provided, emit one GK16 line per panel
         window_desc = ws["desc"]  # e.g. "24" x 12""
