@@ -1760,6 +1760,37 @@ def _delete_bc_lines(bc_quote_id: str, line_ids: List[str]) -> int:
     return deleted
 
 
+def _sweep_freight_lines(bc_quote_id: str, freight_item: str = "FREIGHT") -> int:
+    """
+    Delete every freight line currently on the BC quote, regardless of whether
+    it's tracked in line_map. Catches stale freight from a delivery→pickup flip,
+    repeated edits where line_map missed the previous freight, or freight added
+    by a code path that didn't update line_map. Required because the freight
+    recompute reads `totalAmountExcludingTax` and would compound any leftover
+    freight into the new freight amount (× 1.05 per round).
+    """
+    try:
+        existing = bc_client.get_quote_lines(bc_quote_id)
+    except Exception as e:
+        logger.warning(f"Freight sweep — could not list quote lines: {e}")
+        return 0
+    stale_ids = []
+    for ln in existing:
+        if (ln.get("lineObjectNumber") or "").strip().upper() == freight_item.upper():
+            stale_ids.append(ln["id"])
+            continue
+        # Catch the comment-fallback variant too: descriptions added by the
+        # fallback path begin with "Freight (".
+        desc = (ln.get("description") or "").strip()
+        if ln.get("lineType") == "Comment" and desc.lower().startswith("freight ("):
+            stale_ids.append(ln["id"])
+    if stale_ids:
+        deleted = _delete_bc_lines(bc_quote_id, stale_ids)
+        logger.info(f"Freight sweep on quote {bc_quote_id}: deleted {deleted}/{len(stale_ids)} freight line(s)")
+        return deleted
+    return 0
+
+
 def _build_door_config_dict(door: dict) -> dict:
     """Build the config_dict passed to get_parts_for_door_config. Matches the shape
     used in _generate_bc_quote_with_items step 1."""
@@ -1971,6 +2002,15 @@ def _edit_bc_quote_lines(
     for bucket, line_ids in list(line_map["shared"].items()):
         _delete_bc_lines(bc_quote_id, line_ids)
     line_map["shared"] = {}
+
+    # Belt-and-suspenders: sweep any freight lines that line_map missed. Without
+    # this, leftover freight gets folded into `totalAmountExcludingTax` below
+    # and the recomputed freight stacks at × 1.05 per edit (see SQ-002500).
+    try:
+        freight_item_no = get_freight_config(db).get("freight_item_number", "FREIGHT")
+    except Exception:
+        freight_item_no = "FREIGHT"
+    _sweep_freight_lines(bc_quote_id, freight_item=freight_item_no)
 
     # ── Step 4: Push new lines to BC with tier pricing ──────────────────────
     lines_added = 0
