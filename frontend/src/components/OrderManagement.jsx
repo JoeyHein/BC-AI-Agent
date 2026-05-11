@@ -74,7 +74,8 @@ function OrderManagement() {
     return (
       order.order_number?.toLowerCase().includes(search) ||
       order.customer_name?.toLowerCase().includes(search) ||
-      order.bc_order_number?.toLowerCase().includes(search)
+      order.bc_order_number?.toLowerCase().includes(search) ||
+      order.external_document_number?.toLowerCase().includes(search)
     )
   }) || []
 
@@ -152,7 +153,7 @@ function OrderManagement() {
             <div className="relative">
               <input
                 type="text"
-                placeholder="Search by order number, customer..."
+                placeholder="Search by order number, customer, PO..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-odc-500 focus:border-odc-500"
@@ -210,6 +211,7 @@ function OrderManagement() {
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PO #</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
@@ -230,6 +232,15 @@ function OrderManagement() {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-900">{order.customer_name || 'N/A'}</div>
                     <div className="text-xs text-gray-500">{order.customer_email}</div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    {order.external_document_number ? (
+                      <div className="text-sm text-gray-900" title={order.external_document_number}>
+                        {order.external_document_number}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-400 italic">—</span>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
@@ -363,6 +374,10 @@ function OrderDetailModal({ order, onClose, onUpdateStatus, onShip, onInvoice, i
             <div>
               <label className="block text-sm font-medium text-gray-500">Total</label>
               <p className="mt-1 text-sm text-gray-900">${order.total_amount?.toLocaleString() || '0.00'}</p>
+            </div>
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-gray-500">PO # (External Document)</label>
+              <p className="mt-1 text-sm text-gray-900">{order.external_document_number || <span className="text-gray-400 italic">Not set</span>}</p>
             </div>
           </div>
 
