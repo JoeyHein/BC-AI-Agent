@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey, JSON, Enum as SQLEnum, ARRAY, Numeric
 )
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.ext.mutable import MutableDict, MutableList
 from sqlalchemy.orm import relationship
 import enum
 
@@ -886,7 +887,10 @@ class SavedQuoteConfig(Base):
     # Configuration details
     name = Column(String(255))  # Customer-assigned name for this config
     description = Column(Text)  # Optional notes/description
-    config_data = Column(JSON, nullable=False)  # Full door configuration data
+    # MutableDict so SQLAlchemy detects in-place mutations (line_map updates,
+    # door edits) and persists them on commit. Without this, dict edits that
+    # don't change the column reference are silently dropped.
+    config_data = Column(MutableDict.as_mutable(JSON), nullable=False)
 
     # Status tracking
     is_submitted = Column(Boolean, default=False, index=True)
@@ -898,7 +902,7 @@ class SavedQuoteConfig(Base):
     #    "shared": {"freight": [...], "install": [...], "volume_discount": [...]}}
     # Used to surgically delete/replace only the lines for changed doors on edit,
     # keeping the BC quote number stable.
-    bc_line_map = Column(JSON, nullable=True)
+    bc_line_map = Column(MutableDict.as_mutable(JSON), nullable=True)
 
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
