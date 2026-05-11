@@ -870,7 +870,7 @@ def _generate_bc_quote_with_items(
                     part["door_type"] = part_door_type
 
                 # Info comments → BC Comment line (not an item)
-                if part.get("category") in ("spring_comment", "highlift_comment"):
+                if part.get("category") in ("spring_comment", "highlift_comment", "comment"):
                     part["lineType"] = "Comment"
                     part["is_note"] = True
 
@@ -1938,7 +1938,7 @@ def _edit_bc_quote_lines(
                     part["door_type"] = "commercial"
                 else:
                     part["door_type"] = part_door_type
-                if part.get("category") in ("spring_comment", "highlift_comment"):
+                if part.get("category") in ("spring_comment", "highlift_comment", "comment"):
                     part["lineType"] = "Comment"
                     part["is_note"] = True
                 all_new_lines.append(part)
@@ -2395,7 +2395,7 @@ def _estimate_pricing_locally(
                     part["door_type"] = part_door_type
 
                 # Info comments → BC Comment line (not an item)
-                if part.get("category") in ("spring_comment", "highlift_comment"):
+                if part.get("category") in ("spring_comment", "highlift_comment", "comment"):
                     part["lineType"] = "Comment"
                     part["is_note"] = True
 
