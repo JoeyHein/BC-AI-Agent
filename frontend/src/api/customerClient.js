@@ -317,6 +317,21 @@ export const installReferralsApi = {
     customerApiClient.get(`/api/customer/portal/install-referrals/${id}`),
 };
 
+// Team management — customer admins managing their own staff users
+export const customerTeamApi = {
+  list: () =>
+    customerApiClient.get('/api/customer/portal/team'),
+
+  add: (payload) =>
+    customerApiClient.post('/api/customer/portal/team', payload),
+
+  update: (userId, payload) =>
+    customerApiClient.patch(`/api/customer/portal/team/${userId}`, payload),
+
+  remove: (userId) =>
+    customerApiClient.delete(`/api/customer/portal/team/${userId}`),
+};
+
 // Combined customer API export
 export const customerApi = {
   auth: customerAuthApi,
@@ -331,6 +346,7 @@ export const customerApi = {
   projects: projectsApi,
   installReferrals: installReferralsApi,
   installPricing: installPricingApi,
+  team: customerTeamApi,
 };
 
 export default customerApiClient;

@@ -162,6 +162,9 @@ class CustomerResponse(BaseModel):
     phone: Optional[str] = None
     bc_customer_id: Optional[str]
     bc_company_name: Optional[str] = None
+    # Customer-admin flag: True means this user can manage other staff
+    # users on the same BC customer account from the customer portal.
+    is_customer_admin: bool = False
     created_at: datetime
     last_login_at: Optional[datetime]
 
@@ -201,6 +204,17 @@ def register_customer(
     bc_customer = db.query(BCCustomer).filter(BCCustomer.email == register_data.email).first()
     bc_customer_id = bc_customer.bc_customer_id if bc_customer else None
 
+    # First user on a BC customer (or any unlinked solo signup) becomes
+    # the customer-admin automatically. Subsequent users on the same BC
+    # customer default to non-admin; the existing admin can promote them.
+    is_first_on_account = True
+    if bc_customer_id:
+        existing_on_account = db.query(User).filter(
+            User.bc_customer_id == bc_customer_id,
+            User.user_type == 'CUSTOMER',
+        ).first()
+        is_first_on_account = existing_on_account is None
+
     # Validate account_type
     account_type = register_data.account_type or 'dealer'
     if account_type not in ('dealer', 'home_builder'):
@@ -224,7 +238,8 @@ def register_customer(
         email_verified=False,
         email_verification_token=verification_token,
         email_verification_expires=verification_expires,
-        bc_customer_id=bc_customer_id
+        bc_customer_id=bc_customer_id,
+        is_customer_admin=is_first_on_account,
     )
 
     db.add(user)
@@ -257,6 +272,7 @@ def register_customer(
         phone=user.phone,
         bc_customer_id=user.bc_customer_id,
         bc_company_name=bc_customer.company_name if bc_customer else None,
+        is_customer_admin=user.is_customer_admin,
         created_at=user.created_at,
         last_login_at=user.last_login_at
     )
@@ -351,7 +367,8 @@ def login_customer(
             "company_name": getattr(user, 'company_name', None),
             "phone": getattr(user, 'phone', None),
             "bc_customer_id": user.bc_customer_id,
-            "bc_company_name": bc_company_name
+            "bc_company_name": bc_company_name,
+            "is_customer_admin": bool(getattr(user, 'is_customer_admin', False)),
         }
     }
 

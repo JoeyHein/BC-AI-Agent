@@ -92,6 +92,11 @@ class User(Base):
     company_name = Column(String(255), nullable=True)
     phone = Column(String(50), nullable=True)
 
+    # Customer-side team admin. CUSTOMER users with this flag can add /
+    # remove / disable other staff users sharing the same bc_customer_id.
+    # OPENDC admins can override this from the admin portal.
+    is_customer_admin = Column(Boolean, default=False, nullable=False)
+
     # Relationships
     email_connections = relationship("EmailConnection", back_populates="user", cascade="all, delete-orphan")
     bc_customer = relationship("BCCustomer", foreign_keys=[bc_customer_id], primaryjoin="User.bc_customer_id == BCCustomer.bc_customer_id")
