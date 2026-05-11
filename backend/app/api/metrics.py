@@ -136,6 +136,7 @@ async def get_quoting_analytics(
 @router.get("/sales-analytics")
 async def get_sales_analytics(
     period: str = "12m",
+    compare: str = "prior",
     current_user: User = Depends(require_reviewer),
 ):
     """Sales analytics dashboard: KPIs, monthly trend, quarterly summary,
@@ -143,10 +144,12 @@ async def get_sales_analytics(
 
     period: this_month | last_month | this_quarter | last_quarter |
             ytd | 12m | 24m
+    compare: prior (immediately preceding window) | year_ago (same
+             window shifted back one year)
     """
     try:
         from app.services.sales_analytics_service import get_sales_analytics as _get
-        data = _get(period=period)
+        data = _get(period=period, compare=compare)
         return {"success": True, "data": data}
     except Exception as e:
         logger.error(f"Sales analytics error: {e}", exc_info=True)

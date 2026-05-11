@@ -715,8 +715,8 @@ export const metricsApi = {
   getOrderAge: (lookbackDays = 90) =>
     apiClient.get(`/api/metrics/order-age?lookback_days=${lookbackDays}`),
 
-  getSalesAnalytics: (period = '12m') =>
-    apiClient.get(`/api/metrics/sales-analytics?period=${period}`),
+  getSalesAnalytics: (period = '12m', compare = 'prior') =>
+    apiClient.get(`/api/metrics/sales-analytics?period=${period}&compare=${compare}`),
 };
 
 // Weekly Email Agent API

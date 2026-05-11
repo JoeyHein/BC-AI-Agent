@@ -59,9 +59,26 @@ def _quarter_label(d: date) -> str:
     return f"{d.year} Q{(d.month - 1) // 3 + 1}"
 
 
-def resolve_period(period: str, today: Optional[date] = None) -> Tuple[date, date, date, date, str]:
+def _shift_year_back(d: date) -> date:
+    """Subtract one year from a date, handling Feb 29 by clamping to Feb 28."""
+    try:
+        return d.replace(year=d.year - 1)
+    except ValueError:
+        return d.replace(year=d.year - 1, day=28)
+
+
+def resolve_period(period: str, today: Optional[date] = None,
+                    compare: str = "prior") -> Tuple[date, date, date, date, str, str]:
     """
-    Translate a period key into (start, end, prior_start, prior_end, label).
+    Translate a period key into (start, end, prior_start, prior_end, label,
+    prior_label). The comparison window is selectable:
+
+      compare='prior'    → immediately preceding equivalent window
+                           (prior month, prior quarter, etc.)
+      compare='year_ago' → same window shifted back one year
+
+    For 12m / 24m the two options collapse to nearly the same result
+    (prior 12m == 12m-ago 12m), so the toggle is informational only there.
 
     Inclusive of start, exclusive of end (BC's Posting_Date filter is
     'ge start and lt end' for cleaner month/quarter rollovers).
@@ -74,50 +91,72 @@ def resolve_period(period: str, today: Optional[date] = None) -> Tuple[date, dat
     today = today or datetime.utcnow().date()
     tomorrow = today + timedelta(days=1)
 
+    # ---- Period window ----
     if period == "this_month":
-        start = _start_of_month(today)
-        end = tomorrow
-        prior_end = start
-        prior_start = _add_months(start, -1)
-        label = "This Month"
+        start, end, label = _start_of_month(today), tomorrow, "This Month"
     elif period == "last_month":
         end = _start_of_month(today)
-        start = _add_months(end, -1)
-        prior_end = start
-        prior_start = _add_months(start, -1)
-        label = "Last Month"
+        start, label = _add_months(end, -1), "Last Month"
     elif period == "this_quarter":
-        start = _start_of_quarter(today)
-        end = tomorrow
-        prior_end = start
-        prior_start = _add_months(start, -3)
-        label = "This Quarter"
+        start, end, label = _start_of_quarter(today), tomorrow, "This Quarter"
     elif period == "last_quarter":
         end = _start_of_quarter(today)
-        start = _add_months(end, -3)
-        prior_end = start
-        prior_start = _add_months(start, -3)
-        label = "Last Quarter"
+        start, label = _add_months(end, -3), "Last Quarter"
     elif period == "ytd":
-        start = date(today.year, 1, 1)
-        end = tomorrow
-        prior_end = start
-        prior_start = date(today.year - 1, 1, 1)
+        start, end = date(today.year, 1, 1), tomorrow
         label = f"YTD {today.year}"
     elif period == "24m":
         start = _add_months(_start_of_month(today), -24)
-        end = tomorrow
-        # No clean "prior 24m" comparison; use 24m before that.
-        prior_end = start
-        prior_start = _add_months(start, -24)
-        label = "Last 24 Months"
+        end, label = tomorrow, "Last 24 Months"
     else:  # default 12m
         start = _add_months(_start_of_month(today), -12)
-        end = tomorrow
-        prior_end = start
-        prior_start = _add_months(start, -12)
-        label = "Last 12 Months"
-    return start, end, prior_start, prior_end, label
+        end, label = tomorrow, "Last 12 Months"
+
+    # ---- Comparison window ----
+    if compare == "year_ago":
+        # Same calendar window, shifted back one year — clean YoY comparison.
+        prior_start = _shift_year_back(start)
+        prior_end = _shift_year_back(end)
+        if period == "ytd":
+            prior_label = f"YTD {today.year - 1} (through {today.strftime('%b %d')})"
+        elif period == "this_month":
+            prior_label = f"{start.strftime('%B')} {start.year - 1}"
+        elif period == "last_month":
+            prior_label = f"{start.strftime('%B')} {start.year - 1}"
+        elif period == "this_quarter":
+            prior_label = f"Q{(start.month - 1) // 3 + 1} {start.year - 1}"
+        elif period == "last_quarter":
+            prior_label = f"Q{(start.month - 1) // 3 + 1} {start.year - 1}"
+        elif period in ("12m", "24m"):
+            prior_label = f"{label} (one year earlier)"
+        else:
+            prior_label = f"{label} Last Year"
+    else:  # prior — the immediately preceding equivalent window
+        if period == "this_month":
+            prior_end, prior_start = start, _add_months(start, -1)
+            prior_label = "Previous Month"
+        elif period == "last_month":
+            prior_end, prior_start = start, _add_months(start, -1)
+            prior_label = "Month Before"
+        elif period == "this_quarter":
+            prior_end, prior_start = start, _add_months(start, -3)
+            prior_label = "Previous Quarter"
+        elif period == "last_quarter":
+            prior_end, prior_start = start, _add_months(start, -3)
+            prior_label = "Quarter Before"
+        elif period == "ytd":
+            # "Prior YTD" — same-day boundary last year, not full calendar year.
+            prior_start = date(today.year - 1, 1, 1)
+            prior_end = _shift_year_back(end)
+            prior_label = f"YTD {today.year - 1} (through {today.strftime('%b %d')})"
+        elif period == "24m":
+            prior_end, prior_start = start, _add_months(start, -24)
+            prior_label = "Previous 24 Months"
+        else:  # 12m
+            prior_end, prior_start = start, _add_months(start, -12)
+            prior_label = "Previous 12 Months"
+
+    return start, end, prior_start, prior_end, label, prior_label
 
 
 # ----------------------------------------------------------------------
@@ -315,16 +354,24 @@ def _customer_breakdown(
 # Public entry point
 # ----------------------------------------------------------------------
 
-def get_sales_analytics(period: str = "12m") -> Dict[str, Any]:
-    """Return the full payload for the Sales Analytics dashboard."""
-    cache_key = f"sales_{period}"
+def get_sales_analytics(period: str = "12m", compare: str = "prior") -> Dict[str, Any]:
+    """Return the full payload for the Sales Analytics dashboard.
+
+    compare: 'prior' (immediately preceding window) or 'year_ago' (same
+    window shifted back one year for a clean YoY view).
+    """
+    if compare not in ("prior", "year_ago"):
+        compare = "prior"
+    cache_key = f"sales_{period}_{compare}"
     now_t = time.time()
     cached = _CACHE.get(cache_key)
     if cached and (now_t - cached["_t"]) < _CACHE_TTL_SECONDS:
         return cached["data"]
 
     today = datetime.utcnow().date()
-    start, end, prior_start, prior_end, label = resolve_period(period, today)
+    start, end, prior_start, prior_end, label, prior_label = resolve_period(
+        period, today, compare=compare,
+    )
 
     # Pull 24 months of invoices once (covers trend, quarterly, and current
     # period for any selector); slice in memory for each window.
@@ -353,9 +400,10 @@ def get_sales_analytics(period: str = "12m") -> Dict[str, Any]:
         "label": label,
         "start": start.isoformat(),
         "end": end.isoformat(),
-        "prior_label": f"Prior {label}",
+        "prior_label": prior_label,
         "prior_start": prior_start.isoformat(),
         "prior_end": prior_end.isoformat(),
+        "compare": compare,
         "revenue": period_summary["revenue"],
         "prior_revenue": prior_summary["revenue"],
         "revenue_change_pct": _percent_change(
@@ -378,7 +426,9 @@ def get_sales_analytics(period: str = "12m") -> Dict[str, Any]:
 
     payload = {
         "period": period,
+        "compare": compare,
         "label": label,
+        "prior_label": prior_label,
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "kpis": kpis,
         "monthly_trend": _monthly_trend(all_invs, months=24),

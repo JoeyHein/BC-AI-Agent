@@ -86,18 +86,19 @@ export default function Analytics() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [period, setPeriod] = useState('12m')
+  const [compare, setCompare] = useState('prior')
 
   useEffect(() => {
     let cancelled = false
     setLoading(true); setError(null)
-    metricsApi.getSalesAnalytics(period)
+    metricsApi.getSalesAnalytics(period, compare)
       .then(res => { if (!cancelled) setData(res.data.data) })
       .catch(err => {
         if (!cancelled) setError(err.response?.data?.detail || err.message)
       })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [period])
+  }, [period, compare])
 
   if (error) {
     return (
@@ -130,18 +131,41 @@ export default function Analytics() {
             Revenue, customer mix, and trend — sourced from BC posted invoices
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-1 bg-gray-100 rounded-lg p-1">
-          {PERIODS.map(p => (
-            <button
-              key={p.value}
-              onClick={() => setPeriod(p.value)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                period === p.value ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-1 bg-gray-100 rounded-lg p-1">
+            {PERIODS.map(p => (
+              <button
+                key={p.value}
+                onClick={() => setPeriod(p.value)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  period === p.value ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-gray-500">vs</span>
+            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => setCompare('prior')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  compare === 'prior' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Prior Period
+              </button>
+              <button
+                onClick={() => setCompare('year_ago')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  compare === 'year_ago' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Last Year
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -268,7 +292,7 @@ export default function Analytics() {
           <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
             Top Customers
             <span className="ml-2 text-xs text-gray-400 font-normal normal-case">
-              ({kpis.label}) · compared to {kpis.prior_label || 'prior period'}
+              {kpis.label} · compared to {kpis.prior_label || 'Prior Period'}
             </span>
           </h2>
           {customers.length > 0 && (
