@@ -809,6 +809,7 @@ class LinkedUserResponse(BaseModel):
     email: str
     name: Optional[str]
     is_active: bool
+    is_customer_admin: bool = False
     account_status: Optional[str] = None
     last_login_at: Optional[datetime]
     created_at: datetime
@@ -819,6 +820,17 @@ class AddLinkedUserRequest(BaseModel):
     name: Optional[str] = None
     password: Optional[str] = None
     account_type: Optional[str] = None  # 'dealer' / 'home_builder' — defaults to anchor's
+    is_customer_admin: bool = False  # mark as customer-admin on create
+
+
+class UpdateLinkedUserRequest(BaseModel):
+    """Admin-side patch on a linked user — role + status only.
+    Admins can flip these freely; the customer-side endpoint has stricter
+    rules (no last-admin removal, etc.). On the admin side the assumption
+    is that OPENDC support knows what they're doing.
+    """
+    is_customer_admin: Optional[bool] = None
+    is_active: Optional[bool] = None
 
 
 @router.get("/{customer_id}/linked-users", response_model=List[LinkedUserResponse])
@@ -898,6 +910,7 @@ def add_linked_user(
             target.account_type = anchor.account_type
         if body.password:
             target.password_hash = auth_service.get_password_hash(body.password)
+        target.is_customer_admin = bool(body.is_customer_admin)
         db.commit()
         db.refresh(target)
         logger.info(
@@ -925,6 +938,7 @@ def add_linked_user(
         account_status="active",
         company_name=anchor.company_name,
         bc_customer_id=anchor.bc_customer_id,
+        is_customer_admin=bool(body.is_customer_admin),
     )
     db.add(new_user)
     db.commit()
@@ -934,6 +948,56 @@ def add_linked_user(
         f"under BC customer {anchor.bc_customer_id} (alongside {anchor.email})"
     )
     return LinkedUserResponse.model_validate(new_user, from_attributes=True)
+
+
+@router.patch("/{customer_id}/linked-users/{linked_id}", response_model=LinkedUserResponse)
+def update_linked_user(
+    customer_id: int,
+    linked_id: int,
+    body: UpdateLinkedUserRequest,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Toggle is_customer_admin / is_active on a linked user.
+
+    Used to grant or revoke customer-admin powers from the OPENDC side,
+    or to enable/disable login. No last-admin safety check here — the
+    admin side is the override path.
+    """
+    anchor = db.query(User).filter(
+        User.id == customer_id,
+        User.user_type == "CUSTOMER",
+    ).first()
+    if not anchor:
+        raise HTTPException(404, "Customer not found")
+
+    target = db.query(User).filter(
+        User.id == linked_id,
+        User.user_type == "CUSTOMER",
+    ).first()
+    if not target:
+        raise HTTPException(404, "Linked user not found")
+
+    # Only allow updating users on the same BC account, or the anchor
+    # itself (which may be unlinked).
+    if anchor.bc_customer_id and target.bc_customer_id != anchor.bc_customer_id and target.id != anchor.id:
+        raise HTTPException(400, "That user is not on this account.")
+
+    changed = []
+    if body.is_customer_admin is not None:
+        target.is_customer_admin = bool(body.is_customer_admin)
+        changed.append(f"admin={target.is_customer_admin}")
+    if body.is_active is not None:
+        target.is_active = bool(body.is_active)
+        changed.append(f"active={target.is_active}")
+
+    db.commit()
+    db.refresh(target)
+    logger.info(
+        f"Admin {current_admin.email} updated linked user {target.email} "
+        f"({', '.join(changed) or 'no changes'})"
+    )
+    return LinkedUserResponse.model_validate(target, from_attributes=True)
 
 
 @router.delete("/{customer_id}/linked-users/{linked_id}")

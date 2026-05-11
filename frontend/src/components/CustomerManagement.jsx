@@ -1539,7 +1539,7 @@ function CustomerManagement() {
 function LinkedUsersPanel({ customer, onRefresh }) {
   const queryClient = useQueryClient()
   const [showAdd, setShowAdd] = useState(false)
-  const [form, setForm] = useState({ email: '', name: '', password: '' })
+  const [form, setForm] = useState({ email: '', name: '', password: '', is_customer_admin: false })
   const [error, setError] = useState(null)
 
   const { data: linkedUsers = [], isLoading } = useQuery({
@@ -1551,13 +1551,24 @@ function LinkedUsersPanel({ customer, onRefresh }) {
     mutationFn: (payload) => customersApi.addLinkedUser(customer.id, payload),
     onSuccess: () => {
       setShowAdd(false)
-      setForm({ email: '', name: '', password: '' })
+      setForm({ email: '', name: '', password: '', is_customer_admin: false })
       setError(null)
       queryClient.invalidateQueries(['linkedUsers', customer.id])
       queryClient.invalidateQueries(['customers'])
       onRefresh && onRefresh()
     },
     onError: (err) => setError(err.response?.data?.detail || 'Failed to add user'),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ linkedId, patch }) =>
+      customersApi.updateLinkedUser(customer.id, linkedId, patch),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['linkedUsers', customer.id])
+      queryClient.invalidateQueries(['customers'])
+      onRefresh && onRefresh()
+    },
+    onError: (err) => alert(err.response?.data?.detail || 'Failed to update user'),
   })
 
   const removeMutation = useMutation({
@@ -1580,6 +1591,7 @@ function LinkedUsersPanel({ customer, onRefresh }) {
       email: form.email.trim(),
       name: form.name.trim() || null,
       password: form.password.trim() || null,
+      is_customer_admin: !!form.is_customer_admin,
     })
   }
 
@@ -1609,10 +1621,13 @@ function LinkedUsersPanel({ customer, onRefresh }) {
             return (
               <div key={u.id} className="flex items-center justify-between text-sm bg-gray-50 rounded px-2 py-1.5">
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium text-gray-900 truncate">{u.name || u.email}</span>
                     {isAnchor && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">primary</span>
+                    )}
+                    {u.is_customer_admin && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">customer admin</span>
                     )}
                     {!u.is_active && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700">inactive</span>
@@ -1620,20 +1635,46 @@ function LinkedUsersPanel({ customer, onRefresh }) {
                   </div>
                   <div className="text-xs text-gray-500 truncate">{u.email}</div>
                 </div>
-                {!isAnchor && (
+                <div className="flex items-center gap-2 ml-2 flex-shrink-0">
                   <button
-                    onClick={() => {
-                      if (window.confirm(`Remove ${u.email} from this account?`)) {
-                        removeMutation.mutate(u.id)
-                      }
-                    }}
-                    disabled={removeMutation.isPending}
-                    className="text-xs text-red-600 hover:text-red-800 ml-2 flex-shrink-0"
-                    title="Unlink this user from this BC customer"
+                    onClick={() => updateMutation.mutate({
+                      linkedId: u.id,
+                      patch: { is_customer_admin: !u.is_customer_admin },
+                    })}
+                    disabled={updateMutation.isPending}
+                    className="text-xs text-odc-600 hover:text-odc-800"
+                    title={u.is_customer_admin
+                      ? "Revoke customer admin powers"
+                      : "Grant customer admin (can manage team)"}
                   >
-                    Remove
+                    {u.is_customer_admin ? 'Revoke admin' : 'Make admin'}
                   </button>
-                )}
+                  <button
+                    onClick={() => updateMutation.mutate({
+                      linkedId: u.id,
+                      patch: { is_active: !u.is_active },
+                    })}
+                    disabled={updateMutation.isPending}
+                    className="text-xs text-yellow-700 hover:text-yellow-900"
+                    title={u.is_active ? "Disable login" : "Re-enable login"}
+                  >
+                    {u.is_active ? 'Disable' : 'Enable'}
+                  </button>
+                  {!isAnchor && (
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Remove ${u.email} from this account?`)) {
+                          removeMutation.mutate(u.id)
+                        }
+                      }}
+                      disabled={removeMutation.isPending}
+                      className="text-xs text-red-600 hover:text-red-800"
+                      title="Unlink this user from this BC customer"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
               </div>
             )
           })}
@@ -1675,6 +1716,15 @@ function LinkedUsersPanel({ customer, onRefresh }) {
               placeholder="min 8 characters"
             />
           </div>
+          <label className="flex items-center gap-2 text-xs text-gray-700">
+            <input
+              type="checkbox"
+              checked={!!form.is_customer_admin}
+              onChange={(e) => setForm((f) => ({ ...f, is_customer_admin: e.target.checked }))}
+              className="rounded border-gray-300 text-odc-600 focus:ring-odc-500"
+            />
+            <span>Customer admin — can add/remove team members on their own</span>
+          </label>
           {error && <p className="text-xs text-red-600">{error}</p>}
           <div className="flex gap-2">
             <button

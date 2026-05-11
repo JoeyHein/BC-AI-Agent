@@ -613,6 +613,9 @@ export const customersApi = {
   removeLinkedUser: (customerId, linkedId) =>
     apiClient.delete(`/api/admin/customers/${customerId}/linked-users/${linkedId}`),
 
+  updateLinkedUser: (customerId, linkedId, payload) =>
+    apiClient.patch(`/api/admin/customers/${customerId}/linked-users/${linkedId}`, payload),
+
   // Install pricing
   getInstallPricing: (customerId) =>
     apiClient.get(`/api/admin/customers/${customerId}/install-pricing`),
