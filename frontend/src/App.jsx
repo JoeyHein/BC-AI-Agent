@@ -63,7 +63,7 @@ function Navigation() {
 
   const reportItems = [
     { path: '/business', label: 'Business' },
-    { path: '/analytics', label: 'Analytics' },
+    { path: '/analytics', label: 'Sales Analytics' },
     { path: '/analytics/quoting', label: 'Quoting' },
     { path: '/analytics/order-age', label: 'Order Age Tracker' },
     { path: '/weekly-email', label: 'Weekly Email' },

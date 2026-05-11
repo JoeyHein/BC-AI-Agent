@@ -133,6 +133,26 @@ async def get_quoting_analytics(
 # ORDER AGE TRACKER — reviewer+
 # =============================================================================
 
+@router.get("/sales-analytics")
+async def get_sales_analytics(
+    period: str = "12m",
+    current_user: User = Depends(require_reviewer),
+):
+    """Sales analytics dashboard: KPIs, monthly trend, quarterly summary,
+    top customers — sourced from BC PostedSalesInvoices.
+
+    period: this_month | last_month | this_quarter | last_quarter |
+            ytd | 12m | 24m
+    """
+    try:
+        from app.services.sales_analytics_service import get_sales_analytics as _get
+        data = _get(period=period)
+        return {"success": True, "data": data}
+    except Exception as e:
+        logger.error(f"Sales analytics error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/order-age")
 async def get_order_age(
     lookback_days: int = 90,
