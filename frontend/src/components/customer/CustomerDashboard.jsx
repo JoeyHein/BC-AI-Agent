@@ -37,8 +37,9 @@ function CustomerDashboard() {
     enabled: isBCLinked
   })
 
-  const draftQuotes = savedQuotes?.filter(q => !q.is_submitted) || []
-  const submittedQuotes = savedQuotes?.filter(q => q.is_submitted) || []
+  // No more draft/submitted split — every saved quote is "open" until it
+  // becomes an order. activeQuotes is just the full list, ordered newest first.
+  const activeQuotes = savedQuotes || []
   const activeOrders = orders?.filter(o => !['completed', 'cancelled'].includes(o.status)) || []
 
   return (
@@ -117,7 +118,7 @@ function CustomerDashboard() {
             >
               <div>
                 <h3 className="text-lg font-semibold">My Quotes</h3>
-                <p className="text-gray-500 text-sm mt-1">{draftQuotes.length} drafts, {submittedQuotes.length} submitted</p>
+                <p className="text-gray-500 text-sm mt-1">{activeQuotes.length} {activeQuotes.length === 1 ? 'quote' : 'quotes'}</p>
               </div>
               <DocumentIcon className="h-8 w-8 text-gray-400" />
             </Link>
@@ -158,10 +159,10 @@ function CustomerDashboard() {
 
       {/* Recent activity */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Recent drafts */}
+        {/* Recent quotes */}
         <div className="bg-white shadow rounded-lg">
           <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-            <h2 className="text-lg font-medium text-gray-900">Recent Drafts</h2>
+            <h2 className="text-lg font-medium text-gray-900">Recent Quotes</h2>
             <Link to="saved-quotes" className="text-sm text-odc-600 hover:text-odc-500">
               View all
             </Link>
@@ -169,15 +170,15 @@ function CustomerDashboard() {
           <div className="divide-y divide-gray-200">
             {quotesLoading ? (
               <div className="p-6 text-center text-gray-500">Loading...</div>
-            ) : draftQuotes.length === 0 ? (
+            ) : activeQuotes.length === 0 ? (
               <div className="p-6 text-center text-gray-500">
-                No draft quotes yet.{' '}
+                No quotes yet.{' '}
                 <Link to="saved-quotes/new" className="text-odc-600 hover:text-odc-500">
                   Create one now
                 </Link>
               </div>
             ) : (
-              draftQuotes.slice(0, 5).map((quote) => (
+              activeQuotes.slice(0, 5).map((quote) => (
                 <Link
                   key={quote.id}
                   to={`saved-quotes/${quote.id}`}
@@ -195,8 +196,12 @@ function CustomerDashboard() {
                         </p>
                       )}
                     </div>
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                      Draft
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      quote.bc_quote_number
+                        ? 'bg-blue-100 text-blue-800'
+                        : 'bg-yellow-100 text-yellow-800'
+                    }`}>
+                      {quote.bc_quote_number ? `Priced ${quote.bc_quote_number}` : 'Draft'}
                     </span>
                   </div>
                 </Link>

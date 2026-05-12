@@ -7,7 +7,6 @@ import QuotePricingDisplay from './QuotePricingDisplay'
 import { formatDate } from '../../utils/datetime'
 
 function SavedQuotes() {
-  const [filter, setFilter] = useState('all') // all, draft, submitted
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('') // debounced
   const [pricingState, setPricingState] = useState({}) // { [quoteId]: { loading, data, error } }
@@ -44,20 +43,6 @@ function SavedQuotes() {
     },
     onError: (err) => {
       alert(`Failed to duplicate: ${err.response?.data?.detail || err.message}`)
-    }
-  })
-
-  const confirmMutation = useMutation({
-    mutationFn: (id) => savedQuotesApi.confirm(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries(['savedQuotes'])
-    }
-  })
-
-  const submitMutation = useMutation({
-    mutationFn: (id) => savedQuotesApi.submit(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries(['savedQuotes'])
     }
   })
 
@@ -113,22 +98,6 @@ function SavedQuotes() {
     }
   }
 
-  const handleConfirm = async (id, name) => {
-    if (window.confirm(`Confirm and submit "${name || 'this quote'}"? This cannot be undone.`)) {
-      confirmMutation.mutate(id)
-    }
-  }
-
-  const handleSubmit = async (id, name) => {
-    if (!isBCLinked) {
-      alert('Your account must be linked to submit quotes. Please contact support.')
-      return
-    }
-    if (window.confirm(`Submit "${name || 'this quote'}" for processing? This cannot be undone.`)) {
-      submitMutation.mutate(id)
-    }
-  }
-
   const handlePlaceOrder = (id, name) => {
     if (window.confirm(`Place an order for "${name || 'this quote'}"?\n\nThis will convert the quote into a sales order in Business Central. This action cannot be undone.`)) {
       placeOrderMutation.mutate(id)
@@ -174,11 +143,11 @@ function SavedQuotes() {
     }
   }
 
-  const filteredQuotes = quotes?.filter(q => {
-    if (filter === 'draft') return !q.is_submitted
-    if (filter === 'submitted') return q.is_submitted
-    return true
-  }) || []
+  // All quotes shown together. A quote has no value on its own — only
+  // converted orders matter — so we no longer split into Drafts vs
+  // Submitted. Quotes drop off when they become orders (handled
+  // server-side via _has_sales_order_for_quote).
+  const filteredQuotes = quotes || []
 
   if (isLoading) {
     return (
@@ -203,7 +172,7 @@ function SavedQuotes() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">My Quotes</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Save door configurations and submit them when ready
+            Configure doors, price them, and place an order when you're ready
           </p>
         </div>
         <Link
@@ -234,34 +203,6 @@ function SavedQuotes() {
             ×
           </button>
         )}
-      </div>
-
-      {/* Filter tabs */}
-      <div className="border-b border-gray-200">
-        <nav className="-mb-px flex space-x-8">
-          {[
-            { key: 'all', label: 'All', count: quotes?.length || 0 },
-            { key: 'draft', label: 'Drafts', count: quotes?.filter(q => !q.is_submitted).length || 0 },
-            { key: 'submitted', label: 'Submitted', count: quotes?.filter(q => q.is_submitted).length || 0 },
-          ].map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setFilter(tab.key)}
-              className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${
-                filter === tab.key
-                  ? 'border-odc-500 text-odc-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              {tab.label}
-              <span className={`ml-2 py-0.5 px-2.5 rounded-full text-xs ${
-                filter === tab.key ? 'bg-blue-100 text-odc-600' : 'bg-gray-100 text-gray-900'
-              }`}>
-                {tab.count}
-              </span>
-            </button>
-          ))}
-        </nav>
       </div>
 
       {/* Quotes list */}
@@ -347,70 +288,11 @@ function SavedQuotes() {
                             </>
                           )}
                         </div>
-                      ) : quote.is_submitted ? (
-                        /* Submitted, not yet ordered — still editable */
-                        <div className="flex items-center space-x-2">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            Submitted
-                            {quote.bc_quote_number && ` - ${quote.bc_quote_number}`}
-                          </span>
-                          {quote.bc_quote_id && (
-                            <>
-                              <Link
-                                to={`${quote.id}`}
-                                className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-                              >
-                                Edit
-                              </Link>
-                              <button
-                                onClick={() => handlePlaceOrder(quote.id, quote.name)}
-                                disabled={placeOrderMutation.isPending}
-                                className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded-md text-white bg-odc-600 hover:bg-odc-700 disabled:opacity-50"
-                              >
-                                {placeOrderMutation.isPending ? 'Placing...' : 'Place Order'}
-                              </button>
-                              <button
-                                onClick={() => handleGetPricing(quote.id)}
-                                disabled={pricingState[quote.id]?.loading}
-                                className="inline-flex items-center px-3 py-1 border border-blue-300 text-xs font-medium rounded-md text-odc-700 bg-white hover:bg-blue-50 disabled:opacity-50"
-                              >
-                                Refresh Pricing
-                              </button>
-                              <button
-                                onClick={() => handleDownloadPdf(quote.id, quote.bc_quote_id, quote.bc_quote_number)}
-                                disabled={downloadingPdf[quote.id]}
-                                className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-                              >
-                                {downloadingPdf[quote.id] ? 'Downloading...' : 'Download PDF'}
-                              </button>
-                              <button
-                                onClick={() => handleDownloadFramingDrawing(quote.id, quote.bc_quote_number)}
-                                disabled={downloadingFraming[quote.id]}
-                                className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-                                title="Production shop drawing for the installer"
-                              >
-                                {downloadingFraming[quote.id] ? 'Generating...' : 'Drawing PDF'}
-                              </button>
-                              <button
-                                onClick={() => duplicateMutation.mutate(quote.id)}
-                                disabled={duplicateMutation.isPending}
-                                className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-                                title="Make a copy as a fresh draft"
-                              >
-                                {duplicateMutation.isPending ? 'Copying...' : 'Save as New'}
-                              </button>
-                              <button
-                                onClick={() => handleDelete(quote.id, quote.name)}
-                                disabled={deleteMutation.isPending}
-                                className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-                              >
-                                Delete
-                              </button>
-                            </>
-                          )}
-                        </div>
                       ) : quote.bc_quote_id ? (
-                        /* Priced but not yet submitted */
+                        /* Priced — only "Place Order" actually advances the
+                           workflow. The old "Confirm & Submit" flag-flip
+                           and the separate Submitted state were removed
+                           because they did not change anything in BC. */
                         <div className="flex items-center space-x-2">
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                             Priced
@@ -422,13 +304,6 @@ function SavedQuotes() {
                           >
                             Edit
                           </Link>
-                          <button
-                            onClick={() => handleConfirm(quote.id, quote.name)}
-                            disabled={confirmMutation.isPending}
-                            className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded-md text-white bg-green-600 hover:bg-green-700 disabled:opacity-50"
-                          >
-                            Confirm & Submit
-                          </button>
                           <button
                             onClick={() => handlePlaceOrder(quote.id, quote.name)}
                             disabled={placeOrderMutation.isPending}
@@ -487,13 +362,6 @@ function SavedQuotes() {
                               {pricingState[quote.id]?.loading ? 'Getting Pricing...' : 'Get Pricing'}
                             </button>
                           )}
-                          <button
-                            onClick={() => handleSubmit(quote.id, quote.name)}
-                            disabled={submitMutation.isPending}
-                            className="inline-flex items-center px-3 py-1 border border-blue-300 text-xs font-medium rounded-md text-odc-700 bg-white hover:bg-blue-50 disabled:opacity-50"
-                          >
-                            Submit
-                          </button>
                           <button
                             onClick={() => duplicateMutation.mutate(quote.id)}
                             disabled={duplicateMutation.isPending}
