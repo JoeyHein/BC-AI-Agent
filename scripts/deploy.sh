@@ -27,28 +27,42 @@ git pull origin main
 echo "[2/5] Building Docker images..."
 docker compose build
 
-# ── 3. Sweep orphaned hash-prefixed containers from a prior failed recreate ──
-# When docker compose fails mid-recreate (e.g. a worker still holding the old
-# container's PID), Docker renames the original with a hex-hash prefix
-# (e.g. "8b56dce667e8_bc-ai-agent-db-1") and tries to create a fresh one with
-# the original name. If anything errors out before the rename is undone, the
-# next deploy collides on the container name. Sweep these before bringing the
-# stack back up so we never accumulate. Live containers (no hash prefix) are
-# untouched because the filter requires an underscore before "bc-ai-agent-".
-echo "[3/5] Sweeping hash-prefixed orphan containers..."
-orphans=$(docker ps -a --filter "name=_bc-ai-agent-" --format '{{.Names}}' || true)
-if [ -n "$orphans" ]; then
-    echo "  Found orphans:"
-    echo "$orphans" | sed 's/^/    /'
-    echo "$orphans" | xargs -r docker rm -f >/dev/null
-    echo "  Removed."
-else
-    echo "  None found."
-fi
+# Helper — wipes any container whose name starts with "<hex>_bc-ai-agent-".
+# Docker creates these as a side-effect of failed force-recreates: the
+# original is renamed with a hex prefix, the new one is created with the
+# original name, but if Docker can't release the rename cleanly the orphan
+# persists and collides on the next deploy. Live containers have no hex
+# prefix so they're never matched.
+sweep_orphans() {
+    local orphans
+    orphans=$(docker ps -a --filter "name=_bc-ai-agent-" --format '{{.Names}}' || true)
+    if [ -n "$orphans" ]; then
+        echo "  Removing orphans:"
+        echo "$orphans" | sed 's/^/    /'
+        echo "$orphans" | xargs -r docker rm -f >/dev/null
+    else
+        echo "  No orphans."
+    fi
+}
 
-# ── 4. Restart services with zero-downtime rolling update ─────────────────────
+# ── 3. Pre-sweep any orphans left over from a prior failed deploy ─────────────
+echo "[3/5] Pre-sweep:"
+sweep_orphans
+
+# ── 4. Restart services. If compose up fails because of a mid-recreate name
+#       conflict (Docker engine quirk we hit roughly every other deploy on
+#       this host), sweep the freshly-created orphan and try once more.
 echo "[4/5] Restarting services..."
-docker compose up -d --remove-orphans
+if ! docker compose up -d --remove-orphans 2>&1 | tee /tmp/deploy-up.log; then
+    if grep -q "is already in use by container" /tmp/deploy-up.log; then
+        echo "  Container name conflict — sweeping and retrying once."
+        sweep_orphans
+        docker compose up -d --remove-orphans
+    else
+        echo "  compose up failed for a reason other than name conflict — aborting."
+        exit 1
+    fi
+fi
 
 # ── 5. Run DB migrations ──────────────────────────────────────────────────────
 echo "[5/5] Running database migrations..."
