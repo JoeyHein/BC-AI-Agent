@@ -10,13 +10,24 @@ Travel: rate per km (round trip) from Medicine Hat, AB
 import json
 import logging
 import math
-from typing import Optional, Dict, Any, List
+import re
+from typing import Optional, Dict, Any, List, Tuple
 
+import requests
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
+from app.config import settings
 from app.db.models import CustomerInstallPricing, AppSettings
 
 logger = logging.getLogger(__name__)
+
+# Google Distance Matrix — install travel origin is our shop in Medicine Hat.
+GOOGLE_DISTANCE_MATRIX_URL = "https://maps.googleapis.com/maps/api/distancematrix/json"
+TRAVEL_ORIGIN = "Medicine Hat, AB, Canada"
+# Bias matching toward Canadian prairies so "Raymore" hits Raymore SK and not
+# Raymore TX or Raymore-anything-else.
+TRAVEL_DESTINATION_REGION = "ca"
 
 TRAVEL_DISTANCES_KEY = "install_travel_distances"
 
@@ -90,6 +101,75 @@ class InstallPricingService:
             db.add(setting)
         db.commit()
         return distances
+
+    def _google_distance_km(self, town: str) -> Optional[float]:
+        """Query Google Distance Matrix for road km from Medicine Hat to `town`.
+        Returns None if no API key configured, no result, or the API errors."""
+        api_key = settings.GOOGLE_MAPS_API_KEY
+        if not api_key:
+            return None
+        params = {
+            "origins": TRAVEL_ORIGIN,
+            "destinations": town,
+            "units": "metric",
+            "region": TRAVEL_DESTINATION_REGION,
+            "key": api_key,
+        }
+        try:
+            resp = requests.get(GOOGLE_DISTANCE_MATRIX_URL, params=params, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            logger.warning(f"Google Distance Matrix request failed for {town!r}: {e}")
+            return None
+        if data.get("status") != "OK":
+            logger.warning(f"Google Distance Matrix status={data.get('status')} for {town!r}")
+            return None
+        rows = data.get("rows") or []
+        if not rows:
+            return None
+        elements = rows[0].get("elements") or []
+        if not elements or elements[0].get("status") != "OK":
+            logger.info(f"Google Distance Matrix could not resolve town {town!r}")
+            return None
+        meters = elements[0].get("distance", {}).get("value")
+        if meters is None:
+            return None
+        return round(meters / 1000.0, 1)
+
+    def lookup_distance_km(self, town: str, db: Session) -> Tuple[Optional[float], str]:
+        """
+        Resolve a town name to road km from Medicine Hat. Returns
+        (distance_km, source) where source is "static", "google", or "unknown".
+
+        Cached results from Google are written back to the
+        install_travel_distances AppSettings dict so each unique town is paid
+        for at most once.
+        """
+        if not town or not town.strip():
+            return None, "unknown"
+        normalized = town.strip()
+        distances = self.get_travel_distances(db)
+
+        # 1. Case-insensitive match against the cached/static dict.
+        for t, d in distances.items():
+            if t.lower() == normalized.lower():
+                return float(d), "static"
+
+        # 2. Ask Google.
+        km = self._google_distance_km(normalized)
+        if km is None:
+            return None, "unknown"
+
+        # 3. Cache it (keyed by the canonical town name customer typed).
+        try:
+            cache_key = re.sub(r"\s+", " ", normalized).title()  # "raymore" -> "Raymore"
+            distances[cache_key] = km
+            self.set_travel_distances(db, distances)
+            logger.info(f"Cached Google-resolved distance: {cache_key} -> {km} km")
+        except Exception as cache_err:
+            logger.warning(f"Could not cache distance for {normalized!r}: {cache_err}")
+        return km, "google"
 
     def get_customer_pricing(self, customer_id: int, db: Session) -> Optional[CustomerInstallPricing]:
         """Get install pricing record for a customer."""
@@ -352,18 +432,17 @@ class InstallPricingService:
         per_diem_qty = blocks if total_sqft > BUILDER_LIFT_BLOCK_SQFT else 0
         per_diem_total = round(per_diem_qty * BUILDER_PER_DIEM_BLOCK_PRICE, 2)
 
-        # Travel — one-way from Medicine Hat.
+        # Travel — one-way from Medicine Hat. Tries the cached/static dict
+        # first, then falls back to Google Distance Matrix so any town works.
         travel_distance_km: Optional[float] = None
         travel_price = 0.0
+        travel_source = "none"
         if town:
-            distances = self.get_travel_distances(db)
-            town_lower = town.strip().lower()
-            for t, dist in distances.items():
-                if t.lower() == town_lower:
-                    travel_distance_km = float(dist)
-                    break
-            if travel_distance_km is not None:
-                travel_price = round(travel_distance_km * travel_rate, 2)
+            km, source = self.lookup_distance_km(town, db)
+            travel_source = source
+            if km is not None:
+                travel_distance_km = km
+                travel_price = round(km * travel_rate, 2)
 
         operator_addon_total = round(operator_doors * BUILDER_OPERATOR_ADDON_PER_DOOR, 2)
         grand_total = round(
@@ -392,6 +471,7 @@ class InstallPricingService:
             "travel_distance_km": travel_distance_km,
             "travel_rate_per_km": travel_rate,
             "travel_price": travel_price,
+            "travel_source": travel_source,
             "grand_total": grand_total,
         }
 

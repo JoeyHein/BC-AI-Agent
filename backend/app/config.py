@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     # Anthropic Claude AI
     ANTHROPIC_API_KEY: Optional[str] = None
 
+    # Google Maps — Distance Matrix API for install travel auto-lookup.
+    # Resolves any town name to road-km from Medicine Hat. Optional; if
+    # unset, install_pricing_service falls back to its static dict.
+    GOOGLE_MAPS_API_KEY: Optional[str] = None
+
     # Database
     DATABASE_URL: str = "postgresql://user:password@localhost:5432/bc_ai_agent"
     DATABASE_ECHO: bool = False

@@ -1,14 +1,42 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { installPricingApi } from '../../api/customerClient'
 
 /**
  * Installation town input for home builder quotes.
- * Collects the installation town (for travel cost calculation)
- * and passes it to the door config so it's included in the BC quote.
  *
- * Pricing is NOT shown here — it appears on the BC quote after submission.
+ * Collects the installation town and previews the travel cost inline
+ * (backend resolves via cached static dict, then Google Distance Matrix).
+ * The town value is passed up to the door config so it lands on the BC
+ * quote when the customer submits.
  */
 function InstallPriceEstimate({ town: externalTown, onTownChange }) {
   const [town, setTown] = useState(externalTown || '')
+  const [quote, setQuote] = useState(null)       // { distance_km, travel_price, source } | null
+  const [loading, setLoading] = useState(false)
+  const debounceRef = useRef(null)
+
+  // Debounce live travel lookup so we don't fire on every keystroke.
+  useEffect(() => {
+    const trimmed = (town || '').trim()
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    if (!trimmed) {
+      setQuote(null)
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const { data } = await installPricingApi.travelQuote(trimmed)
+        setQuote(data)
+      } catch {
+        setQuote({ source: 'unknown', distance_km: null, travel_price: 0 })
+      } finally {
+        setLoading(false)
+      }
+    }, 600)
+    return () => debounceRef.current && clearTimeout(debounceRef.current)
+  }, [town])
 
   function handleChange(e) {
     setTown(e.target.value)
@@ -45,6 +73,24 @@ function InstallPriceEstimate({ town: externalTown, onTownChange }) {
         <p className="text-xs text-gray-400 mt-0.5">
           Required. Use "Medicine Hat" for local installs (no travel charge).
         </p>
+
+        {/* Inline travel preview — appears once the customer enters a town */}
+        {town?.trim() && (
+          <div className="mt-2 text-xs">
+            {loading && <span className="text-gray-500">Looking up distance…</span>}
+            {!loading && quote && quote.distance_km != null && (
+              <span className="text-gray-700">
+                Travel: <span className="font-medium">${quote.travel_price.toFixed(2)}</span>
+                {' '}({quote.distance_km.toFixed(0)} km from Medicine Hat)
+              </span>
+            )}
+            {!loading && quote && quote.distance_km == null && (
+              <span className="text-amber-700">
+                Could not auto-resolve "{town}" — travel will be quoted manually.
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

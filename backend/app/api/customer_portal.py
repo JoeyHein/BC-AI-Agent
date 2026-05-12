@@ -207,6 +207,39 @@ def calculate_install_price(
     return result
 
 
+@router.get("/install-travel-quote")
+def install_travel_quote(
+    town: str,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db),
+):
+    """
+    Resolve a town to road-km from Medicine Hat and return the travel cost
+    at the current builder rate. Used by the configurator to show travel
+    cost inline as the customer types their installation town. Hits the
+    cached/static distance dict first, then Google Distance Matrix; caches
+    the result so each unique town is paid for at most once.
+    """
+    if not town or not town.strip():
+        return {"town": None, "distance_km": None, "travel_price": 0.0, "source": "unknown"}
+
+    km, source = install_pricing_service.lookup_distance_km(town, db)
+
+    # Use the customer's per-km rate override if configured, else default.
+    pricing = install_pricing_service.get_customer_pricing(current_user.id, db)
+    from app.services.install_pricing_service import BUILDER_TRAVEL_RATE_PER_KM
+    rate = float(pricing.travel_rate_per_km) if pricing and pricing.travel_rate_per_km is not None else BUILDER_TRAVEL_RATE_PER_KM
+    travel_price = round(km * rate, 2) if km is not None else 0.0
+
+    return {
+        "town": town,
+        "distance_km": km,
+        "travel_rate_per_km": rate,
+        "travel_price": travel_price,
+        "source": source,  # "static" | "google" | "unknown"
+    }
+
+
 # ============================================================================
 # SAVED QUOTE CONFIG ENDPOINTS
 # ============================================================================

@@ -300,6 +300,11 @@ export const installPricingApi = {
   // Calculate install price for a door
   calculate: (data) =>
     customerApiClient.post('/api/customer/portal/install-pricing/calculate', data),
+
+  // Resolve a town to road-km from Medicine Hat and quote travel cost.
+  // Backend hits a cached dict first, then Google Distance Matrix.
+  travelQuote: (town) =>
+    customerApiClient.get('/api/customer/portal/install-travel-quote', { params: { town } }),
 };
 
 // Install Referrals API (Customer)
