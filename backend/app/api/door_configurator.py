@@ -822,12 +822,20 @@ def _format_mount_label(track_mount, track_thickness) -> str:
 
 
 def _format_design_for_comment(door_type, panel_design, glazing_type, glass_pane_type) -> str:
+    """Return the design label for the door header comment. NONE/empty
+    values are treated as 'no design' so the comment skips that segment
+    cleanly instead of rendering a literal ', NONE,'."""
+    def _val(s):
+        v = (s or '').strip()
+        return '' if v.upper() == 'NONE' else v
+
     if door_type == 'aluminium':
-        return (glazing_type or glass_pane_type or '').strip()
-    glaz = (glazing_type or '').strip()
-    if glaz and (not panel_design or str(panel_design).upper() == 'FLUSH'):
+        return _val(glazing_type) or _val(glass_pane_type)
+    glaz = _val(glazing_type)
+    pd = _val(panel_design)
+    if glaz and (not pd or pd.upper() == 'FLUSH'):
         return glaz
-    return panel_design or ''
+    return pd
 
 
 def _format_door_description(door: DoorConfigRequest) -> str:
@@ -858,7 +866,14 @@ def _format_door_description(door: DoorConfigRequest) -> str:
         if pocket_counts:
             pocket_info = f", POCKETS: {'/'.join(pocket_counts)}"
 
-    return f"({door.doorCount}) {width_str} x {height_str} {door.doorSeries}, {door.panelColor}, {design_display}, {track_display}, {lift_type}{pocket_info}"
+    segments = [
+        f"({door.doorCount}) {width_str} x {height_str} {door.doorSeries}",
+        door.panelColor,
+    ]
+    if design_display:
+        segments.append(design_display)
+    segments.extend([track_display, lift_type])
+    return ", ".join(segments) + pocket_info
 
 
 # Define the standard line item ordering for BC quotes
@@ -1049,6 +1064,10 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 else:
                     part["door_type"] = door.doorType
 
+                # Skip the legacy duplicate "comment" header — _format_door_description
+                # already emits the canonical header for this door.
+                if part.get("category") == "comment":
+                    continue
                 # Spring info comment → BC Comment line (not an item)
                 if part.get("category") in ("spring_comment", "highlift_comment"):
                     part["lineType"] = "Comment"
