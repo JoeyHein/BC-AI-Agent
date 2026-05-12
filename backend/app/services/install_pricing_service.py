@@ -22,12 +22,13 @@ from app.db.models import CustomerInstallPricing, AppSettings
 
 logger = logging.getLogger(__name__)
 
-# Google Distance Matrix — install travel origin is our shop in Medicine Hat.
-GOOGLE_DISTANCE_MATRIX_URL = "https://maps.googleapis.com/maps/api/distancematrix/json"
+# Google Routes API (replaces the legacy Distance Matrix API).
+# Install travel origin is our shop in Medicine Hat.
+GOOGLE_ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
 TRAVEL_ORIGIN = "Medicine Hat, AB, Canada"
 # Bias matching toward Canadian prairies so "Raymore" hits Raymore SK and not
 # Raymore TX or Raymore-anything-else.
-TRAVEL_DESTINATION_REGION = "ca"
+TRAVEL_DESTINATION_REGION_CODE = "CA"
 
 TRAVEL_DISTANCES_KEY = "install_travel_distances"
 
@@ -103,36 +104,43 @@ class InstallPricingService:
         return distances
 
     def _google_distance_km(self, town: str) -> Optional[float]:
-        """Query Google Distance Matrix for road km from Medicine Hat to `town`.
-        Returns None if no API key configured, no result, or the API errors."""
+        """Query Google Routes API for road km from Medicine Hat to `town`.
+        Returns None if no API key configured, no route found, or the API errors.
+
+        Uses the modern Routes API (the legacy Distance Matrix API requires
+        per-project enablement and is being deprecated). Routes returns a
+        compact response gated by the X-Goog-FieldMask header, so we only ask
+        for distanceMeters."""
         api_key = settings.GOOGLE_MAPS_API_KEY
         if not api_key:
             return None
-        params = {
-            "origins": TRAVEL_ORIGIN,
-            "destinations": town,
-            "units": "metric",
-            "region": TRAVEL_DESTINATION_REGION,
-            "key": api_key,
+        body = {
+            "origin": {"address": TRAVEL_ORIGIN},
+            "destination": {"address": town},
+            "travelMode": "DRIVE",
+            "routingPreference": "TRAFFIC_AWARE",
+            "regionCode": TRAVEL_DESTINATION_REGION_CODE,
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": api_key,
+            "X-Goog-FieldMask": "routes.distanceMeters",
         }
         try:
-            resp = requests.get(GOOGLE_DISTANCE_MATRIX_URL, params=params, timeout=10)
-            resp.raise_for_status()
+            resp = requests.post(GOOGLE_ROUTES_URL, json=body, headers=headers, timeout=10)
             data = resp.json()
         except Exception as e:
-            logger.warning(f"Google Distance Matrix request failed for {town!r}: {e}")
+            logger.warning(f"Google Routes request failed for {town!r}: {e}")
             return None
-        if data.get("status") != "OK":
-            logger.warning(f"Google Distance Matrix status={data.get('status')} for {town!r}")
+        if resp.status_code >= 400:
+            err = (data.get("error") or {}).get("message") or data
+            logger.warning(f"Google Routes HTTP {resp.status_code} for {town!r}: {err}")
             return None
-        rows = data.get("rows") or []
-        if not rows:
+        routes = data.get("routes") or []
+        if not routes:
+            logger.info(f"Google Routes returned no route for town {town!r}")
             return None
-        elements = rows[0].get("elements") or []
-        if not elements or elements[0].get("status") != "OK":
-            logger.info(f"Google Distance Matrix could not resolve town {town!r}")
-            return None
-        meters = elements[0].get("distance", {}).get("value")
+        meters = routes[0].get("distanceMeters")
         if meters is None:
             return None
         return round(meters / 1000.0, 1)
