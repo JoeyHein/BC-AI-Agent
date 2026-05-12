@@ -1426,6 +1426,7 @@ def _generate_bc_quote_with_items(
                         {"unitPrice": freight["amount"]},
                     )
                     _track_shared_line("freight", added_freight)
+                    _set_output_true(bc_quote_number, added_freight, label="freight")
                     freight_added = True
                     logger.info(f"Added freight line: ${freight['amount']:.2f} ({freight['description']})")
                 except Exception as freight_item_err:
@@ -1463,7 +1464,9 @@ def _generate_bc_quote_with_items(
         except Exception as freight_err:
             logger.warning(f"Could not calculate/add freight: {freight_err}")
 
-    # Step 6: Add installation lines for home builder customers
+    # Step 6: Add installation block for home builder customers.
+    # Builder install pricing is a single sum-total across the quote,
+    # not a per-door breakdown — see install_pricing_service for the model.
     install_info = None
     if customer_user_id and db:
         try:
@@ -1474,150 +1477,39 @@ def _generate_bc_quote_with_items(
             account_type = getattr(customer_user, 'account_type', None) if customer_user else None
 
             if account_type == 'home_builder':
-                install_lines_added = []
-                # Get install town from config data (if provided)
-                install_town = None
-                if doors:
-                    install_town = doors[0].get("installTown")
+                install_town = doors[0].get("installTown") if doors else None
+                install_result = install_pricing_service.calculate_total_install_price(
+                    customer_id=customer_user_id,
+                    doors=doors,
+                    town=install_town,
+                    db=db,
+                )
+                _add_install_block(
+                    bc_quote_id=bc_quote_id,
+                    bc_quote_number=bc_quote_number,
+                    install_result=install_result,
+                    track_shared=_track_shared_line,
+                )
+                install_info = install_result
 
-                for i, door in enumerate(doors):
-                    door_width = door.get("doorWidth", 96)
-                    door_height = door.get("doorHeight", 84)
-                    door_type = door.get("doorType", "residential")
-                    door_count = door.get("doorCount", 1)
-
-                    result_install = install_pricing_service.calculate_install_price(
-                        customer_id=customer_user_id,
-                        door_width_inches=door_width,
-                        door_height_inches=door_height,
-                        door_type=door_type,
-                        db=db,
-                        town=install_town,
-                    )
-
-                    if result_install.get("custom_quote_required"):
-                        # Add comment noting custom install quote needed
-                        try:
-                            added_install_custom = bc_client.add_quote_line(bc_quote_id, {
-                                "lineType": "Comment",
-                                "description": f"INSTALLATION Door {i+1}: Custom quote required - {result_install.get('reason', 'oversized')}",
-                            })
-                            _track_shared_line("install", added_install_custom)
-                        except Exception:
-                            pass
-                        continue
-
-                    install_price = result_install.get("install_price")
-                    if install_price and install_price > 0:
-                        total_install = install_price * door_count
-                        area = result_install["breakdown"]["door_area_sqft"]
-                        tier = result_install["breakdown"]["rate_tier"]
-
-                        # Add install comment header
-                        try:
-                            added_install_hdr = bc_client.add_quote_line(bc_quote_id, {
-                                "lineType": "Comment",
-                                "description": f"INSTALLATION Door {i+1}: {area:.0f} sqft ({tier}) x{door_count}",
-                            })
-                            _track_shared_line("install", added_install_hdr)
-                        except Exception:
-                            pass
-
-                        # Add install as Item line (try INSTALL item, fallback to Comment)
-                        install_added = False
-                        try:
-                            added_install = bc_client.add_quote_line(bc_quote_id, {
-                                "lineType": "Item",
-                                "lineObjectNumber": "INSTALLATION",
-                                "description": f"Installation - Door {i+1} ({tier})",
-                                "quantity": door_count,
-                            })
-                            etag = added_install.get("@odata.etag", "*")
-                            bc_client.update_quote_line(
-                                bc_quote_id, added_install["id"], etag,
-                                {"unitPrice": install_price},
-                            )
-                            _track_shared_line("install", added_install)
-                            install_added = True
-                        except Exception as install_item_err:
-                            logger.warning(f"Could not add INSTALL as Item: {install_item_err}")
-                            # Fallback: add as comment with price
-                            try:
-                                added_install_fb = bc_client.add_quote_line(bc_quote_id, {
-                                    "lineType": "Comment",
-                                    "description": f"Installation: ${total_install:.2f}",
-                                })
-                                _track_shared_line("install", added_install_fb)
-                                install_added = True
-                            except Exception:
-                                pass
-
-                        if install_added:
-                            install_lines_added.append({
-                                "door_index": i + 1,
-                                "install_price": install_price,
-                                "door_count": door_count,
-                                "total": total_install,
-                                "tier": tier,
-                            })
-
-                # Add travel line (once, not per door)
-                if install_town and install_lines_added:
-                    # Get travel from the first door's calculation (travel is same for all)
-                    travel_result = install_pricing_service.calculate_install_price(
-                        customer_id=customer_user_id,
-                        door_width_inches=doors[0].get("doorWidth", 96),
-                        door_height_inches=doors[0].get("doorHeight", 84),
-                        door_type=doors[0].get("doorType", "residential"),
-                        db=db,
-                        town=install_town,
-                    )
-                    travel_price = travel_result.get("travel_price")
-                    if travel_price and travel_price > 0:
-                        try:
-                            added_travel = bc_client.add_quote_line(bc_quote_id, {
-                                "lineType": "Item",
-                                "lineObjectNumber": "INSTALLATION",
-                                "description": f"Travel - {install_town} (round trip)",
-                                "quantity": 1,
-                            })
-                            etag = added_travel.get("@odata.etag", "*")
-                            bc_client.update_quote_line(
-                                bc_quote_id, added_travel["id"], etag,
-                                {"unitPrice": travel_price},
-                            )
-                            _track_shared_line("install", added_travel)
-                        except Exception:
-                            try:
-                                added_travel_fb = bc_client.add_quote_line(bc_quote_id, {
-                                    "lineType": "Comment",
-                                    "description": f"Travel - {install_town}: ${travel_price:.2f}",
-                                })
-                                _track_shared_line("install", added_travel_fb)
-                            except Exception:
-                                pass
-
-                # Re-fetch totals if install was added
-                if install_lines_added:
-                    try:
-                        updated_quote = bc_client.get_sales_quote(bc_quote_id)
-                        subtotal = updated_quote.get("totalAmountExcludingTax", 0)
-                        total_with_tax = updated_quote.get("totalAmountIncludingTax", 0)
-                        tax_amount = total_with_tax - subtotal
-                        pricing = {
-                            "subtotal": round(subtotal, 2),
-                            "tax": round(tax_amount, 2),
-                            "total": round(total_with_tax, 2),
-                            "currency": "CAD",
-                        }
-                    except Exception:
-                        pass
-
-                install_info = {
-                    "lines_added": install_lines_added,
-                    "town": install_town,
-                }
-                logger.info(f"Added {len(install_lines_added)} install line(s) to quote {bc_quote_number}")
+                # Re-fetch totals so the response reflects the install block.
+                try:
+                    updated_quote = bc_client.get_sales_quote(bc_quote_id)
+                    subtotal = updated_quote.get("totalAmountExcludingTax", 0)
+                    total_with_tax = updated_quote.get("totalAmountIncludingTax", 0)
+                    pricing = {
+                        "subtotal": round(subtotal, 2),
+                        "tax": round(total_with_tax - subtotal, 2),
+                        "total": round(total_with_tax, 2),
+                        "currency": "CAD",
+                    }
+                except Exception:
+                    pass
+                logger.info(
+                    f"Install block added to quote {bc_quote_number}: "
+                    f"${install_result['grand_total']:.2f} "
+                    f"({install_result['total_sqft']:.0f} sqft, town={install_town!r})"
+                )
 
         except Exception as install_err:
             logger.warning(f"Could not add installation pricing: {install_err}")
@@ -1746,6 +1638,132 @@ def _diff_doors(old_doors: List[dict], new_doors: List[dict]) -> Dict[str, Any]:
             removed.append(old_pos)
 
     return {"changed": changed, "added": added, "removed": removed, "moved": moved}
+
+
+def _set_output_true(bc_quote_number: str, added_line: dict, label: str = "line") -> None:
+    """Flip BC's Output flag on so the line shows on printed quotes.
+    Silent on failure — Output is cosmetic, never abort the quote over it."""
+    seq = (added_line or {}).get("sequence")
+    if not seq:
+        return
+    try:
+        bc_client.set_quote_line_output(bc_quote_number, seq, output=True)
+    except Exception as e:
+        logger.warning(f"Failed to set Output flag on {label}: {e}")
+
+
+def _add_install_block(
+    *,
+    bc_quote_id: str,
+    bc_quote_number: str,
+    install_result: dict,
+    track_shared: callable,
+) -> List[str]:
+    """
+    Append the installation block to a BC quote and flag every line with
+    Output=True so it prints. Returns the list of BC line IDs created so
+    the caller can store them in line_map.shared.install.
+
+    Block structure (built from install_result, summed across all doors):
+        Comment header  -- "INSTALLATION: X.X sqft total, ..."
+        Item INSTALLATION  -- base install (per-sqft + flat-tier sum)
+        Item INSTALLATION  -- lift fee (qty = blocks, price = $400)  [if any]
+        Item INSTALLATION  -- per diem (qty = blocks, price = $200)  [if any]
+        Item INSTALLATION  -- travel (qty = 1, price = distance * $2) [if any]
+    """
+    added_ids: List[str] = []
+    if not install_result or install_result.get("grand_total", 0) <= 0:
+        return added_ids
+
+    rate = install_result["install_rate_per_sqft"]
+    sqft = install_result["total_sqft"]
+    door_count = install_result["door_count_total"]
+    town = install_result.get("town")
+    dist_km = install_result.get("travel_distance_km")
+    summary_bits = [f"{sqft:.0f} sqft total", f"{door_count} door(s)"]
+    if town:
+        if dist_km is not None:
+            summary_bits.append(f"{town} ({dist_km:.0f}km)")
+        else:
+            summary_bits.append(f"{town}")
+    header_desc = "INSTALLATION: " + " | ".join(summary_bits)
+
+    def _push_item(description: str, qty: float, unit_price: float, label: str):
+        try:
+            line = bc_client.add_quote_line(bc_quote_id, {
+                "lineType": "Item",
+                "lineObjectNumber": "INSTALLATION",
+                "description": description[:100],
+                "quantity": qty,
+            })
+            etag = line.get("@odata.etag", "*")
+            bc_client.update_quote_line(bc_quote_id, line["id"], etag, {"unitPrice": unit_price})
+            if line.get("id"):
+                added_ids.append(line["id"])
+                track_shared("install", line)
+            _set_output_true(bc_quote_number, line, label=label)
+        except Exception as e:
+            logger.warning(f"Could not add INSTALL {label} item: {e}")
+            try:
+                fb = bc_client.add_quote_line(bc_quote_id, {
+                    "lineType": "Comment",
+                    "description": f"{description}: ${qty * unit_price:.2f}",
+                })
+                if fb.get("id"):
+                    added_ids.append(fb["id"])
+                    track_shared("install", fb)
+                _set_output_true(bc_quote_number, fb, label=f"{label} (comment fallback)")
+            except Exception:
+                pass
+
+    # 1. Header comment (Output=true so it shows on the printed quote with
+    # the items underneath it grouped beneath it).
+    try:
+        hdr = bc_client.add_quote_line(bc_quote_id, {
+            "lineType": "Comment",
+            "description": header_desc[:100],
+        })
+        if hdr.get("id"):
+            added_ids.append(hdr["id"])
+            track_shared("install", hdr)
+        _set_output_true(bc_quote_number, hdr, label="install header")
+    except Exception as e:
+        logger.warning(f"Could not add install header: {e}")
+
+    # 2. Base install (per-sqft + flat tiers across all doors)
+    base = install_result["base_install_price"]
+    if base > 0:
+        _push_item(
+            description=f"Installation @ ${rate:.2f}/sqft ({sqft:.0f} sqft)",
+            qty=1, unit_price=base, label="base install",
+        )
+
+    # 3. Lift fee
+    if install_result["lift_qty"] > 0:
+        _push_item(
+            description=f"Lift fee (doors over 12', per {install_result['lift_block_sqft']} sqft)",
+            qty=install_result["lift_qty"],
+            unit_price=install_result["lift_unit_price"],
+            label="lift fee",
+        )
+
+    # 4. Per diem
+    if install_result["per_diem_qty"] > 0:
+        _push_item(
+            description=f"Per diem (per {install_result['lift_block_sqft']} sqft)",
+            qty=install_result["per_diem_qty"],
+            unit_price=install_result["per_diem_unit_price"],
+            label="per diem",
+        )
+
+    # 5. Travel
+    if install_result["travel_price"] > 0:
+        _push_item(
+            description=f"Travel - {town or 'site'} ({dist_km:.0f}km × ${install_result['travel_rate_per_km']:.2f}/km)",
+            qty=1, unit_price=install_result["travel_price"], label="travel",
+        )
+
+    return added_ids
 
 
 def _delete_bc_lines(bc_quote_id: str, line_ids: List[str]) -> int:
@@ -2129,6 +2147,7 @@ def _edit_bc_quote_lines(
                     bc_client.update_quote_line(bc_quote_id, added_freight["id"], etag, {"unitPrice": freight["amount"]})
                     if added_freight.get("id"):
                         line_map["shared"].setdefault("freight", []).append(added_freight["id"])
+                    _set_output_true(bc_quote_number, added_freight, label="freight")
                 except Exception as fe:
                     logger.warning(f"Could not add freight as Item: {fe}")
                     if freight_config.get("fallback_to_comment", True):
@@ -2144,97 +2163,34 @@ def _edit_bc_quote_lines(
         except Exception as freight_err:
             logger.warning(f"Could not add freight during edit: {freight_err}")
 
-    # ── Step 7: Re-add install + travel for home builder customers ──────────
+    # ── Step 7: Re-add install block for home builder customers ─────────────
     if customer_user_id:
         try:
             customer_user = db.query(User).filter(User.id == customer_user_id).first()
             account_type = getattr(customer_user, 'account_type', None) if customer_user else None
             if account_type == 'home_builder':
                 install_town = new_doors[0].get("installTown") if new_doors else None
-                install_lines_added = []
-                for i, door in enumerate(new_doors):
-                    dw = door.get("doorWidth", 96)
-                    dh = door.get("doorHeight", 84)
-                    dt = door.get("doorType", "residential")
-                    dc = door.get("doorCount", 1)
-                    r_install = install_pricing_service.calculate_install_price(
-                        customer_id=customer_user_id, door_width_inches=dw,
-                        door_height_inches=dh, door_type=dt, db=db, town=install_town,
-                    )
-                    if r_install.get("custom_quote_required"):
-                        try:
-                            a = bc_client.add_quote_line(bc_quote_id, {
-                                "lineType": "Comment",
-                                "description": f"INSTALLATION Door {i+1}: Custom quote required - {r_install.get('reason', 'oversized')}",
-                            })
-                            if a.get("id"):
-                                line_map["shared"].setdefault("install", []).append(a["id"])
-                        except Exception:
-                            pass
-                        continue
-                    ip = r_install.get("install_price")
-                    if ip and ip > 0:
-                        area = r_install["breakdown"]["door_area_sqft"]
-                        tier = r_install["breakdown"]["rate_tier"]
-                        try:
-                            hdr = bc_client.add_quote_line(bc_quote_id, {
-                                "lineType": "Comment",
-                                "description": f"INSTALLATION Door {i+1}: {area:.0f} sqft ({tier}) x{dc}",
-                            })
-                            if hdr.get("id"):
-                                line_map["shared"].setdefault("install", []).append(hdr["id"])
-                        except Exception:
-                            pass
-                        try:
-                            a = bc_client.add_quote_line(bc_quote_id, {
-                                "lineType": "Item", "lineObjectNumber": "INSTALLATION",
-                                "description": f"Installation - Door {i+1} ({tier})", "quantity": dc,
-                            })
-                            etag = a.get("@odata.etag", "*")
-                            bc_client.update_quote_line(bc_quote_id, a["id"], etag, {"unitPrice": ip})
-                            if a.get("id"):
-                                line_map["shared"].setdefault("install", []).append(a["id"])
-                            install_lines_added.append(i + 1)
-                        except Exception as ie:
-                            logger.warning(f"Could not add INSTALL item during edit: {ie}")
-                            try:
-                                fb = bc_client.add_quote_line(bc_quote_id, {
-                                    "lineType": "Comment",
-                                    "description": f"Installation: ${ip * dc:.2f}",
-                                })
-                                if fb.get("id"):
-                                    line_map["shared"].setdefault("install", []).append(fb["id"])
-                            except Exception:
-                                pass
-                if install_town and install_lines_added:
-                    tr = install_pricing_service.calculate_install_price(
-                        customer_id=customer_user_id,
-                        door_width_inches=new_doors[0].get("doorWidth", 96),
-                        door_height_inches=new_doors[0].get("doorHeight", 84),
-                        door_type=new_doors[0].get("doorType", "residential"),
-                        db=db, town=install_town,
-                    )
-                    tp = tr.get("travel_price")
-                    if tp and tp > 0:
-                        try:
-                            a = bc_client.add_quote_line(bc_quote_id, {
-                                "lineType": "Item", "lineObjectNumber": "INSTALLATION",
-                                "description": f"Travel - {install_town} (round trip)", "quantity": 1,
-                            })
-                            etag = a.get("@odata.etag", "*")
-                            bc_client.update_quote_line(bc_quote_id, a["id"], etag, {"unitPrice": tp})
-                            if a.get("id"):
-                                line_map["shared"].setdefault("install", []).append(a["id"])
-                        except Exception:
-                            try:
-                                fb = bc_client.add_quote_line(bc_quote_id, {
-                                    "lineType": "Comment",
-                                    "description": f"Travel - {install_town}: ${tp:.2f}",
-                                })
-                                if fb.get("id"):
-                                    line_map["shared"].setdefault("install", []).append(fb["id"])
-                            except Exception:
-                                pass
+                install_result = install_pricing_service.calculate_total_install_price(
+                    customer_id=customer_user_id,
+                    doors=new_doors,
+                    town=install_town,
+                    db=db,
+                )
+
+                def _track_shared_during_edit(bucket: str, bc_line: Optional[Dict[str, Any]]) -> None:
+                    if bc_line and bc_line.get("id"):
+                        line_map["shared"].setdefault(bucket, []).append(bc_line["id"])
+
+                _add_install_block(
+                    bc_quote_id=bc_quote_id,
+                    bc_quote_number=bc_quote_number,
+                    install_result=install_result,
+                    track_shared=_track_shared_during_edit,
+                )
+                logger.info(
+                    f"Install regen on edit {bc_quote_number}: "
+                    f"${install_result['grand_total']:.2f}"
+                )
         except Exception as install_err:
             logger.warning(f"Install regen failed during edit: {install_err}")
 

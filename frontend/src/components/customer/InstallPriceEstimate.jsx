@@ -24,21 +24,27 @@ function InstallPriceEstimate({ town: externalTown, onTownChange }) {
         Installation
       </h4>
       <p className="text-xs text-gray-500 mb-3">
-        Installation will be included on your quote. Enter the town for travel cost calculation.
+        Installation is included on every quote. Enter the installation town so we can include travel.
       </p>
 
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-1">
-          Installation Town
+          Installation Town <span className="text-red-500">*</span>
         </label>
         <input
           type="text"
           value={town}
           onChange={handleChange}
           placeholder="e.g., Calgary, Lethbridge, Regina..."
-          className="block w-full md:w-64 border border-gray-300 rounded-md shadow-sm py-1.5 px-3 text-sm focus:outline-none focus:ring-odc-500 focus:border-odc-500"
+          required
+          aria-required="true"
+          className={`block w-full md:w-64 border rounded-md shadow-sm py-1.5 px-3 text-sm focus:outline-none focus:ring-odc-500 focus:border-odc-500 ${
+            town?.trim() ? 'border-gray-300' : 'border-red-300 bg-red-50'
+          }`}
         />
-        <p className="text-xs text-gray-400 mt-0.5">Leave blank if no travel required (local install)</p>
+        <p className="text-xs text-gray-400 mt-0.5">
+          Required. Use "Medicine Hat" for local installs (no travel charge).
+        </p>
       </div>
     </div>
   )

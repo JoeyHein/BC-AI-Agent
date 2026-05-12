@@ -9,7 +9,8 @@ Travel: rate per km (round trip) from Medicine Hat, AB
 
 import json
 import logging
-from typing import Optional, Dict, Any
+import math
+from typing import Optional, Dict, Any, List
 
 from sqlalchemy.orm import Session
 
@@ -18,6 +19,20 @@ from app.db.models import CustomerInstallPricing, AppSettings
 logger = logging.getLogger(__name__)
 
 TRAVEL_DISTANCES_KEY = "install_travel_distances"
+
+# Builder-account installation defaults (as of 2026-05-12).
+# Per-customer overrides on CustomerInstallPricing still win.
+BUILDER_INSTALL_RATE_PER_SQFT = 4.50      # $/sqft of door, > 130 sqft residential + all commercial
+BUILDER_RESIDENTIAL_SMALL_FLAT = 500.00   # flat install for residential < 90 sqft
+BUILDER_RESIDENTIAL_MEDIUM_FLAT = 600.00  # flat install for residential 90 - 130 sqft
+BUILDER_RESIDENTIAL_LARGE_THRESHOLD = 130 # > 130 sqft -> per-sqft model
+BUILDER_RESIDENTIAL_SMALL_THRESHOLD = 90  # < 90 sqft -> small flat
+
+BUILDER_TRAVEL_RATE_PER_KM = 2.00         # $/km, one-way from Medicine Hat
+BUILDER_LIFT_BLOCK_SQFT = 400             # one charge per 400 sqft of qualifying door
+BUILDER_LIFT_BLOCK_PRICE = 400.00         # $/block (when any door > 12' tall)
+BUILDER_PER_DIEM_BLOCK_PRICE = 200.00     # $/block (when total > 400 sqft)
+BUILDER_LIFT_HEIGHT_INCHES = 144          # 12' = 144"
 
 # Default travel distances (km from Medicine Hat, AB)
 DEFAULT_TRAVEL_DISTANCES = {
@@ -242,6 +257,130 @@ class InstallPricingService:
         result["total"] = round(total, 2)
 
         return result
+
+
+    def _install_for_single_door(self, area_sqft: float, door_type: str, sqft_rate: float) -> Dict[str, Any]:
+        """
+        Install fee for one door under the builder model.
+
+        Residential:
+          < 90 sqft         -> flat $500
+          90 - 130 sqft     -> flat $600
+          > 130 sqft        -> sqft_rate * area_sqft (the same per-sqft model
+                                used for commercial doors)
+        Commercial (and anything non-residential):
+          per-sqft model: sqft_rate * area_sqft
+        """
+        is_residential = (door_type or "").lower() == "residential"
+        if is_residential and area_sqft < BUILDER_RESIDENTIAL_SMALL_THRESHOLD:
+            return {"price": BUILDER_RESIDENTIAL_SMALL_FLAT, "tier": "residential-small-flat"}
+        if is_residential and area_sqft <= BUILDER_RESIDENTIAL_LARGE_THRESHOLD:
+            return {"price": BUILDER_RESIDENTIAL_MEDIUM_FLAT, "tier": "residential-medium-flat"}
+        return {"price": round(area_sqft * sqft_rate, 2), "tier": "per-sqft"}
+
+    def calculate_total_install_price(
+        self,
+        customer_id: int,
+        doors: List[Dict[str, Any]],
+        town: Optional[str],
+        db: Session,
+    ) -> Dict[str, Any]:
+        """
+        Builder-account installation pricing — one total for the whole quote,
+        not per door. Returns a structured result the caller can render as
+        BC quote lines.
+
+        Pricing model (builder accounts only):
+          * Per-door install: residential tiers below 130 sqft are flat
+            ($500 / $600), everything else is sqft_rate * area_sqft.
+          * Lift fee: if ANY door height > 12', charge $400 for every full
+            400 sqft block of TOTAL installed area (ceil math).
+          * Per diem: if TOTAL installed area > 400 sqft, charge $200 for
+            every 400 sqft block (ceil math), same model as the lift fee.
+          * Travel: $2/km one-way from Medicine Hat to the install town.
+
+        Per-customer overrides on CustomerInstallPricing:
+          * commercial_sqft_rate -> overrides BUILDER_INSTALL_RATE_PER_SQFT
+          * travel_rate_per_km   -> overrides BUILDER_TRAVEL_RATE_PER_KM
+
+        No height cap, no "custom quote required" branch — installation is
+        always priced.
+        """
+        pricing = self.get_customer_pricing(customer_id, db)
+        sqft_rate = BUILDER_INSTALL_RATE_PER_SQFT
+        travel_rate = BUILDER_TRAVEL_RATE_PER_KM
+        if pricing:
+            if pricing.commercial_sqft_rate is not None:
+                sqft_rate = float(pricing.commercial_sqft_rate)
+            if pricing.travel_rate_per_km is not None:
+                travel_rate = float(pricing.travel_rate_per_km)
+
+        total_install = 0.0
+        total_sqft = 0.0
+        max_height_in = 0
+        per_door: List[Dict[str, Any]] = []
+        for d in doors:
+            w = float(d.get("doorWidth") or 0)
+            h = float(d.get("doorHeight") or 0)
+            count = int(d.get("doorCount") or 1)
+            door_type = d.get("doorType", "residential")
+            area = (w * h) / 144.0
+            if h > max_height_in:
+                max_height_in = h
+            unit = self._install_for_single_door(area, door_type, sqft_rate)
+            line_total = round(unit["price"] * count, 2)
+            total_install += line_total
+            total_sqft += area * count
+            per_door.append({
+                "door_width_in": w, "door_height_in": h, "door_count": count,
+                "door_type": door_type, "area_sqft": round(area, 2),
+                "tier": unit["tier"], "unit_install": unit["price"],
+                "line_total": line_total,
+            })
+
+        # Lift and per-diem are block-based on total sqft.
+        blocks = math.ceil(total_sqft / BUILDER_LIFT_BLOCK_SQFT) if total_sqft > 0 else 0
+        needs_lift = max_height_in > BUILDER_LIFT_HEIGHT_INCHES
+        lift_qty = blocks if needs_lift else 0
+        lift_total = round(lift_qty * BUILDER_LIFT_BLOCK_PRICE, 2)
+        per_diem_qty = blocks if total_sqft > BUILDER_LIFT_BLOCK_SQFT else 0
+        per_diem_total = round(per_diem_qty * BUILDER_PER_DIEM_BLOCK_PRICE, 2)
+
+        # Travel — one-way from Medicine Hat.
+        travel_distance_km: Optional[float] = None
+        travel_price = 0.0
+        if town:
+            distances = self.get_travel_distances(db)
+            town_lower = town.strip().lower()
+            for t, dist in distances.items():
+                if t.lower() == town_lower:
+                    travel_distance_km = float(dist)
+                    break
+            if travel_distance_km is not None:
+                travel_price = round(travel_distance_km * travel_rate, 2)
+
+        grand_total = round(total_install + lift_total + per_diem_total + travel_price, 2)
+        return {
+            "town": town,
+            "total_sqft": round(total_sqft, 2),
+            "door_count_total": sum(p["door_count"] for p in per_door),
+            "max_height_in": max_height_in,
+            "install_rate_per_sqft": sqft_rate,
+            "base_install_price": round(total_install, 2),
+            "per_door": per_door,
+            "needs_lift": needs_lift,
+            "lift_block_sqft": BUILDER_LIFT_BLOCK_SQFT,
+            "lift_qty": lift_qty,
+            "lift_unit_price": BUILDER_LIFT_BLOCK_PRICE,
+            "lift_total": lift_total,
+            "per_diem_qty": per_diem_qty,
+            "per_diem_unit_price": BUILDER_PER_DIEM_BLOCK_PRICE,
+            "per_diem_total": per_diem_total,
+            "travel_distance_km": travel_distance_km,
+            "travel_rate_per_km": travel_rate,
+            "travel_price": travel_price,
+            "grand_total": grand_total,
+        }
 
 
 # Module-level singleton
