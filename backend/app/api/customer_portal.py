@@ -796,6 +796,19 @@ def _generate_bc_quote_with_items(
     Returns dict with: bc_quote_id, bc_quote_number, lines_added, lines_failed,
     pricing, line_pricing, door_results
     """
+    # Guard: users not yet linked to a real BC customer carry a "TEMP-<email>"
+    # placeholder in bc_customer_id. Passing that to BC's salesQuotes endpoint
+    # yields a cryptic "Cannot convert literal to Edm.Guid" 400. Fail early
+    # with a friendly message so the customer sees actionable guidance.
+    if not bc_customer_id or str(bc_customer_id).startswith("TEMP-"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Your account is not yet linked to our business system. "
+                "Please contact OPENDC support to finish setting up your account."
+            ),
+        )
+
     # Load spring inventory so quotes use the same stocked springs as the specs tab
     spring_inventory = get_bc_spring_inventory()
 
@@ -1857,6 +1870,15 @@ def _edit_bc_quote_lines(
     Escalating margin is NOT recomputed here (customer clicks "Refresh Pricing"
     for that — which rebuilds the whole quote from scratch).
     """
+    if not bc_customer_id or str(bc_customer_id).startswith("TEMP-"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Your account is not yet linked to our business system. "
+                "Please contact OPENDC support to finish setting up your account."
+            ),
+        )
+
     bc_quote_id = config.bc_quote_id
     bc_quote_number = config.bc_quote_number
     if not bc_quote_id:

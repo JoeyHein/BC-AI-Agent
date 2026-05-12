@@ -2071,32 +2071,128 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
             </div>
           )}
 
-          {/* Commercial Window Section Selection */}
-          {door.windowQty > 0 && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Window Section (1 = Top)
-              </label>
-              <div className="flex space-x-2">
-                {[...Array(panelCount)].map((_, i) => (
-                  <button
-                    key={i + 1}
-                    onClick={() => onChange({ windowSection: i + 1 })}
-                    className={`w-12 h-12 rounded-md border-2 text-sm font-medium ${
-                      door.windowSection === i + 1
-                        ? 'border-odc-500 bg-blue-50 text-odc-700'
-                        : 'border-gray-300 hover:border-gray-400'
-                    }`}
-                  >
-                    {i + 1}
-                  </button>
-                ))}
+          {/* Window Panel Selection (multi-panel toggle, per-panel type) — parity with the admin configurator */}
+          {door.windowInsert && door.windowInsert !== 'NONE' && (() => {
+            const windowPanels = door.windowPanels || {}
+            const FULL_VIEW = ['V130G', 'V230G', 'PANORAMA']
+            const isFullViewType = (t) => FULL_VIEW.includes(t)
+            const effectiveType = (panelNum) => windowPanels[panelNum]?.type || door.windowInsert
+            const maxQtyForType = (t) => {
+              if (isFullViewType(t)) return 1
+              const ws = config?.commercialWindowSizes?.[t]
+              const ww = ws?.width || 24
+              return Math.max(1, Math.floor((door.doorWidth - 10) / (ww + 10)))
+            }
+
+            // Type dropdown options — same series filter as the door-level picker.
+            const availableTypes = []
+            if (config?.commercialWindowTypes) {
+              for (const [, types] of Object.entries(config.commercialWindowTypes)) {
+                for (const t of types) {
+                  if (!t.series || t.series.includes(door.doorSeries)) {
+                    availableTypes.push({ id: t.id, name: t.name })
+                  }
+                }
+              }
+            }
+
+            const recomputeLegacy = (updated) => {
+              const enabledPanels = Object.keys(updated).map(Number).sort((a, b) => a - b)
+              const totalQty = enabledPanels.reduce((sum, p) => sum + (updated[p]?.qty || 0), 0)
+              return {
+                windowPanels: enabledPanels.length > 0 ? updated : undefined,
+                windowSection: enabledPanels[0] || 1,
+                windowQty: totalQty,
+              }
+            }
+
+            const togglePanel = (panelNum) => {
+              const updated = { ...windowPanels }
+              if (updated[panelNum]) {
+                delete updated[panelNum]
+              } else {
+                const t = door.windowInsert
+                updated[panelNum] = { type: t, qty: maxQtyForType(t) }
+              }
+              onChange(recomputeLegacy(updated))
+            }
+
+            const updatePanelQty = (panelNum, qty) => {
+              const existing = windowPanels[panelNum] || {}
+              const updated = { ...windowPanels, [panelNum]: { ...existing, qty } }
+              onChange(recomputeLegacy(updated))
+            }
+
+            const changePanelType = (panelNum, newType) => {
+              const updated = { ...windowPanels, [panelNum]: { type: newType, qty: maxQtyForType(newType) } }
+              onChange(recomputeLegacy(updated))
+            }
+
+            return (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Window Panels (1 = Top)
+                </label>
+                <div className="flex flex-wrap gap-3">
+                  {[...Array(panelCount)].map((_, i) => {
+                    const panelNum = i + 1
+                    const isEnabled = !!windowPanels[panelNum]
+                    const panelType = effectiveType(panelNum)
+                    const isFullView = isFullViewType(panelType)
+                    const panelQty = windowPanels[panelNum]?.qty || 0
+                    const maxQty = maxQtyForType(panelType)
+                    return (
+                      <div key={panelNum} className="flex flex-col items-center gap-1">
+                        <button
+                          onClick={() => togglePanel(panelNum)}
+                          className={`w-14 h-14 rounded-md border-2 text-sm font-medium transition-colors ${
+                            isEnabled
+                              ? 'border-odc-500 bg-odc-50 text-odc-700'
+                              : 'border-gray-300 hover:border-gray-400 text-gray-500'
+                          }`}
+                        >
+                          {panelNum}
+                        </button>
+                        {isEnabled && availableTypes.length > 1 && (
+                          <select
+                            value={panelType}
+                            onChange={(e) => changePanelType(panelNum, e.target.value)}
+                            className="text-xs px-1 py-0.5 border border-gray-300 rounded bg-white max-w-[7rem]"
+                            title="Window type for this panel"
+                          >
+                            {availableTypes.map((t) => (
+                              <option key={t.id} value={t.id}>{t.name}</option>
+                            ))}
+                          </select>
+                        )}
+                        {isEnabled && !isFullView && (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => updatePanelQty(panelNum, Math.max(1, panelQty - 1))}
+                              className="w-6 h-6 rounded border border-gray-300 bg-white text-xs font-bold hover:bg-gray-50"
+                            >-</button>
+                            <span className="text-xs font-medium w-5 text-center">{panelQty}</span>
+                            <button
+                              onClick={() => updatePanelQty(panelNum, Math.min(maxQty, panelQty + 1))}
+                              disabled={panelQty >= maxQty}
+                              className={`w-6 h-6 rounded border text-xs font-bold ${
+                                panelQty >= maxQty
+                                  ? 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
+                                  : 'border-gray-300 bg-white hover:bg-gray-50'
+                              }`}
+                            >+</button>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  Click panels to toggle windows on/off. Use the per-panel dropdown to mix window types (e.g. 1 row Panorama + 1 row thermopane).
+                </p>
               </div>
-              <p className="mt-1 text-xs text-gray-500">
-                This door has {panelCount} panels. Select which panel to place the {door.windowQty} window{door.windowQty > 1 ? 's' : ''} in.
-              </p>
-            </div>
-          )}
+            )
+          })()}
 
           {/* Commercial Frame Color */}
           {config?.commercialWindowFrameColors && (
