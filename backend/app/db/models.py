@@ -680,6 +680,26 @@ class SalesOrder(Base):
         return f"<SalesOrder(id={self.id}, bc_number={self.bc_order_number}, status={self.status.value})>"
 
 
+class OrderViewState(Base):
+    """Per-order view tracking for the admin Order Management page.
+
+    Marks which BC sales orders have been opened/acknowledged by a sales
+    agent. Orders without a row here render with a NEW badge so unattended
+    orders are visible at a glance. Source of truth is local — BC is not
+    written to.
+    """
+    __tablename__ = "order_view_state"
+
+    bc_order_number = Column(String(50), primary_key=True)
+    viewed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    viewed_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+
+    viewed_by = relationship("User", lazy="joined")
+
+    def __repr__(self):
+        return f"<OrderViewState(bc_order_number={self.bc_order_number}, viewed_at={self.viewed_at})>"
+
+
 class SalesOrderLineItem(Base):
     """Line items within a sales order - synced from BC"""
     __tablename__ = "sales_order_line_items"

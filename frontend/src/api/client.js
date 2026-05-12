@@ -451,6 +451,10 @@ export const ordersApi = {
   // Create invoice for order
   createInvoice: (orderId) =>
     apiClient.post(`/api/orders/${orderId}/invoice`),
+
+  // Mark a BC order as viewed by a sales agent (clears the NEW badge)
+  markViewed: (bcOrderNumber) =>
+    apiClient.post(`/api/orders/by-number/${encodeURIComponent(bcOrderNumber)}/mark-viewed`),
 };
 
 // AI Chat API

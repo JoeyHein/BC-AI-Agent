@@ -10,9 +10,10 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
-from app.db.models import SalesOrder, OrderStatus, ProductionOrder, Shipment, Invoice
+from app.db.models import SalesOrder, OrderStatus, ProductionOrder, Shipment, Invoice, OrderViewState, User
 from app.services.order_lifecycle_service import order_lifecycle_service
 from app.integrations.bc.client import bc_client
+from app.api.auth import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,20 @@ async def list_orders(
         # Get orders directly from BC
         bc_orders = bc_client.get_sales_orders(top=limit, status_filter=status)
 
+        # Pull view state for the orders we're returning so the page can
+        # render a NEW badge for ones no sales agent has opened yet.
+        order_numbers = [o.get("number") for o in bc_orders if o.get("number")]
+        view_state_rows = (
+            db.query(OrderViewState).filter(OrderViewState.bc_order_number.in_(order_numbers)).all()
+            if order_numbers else []
+        )
+        view_state = {r.bc_order_number: r for r in view_state_rows}
+
+        def _viewed_by_name(vs):
+            if not vs or not vs.viewed_by:
+                return None
+            return vs.viewed_by.name or vs.viewed_by.email
+
         return {
             "count": len(bc_orders),
             "source": "bc",
@@ -87,6 +102,11 @@ async def list_orders(
                     "external_document_number": o.get("externalDocumentNumber"),
                     "shipment_method": o.get("shipmentMethodCode"),
                     "salesperson": o.get("salesperson"),
+                    "viewed_at": (
+                        view_state[o["number"]].viewed_at.isoformat()
+                        if o.get("number") in view_state else None
+                    ),
+                    "viewed_by": _viewed_by_name(view_state.get(o.get("number"))),
                 }
                 for o in bc_orders
             ]
@@ -152,6 +172,39 @@ async def get_pipeline_stats(db: Session = Depends(get_db)):
     """Get order pipeline statistics for dashboard"""
     stats = order_lifecycle_service.get_pipeline_stats(db)
     return stats
+
+
+@router.post("/by-number/{bc_order_number}/mark-viewed")
+async def mark_order_viewed(
+    bc_order_number: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Mark a BC sales order as viewed by a sales agent so it stops rendering
+    with the NEW badge on the Order Management page. Idempotent — repeat
+    calls are no-ops and never overwrite the first viewer.
+    """
+    existing = db.query(OrderViewState).filter(
+        OrderViewState.bc_order_number == bc_order_number
+    ).first()
+    if existing:
+        return {
+            "bc_order_number": existing.bc_order_number,
+            "viewed_at": existing.viewed_at.isoformat() if existing.viewed_at else None,
+            "viewed_by": existing.viewed_by.name if existing.viewed_by else None,
+            "already_viewed": True,
+        }
+    row = OrderViewState(bc_order_number=bc_order_number, viewed_by_user_id=user.id)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {
+        "bc_order_number": row.bc_order_number,
+        "viewed_at": row.viewed_at.isoformat(),
+        "viewed_by": user.name or user.email,
+        "already_viewed": False,
+    }
 
 
 @router.get("/{order_id}")

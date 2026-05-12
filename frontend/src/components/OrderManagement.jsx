@@ -67,6 +67,26 @@ function OrderManagement() {
     }
   })
 
+  // Mark-viewed mutation — clears the NEW badge for everyone once any
+  // sales agent opens the order via the Manage button. Idempotent on
+  // the backend, so it's safe to fire on every Manage click.
+  const markViewedMutation = useMutation({
+    mutationFn: async (bcOrderNumber) => {
+      const response = await ordersApi.markViewed(bcOrderNumber)
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['adminOrders'] })
+    }
+  })
+
+  const handleManage = (order) => {
+    setSelectedOrder(order)
+    if (!order.viewed_at && order.bc_order_number) {
+      markViewedMutation.mutate(order.bc_order_number)
+    }
+  }
+
   // Filter orders by search term
   const filteredOrders = ordersData?.orders?.filter(order => {
     if (!searchTerm) return true
@@ -219,11 +239,27 @@ function OrderManagement() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredOrders.map((order) => (
-                <tr key={order.id} className="hover:bg-gray-50">
+              {filteredOrders.map((order) => {
+                const isNew = !order.viewed_at && order.bc_order_number
+                return (
+                <tr
+                  key={order.id}
+                  className={
+                    isNew
+                      ? 'bg-blue-50 hover:bg-blue-100 border-l-4 border-blue-500'
+                      : 'hover:bg-gray-50'
+                  }
+                >
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
-                      {order.order_number || order.bc_order_number || `#${order.id}`}
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm font-medium text-gray-900">
+                        {order.order_number || order.bc_order_number || `#${order.id}`}
+                      </div>
+                      {isNew && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-600 text-white">
+                          NEW
+                        </span>
+                      )}
                     </div>
                     {order.bc_order_number && order.order_number && (
                       <div className="text-xs text-gray-500">BC: {order.bc_order_number}</div>
@@ -255,14 +291,14 @@ function OrderManagement() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <button
-                      onClick={() => setSelectedOrder(order)}
+                      onClick={() => handleManage(order)}
                       className="text-odc-600 hover:text-odc-900"
                     >
                       Manage
                     </button>
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         )}
@@ -379,6 +415,15 @@ function OrderDetailModal({ order, onClose, onUpdateStatus, onShip, onInvoice, i
               <label className="block text-sm font-medium text-gray-500">PO # (External Document)</label>
               <p className="mt-1 text-sm text-gray-900">{order.external_document_number || <span className="text-gray-400 italic">Not set</span>}</p>
             </div>
+            {order.viewed_at && (
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-gray-500">First viewed</label>
+                <p className="mt-1 text-sm text-gray-900">
+                  {format(parseISO(order.viewed_at), 'MMM d, yyyy h:mm a')}
+                  {order.viewed_by && <span className="text-gray-500"> by {order.viewed_by}</span>}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Quick Actions */}
