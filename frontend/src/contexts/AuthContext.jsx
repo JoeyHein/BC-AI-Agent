@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import axios from 'axios'
+import { useQueryClient } from '@tanstack/react-query'
 
 const AuthContext = createContext(null)
 
@@ -9,6 +10,10 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [token, setToken] = useState(localStorage.getItem('authToken'))
+  // Cleared on every login + logout so a different admin/reviewer
+  // logging into the same browser can never see the previous user's
+  // cached responses.
+  const queryClient = useQueryClient()
 
   // Set up axios interceptor for auth token
   useEffect(() => {
@@ -40,6 +45,11 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
+      // Wipe any cached responses from a prior session before we set
+      // the new user, so a different admin logging into the same
+      // browser doesn't see stale data on first render.
+      queryClient.clear()
+
       const response = await axios.post(`${API_URL}/api/auth/login`, {
         email,
         password
@@ -86,6 +96,9 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('authToken')
     setToken(null)
     setUser(null)
+    // Clear all cached query data so the next user (or anonymous state)
+    // can never see the previous user's responses.
+    queryClient.clear()
   }
 
   const value = {

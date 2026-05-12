@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import axios from 'axios'
+import { useQueryClient } from '@tanstack/react-query'
 
 const CustomerAuthContext = createContext(null)
 
@@ -17,6 +18,12 @@ export const CustomerAuthProvider = ({ children }) => {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [token, setToken] = useState(localStorage.getItem('customerAuthToken'))
+  // React-query cache is keyed by query string alone; without an explicit
+  // wipe on auth transitions, a customer logging into the same browser
+  // after a previous user briefly sees the previous user's cached data
+  // (savedQuotes, orders, history). Clear the cache on every login and
+  // logout to prevent cross-customer bleed.
+  const queryClient = useQueryClient()
 
   // Set up axios interceptor for auth token
   useEffect(() => {
@@ -48,6 +55,11 @@ export const CustomerAuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
+      // Wipe any cached responses from a prior session before we set
+      // the new user, so a different customer logging into the same
+      // browser doesn't see stale data on first render.
+      queryClient.clear()
+
       const response = await customerAxios.post('/api/customer/login', {
         email,
         password
@@ -150,6 +162,9 @@ export const CustomerAuthProvider = ({ children }) => {
     localStorage.removeItem('customerAuthToken')
     setToken(null)
     setUser(null)
+    // Clear all cached query data so the next user (or anonymous state)
+    // can never see the previous customer's responses.
+    queryClient.clear()
   }
 
   const value = {
