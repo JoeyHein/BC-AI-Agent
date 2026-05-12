@@ -1222,19 +1222,14 @@ class BCPartNumberMapper:
 
         is_aluminum = (door_type or "").lower() in ("aluminium", "aluminum")
 
-        # Aluminum doors use a generic "complete alum hardware kit" SKU —
-        # not size-keyed like the steel-door families. BC has -AL variants
-        # in HK01/HK03/HK04/HK06; default to HK03-00000-AL since aluminum
-        # doors run on 3" hardware.
-        if is_aluminum:
-            return BCPartNumber(
-                part_number="HK03-00000-AL",
-                description=(
-                    self.bc_items.get("HK03-00000-AL", {}).get("displayName")
-                    or "COMPLETE ALUM HARDWARE KIT"
-                ),
-                category="HARDWARE",
-            )
+        # Aluminum doors use the SAME size-keyed hardware kit family as
+        # TX450 / commercial steel doors — operationally they ship with the
+        # same HK02/HK03 boxes. We previously routed them to a generic
+        # HK03-00000-AL SKU; that kit didn't reflect the actual hardware
+        # configuration shop floor needed. Fall through to the size-keyed
+        # logic below by treating aluminum like a steel commercial door.
+        # is_aluminum is intentionally not branched on past this point.
+        _ = is_aluminum  # kept for future per-aluminum overrides if needed
 
         # Steel doors — pick the prefix family by lift + track size.
         # Track 2" → residential family, 3" → commercial family.
