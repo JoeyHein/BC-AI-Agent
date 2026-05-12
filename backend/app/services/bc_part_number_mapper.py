@@ -1205,70 +1205,69 @@ class BCPartNumberMapper:
             HK{nn}-{HH}{WW}{D}{EE}-RC   (high lift, 7-digit middle)
             HK{nn}-{HH}{WW}{D}-RC       (standard lift, 5-digit middle)
 
-        Where:
-            HH = max-height-feet bucket  (08, 10, 11, 14, 16, 17, 19, 20,
-                                          22, 24, 26, 28, 29)
-            WW = max-width-feet bucket   (08, 10, 12, 14, 16, 18, 20, 21,
-                                          22, 24, 26)
-            D  = end caps  (0 = SEC for height ≤16'2", 1 = DEC required ≥16'3")
+        Where (verified against bc_items 2026-05-12 by enumerating all 27
+        HK02 and 133 HK03 SKUs):
+            WW = WIDTH bucket  (inch-precise; first two digits of middle group)
+            HH = HEIGHT bucket (inch-precise; second two digits)
+            D  = end caps  (0 = SEC, 1 = DEC) — DEC is mandatory once the
+                            width passes 16'2"; both variants exist at the
+                            16' bucket so SEC is preferred there.
             EE = high-lift extension feet (02 covers up to 2'11", 03–13 each
                                           cover one foot up to 13'-13'8")
 
         Track size by prefix:
             HK02 = std-lift 2"   (residential)
             HK03 = std-lift 3"   (commercial)
-            HK12 = high-lift 2"  (HH up to 18, WW up to 12 only)
-            HK13 = high-lift 3"  (full HH×WW × EE matrix, both SEC and DEC)
-        """
-        # ---- Bucket helpers (height and width buckets are independent from
-        # each other; the SKU has HH first, WW second, regardless of which
-        # is the larger dimension). ----
-        def hh_code(height_ft: int) -> str:
-            # Height bucket maxes — match BC's actual ranges.
-            if height_ft <= 11:
-                return "11"
-            if height_ft <= 14:
-                return "14"
-            if height_ft <= 16:
-                return "16"
-            if height_ft <= 17:
-                return "17"
-            if height_ft <= 19:
-                return "19"
-            if height_ft <= 20:
-                return "20"
-            if height_ft <= 22:
-                return "22"
-            if height_ft <= 24:
-                return "24"
-            if height_ft <= 26:
-                return "26"
-            if height_ft <= 28:
-                return "28"
-            return "29"
+            HK12 = high-lift 2"
+            HK13 = high-lift 3"
 
-        def ww_code(width_ft: int) -> str:
-            if width_ft <= 8:
-                return "08"
-            if width_ft <= 10:
-                return "10"
-            if width_ft <= 12:
-                return "12"
-            if width_ft <= 14:
-                return "14"
-            if width_ft <= 16:
-                return "16"
-            if width_ft <= 18:
-                return "18"
-            if width_ft <= 20:
-                return "20"
-            if width_ft <= 21:
-                return "21"
-            if width_ft <= 22:
-                return "22"
-            if width_ft <= 24:
-                return "24"
-            return "26"
+        Bucket ranges (BC convention; ranges expressed in inches):
+            Height (shared by HK02/HK03):
+              "08" 0-98   | "10" 99-122  | "12" 123-146 | "14" 147-170
+              "16" 171-194| "18" 195-218 | "20" 219-242 | "21" 243-254
+              "22" 255-264| "24" 267-288 | "26" 291-312
+            Width — HK02 (residential 2"):
+              "11" 0-134  | "14" 135-170 | "16" 171-194 | "18" 195-218
+              "20" 219-242
+            Width — HK03 (commercial 3"):
+              "11" 0-134  | "14" 135-170 | "16" 171-194 | "17" 195-206
+              "19" 207-233| "20" 234-240 | "22" 241-264 | "24" 265-288
+              "26" 289-314| "28" 315-336 | "29" 337-348
+        """
+        # ---- Bucket tables (inches → code). Lookup picks the smallest
+        # bucket whose max ≥ door dimension (i.e. always step UP, never
+        # under-bill). Door dimensions come in as feet from the caller but
+        # we re-derive inches when possible from the original config to
+        # keep the inch precision.
+        HEIGHT_BUCKETS: List[Tuple[int, str]] = [
+            (98,  "08"), (122, "10"), (146, "12"), (170, "14"),
+            (194, "16"), (218, "18"), (242, "20"), (254, "21"),
+            (264, "22"), (288, "24"), (312, "26"),
+        ]
+        WIDTH_BUCKETS_HK02: List[Tuple[int, str]] = [
+            (134, "11"), (170, "14"), (194, "16"), (218, "18"), (242, "20"),
+        ]
+        WIDTH_BUCKETS_HK03: List[Tuple[int, str]] = [
+            (134, "11"), (170, "14"), (194, "16"), (206, "17"),
+            (233, "19"), (240, "20"), (264, "22"), (288, "24"),
+            (314, "26"), (336, "28"), (348, "29"),
+        ]
+
+        def bucket_for(inches: int, table: List[Tuple[int, str]]) -> str:
+            for max_in, code in table:
+                if inches <= max_in:
+                    return code
+            return table[-1][1]
+
+        door_height_in = door_height_feet * 12
+        door_width_in = door_width_feet * 12
+
+        def hh_code() -> str:
+            return bucket_for(door_height_in, HEIGHT_BUCKETS)
+
+        def ww_code() -> str:
+            table = WIDTH_BUCKETS_HK03 if commercial else WIDTH_BUCKETS_HK02
+            return bucket_for(door_width_in, table)
 
         def hl_ext_code(hl_in: int) -> str:
             # EE=02 covers 1'-2'11" (anything up to ~35"). From 36" up, each
@@ -1280,15 +1279,19 @@ class BCPartNumberMapper:
             ee = max(2, min(13, ee))
             return f"{ee:02d}"
 
-        # SEC/DEC: HH 11/14 are SEC-only, HH 17+ are DEC-only (door too
-        # tall for single end caps). HH=16 has both — pick DEC for wide
-        # doors (>16') where extra hinge reinforcement matters, else SEC.
-        forces_dec = door_height_feet >= 17 or (
-            hh_code(door_height_feet) == "16" and door_width_feet > 16
-        )
+        # SEC vs DEC: BC's stocking pattern differs by track family —
+        #   HK02 (2" residential): SEC at all widths up to 18'2", SEC+DEC
+        #     at the 20 bucket (so DEC is reserved for 18'3"-20'2").
+        #   HK03 (3" commercial): SEC at widths up to 16'2", BOTH at the
+        #     16 bucket, DEC only from 17 onward.
+        # Force DEC when the width exceeds the SEC-only ceiling for the
+        # family. Below that we default SEC and let the bc_items
+        # fallback below promote to DEC if the SEC variant is missing.
+        sec_ceiling_in = 218 if not commercial else 194  # HK02 vs HK03
+        forces_dec = door_width_in > sec_ceiling_in
 
-        hh = hh_code(door_height_feet)
-        ww = ww_code(door_width_feet)
+        hh = hh_code()
+        ww = ww_code()
         ee = hl_ext_code(high_lift_inches) if lift_type == "high" else None
 
         is_aluminum = (door_type or "").lower() in ("aluminium", "aluminum")
@@ -1318,18 +1321,47 @@ class BCPartNumberMapper:
         prefix = com_pfx if commercial else res_pfx
         track_label = '3"' if commercial else '2"'
 
+        # BC encodes hardware-kit SKUs WIDTH-first, then height — opposite
+        # of what an earlier version of this code assumed. Confirmed by
+        # enumerating bc_items: e.g. HK03-16241-RC's description reads
+        # "14'3"-16'2" X 22'3"-24'0", DEC" — first dim (width) is the 16
+        # bucket, second dim (height) is the 24 bucket.
         def build(d: str) -> str:
             if with_hl_ext:
-                return f"{prefix}-{hh}{ww}{d}{ee}-RC"
-            return f"{prefix}-{hh}{ww}{d}-RC"
+                return f"{prefix}-{ww}{hh}{d}{ee}-RC"
+            return f"{prefix}-{ww}{hh}{d}-RC"
 
         part_number = build("1" if forces_dec else "0")
         cap_type = "DEC" if forces_dec else "SEC"
+        # Width buckets 11 and 14 are SEC-only; bucket 16 has both. If we
+        # default to SEC and the SKU is missing (bucket 16 occasionally
+        # only stocks the DEC variant for some heights), fall back to DEC.
         if not forces_dec and part_number not in self.bc_items:
             dec_pn = build("1")
             if dec_pn in self.bc_items:
                 part_number = dec_pn
                 cap_type = "DEC"
+
+        # Defensive step-up: if neither SEC nor DEC at the resolved width
+        # bucket exists in BC for this height (rare — usually means the
+        # height is just past a bucket boundary), step UP to the next
+        # width bucket so we always emit a real, priced SKU rather than a
+        # phantom PN that BC silently prices at $0.
+        if part_number not in self.bc_items:
+            width_table = WIDTH_BUCKETS_HK03 if commercial else WIDTH_BUCKETS_HK02
+            current_index = next((i for i, (_, c) in enumerate(width_table) if c == ww), -1)
+            for next_max, next_code in width_table[current_index + 1:]:
+                ww = next_code
+                candidate_sec = build("0")
+                candidate_dec = build("1")
+                if candidate_sec in self.bc_items:
+                    part_number = candidate_sec
+                    cap_type = "SEC"
+                    break
+                if candidate_dec in self.bc_items:
+                    part_number = candidate_dec
+                    cap_type = "DEC"
+                    break
 
         if with_hl_ext:
             description = (
