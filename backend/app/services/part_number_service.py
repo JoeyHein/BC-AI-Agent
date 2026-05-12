@@ -1743,8 +1743,19 @@ class PartNumberService:
             notes="spring_info_comment",
         ))
 
-        # How many LH/RH pairs (each pair = 1 LH + 1 RH, minimum 1 pair)
-        pairs = max(1, spring_qty // 2)
+        # LH/RH counts. Standard pairs use 1 LH + 1 RH each; an odd
+        # spring_qty (almost always 1 — small residential doors) means a
+        # single LH spring with NO RH counterpart. The previous floor of
+        # max(1, spring_qty // 2) emitted both windings for a 1-spring
+        # door, which doubled the spring lines on the quote.
+        if spring_qty <= 1:
+            lh_count = 1
+            rh_count = 0
+            pairs = 1   # legacy alias still referenced below
+        else:
+            pairs = spring_qty // 2
+            lh_count = pairs
+            rh_count = pairs
 
         # Outer springs (LH and RH)
         spring_lh = mapper.get_spring_part_number(wire_size, coil_id, "LH")
@@ -1792,36 +1803,38 @@ class PartNumberService:
             inner_coil_c = spring_result.inner_coil_diameter
             inner_length_c = math.ceil(spring_result.inner_length)
             duplex_pairs_c = spring_result.duplex_pairs
-            # Show both outer and inner spring specs for duplex
-            total_lh = pairs * config.door_count
-            total_rh = pairs * config.door_count
-            total_springs = spring_qty * config.door_count
+            specs = (
+                f"Springs: Outer {wire_size}\" wire x {coil_id}\" ID x {spring_length}\""
+                f" | Inner {inner_wire_c}\" wire x {inner_coil_c}\" ID x {inner_length_c}\""
+            )
             if config.door_count > 1:
-                spring_detail_desc = (
-                    f"Springs: Outer {wire_size}\" wire x {coil_id}\" ID x {spring_length}\""
-                    f" | Inner {inner_wire_c}\" wire x {inner_coil_c}\" ID x {inner_length_c}\""
-                    f" | {total_lh} LH + {total_rh} RH ({total_springs} total)"
-                )
-            else:
-                spring_detail_desc = (
-                    f"Springs: Outer {wire_size}\" wire x {coil_id}\" ID x {spring_length}\""
-                    f" | Inner {inner_wire_c}\" wire x {inner_coil_c}\" ID x {inner_length_c}\""
-                    f" | {pairs} LH + {pairs} RH ({spring_qty} total)"
-                )
-        else:
-            if config.door_count > 1:
-                total_lh = pairs * config.door_count
-                total_rh = pairs * config.door_count
+                total_lh = lh_count * config.door_count
+                total_rh = rh_count * config.door_count
                 total_springs = spring_qty * config.door_count
-                spring_detail_desc = (
-                    f"Springs: {wire_size}\" wire x {coil_id}\" ID x {spring_length}\" long"
-                    f" | {total_lh} LH + {total_rh} RH ({total_springs} total)"
-                )
+                if total_rh > 0:
+                    spring_detail_desc = f"{specs} | {total_lh} LH + {total_rh} RH ({total_springs} total)"
+                else:
+                    spring_detail_desc = f"{specs} | {total_lh} LH ({total_springs} total)"
             else:
-                spring_detail_desc = (
-                    f"Springs: {wire_size}\" wire x {coil_id}\" ID x {spring_length}\" long"
-                    f" | {pairs} LH + {pairs} RH ({spring_qty} total)"
-                )
+                if rh_count > 0:
+                    spring_detail_desc = f"{specs} | {lh_count} LH + {rh_count} RH ({spring_qty} total)"
+                else:
+                    spring_detail_desc = f"{specs} | {lh_count} LH ({spring_qty} total)"
+        else:
+            base = f"Springs: {wire_size}\" wire x {coil_id}\" ID x {spring_length}\" long"
+            if config.door_count > 1:
+                total_lh = lh_count * config.door_count
+                total_rh = rh_count * config.door_count
+                total_springs = spring_qty * config.door_count
+                if total_rh > 0:
+                    spring_detail_desc = f"{base} | {total_lh} LH + {total_rh} RH ({total_springs} total)"
+                else:
+                    spring_detail_desc = f"{base} | {total_lh} LH ({total_springs} total)"
+            else:
+                if rh_count > 0:
+                    spring_detail_desc = f"{base} | {lh_count} LH + {rh_count} RH ({spring_qty} total)"
+                else:
+                    spring_detail_desc = f"{base} | {lh_count} LH ({spring_qty} total)"
         parts.append(PartSelection(
             part_number="",
             description=spring_detail_desc,
@@ -1830,22 +1843,25 @@ class PartNumberService:
             notes="spring_detail_comment",
         ))
 
-        # Springs are quoted by length (inches of spring) × number of that wind
-        parts.append(PartSelection(
-            part_number=spring_lh.part_number,
-            description=spring_lh.description,
-            quantity=spring_length * pairs,
-            category="spring",
-            notes=f"Spring: {wire_size}\" x {coil_id}\" x {spring_length}\" LH × {pairs}"
-        ))
+        # Springs are quoted by length (inches of spring) × number of that wind.
+        # rh_count is 0 on single-spring residential doors — skip that line.
+        if lh_count > 0:
+            parts.append(PartSelection(
+                part_number=spring_lh.part_number,
+                description=spring_lh.description,
+                quantity=spring_length * lh_count,
+                category="spring",
+                notes=f"Spring: {wire_size}\" x {coil_id}\" x {spring_length}\" LH × {lh_count}"
+            ))
 
-        parts.append(PartSelection(
-            part_number=spring_rh.part_number,
-            description=spring_rh.description,
-            quantity=spring_length * pairs,
-            category="spring",
-            notes=f"Spring: {wire_size}\" x {coil_id}\" x {spring_length}\" RH × {pairs}"
-        ))
+        if rh_count > 0:
+            parts.append(PartSelection(
+                part_number=spring_rh.part_number,
+                description=spring_rh.description,
+                quantity=spring_length * rh_count,
+                category="spring",
+                notes=f"Spring: {wire_size}\" x {coil_id}\" x {spring_length}\" RH × {rh_count}"
+            ))
 
         # 6" non-duplex springs need a PVC tube inside each spring, sized to
         # the spring length. Total tube length = spring_length × spring_qty
