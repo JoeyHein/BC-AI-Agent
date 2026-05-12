@@ -169,6 +169,21 @@ function QuoteBuilder() {
     })
   }
 
+  // Update a door by index, used for fields edited from places that loop
+  // over all doors (e.g. the installation-town input in the review step).
+  // Without this, those handlers would otherwise route through
+  // updateCurrentDoor and accidentally write to the active door's
+  // currentDoorIndex instead of the door being rendered.
+  function updateDoorAt(index, updates) {
+    setDoors(prev => {
+      const newDoors = [...prev]
+      if (newDoors[index]) {
+        newDoors[index] = { ...newDoors[index], ...updates }
+      }
+      return newDoors
+    })
+  }
+
   function addDoor() {
     setDoors(prev => [...prev, createEmptyDoor()])
     setCurrentDoorIndex(doors.length)
@@ -3021,7 +3036,7 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
               )}
               <InstallPriceEstimate
                 town={door.installTown || ''}
-                onTownChange={(town) => updateCurrentDoor({ installTown: town })}
+                onTownChange={(town) => updateDoorAt(index, { installTown: town })}
               />
             </div>
           ))}

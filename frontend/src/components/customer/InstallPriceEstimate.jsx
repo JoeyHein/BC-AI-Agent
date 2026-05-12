@@ -15,6 +15,13 @@ function InstallPriceEstimate({ town: externalTown, onTownChange }) {
   const [loading, setLoading] = useState(false)
   const debounceRef = useRef(null)
 
+  // Re-hydrate from the parent when externalTown changes (e.g. loading a
+  // saved quote that already has installTown set). Without this the input
+  // stays empty even though the door config has a value.
+  useEffect(() => {
+    setTown(externalTown || '')
+  }, [externalTown])
+
   // Debounce live travel lookup so we don't fire on every keystroke.
   useEffect(() => {
     const trimmed = (town || '').trim()
