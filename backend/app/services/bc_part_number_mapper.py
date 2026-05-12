@@ -1057,10 +1057,81 @@ class BCPartNumberMapper:
         width_str = f"{feet:02d}' {inches:02d}\""
         desc = f"SECTION, {model_name}, [{width_str}] X {height_inches}\", {stamp.upper()}, {color.upper()}, {cap_name}"
 
+        # Validate against BC catalog. Customers can configure widths that
+        # don't have a SKU at the requested combo (small doors below the
+        # smallest stocked width, odd custom widths). Substituting the
+        # closest available width — preferring next-LARGER, falling back
+        # to next-smaller — guarantees every panel line lands on a real
+        # priced BC item rather than a fabricated PN that prices at $0.
+        if part_number not in self.bc_items:
+            substitute = self._find_closest_panel_width(part_number)
+            if substitute:
+                logger.info(
+                    f"Panel {part_number} not in BC — substituted "
+                    f"{substitute.part_number} ({substitute.description[:60]})"
+                )
+                return substitute
+
         return BCPartNumber(
             part_number=part_number,
             description=desc,
             category="PANEL"
+        )
+
+    def _find_closest_panel_width(self, constructed_pn: str) -> Optional[BCPartNumber]:
+        """Find the closest matching panel by width in the same series + height
+        + stamp + color family. Tries next-larger first (so we never
+        under-bill), falls back to next-smaller as a last resort.
+
+        Returns None when no panels in the same family exist at all — caller
+        is responsible for handling that edge case.
+        """
+        bits = constructed_pn.split("-")
+        if len(bits) != 3:
+            return None
+        prefix, body, target_width = bits
+        if len(target_width) < 4:
+            return None
+        try:
+            target_total_in = int(target_width[:2]) * 12 + int(target_width[2:4])
+        except ValueError:
+            return None
+
+        family_prefix = f"{prefix}-{body}-"
+        candidates: List[Tuple[int, str]] = []
+        for pn in self.bc_items:
+            if not pn.startswith(family_prefix):
+                continue
+            suffix = pn[len(family_prefix):]
+            if len(suffix) < 4 or not suffix[:4].isdigit():
+                continue
+            try:
+                ctot = int(suffix[:2]) * 12 + int(suffix[2:4])
+            except ValueError:
+                continue
+            candidates.append((ctot, pn))
+
+        if not candidates:
+            return None
+
+        candidates.sort()
+        # Preference 1: smallest candidate >= requested width (step up).
+        for ctot, pn in candidates:
+            if ctot >= target_total_in:
+                item = self.bc_items[pn]
+                return BCPartNumber(
+                    part_number=pn,
+                    description=item.get("displayName", item.get("description", "")),
+                    category="PANEL",
+                )
+        # Preference 2: largest candidate < requested width (step down,
+        # only when requested exceeds the largest stocked size).
+        ctot, pn = candidates[-1]
+        item = self.bc_items[pn]
+        return BCPartNumber(
+            part_number=pn,
+            description=item.get("displayName", item.get("description", "")),
+            category="PANEL",
         )
 
     def get_strut(self, door_width_feet: int, gauge: int = 20) -> BCPartNumber:
