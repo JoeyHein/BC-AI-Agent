@@ -33,6 +33,7 @@ BUILDER_LIFT_BLOCK_SQFT = 400             # one charge per 400 sqft of qualifyin
 BUILDER_LIFT_BLOCK_PRICE = 400.00         # $/block (when any door > 12' tall)
 BUILDER_PER_DIEM_BLOCK_PRICE = 200.00     # $/block (when total > 400 sqft)
 BUILDER_LIFT_HEIGHT_INCHES = 144          # 12' = 144"
+BUILDER_OPERATOR_ADDON_PER_DOOR = 150.00  # flat $/door for any door with an operator
 
 # Default travel distances (km from Medicine Hat, AB)
 DEFAULT_TRAVEL_DISTANCES = {
@@ -318,12 +319,15 @@ class InstallPricingService:
         total_install = 0.0
         total_sqft = 0.0
         max_height_in = 0
+        operator_doors = 0
         per_door: List[Dict[str, Any]] = []
         for d in doors:
             w = float(d.get("doorWidth") or 0)
             h = float(d.get("doorHeight") or 0)
             count = int(d.get("doorCount") or 1)
             door_type = d.get("doorType", "residential")
+            operator = (d.get("operator") or "").upper()
+            has_operator = operator not in ("", "NONE", "MANUAL")
             area = (w * h) / 144.0
             if h > max_height_in:
                 max_height_in = h
@@ -331,11 +335,13 @@ class InstallPricingService:
             line_total = round(unit["price"] * count, 2)
             total_install += line_total
             total_sqft += area * count
+            if has_operator:
+                operator_doors += count
             per_door.append({
                 "door_width_in": w, "door_height_in": h, "door_count": count,
                 "door_type": door_type, "area_sqft": round(area, 2),
                 "tier": unit["tier"], "unit_install": unit["price"],
-                "line_total": line_total,
+                "line_total": line_total, "has_operator": has_operator,
             })
 
         # Lift and per-diem are block-based on total sqft.
@@ -359,7 +365,11 @@ class InstallPricingService:
             if travel_distance_km is not None:
                 travel_price = round(travel_distance_km * travel_rate, 2)
 
-        grand_total = round(total_install + lift_total + per_diem_total + travel_price, 2)
+        operator_addon_total = round(operator_doors * BUILDER_OPERATOR_ADDON_PER_DOOR, 2)
+        grand_total = round(
+            total_install + lift_total + per_diem_total + travel_price + operator_addon_total,
+            2,
+        )
         return {
             "town": town,
             "total_sqft": round(total_sqft, 2),
@@ -376,6 +386,9 @@ class InstallPricingService:
             "per_diem_qty": per_diem_qty,
             "per_diem_unit_price": BUILDER_PER_DIEM_BLOCK_PRICE,
             "per_diem_total": per_diem_total,
+            "operator_addon_qty": operator_doors,
+            "operator_addon_unit_price": BUILDER_OPERATOR_ADDON_PER_DOOR,
+            "operator_addon_total": operator_addon_total,
             "travel_distance_km": travel_distance_km,
             "travel_rate_per_km": travel_rate,
             "travel_price": travel_price,

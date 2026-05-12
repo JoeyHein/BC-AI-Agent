@@ -1756,7 +1756,16 @@ def _add_install_block(
             label="per diem",
         )
 
-    # 5. Travel
+    # 5. Operator install add-on ($150 flat per operator-equipped door)
+    if install_result.get("operator_addon_qty", 0) > 0:
+        _push_item(
+            description="Operator install (per door with operator)",
+            qty=install_result["operator_addon_qty"],
+            unit_price=install_result["operator_addon_unit_price"],
+            label="operator add-on",
+        )
+
+    # 6. Travel
     if install_result["travel_price"] > 0:
         _push_item(
             description=f"Travel - {town or 'site'} ({dist_km:.0f}km × ${install_result['travel_rate_per_km']:.2f}/km)",
