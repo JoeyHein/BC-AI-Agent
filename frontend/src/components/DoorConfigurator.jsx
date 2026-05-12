@@ -2206,7 +2206,11 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
 }
 
 function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, onChange }) {
-  const opData = operatorOptions[door.doorType] || operatorOptions.residential || {}
+  // Panorama (full-view polycarbonate) is commercial-only — force the
+  // commercial operator catalog regardless of the door's normal type so
+  // residential operators don't appear.
+  const operatorDoorType = door.windowInsert === 'PANORAMA' ? 'commercial' : door.doorType
+  const opData = operatorOptions[operatorDoorType] || operatorOptions.residential || {}
   const doorHeightInches = door.doorHeight || 0
   const isOverTenFeetTall = doorHeightInches > 120
 
