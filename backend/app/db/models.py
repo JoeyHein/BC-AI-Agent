@@ -1790,6 +1790,10 @@ class ExternalQuoteCommit(Base):
     supplier_account_code = Column(String(80), nullable=False, index=True)
     bc_quote_id = Column(String(100), nullable=True, index=True)
     supplier_quote_ref = Column(String(100), nullable=True)
+    # QOC-03: order-conversion side of the same row. Null until /convert-to-order succeeds.
+    bc_order_id = Column(String(100), nullable=True, index=True)
+    bc_order_ref = Column(String(100), nullable=True)
+    converted_at = Column(DateTime(timezone=True), nullable=True)
     status = Column(String(20), nullable=False, default="in_progress", index=True)
     request_hash = Column(String(64), nullable=True)
     failure_reason = Column(Text, nullable=True)

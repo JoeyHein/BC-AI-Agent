@@ -41,6 +41,11 @@ from app.services.external_quote_service import (
     CommitLine,
     commit_external_quote,
 )
+from app.services.external_order_conversion_service import (
+    ConvertError,
+    ConvertResult,
+    convert_external_quote_to_order,
+)
 
 router = APIRouter(prefix="/api/external", tags=["external"])
 logger = logging.getLogger(__name__)
@@ -88,11 +93,13 @@ _ERROR_STATUS = {
     "INVALID_REQUEST": 400,
     "IDEMPOTENCY_CONFLICT": 409,
     "IN_PROGRESS": 409,
+    "NOT_FOUND": 404,
+    "UNPROCESSABLE": 422,
     "UPSTREAM_ERROR": 502,
 }
 
 
-def _error_response(err: CommitError) -> JSONResponse:
+def _error_response(err: CommitError | ConvertError) -> JSONResponse:
     status_code = _ERROR_STATUS.get(err.code, 500)
     return JSONResponse(
         status_code=status_code,
@@ -149,6 +156,75 @@ def commit_quote(
             supplierQuoteId=result.supplier_quote_id,
             validUntil=result.valid_until.isoformat(),
             currency=result.currency,
+            cached=result.cached,
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Convert-to-order endpoint (QOC-04)
+# ---------------------------------------------------------------------------
+
+
+class ConvertToOrderData(BaseModel):
+    supplierOrderRef: str
+    supplierOrderId: str
+    orderedAt: str
+    cached: bool
+
+
+class ConvertToOrderOut(BaseModel):
+    ok: bool = True
+    data: ConvertToOrderData
+
+
+@router.post("/quotes/{external_quote_id}/convert-to-order")
+def convert_to_order(
+    external_quote_id: str,
+    db: Session = Depends(get_db),
+    api_key: ExternalApiKey = Depends(require_external_key),
+):
+    """Convert a previously-committed external quote into a BC sales order.
+
+    Idempotent on `external_quote_id` — the same id used at commit.
+    Repeat calls return the cached SO-XXXXXX without touching BC. The
+    operation is keyed off the existing `external_quote_commits` row
+    (no parallel table); see QOC-03 migration for the schema shape.
+
+    Cross-key probes return 404 NOT_FOUND, never 403, per the
+    Service.AI convention. A source quote that is not in status='committed'
+    returns 422 UNPROCESSABLE.
+    """
+    # Path-level guard: keep external_quote_id reasonable.
+    if not external_quote_id or len(external_quote_id) > 80:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "external_quote_id is required and must be ≤80 chars",
+                    "retryable": False,
+                },
+            },
+        )
+
+    result = convert_external_quote_to_order(
+        db,
+        api_key_id=api_key.id,
+        account_code=api_key.supplier_account_code,
+        external_quote_id=external_quote_id,
+    )
+
+    if isinstance(result, ConvertError):
+        return _error_response(result)
+
+    assert isinstance(result, ConvertResult)
+    return ConvertToOrderOut(
+        data=ConvertToOrderData(
+            supplierOrderRef=result.supplier_order_ref,
+            supplierOrderId=result.supplier_order_id,
+            orderedAt=result.ordered_at.isoformat(),
             cached=result.cached,
         ),
     )

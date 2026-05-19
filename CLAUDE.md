@@ -90,12 +90,13 @@ BC_TENANT_ID, BC_CLIENT_ID, BC_CLIENT_SECRET, BC_ENVIRONMENT, BC_COMPANY_ID, ANT
 ## Admin Login
 joey@opendc.ca / test123
 
-## External API (SQB phase, 2026-05)
+## External API (SQB + QOC, 2026-05)
 
 BC AI Agent exposes a small surface for Service.AI to call into:
 
 - `POST /api/external/price-items` — resolve BC SalesPriceLists prices for a basket (customer → group → all-customers fall-through). 60s in-memory cache per `(account_code, sku, qty)`.
 - `POST /api/external/quotes` — idempotent commit. Same `external_quote_id` → same `SQ-XXXXXX`. Backed by the `external_quote_commits` table (UNIQUE on `external_quote_id`) plus a per-key in-process `threading.Lock`.
+- `POST /api/external/quotes/{external_quote_id}/convert-to-order` — **QOC-04**. Idempotent quote→order conversion. Looks up the existing `external_quote_commits` row, calls `bc_client.convert_quote_to_order(bc_quote_id)`, persists `bc_order_id` + `bc_order_ref` + `converted_at` on the SAME row. Repeat calls return cached `SO-XXXXXX`. 422 UNPROCESSABLE if the source quote is not in `status='committed'`.
 - `POST /api/external-keys` — admin-only key mint. Plaintext returned ONCE; only the bcrypt hash + 12-char prefix live in the DB.
 - `POST /api/external-keys/:id/revoke|rotate` — idempotent admin actions.
 
