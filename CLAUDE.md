@@ -89,3 +89,24 @@ BC_TENANT_ID, BC_CLIENT_ID, BC_CLIENT_SECRET, BC_ENVIRONMENT, BC_COMPANY_ID, ANT
 
 ## Admin Login
 joey@opendc.ca / test123
+
+## External API (SQB phase, 2026-05)
+
+BC AI Agent exposes a small surface for Service.AI to call into:
+
+- `POST /api/external/price-items` — resolve BC SalesPriceLists prices for a basket (customer → group → all-customers fall-through). 60s in-memory cache per `(account_code, sku, qty)`.
+- `POST /api/external/quotes` — idempotent commit. Same `external_quote_id` → same `SQ-XXXXXX`. Backed by the `external_quote_commits` table (UNIQUE on `external_quote_id`) plus a per-key in-process `threading.Lock`.
+- `POST /api/external-keys` — admin-only key mint. Plaintext returned ONCE; only the bcrypt hash + 12-char prefix live in the DB.
+- `POST /api/external-keys/:id/revoke|rotate` — idempotent admin actions.
+
+Auth: `X-Service-AI-Key` header. Each key is bound to a single `supplier_account_code` (e.g., the Elevated Doors BC customer number). Cross-key probes return 404 NOT_FOUND (never 403) — never confirm the existence of another tenant's account code.
+
+Observability: `RequestIdMiddleware` reads / echoes `X-Request-ID` so one id traces web → Service.AI → BC AI Agent → BC OData.
+
+Detailed reference: see `servicetitan-clone/docs/api/supplier-quote-bridge.md`.
+
+## Forbidden patterns (external API)
+
+- No business logic in the external routes. They wrap the existing services (`pricing_service`, `bc_quote_service`) and add auth + idempotency. Anything more = refactor the service.
+- No API key logged or echoed. The verification path returns `None` on a miss without distinguishing unknown/revoked/forged — callers map every failure to 401 with the same message.
+- No client-supplied `bc_quote_id` or `supplier_quote_ref` on the commit body. Those are server-assigned by BC.

@@ -1725,3 +1725,91 @@ class EmailCampaign(Base):
 
     def __repr__(self):
         return f"<EmailCampaign(id={self.id}, subject='{self.subject}')>"
+
+
+class ExternalApiKey(Base):
+    """API key granting access to the `/api/external/*` surface (SQB phase).
+
+    Each row corresponds to one Service.AI-side consumer (one row per
+    supplier-account-code in v1). Plaintext is hashed via bcrypt and
+    only ever returned once at create time. `key_prefix` is the first
+    12 chars of the plaintext so the admin UI has a stable display
+    handle without holding the secret.
+    """
+
+    __tablename__ = "external_api_keys"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    key_prefix = Column(String(12), nullable=False, index=True)
+    key_hash = Column(String(255), nullable=False)
+    supplier_account_code = Column(String(80), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="active", index=True)
+    rate_limit_rpm = Column(Integer, nullable=False, default=600)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    creator = relationship("User", foreign_keys=[created_by_user_id])
+    revoker = relationship("User", foreign_keys=[revoked_by_user_id])
+
+    def __repr__(self):
+        return (
+            f"<ExternalApiKey(id={self.id}, name='{self.name}', "
+            f"prefix='{self.key_prefix}', status='{self.status}')>"
+        )
+
+
+class ExternalQuoteCommit(Base):
+    """Idempotency record for `POST /api/external/quotes` (SQB-05).
+
+    One row per Service.AI `external_quote_id`. The UNIQUE constraint
+    is the load-bearing piece — concurrent commit attempts with the
+    same external id all collapse to one row, and only the winning
+    insert gets to actually call BC. Subsequent reads of the same id
+    return the cached bc_quote_id + supplier_quote_ref without any BC
+    traffic.
+    """
+
+    __tablename__ = "external_quote_commits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    external_quote_id = Column(String(80), nullable=False, unique=True)
+    api_key_id = Column(
+        Integer, ForeignKey("external_api_keys.id", ondelete="SET NULL"), nullable=True
+    )
+    supplier_account_code = Column(String(80), nullable=False, index=True)
+    bc_quote_id = Column(String(100), nullable=True, index=True)
+    supplier_quote_ref = Column(String(100), nullable=True)
+    status = Column(String(20), nullable=False, default="in_progress", index=True)
+    request_hash = Column(String(64), nullable=True)
+    failure_reason = Column(Text, nullable=True)
+    item_count = Column(Integer, nullable=False, default=0)
+    subtotal_cents = Column(Integer, nullable=False, default=0)
+    currency = Column(String(3), nullable=False, default="CAD")
+    valid_until = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+    committed_at = Column(DateTime(timezone=True), nullable=True)
+
+    api_key = relationship("ExternalApiKey")
+
+    def __repr__(self):
+        return (
+            f"<ExternalQuoteCommit(id={self.id}, ext='{self.external_quote_id}', "
+            f"ref='{self.supplier_quote_ref}', status='{self.status}')>"
+        )
