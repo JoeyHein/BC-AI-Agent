@@ -85,8 +85,27 @@ def _lock_for(external_quote_id: str) -> threading.Lock:
 
 
 def _release_lock(external_quote_id: str) -> None:
-    with _locks_guard:
-        _locks.pop(external_quote_id, None)
+    """No-op by design (TD-QOC-A3).
+
+    Popping the per-key lock from `_locks` on every release opened a race:
+    once the entry is gone, a concurrent `_lock_for(same_key)` mints a
+    BRAND-NEW lock, so two callers can hold two different locks for the
+    same key and both enter the critical section. Keeping the lock in the
+    map forever means `_lock_for` always returns the SAME lock object for
+    a given key, which is what makes the mutual exclusion correct.
+
+    Memory growth is bounded and acceptable: keys are UUIDs and each
+    external_quote_id is locked a fixed number of times over its life
+    (commit once, convert once, void once). The map is process-local and
+    cleared on every deploy/restart. If unbounded growth ever becomes a
+    real concern at scale, replace the whole in-process scheme with a
+    Postgres advisory lock keyed on `hashtext(external_quote_id)`.
+
+    Kept as a named function (rather than deleting the call sites) so the
+    commit / convert / void services keep a single, documented release
+    point if the strategy changes later.
+    """
+    return None
 
 
 # ---------------------------------------------------------------------------

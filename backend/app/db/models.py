@@ -1794,6 +1794,9 @@ class ExternalQuoteCommit(Base):
     bc_order_id = Column(String(100), nullable=True, index=True)
     bc_order_ref = Column(String(100), nullable=True)
     converted_at = Column(DateTime(timezone=True), nullable=True)
+    # TD-SQB-A8: void-side of the same row. Null until /void succeeds.
+    voided_at = Column(DateTime(timezone=True), nullable=True)
+    void_reason = Column(Text, nullable=True)
     status = Column(String(20), nullable=False, default="in_progress", index=True)
     request_hash = Column(String(64), nullable=True)
     failure_reason = Column(Text, nullable=True)

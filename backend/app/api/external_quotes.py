@@ -46,6 +46,11 @@ from app.services.external_order_conversion_service import (
     ConvertResult,
     convert_external_quote_to_order,
 )
+from app.services.external_quote_void_service import (
+    VoidError,
+    VoidResult,
+    void_external_quote,
+)
 
 router = APIRouter(prefix="/api/external", tags=["external"])
 logger = logging.getLogger(__name__)
@@ -99,7 +104,7 @@ _ERROR_STATUS = {
 }
 
 
-def _error_response(err: CommitError | ConvertError) -> JSONResponse:
+def _error_response(err: CommitError | ConvertError | VoidError) -> JSONResponse:
     status_code = _ERROR_STATUS.get(err.code, 500)
     return JSONResponse(
         status_code=status_code,
@@ -225,6 +230,77 @@ def convert_to_order(
             supplierOrderRef=result.supplier_order_ref,
             supplierOrderId=result.supplier_order_id,
             orderedAt=result.ordered_at.isoformat(),
+            cached=result.cached,
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Void endpoint (TD-SQB-A8)
+# ---------------------------------------------------------------------------
+
+
+class VoidQuoteIn(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=1000)
+
+
+class VoidQuoteData(BaseModel):
+    supplierQuoteRef: str
+    voidedAt: str
+    cached: bool
+
+
+class VoidQuoteOut(BaseModel):
+    ok: bool = True
+    data: VoidQuoteData
+
+
+@router.post("/quotes/{external_quote_id}/void")
+def void_quote(
+    external_quote_id: str,
+    payload: Optional[VoidQuoteIn] = None,
+    db: Session = Depends(get_db),
+    api_key: ExternalApiKey = Depends(require_external_key),
+):
+    """Void a previously-committed external quote.
+
+    Idempotent on `external_quote_id` — the same id used at commit.
+    Repeat calls return the cached `voidedAt` without touching BC. A
+    quote that has been converted to a sales order cannot be voided
+    via this endpoint (returns 422 UNPROCESSABLE).
+
+    Cross-key probes return 404 NOT_FOUND, never 403, per the
+    Service.AI convention.
+    """
+    if not external_quote_id or len(external_quote_id) > 80:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "external_quote_id is required and must be ≤80 chars",
+                    "retryable": False,
+                },
+            },
+        )
+
+    result = void_external_quote(
+        db,
+        api_key_id=api_key.id,
+        account_code=api_key.supplier_account_code,
+        external_quote_id=external_quote_id,
+        reason=payload.reason if payload else None,
+    )
+
+    if isinstance(result, VoidError):
+        return _error_response(result)
+
+    assert isinstance(result, VoidResult)
+    return VoidQuoteOut(
+        data=VoidQuoteData(
+            supplierQuoteRef=result.supplier_quote_ref,
+            voidedAt=result.voided_at.isoformat(),
             cached=result.cached,
         ),
     )
