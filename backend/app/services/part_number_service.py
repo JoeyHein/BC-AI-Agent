@@ -3037,6 +3037,93 @@ class PartNumberService:
 
         return parts
 
+    @staticmethod
+    def _wwww_to_inches(wwww: str) -> int:
+        """Convert a 'FFII' section width code (e.g. '0802' = 8'2\") to total inches."""
+        return int(wwww[:2]) * 12 + int(wwww[2:])
+
+    def _find_stocked_section(
+        self, mapper, prefix: str, hh: str, fff: str, pp: str, target_wwww: str
+    ) -> Optional[str]:
+        """
+        Find the smallest stocked full-view section >= the requested width.
+
+        Matches BC items of the form {prefix}-{hh}{w}{fff}{pp}-{wwww} on height (hh),
+        finish (fff) and position (pp), wildcarding the width-group digit (w) and
+        accepting whatever width bucket BC actually stocks. Returns the part number of
+        the smallest section whose width code is >= target_wwww (an exact match wins,
+        since it is the smallest qualifying size), or None if nothing qualifies.
+
+        PN10/PN12 (V130G/V230G) and PN97 (AL976) share this body+width encoding, so the
+        same search resolves both the same-family "next size up" and the AL976 substitute.
+        """
+        try:
+            target_in = self._wwww_to_inches(target_wwww)
+        except ValueError:
+            return None
+        best = None
+        best_in = None
+        for num in mapper.bc_items:
+            if not num.startswith(prefix + "-"):
+                continue
+            segs = num.split("-")
+            if len(segs) != 3:
+                continue
+            body, ww = segs[1], segs[2]
+            if len(body) < 8 or len(ww) < 4:
+                continue
+            if body[:2] != hh or body[3:6] != fff or body[6:8] != pp:
+                continue
+            try:
+                cand_in = self._wwww_to_inches(ww)
+            except ValueError:
+                continue
+            if cand_in >= target_in and (best_in is None or cand_in < best_in):
+                best_in, best = cand_in, num
+        return best
+
+    def _resolve_full_view_section_pn(
+        self, mapper, pn_prefix: str, hh: str, w: str, fff: str, pp: str, wwww: str
+    ):
+        """
+        Resolve a V130G/V230G full-view section against the live BC catalog, with a
+        fallback chain that mirrors the spring / track "next size up" resolvers:
+
+          1. Exact V130G/V230G part, if stocked.
+          2. Next-bigger stocked size in the same V130G/V230G family.
+          3. AL976 (PN97) equivalent at the same size. PN10/PN12 and PN97 share an
+             identical body+width encoding, so the substitute is a prefix swap. This
+             covers finishes BC does not carry as V130G — notably BLACK (fff=008),
+             which is stocked as AL976 but not as V130G.
+          4. Next-bigger stocked AL976 size.
+          5. The original part number (no substitute found) — caller flags for review.
+
+        Returns (resolved_pn, used_al976: bool, size_bumped: bool).
+        """
+        desired = f"{pn_prefix}-{hh}{w}{fff}{pp}-{wwww}"
+
+        # 1. Exact V130G/V230G part.
+        if desired in mapper.bc_items:
+            return desired, False, False
+
+        # 2. Next bigger size in the same family.
+        alt = self._find_stocked_section(mapper, pn_prefix, hh, fff, pp, wwww)
+        if alt:
+            return alt, False, True
+
+        # 3. AL976 substitute at the same size (identical body encoding → prefix swap).
+        al_exact = f"PN97-{hh}{w}{fff}{pp}-{wwww}"
+        if al_exact in mapper.bc_items:
+            return al_exact, True, False
+
+        # 4. Next bigger AL976 size.
+        alt97 = self._find_stocked_section(mapper, "PN97", hh, fff, pp, wwww)
+        if alt97:
+            return alt97, True, alt97 != f"PN97-{hh}{w}{fff}{pp}-{wwww}"
+
+        # 5. Nothing stocked — emit the original and let the caller flag it.
+        return desired, False, False
+
     def _get_v130g_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """
         Get V130G/V230G full-view section parts using real BC part numbers.
@@ -3054,6 +3141,7 @@ class PartNumberService:
         Glass is separate: GK17-xxxxx-xx
         """
         parts = []
+        mapper = get_bc_mapper()
         v130g_qty = config.window_qty or 1
 
         # Determine prefix and model name based on window_insert or door series
@@ -3128,14 +3216,30 @@ class PartNumberService:
                 position = "INT"
 
             pp = pos_codes[position]
-            pn = f"{pn_prefix}-{hh}{w}{fff}{pp}-{wwww}"
+            resolved_pn, used_al976, size_bumped = self._resolve_full_view_section_pn(
+                mapper, pn_prefix, hh, w, fff, pp, wwww
+            )
+
+            section_model = "AL976" if used_al976 else model_name
+            note = f"Full view aluminum section - replaces insulated panel at section {section_num}"
+            if used_al976:
+                note += f" | {model_name} {finish_name} not stocked in BC — substituted AL976 equivalent {resolved_pn}"
+                logger.info(
+                    f"V130G fallback: {pn_prefix}-{hh}{w}{fff}{pp}-{wwww} ({model_name} {finish_name}) "
+                    f"not stocked, substituting AL976 {resolved_pn}"
+                )
+            if size_bumped:
+                note += f" | requested size unavailable — stepped up to next stocked size {resolved_pn}"
+                logger.info(
+                    f"V130G fallback: {section_model} size {wwww} not stocked, stepped up to {resolved_pn}"
+                )
 
             parts.append(PartSelection(
-                part_number=pn,
-                description=f"{model_name} FULL VIEW SECTION, {section_height}\" x {width_ft}'{width_extra}\", {position} {end_cap_label}, {finish_name}",
+                part_number=resolved_pn,
+                description=f"{section_model} FULL VIEW SECTION, {section_height}\" x {width_ft}'{width_extra}\", {position} {end_cap_label}, {finish_name}",
                 quantity=1,
                 category="v130g_section",
-                notes=f"Full view aluminum section - replaces insulated panel at section {section_num}"
+                notes=note
             ))
 
         # V130G Glass (GK17 aluminum glazing kits, separate from section frame)

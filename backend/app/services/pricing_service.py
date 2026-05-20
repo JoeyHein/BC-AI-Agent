@@ -313,9 +313,18 @@ def calculate_selling_price(
     door_type_lower = (door_type or "").lower()
     pn_upper = part_number.upper()
 
-    # GK17 glazing and PN10 V130G frames ALWAYS use AL976/glazing margins
-    # regardless of what door type they're on
-    if posting_group == "GLAZ" or (posting_group == "ALUM" and (pn_upper.startswith("PN10") or pn_upper.startswith("PN12"))):
+    # GK17 glazing and PN10/PN12 V130G frames ALWAYS use AL976/glazing margins
+    # regardless of what door type they're on. PN97 (AL976) sections normally keep
+    # standard aluminium margins on a full aluminium door, BUT when they appear on a
+    # steel residential/commercial door they are an AL976 *substitute* for an
+    # unavailable V130G full-view section (e.g. black) — those must price as glazing,
+    # exactly as the V130G frame they replace would have.
+    is_full_view_frame = (
+        pn_upper.startswith("PN10")
+        or pn_upper.startswith("PN12")
+        or (pn_upper.startswith("PN97") and door_type_lower not in ("aluminium", "aluminum"))
+    )
+    if posting_group == "GLAZ" or (posting_group == "ALUM" and is_full_view_frame):
         effective_door_type = "glazing"
     elif door_type_lower == "aluminium":
         if posting_group == "ALUM":

@@ -61,6 +61,62 @@ class TestStruts:
         assert all(s["quantity"] >= 0 for s in struts)
 
 
+# ── V130G full-view fallback (AL976 substitute + next size up) ──────────────
+
+class TestV130GFallback:
+    """TX450 doors with V130G full-view inserts.
+
+    BC does not stock V130G (PN10) sections in black (fff=008) — only AL976
+    (PN97) is carried in black. PN10 and PN97 share an identical body+width
+    encoding, so an unavailable V130G section falls back to the AL976 equivalent,
+    and an unavailable size steps up to the next stocked size.
+    """
+
+    def _v130g_door(self, **overrides):
+        cfg = {
+            "doorType": "commercial", "doorSeries": "TX450",
+            "doorWidth": 96, "doorHeight": 96, "doorCount": 1,
+            "panelColor": "WHITE", "panelDesign": "UDC", "trackThickness": "3",
+            "hasWindows": True, "windowInsert": "V130G", "windowQty": 2,
+            "windowSection": 1, "glassColor": "CLEAR", "glassPaneType": "INSULATED",
+        }
+        cfg.update(overrides)
+        return _get_parts(cfg)
+
+    def _sections(self, parts):
+        return _by_category(parts, "v130g_section")
+
+    def test_black_v130g_falls_back_to_al976(self):
+        """Black V130G is not stocked → sections emit AL976 (PN97) part numbers."""
+        sections = self._sections(self._v130g_door(panelColor="BLACK"))
+        assert sections, "expected V130G full-view sections"
+        for s in sections:
+            assert s["part_number"].startswith("PN97-"), (
+                f"black V130G should substitute AL976, got {s['part_number']}"
+            )
+            assert "AL976" in s["description"]
+
+    def test_white_v130g_stays_v130g(self):
+        """White V130G is stocked → keep the PN10 V130G part numbers (no substitution)."""
+        sections = self._sections(self._v130g_door(panelColor="WHITE"))
+        assert sections
+        for s in sections:
+            assert s["part_number"].startswith("PN10-"), (
+                f"white V130G should stay PN10, got {s['part_number']}"
+            )
+
+    @pytest.mark.parametrize("color", ["WHITE", "BLACK"])
+    def test_all_emitted_sections_exist_in_bc(self, color):
+        """Every emitted full-view section resolves to a real stocked BC item."""
+        mapper = get_bc_mapper()
+        sections = self._sections(self._v130g_door(panelColor=color))
+        assert sections
+        for s in sections:
+            assert s["part_number"] in mapper.bc_items, (
+                f"{color}: {s['part_number']} is not a stocked BC item"
+            )
+
+
 # ── Hardware boxes ────────────────────────────────────────────────────────
 
 class TestHardwareBoxes:
