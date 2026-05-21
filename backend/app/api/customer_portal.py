@@ -617,6 +617,7 @@ def _format_door_description(door: dict) -> str:
     """Format door description for BC quote comment line."""
     from app.api.door_configurator import (
         _format_lift_label, _format_mount_label, _format_design_for_comment,
+        _format_scope_label,
     )
     width_ft, width_in = divmod(door.get("doorWidth", 0), 12)
     height_ft, height_in = divmod(door.get("doorHeight", 0), 12)
@@ -641,13 +642,21 @@ def _format_door_description(door: dict) -> str:
         if pocket_counts:
             pocket_info = f", POCKETS: {'/'.join(pocket_counts)}"
 
+    scope_label = _format_scope_label(door.get("hardware", {}) or {}, door_type)
+    face_only = scope_label in ("DOOR FACE ONLY", "PANELS ONLY")
+
     segments = [
         f"({door.get('doorCount', 1)}) {width_str} x {height_str} {door.get('doorSeries', '')}",
         door.get('panelColor', ''),
     ]
     if design_display:
         segments.append(design_display)
-    segments.extend([track_display, lift_type])
+    # Track/mount + lift only apply when the door ships with hardware; a
+    # face/panels-only order has no tracks, so omit those segments.
+    if not face_only:
+        segments.extend([track_display, lift_type])
+    if scope_label:
+        segments.append(scope_label)
     return ", ".join(segments) + pocket_info
 
 

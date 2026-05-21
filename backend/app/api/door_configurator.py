@@ -821,6 +821,32 @@ def _format_mount_label(track_mount, track_thickness) -> str:
     return f'{size}" {mount}'
 
 
+def _format_scope_label(hardware: dict, door_type: str = "") -> Optional[str]:
+    """Scope tag for partial hardware orders: PANELS ONLY / DOOR FACE ONLY /
+    NO DOOR FACE. Returns None for a complete door.
+
+    The bottom retainer is part of the door face (it bolts to the bottom panel),
+    so it does NOT count as operating hardware. Aluminium doors always ship their
+    sections, so panels is implicitly on.
+    """
+    hardware = hardware or {}
+    panels_on = door_type == "aluminium" or hardware.get("panels", True)
+    retainer_on = hardware.get("bottomRetainer", True)
+    any_operating_hw = any((
+        hardware.get("tracks", True),
+        hardware.get("springs", True),
+        hardware.get("struts", True),
+        hardware.get("hardwareKits", True),
+        hardware.get("weatherStripping", True),
+        hardware.get("shafts", True),
+    ))
+    if panels_on and not any_operating_hw:
+        return "DOOR FACE ONLY" if retainer_on else "PANELS ONLY"
+    if not panels_on and (any_operating_hw or retainer_on):
+        return "NO DOOR FACE"
+    return None
+
+
 def _format_design_for_comment(door_type, panel_design, glazing_type, glass_pane_type) -> str:
     """Return the design label for the door header comment. NONE/empty
     values are treated as 'no design' so the comment skips that segment
@@ -866,13 +892,21 @@ def _format_door_description(door: DoorConfigRequest) -> str:
         if pocket_counts:
             pocket_info = f", POCKETS: {'/'.join(pocket_counts)}"
 
+    scope_label = _format_scope_label(getattr(door, 'hardware', {}) or {}, door_type)
+    face_only = scope_label in ("DOOR FACE ONLY", "PANELS ONLY")
+
     segments = [
         f"({door.doorCount}) {width_str} x {height_str} {door.doorSeries}",
         door.panelColor,
     ]
     if design_display:
         segments.append(design_display)
-    segments.extend([track_display, lift_type])
+    # Track/mount + lift only apply when the door ships with hardware; a
+    # face/panels-only order has no tracks, so omit those segments.
+    if not face_only:
+        segments.extend([track_display, lift_type])
+    if scope_label:
+        segments.append(scope_label)
     return ", ".join(segments) + pocket_info
 
 
