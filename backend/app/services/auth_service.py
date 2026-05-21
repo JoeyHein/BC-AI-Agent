@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from sqlalchemy.orm import Session
 
 from app.db.models import User, UserRole
@@ -15,8 +15,18 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Password hashing. We call bcrypt directly instead of via passlib's
+# CryptContext: passlib 1.7.4 hashes a 73-byte probe password during backend
+# init, and bcrypt >= 4.1 raises "password cannot be longer than 72 bytes"
+# rather than truncating, which breaks passlib under newer bcrypt. The $2b$
+# output is identical and clamping to 72 bytes reproduces passlib's silent
+# truncation, so hashes already stored by passlib verify unchanged.
+_BCRYPT_MAX_BYTES = 72
+
+
+def _to_bcrypt_bytes(password: str) -> bytes:
+    """Encode and clamp to bcrypt's 72-byte ceiling (matches passlib behavior)."""
+    return password.encode("utf-8")[:_BCRYPT_MAX_BYTES]
 
 # JWT settings
 ALGORITHM = "HS256"
@@ -29,12 +39,18 @@ class AuthService:
     @staticmethod
     def verify_password(plain_password: str, hashed_password: str) -> bool:
         """Verify a password against its hash"""
-        return pwd_context.verify(plain_password, hashed_password)
+        try:
+            return bcrypt.checkpw(
+                _to_bcrypt_bytes(plain_password), hashed_password.encode("ascii")
+            )
+        except (ValueError, TypeError):
+            logger.warning("Password verification failed: malformed stored hash")
+            return False
 
     @staticmethod
     def get_password_hash(password: str) -> str:
-        """Hash a password"""
-        return pwd_context.hash(password)
+        """Hash a password. Returns a standard $2b$ bcrypt string."""
+        return bcrypt.hashpw(_to_bcrypt_bytes(password), bcrypt.gensalt()).decode("ascii")
 
     @staticmethod
     def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

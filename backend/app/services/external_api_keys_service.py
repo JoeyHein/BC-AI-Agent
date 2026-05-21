@@ -19,17 +19,25 @@ import secrets
 from datetime import datetime
 from typing import Optional
 
-from passlib.context import CryptContext
+import bcrypt
 from sqlalchemy.orm import Session
 
 from app.db.models import ExternalApiKey
 
 logger = logging.getLogger(__name__)
 
-# Reuse the bcrypt-backed CryptContext shape from auth_service. Keeping
-# a private instance here lets the external-key path swap parameters
-# (work factor, scheme) independently of user-password hashing later.
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# We call bcrypt directly rather than via passlib's CryptContext. passlib
+# 1.7.4 runs a backend self-test that hashes a 73-byte probe password on
+# first use; bcrypt >= 4.1 raises "password cannot be longer than 72 bytes"
+# instead of truncating, which breaks passlib init under newer bcrypt. The
+# output format ($2b$...) is identical, so hashes minted either way verify
+# interchangeably — existing stored hashes keep working.
+_BCRYPT_MAX_BYTES = 72  # bcrypt only considers the first 72 bytes
+
+
+def _to_bcrypt_bytes(plaintext: str) -> bytes:
+    """Encode and clamp to bcrypt's 72-byte ceiling (our keys are ~41 bytes)."""
+    return plaintext.encode("utf-8")[:_BCRYPT_MAX_BYTES]
 
 # Plaintext format: `sai_<env>_<32 random url-safe chars>`. The env
 # label is informational only (verification ignores it); production
@@ -45,8 +53,8 @@ def generate_plaintext(environment: str = "live") -> str:
 
 
 def hash_plaintext(plaintext: str) -> str:
-    """Bcrypt-hash the plaintext for storage."""
-    return _pwd_context.hash(plaintext)
+    """Bcrypt-hash the plaintext for storage. Returns a standard $2b$ string."""
+    return bcrypt.hashpw(_to_bcrypt_bytes(plaintext), bcrypt.gensalt()).decode("ascii")
 
 
 def prefix_for(plaintext: str) -> str:
@@ -89,8 +97,8 @@ def verify(
 
     for row in candidates:
         try:
-            ok = _pwd_context.verify(plaintext, row.key_hash)
-        except Exception:  # pragma: no cover — passlib hash format errors
+            ok = bcrypt.checkpw(_to_bcrypt_bytes(plaintext), row.key_hash.encode("ascii"))
+        except (ValueError, TypeError):  # pragma: no cover — malformed stored hash
             logger.warning("Bcrypt verification raised on key id=%s", row.id)
             continue
         if not ok:
