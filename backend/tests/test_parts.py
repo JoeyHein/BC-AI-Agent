@@ -61,6 +61,51 @@ class TestStruts:
         assert all(s["quantity"] >= 0 for s in struts)
 
 
+# ── Comment scope label (panels / door-face / hardware only) ────────────────
+
+class TestCommentScope:
+    """The auto-generated comment line must reflect partial hardware selections."""
+
+    ALL_OFF = {"tracks": False, "springs": False, "struts": False,
+               "hardwareKits": False, "weatherStripping": False, "shafts": False}
+
+    def _comment(self, parts):
+        comments = _by_category(parts, "comment")
+        assert comments, "expected a comment line"
+        return comments[0]["description"]
+
+    def test_panels_only(self):
+        """Only Door Panels checked (no bottom retainer) → PANELS ONLY."""
+        hw = {"panels": True, "bottomRetainer": False, **self.ALL_OFF}
+        desc = self._comment(_get_parts({"hardware": hw}))
+        assert "PANELS ONLY" in desc
+        # No tracks selected → no track/mount detail in the comment
+        assert "MOUNT" not in desc
+
+    def test_door_face_only(self):
+        """Panels + bottom retainer, no operating hardware → DOOR FACE ONLY."""
+        hw = {"panels": True, "bottomRetainer": True, **self.ALL_OFF}
+        desc = self._comment(_get_parts({"hardware": hw}))
+        assert "DOOR FACE ONLY" in desc
+        assert "MOUNT" not in desc
+
+    def test_hardware_only(self):
+        """Hardware checked, panels off → NO DOOR FACE (and keeps track detail)."""
+        hw = {"panels": False, "tracks": True, "springs": True, "struts": True,
+              "hardwareKits": True, "weatherStripping": True, "bottomRetainer": True, "shafts": True}
+        desc = self._comment(_get_parts({"hardware": hw}))
+        assert "NO DOOR FACE" in desc
+        assert "MOUNT" in desc
+
+    def test_complete_door_has_no_scope_label(self):
+        """A full door gets no scope tag, and still shows track/mount detail."""
+        desc = self._comment(_get_parts({}))  # default hardware = all on
+        assert "PANELS ONLY" not in desc
+        assert "DOOR FACE ONLY" not in desc
+        assert "NO DOOR FACE" not in desc
+        assert "MOUNT" in desc
+
+
 # ── V130G full-view fallback (AL976 substitute + next size up) ──────────────
 
 class TestV130GFallback:

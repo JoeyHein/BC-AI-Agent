@@ -680,18 +680,47 @@ class PartNumberService:
         if config.panel_design:
             comment_desc += f" {config.panel_design}"
 
-        # Add track/mount details to comment
-        track_size = int(config.track_thickness) if config.track_thickness else 2
-        mount_label = "ANGLE MOUNT" if config.track_mount == 'angle' else "BRACKET MOUNT"
-        comment_desc += f" | {track_size}\" {mount_label}"
+        # Scope of order — reflect partial hardware selections so the BC comment
+        # shows PANELS ONLY / DOOR FACE ONLY / NO DOOR FACE instead of always
+        # describing a complete door. Aluminum doors always ship their sections,
+        # so panels is implicitly on. The bottom retainer is part of the face
+        # (it bolts to the bottom panel), so it does NOT count as "hardware".
+        panels_on = config.door_type == "aluminium" or hardware.get("panels", True)
+        retainer_on = hardware.get("bottomRetainer", True)
+        operating_hw = (
+            hardware.get("tracks", True),
+            hardware.get("springs", True),
+            hardware.get("struts", True),
+            hardware.get("hardwareKits", True),
+            hardware.get("weatherStripping", True),
+            hardware.get("shafts", True),
+        )
+        any_operating_hw = any(operating_hw)
 
-        # Add lift type details
-        if config.lift_type == 'high_lift' and config.high_lift_inches:
-            comment_desc += f" | HIGH LIFT {config.high_lift_inches}\""
-        elif config.lift_type == 'vertical':
-            comment_desc += " | VERTICAL LIFT"
-        elif config.lift_type == 'low_headroom':
-            comment_desc += " | LOW HEADROOM"
+        scope_label = None
+        if panels_on and not any_operating_hw:
+            scope_label = "DOOR FACE ONLY" if retainer_on else "PANELS ONLY"
+        elif not panels_on and (any_operating_hw or retainer_on):
+            scope_label = "NO DOOR FACE"
+
+        if scope_label:
+            comment_desc += f" | {scope_label}"
+
+        # Track/mount + lift only matter when the door ships with operating
+        # hardware. A face/panels-only order has no tracks, so omit those details.
+        face_only = scope_label in ("DOOR FACE ONLY", "PANELS ONLY")
+        if not face_only:
+            track_size = int(config.track_thickness) if config.track_thickness else 2
+            mount_label = "ANGLE MOUNT" if config.track_mount == 'angle' else "BRACKET MOUNT"
+            comment_desc += f" | {track_size}\" {mount_label}"
+
+            # Add lift type details
+            if config.lift_type == 'high_lift' and config.high_lift_inches:
+                comment_desc += f" | HIGH LIFT {config.high_lift_inches}\""
+            elif config.lift_type == 'vertical':
+                comment_desc += " | VERTICAL LIFT"
+            elif config.lift_type == 'low_headroom':
+                comment_desc += " | LOW HEADROOM"
 
         parts.append(PartSelection(
             part_number="",  # Comment line has no part number

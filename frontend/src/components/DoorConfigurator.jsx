@@ -2567,6 +2567,51 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         <label className="block text-sm font-medium text-gray-700 mb-2">
           Hardware Components
         </label>
+
+        {/* Preset buttons — quick toggles for common order scopes */}
+        <div className="flex gap-2 mb-3">
+          <button
+            type="button"
+            onClick={() => onChange({
+              hardware: { panels: true, tracks: true, springs: true, struts: true, hardwareKits: true, weatherStripping: true, bottomRetainer: true, shafts: true }
+            })}
+            className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
+              door.hardware.panels !== false && door.hardware.tracks !== false && door.hardware.springs !== false
+                && door.hardware.hardwareKits !== false && door.hardware.shafts !== false
+                ? 'border-odc-500 bg-blue-50 text-odc-700'
+                : 'border-gray-300 text-gray-600 hover:border-gray-400'
+            }`}
+          >
+            Complete Door
+          </button>
+          <button
+            type="button"
+            onClick={() => onChange({
+              hardware: { panels: true, tracks: false, springs: false, struts: false, hardwareKits: false, weatherStripping: false, bottomRetainer: true, shafts: false }
+            })}
+            className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
+              door.hardware.panels !== false && door.hardware.tracks === false && door.hardware.springs === false
+                ? 'border-odc-500 bg-blue-50 text-odc-700'
+                : 'border-gray-300 text-gray-600 hover:border-gray-400'
+            }`}
+          >
+            Door Face Only
+          </button>
+          <button
+            type="button"
+            onClick={() => onChange({
+              hardware: { panels: false, tracks: true, springs: true, struts: true, hardwareKits: true, weatherStripping: true, bottomRetainer: true, shafts: true }
+            })}
+            className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
+              door.hardware.panels === false && door.hardware.tracks !== false && door.hardware.springs !== false
+                ? 'border-odc-500 bg-blue-50 text-odc-700'
+                : 'border-gray-300 text-gray-600 hover:border-gray-400'
+            }`}
+          >
+            Hardware Only
+          </button>
+        </div>
+
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {hardwareOptions.map((option) => (
             <label key={option.id} className="flex items-start p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
