@@ -29,6 +29,7 @@ from app.api import external_pricing
 from app.api import external_quotes
 from app.api import external_inventory
 from app.api import external_purchase_orders
+from app.api import external_door_config
 
 # Import services
 from app.services.scheduler_service import get_scheduler
@@ -270,6 +271,8 @@ logger.info(f"Including external_inventory router: {external_inventory.router.pr
 app.include_router(external_inventory.router)
 logger.info(f"Including external_purchase_orders router: {external_purchase_orders.router.prefix}")
 app.include_router(external_purchase_orders.router)
+logger.info(f"Including external_door_config router: {external_door_config.router.prefix}")
+app.include_router(external_door_config.router)
 
 # Admin Quote Search router (global cross-customer quote lookup)
 logger.info(f"Including admin_quotes router: {admin_quotes.router.prefix}")

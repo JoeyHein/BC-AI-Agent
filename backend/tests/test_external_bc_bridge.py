@@ -18,7 +18,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.api import external_inventory, external_purchase_orders
+from app.api import external_door_config, external_inventory, external_purchase_orders
 from app.api.auth import get_db
 from app.db.models import ExternalApiKey, ExternalCallLog, ExternalPurchaseOrder, User, UserRole
 from app.services import external_purchase_order_service
@@ -78,6 +78,7 @@ def app(db_factory):
     test_app = FastAPI()
     test_app.include_router(external_inventory.router)
     test_app.include_router(external_purchase_orders.router)
+    test_app.include_router(external_door_config.router)
 
     def _override_get_db():
         db = db_factory()
@@ -217,6 +218,45 @@ class TestCreatePurchaseOrder:
         assert second.status_code == 200
         assert second.json()["data"]["supplierPoRef"] == ref
         assert len(fake_bc.create_calls) == 1
+
+
+class TestResolveDoorConfig:
+    """TD-WI-01: door-config → parts resolution."""
+
+    @pytest.fixture
+    def fake_resolver(self, monkeypatch):
+        def _fake(cfg):
+            # Echo the mapped doorWidth so we can assert the widget mapping ran.
+            return {
+                "parts_list": [
+                    {"part_number": "AL976-PANEL", "quantity": 1, "description": "Panel", "category": "panel"},
+                    {"part_number": "SPRING-250", "quantity": 2, "description": "Spring", "category": "spring", "extra": cfg.get("doorWidth")},
+                ]
+            }
+        monkeypatch.setattr(external_door_config, "get_parts_for_door_config", _fake)
+
+    def test_401_missing_header(self, client, fake_resolver):
+        r = client.post("/api/external/door-config/resolve-parts", json={"supplierAccountCode": "ED-001", "doorConfig": {}})
+        assert r.status_code == 401
+
+    def test_404_cross_account(self, client, other_key, fake_resolver):
+        r = client.post(
+            "/api/external/door-config/resolve-parts",
+            headers={"X-Service-AI-Key": other_key},
+            json={"supplierAccountCode": "ED-001", "doorConfig": {}},
+        )
+        assert r.status_code == 404
+
+    def test_happy_maps_and_returns_parts(self, client, primary_key, fake_resolver):
+        r = client.post(
+            "/api/external/door-config/resolve-parts",
+            headers={"X-Service-AI-Key": primary_key},
+            json={"supplierAccountCode": "ED-001", "doorConfig": {"family": "AL976", "widthInches": 120, "windows": "None"}},
+        )
+        assert r.status_code == 200
+        parts = r.json()["data"]["parts"]
+        assert [p["sku"] for p in parts] == ["AL976-PANEL", "SPRING-250"]
+        assert parts[1]["quantity"] == 2
 
 
 class TestExternalCallLog:
