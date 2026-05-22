@@ -20,7 +20,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.api import external_inventory, external_purchase_orders
 from app.api.auth import get_db
-from app.db.models import ExternalApiKey, ExternalPurchaseOrder, User, UserRole
+from app.db.models import ExternalApiKey, ExternalCallLog, ExternalPurchaseOrder, User, UserRole
 from app.services import external_purchase_order_service
 from app.services.external_api_keys_service import create_key
 
@@ -217,3 +217,30 @@ class TestCreatePurchaseOrder:
         assert second.status_code == 200
         assert second.json()["data"]["supplierPoRef"] == ref
         assert len(fake_bc.create_calls) == 1
+
+
+class TestExternalCallLog:
+    """TD-QOC-A8: the external_call_log model persists a call record."""
+
+    def test_model_persists(self, db_factory):
+        engine = db_factory.kw["bind"]
+        ExternalCallLog.__table__.create(engine, checkfirst=True)
+        db = db_factory()
+        try:
+            db.add(
+                ExternalCallLog(
+                    method="POST",
+                    path="/api/external/price-items",
+                    status_code=200,
+                    latency_ms=42,
+                    key_prefix="sai_live_abc",
+                )
+            )
+            db.commit()
+            row = db.query(ExternalCallLog).first()
+            assert row.method == "POST"
+            assert row.status_code == 200
+            assert row.latency_ms == 42
+            assert row.key_prefix == "sai_live_abc"
+        finally:
+            db.close()

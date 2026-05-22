@@ -1853,3 +1853,26 @@ class ExternalPurchaseOrder(Base):
             f"<ExternalPurchaseOrder(id={self.id}, ext='{self.external_po_id}', "
             f"bc_po='{self.bc_po_number}', status='{self.status}')>"
         )
+
+
+class ExternalCallLog(Base):
+    """Audit/observability log of every `/api/external/*` request (TD-QOC-A8).
+
+    Recorded by the external-call middleware (see main.py): method, path,
+    HTTP status, latency, and the X-Service-AI-Key PREFIX (never the full key)
+    for attribution. Useful for billing, rate-limit tuning, and debugging the
+    Service.AI ↔ BC AI Agent integration.
+    """
+
+    __tablename__ = "external_call_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    method = Column(String(10), nullable=False)
+    path = Column(String(300), nullable=False, index=True)
+    status_code = Column(Integer, nullable=False, index=True)
+    latency_ms = Column(Integer, nullable=False, default=0)
+    key_prefix = Column(String(20), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False, index=True)
+
+    def __repr__(self):
+        return f"<ExternalCallLog({self.method} {self.path} -> {self.status_code} {self.latency_ms}ms)>"

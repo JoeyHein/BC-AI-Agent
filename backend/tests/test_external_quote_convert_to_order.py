@@ -235,6 +235,16 @@ class TestAuth:
         res = client.post("/api/external/quotes/some-id/convert-to-order")
         assert res.status_code == 401
 
+    def test_422_rejects_extra_body_fields(self, client, primary_key, fake_bc):
+        # TD-QOC-A6: the convert body is keyed on the path; extra fields are
+        # rejected (model_config extra='forbid'). An empty body still works.
+        res = client.post(
+            "/api/external/quotes/some-id/convert-to-order",
+            headers={"X-Service-AI-Key": primary_key},
+            json={"unexpected": "field"},
+        )
+        assert res.status_code == 422
+
     def test_401_garbage_key(self, client, fake_bc):
         res = client.post(
             "/api/external/quotes/some-id/convert-to-order",

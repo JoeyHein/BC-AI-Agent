@@ -30,7 +30,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.api.auth import get_db
@@ -183,9 +183,17 @@ class ConvertToOrderOut(BaseModel):
     data: ConvertToOrderData
 
 
+# TD-QOC-A6: a strict, body-less input model. The convert is keyed entirely on
+# the path param, so the body must be empty / {} — `extra='forbid'` rejects any
+# smuggled fields (matches the /void endpoint's optional-model tightening).
+class ConvertToOrderIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
 @router.post("/quotes/{external_quote_id}/convert-to-order")
 def convert_to_order(
     external_quote_id: str,
+    body: Optional[ConvertToOrderIn] = None,
     db: Session = Depends(get_db),
     api_key: ExternalApiKey = Depends(require_external_key),
 ):

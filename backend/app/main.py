@@ -187,6 +187,45 @@ app.add_middleware(PublicCORSMiddleware)
 # inverse-registration: last-added is the outermost wrapper).
 app.add_middleware(RequestIdMiddleware)
 
+
+@app.middleware("http")
+async def external_call_log_middleware(request, call_next):
+    """TD-QOC-A8: record every /api/external/* call (method, path, status,
+    latency, key prefix) for observability/billing. Best-effort — a logging
+    failure never affects the response. Stores only the 12-char key PREFIX,
+    never the secret."""
+    import time as _time
+
+    path = request.url.path
+    if not path.startswith("/api/external/"):
+        return await call_next(request)
+    start = _time.perf_counter()
+    response = await call_next(request)
+    latency_ms = int((_time.perf_counter() - start) * 1000)
+    try:
+        from app.db.database import SessionLocal
+        from app.db.models import ExternalCallLog
+
+        key = request.headers.get("x-service-ai-key") or ""
+        db = SessionLocal()
+        try:
+            db.add(
+                ExternalCallLog(
+                    method=request.method,
+                    path=path[:300],
+                    status_code=response.status_code,
+                    latency_ms=latency_ms,
+                    key_prefix=(key[:12] or None),
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        logger.warning("external_call_log write failed", exc_info=True)
+    return response
+
+
 # Include API routers
 # Mounting authentication and email connection routers
 logger.info(f"Including auth router: {auth.router.prefix}")
