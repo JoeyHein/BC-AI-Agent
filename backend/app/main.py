@@ -24,6 +24,7 @@ from app.api import metrics
 from app.api import integrations
 from app.api import pricing_diagnostic
 from app.api import customer_team
+from app.api import part_finder
 from app.api import external_keys
 from app.api import external_pricing
 from app.api import external_quotes
@@ -349,6 +350,10 @@ app.include_router(pricing_diagnostic.router)
 # Customer-portal team management (customer admins manage their own users)
 logger.info(f"Including customer_team router: {customer_team.router.prefix}")
 app.include_router(customer_team.router)
+
+# Part Finder — visual product ID + manual lookup over the DoorPart-Library corpus
+logger.info(f"Including part_finder router: {part_finder.router.prefix}")
+app.include_router(part_finder.router)
 
 logger.info(f"Total routes after including routers: {len(app.routes)}")
 

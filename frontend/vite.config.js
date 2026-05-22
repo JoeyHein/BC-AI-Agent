@@ -10,6 +10,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         customer: resolve(__dirname, 'customer.html'),
+        partfinder: resolve(__dirname, 'partfinder.html'),
       },
     },
   },
