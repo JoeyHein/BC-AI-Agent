@@ -1820,3 +1820,36 @@ class ExternalQuoteCommit(Base):
             f"<ExternalQuoteCommit(id={self.id}, ext='{self.external_quote_id}', "
             f"ref='{self.supplier_quote_ref}', status='{self.status}')>"
         )
+
+
+class ExternalPurchaseOrder(Base):
+    """Idempotency record for `POST /api/external/purchase-orders` (BCB-02).
+
+    One row per Service.AI `external_po_id`. The UNIQUE constraint collapses
+    concurrent / retried create attempts to a single BC purchase order — only
+    the winning insert calls BC; later calls return the cached bc_po_number.
+    Mirrors ExternalQuoteCommit.
+    """
+
+    __tablename__ = "external_purchase_orders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    external_po_id = Column(String(80), nullable=False, unique=True)
+    api_key_id = Column(
+        Integer, ForeignKey("external_api_keys.id", ondelete="SET NULL"), nullable=True
+    )
+    supplier_account_code = Column(String(80), nullable=False, index=True)
+    bc_po_id = Column(String(100), nullable=True, index=True)
+    bc_po_number = Column(String(100), nullable=True)
+    status = Column(String(20), nullable=False, default="in_progress", index=True)
+    request_hash = Column(String(64), nullable=True)
+    failure_reason = Column(Text, nullable=True)
+    item_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    committed_at = Column(DateTime(timezone=True), nullable=True)
+
+    def __repr__(self):
+        return (
+            f"<ExternalPurchaseOrder(id={self.id}, ext='{self.external_po_id}', "
+            f"bc_po='{self.bc_po_number}', status='{self.status}')>"
+        )

@@ -27,6 +27,8 @@ from app.api import customer_team
 from app.api import external_keys
 from app.api import external_pricing
 from app.api import external_quotes
+from app.api import external_inventory
+from app.api import external_purchase_orders
 
 # Import services
 from app.services.scheduler_service import get_scheduler
@@ -224,6 +226,11 @@ app.include_router(external_pricing.router)
 # External quote commit (SQB-05) — Service.AI calls this on quote send.
 logger.info(f"Including external_quotes router: {external_quotes.router.prefix}")
 app.include_router(external_quotes.router)
+# External availability + purchase orders (BCB-02) — Service.AI bridge.
+logger.info(f"Including external_inventory router: {external_inventory.router.prefix}")
+app.include_router(external_inventory.router)
+logger.info(f"Including external_purchase_orders router: {external_purchase_orders.router.prefix}")
+app.include_router(external_purchase_orders.router)
 
 # Admin Quote Search router (global cross-customer quote lookup)
 logger.info(f"Including admin_quotes router: {admin_quotes.router.prefix}")
