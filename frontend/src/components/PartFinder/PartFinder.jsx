@@ -1,6 +1,12 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, createContext, useContext } from 'react';
 import { partFinder, isAuthed } from './api';
 import './partfinder.css';
+
+// Where the "Sign in" links point. Host apps inject their own login route via
+// the `signInHref` prop; defaults to /login. Kept in context so the gating
+// sub-components don't need it threaded through every level.
+const SignInContext = createContext('/login');
+const useSignInHref = () => useContext(SignInContext);
 
 const CATEGORY_HINTS = [
   'Garage Door Panels',
@@ -18,7 +24,7 @@ const MODES = [
   { id: 'search', label: 'Search', sub: 'Text or part #' },
 ];
 
-export default function PartFinder() {
+export default function PartFinder({ signInHref = '/login' }) {
   const [mode, setMode] = useState('photo');
   const [stats, setStats] = useState(null);
   const [activeDoc, setActiveDoc] = useState(null);
@@ -29,6 +35,7 @@ export default function PartFinder() {
   }, []);
 
   return (
+    <SignInContext.Provider value={signInHref}>
     <div className="pf-root">
       <Backdrop />
       <TopBar stats={stats} authed={authed} />
@@ -78,6 +85,7 @@ export default function PartFinder() {
 
       {activeDoc && <DocDrawer docId={activeDoc} authed={authed} onClose={() => setActiveDoc(null)} />}
     </div>
+    </SignInContext.Provider>
   );
 }
 
@@ -87,6 +95,7 @@ function Backdrop() {
 }
 
 function TopBar({ stats, authed }) {
+  const signInHref = useSignInHref();
   return (
     <div className="pf-topbar">
       <div className="pf-brand">
@@ -104,7 +113,7 @@ function TopBar({ stats, authed }) {
         {authed ? (
           <span className="pf-badge-full">● Full access</span>
         ) : (
-          <a className="pf-signin" href="/login">Sign in</a>
+          <a className="pf-signin" href={signInHref}>Sign in</a>
         )}
       </div>
     </div>
@@ -569,6 +578,7 @@ function DocGrid({ docs, onOpen, title, subtitle, compact }) {
 }
 
 function DocDrawer({ docId, authed, onClose }) {
+  const signInHref = useSignInHref();
   const [doc, setDoc] = useState(null);
   const [err, setErr] = useState(null);
 
@@ -630,7 +640,7 @@ function DocDrawer({ docId, authed, onClose }) {
             {authed ? (
               <button className="pf-btn-primary pf-open-pdf" onClick={openPdf}>Open manual (PDF)</button>
             ) : (
-              <a className="pf-btn-locked" href="/login">
+              <a className="pf-btn-locked" href={signInHref}>
                 <span className="pf-lock">🔒</span> Sign in to open the manual
               </a>
             )}
@@ -651,18 +661,20 @@ function MetaRow({ k, v }) {
 }
 
 function UpgradeBanner({ message, small }) {
+  const signInHref = useSignInHref();
   return (
     <div className={`pf-upgrade ${small ? 'is-small' : ''}`}>
       <span className="pf-lock">🔒</span>
       <p>{message || 'Sign in to unlock all results.'}</p>
-      <a href="/login" className="pf-upgrade-btn">Sign in</a>
+      <a href={signInHref} className="pf-upgrade-btn">Sign in</a>
     </div>
   );
 }
 
 function LockNote({ n, label = 'more matches' }) {
+  const signInHref = useSignInHref();
   return (
-    <a href="/login" className="pf-locknote">
+    <a href={signInHref} className="pf-locknote">
       <span className="pf-lock">🔒</span> +{n} {label} — sign in to view
     </a>
   );
