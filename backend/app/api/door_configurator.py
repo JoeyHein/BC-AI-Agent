@@ -336,10 +336,20 @@ COLORS = {
         {"id": "FRENCH_OAK", "name": "French Oak", "hex": "#C4A35A", "type": "woodgrain", "grain": ["#C4A35A", "#D4B56A", "#B49A4A"]},
     ],
     "COMMERCIAL": [
+        # TX450 standard-gauge — full stocked color range (PN45/46 in BC).
         {"id": "WHITE", "name": "White", "hex": "#F4F4F4", "ral": "RAL 9003", "type": "solid"},
         {"id": "BLACK", "name": "Black", "hex": "#282828", "ral": "RAL 9004", "type": "solid"},
         {"id": "NEW_BROWN", "name": "New Brown", "hex": "#4C4842", "ral": "RAL 7022", "type": "solid"},
         {"id": "STEEL_GREY", "name": "Steel Grey", "hex": "#7D7F7D", "ral": "RAL 7037", "type": "solid"},
+    ],
+    # TX500 (PN55/56) is only stocked in White and Black — no Steel Grey/Brown.
+    "COMMERCIAL_TX500": [
+        {"id": "WHITE", "name": "White", "hex": "#F4F4F4", "ral": "RAL 9003", "type": "solid"},
+        {"id": "BLACK", "name": "Black", "hex": "#282828", "ral": "RAL 9004", "type": "solid"},
+    ],
+    # 20-gauge commercial (TX450-20 / TX500-20, PN47/48/57/58) is White only.
+    "COMMERCIAL_20": [
+        {"id": "WHITE", "name": "White", "hex": "#F4F4F4", "ral": "RAL 9003", "type": "solid"},
     ],
     "AL976": [
         {"id": "CLEAR_ANODIZED", "name": "Clear Anodized (Standard)", "hex": "#C0C0C0"},
@@ -374,9 +384,9 @@ PANEL_DESIGNS = {
         {"id": "UDC", "code": "UDC", "name": "UDC (Undercoated)", "type": "Commercial Standard"},
     ],
     "COMMERCIAL_20": [
-        # TX450-20 and TX500-20: Flush and UDC designs
+        # TX450-20 and TX500-20 (20-gauge) are only stocked Flush/standard in BC
+        # (PN47/48/57/58 carry stamp 0 only — no UDC stamp exists for these).
         {"id": "FLUSH", "code": "FLUSH", "name": "Flush", "type": "Flush/Flat"},
-        {"id": "UDC", "code": "UDC", "name": "UDC (Undercoated)", "type": "Commercial Standard"},
     ],
     "EXECUTIVE": [
         {"id": "F01", "code": "F01", "name": "Flush Basic", "base": "Flush"},
@@ -391,6 +401,48 @@ PANEL_DESIGNS = {
         {"id": "F06A", "code": "F06A", "name": "X-Pattern Arched", "base": "Flush"},
     ],
 }
+
+# Series → option-list keys. Single source of truth shared by the /colors and
+# /panel-designs endpoints and by quote-time validation, so the UI offering and
+# the server-side guard can never drift apart.
+SERIES_COLOR_KEY = {
+    "KANATA": "KANATA", "CRAFT": "CRAFT",
+    "TX450": "COMMERCIAL", "TX500": "COMMERCIAL_TX500",
+    "TX450-20": "COMMERCIAL_20", "TX500-20": "COMMERCIAL_20",
+    "AL976": "AL976", "SWD": "AL976",
+    "KANATA_EXECUTIVE": "EXECUTIVE_STAINS",
+}
+SERIES_DESIGN_KEY = {
+    "KANATA": "KANATA", "CRAFT": "CRAFT", "KANATA_EXECUTIVE": "EXECUTIVE",
+    "TX450": "COMMERCIAL", "TX500": "COMMERCIAL",
+    "TX450-20": "COMMERCIAL_20", "TX500-20": "COMMERCIAL_20",
+}
+# Commercial series carry hard BC SKU constraints (e.g. TX500 is White/Black
+# only; 20-gauge is White + Flush only). We validate these at quote time so an
+# unstocked combo returns a clear message instead of a cryptic "panel not found".
+_VALIDATED_SERIES = {"TX450", "TX500", "TX450-20", "TX500-20"}
+
+
+def validate_panel_combo(series: str, color: Optional[str], design: Optional[str]) -> None:
+    """Raise ValueError if the color/design isn't stocked for this series.
+
+    Only enforced for commercial series with known SKU constraints; other
+    series pass through. Checks against the same lists the configurator offers.
+    """
+    s = (series or "").upper()
+    if s not in _VALIDATED_SERIES:
+        return
+    if color:
+        allowed = COLORS.get(SERIES_COLOR_KEY.get(s, ""), [])
+        if allowed and color.upper() not in {c["id"] for c in allowed}:
+            names = ", ".join(c["name"] for c in allowed)
+            raise ValueError(f"{s} doors are not available in '{color}'. Available colors: {names}.")
+    if design:
+        allowed = PANEL_DESIGNS.get(SERIES_DESIGN_KEY.get(s, ""), [])
+        if allowed and design.upper() not in {d["id"] for d in allowed}:
+            names = ", ".join(d["name"] for d in allowed)
+            raise ValueError(f"{s} doors are not available in design '{design}'. Available: {names}.")
+
 
 WINDOW_INSERTS_LONG = {
     # Long window inserts — fit SHXL/BCXL stamps or span 2 short stamps
@@ -608,19 +660,7 @@ async def get_door_series(door_type: str):
 @router.get("/colors/{series_id}")
 async def get_colors(series_id: str):
     """Get available colors for a door series"""
-    # Map series to color set
-    color_map = {
-        "KANATA": "KANATA",
-        "CRAFT": "CRAFT",
-        "TX450": "COMMERCIAL",
-        "TX500": "COMMERCIAL",
-        "TX450-20": "COMMERCIAL",
-        "TX500-20": "COMMERCIAL",
-        "AL976": "AL976",
-        "SWD": "AL976",
-        "KANATA_EXECUTIVE": "EXECUTIVE_STAINS",
-    }
-    color_key = color_map.get(series_id, "KANATA")
+    color_key = SERIES_COLOR_KEY.get(series_id, "KANATA")
     colors = COLORS.get(color_key, COLORS["KANATA"])
     return {"success": True, "data": colors}
 
@@ -628,16 +668,7 @@ async def get_colors(series_id: str):
 @router.get("/panel-designs/{series_id}")
 async def get_panel_designs(series_id: str):
     """Get available panel designs for a door series"""
-    design_map = {
-        "KANATA": "KANATA",
-        "CRAFT": "CRAFT",
-        "KANATA_EXECUTIVE": "EXECUTIVE",
-        "TX450": "COMMERCIAL",
-        "TX500": "COMMERCIAL",
-        "TX450-20": "COMMERCIAL_20",
-        "TX500-20": "COMMERCIAL_20",
-    }
-    design_key = design_map.get(series_id, "KANATA")
+    design_key = SERIES_DESIGN_KEY.get(series_id, "KANATA")
     designs = PANEL_DESIGNS.get(design_key, [])
     return {"success": True, "data": designs}
 
@@ -996,6 +1027,15 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
 
         for i, door in enumerate(request.doors):
             door_index = i + 1
+
+            # Guard unstocked series/color/design combos with a clear message
+            # (e.g. TX500 only White/Black; 20-gauge only White + Flush) rather
+            # than letting it fail later as a cryptic "panel not found in BC".
+            try:
+                validate_panel_combo(door.doorSeries, door.panelColor,
+                                     getattr(door, "panelDesign", None))
+            except ValueError as ve:
+                raise HTTPException(status_code=400, detail=f"Door {door_index}: {ve}")
 
             # Generate door description for comment line
             door_desc = _format_door_description(door)
