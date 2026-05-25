@@ -45,7 +45,7 @@ The "from" email must be verified in Mailchimp:
 
 ```
 MAILCHIMP_FROM_NAME=Joey at OPENDC
-MAILCHIMP_FROM_EMAIL=joey@opendc.com
+MAILCHIMP_FROM_EMAIL=joey@opendc.ca
 ```
 
 ## 5. Verify the Integration
@@ -67,5 +67,5 @@ MAILCHIMP_API_KEY=abc123def456-us14
 MAILCHIMP_SERVER_PREFIX=us14
 MAILCHIMP_AUDIENCE_ID=a1b2c3d4e5
 MAILCHIMP_FROM_NAME=Joey at OPENDC
-MAILCHIMP_FROM_EMAIL=joey@opendc.com
+MAILCHIMP_FROM_EMAIL=joey@opendc.ca
 ```
