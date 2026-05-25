@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     MAILCHIMP_API_KEY: Optional[str] = None
     MAILCHIMP_SERVER_PREFIX: Optional[str] = None  # e.g. us14
     MAILCHIMP_AUDIENCE_ID: Optional[str] = None
-    MAILCHIMP_FROM_NAME: str = "Joey @ OPENDC"
+    MAILCHIMP_FROM_NAME: str = "Joey at OPENDC"
     MAILCHIMP_FROM_EMAIL: str = "joey@opendc.com"
 
     # Integrations (service-to-service API key for Donna PA and other AI agents)
