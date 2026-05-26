@@ -8,7 +8,7 @@ import json
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -85,6 +85,25 @@ class SendRequest(BaseModel):
     brief_summary: Optional[str] = None
 
 
+class TestSendRequest(BaseModel):
+    subject: str
+    preheader: str
+    body_html: str
+    body_text: str
+    test_email: Optional[str] = None  # defaults to the configured from-email
+
+
+# ============================================================================
+# BRANDING
+# ============================================================================
+
+# Hosted on the portal (served by nginx). Used as the email header logo.
+OPENDC_LOGO_URL = "https://portal.opendc.ca/assets/opendc-logo.jpg"
+BRAND_DARK = "#1a1a1a"
+BRAND_AMBER = "#E07B00"
+COMPANY_ADDRESS = "Open Distribution Company &bull; 617 18 St SW, Medicine Hat, AB T1A 7Y1"
+
+
 # ============================================================================
 # CLAUDE SYSTEM PROMPT
 # ============================================================================
@@ -113,13 +132,26 @@ Format the response as JSON:
   "internal_notes": "..."
 }
 
-The HTML should use a clean, minimal email-safe design:
-- Max width 600px centered
-- OPENDC brand feel: dark header (#1a1a1a), white body, orange/amber accent (#E07B00) for links and highlights
-- Readable body font (Georgia or similar email-safe serif for body, sans-serif for header)
-- Mobile responsive inline styles
-- Footer with unsubscribe link placeholder: {{unsubscribe_link}}
-- No images required — text-first design that looks intentional
+The HTML must use this EXACT branded structure so every email looks consistent. Do not change the header or footer — only write the body content between them.
+
+Header (use verbatim, including the logo):
+<div style="background-color:#1a1a1a;padding:24px;text-align:center;">
+  <img src="https://portal.opendc.ca/assets/opendc-logo.jpg" alt="OPENDC" width="180" style="max-width:180px;height:auto;display:inline-block;" />
+</div>
+
+Body rules:
+- Wrap everything in: <body style="margin:0;padding:0;background-color:#f5f5f5;font-family:Georgia,serif;"><div style="max-width:600px;margin:0 auto;background-color:#ffffff;">
+- Put the header block (above) first, then a content block: <div style="padding:30px 25px;color:#333333;font-size:16px;line-height:1.6;">...your written content...</div>
+- Use the amber accent (#E07B00) for links and the occasional highlighted phrase. Links: style="color:#E07B00;"
+- Readable email-safe serif body (Georgia), sans-serif only inside the header
+- Mobile responsive inline styles, images max-width:100%
+
+Footer (use verbatim, ends the email):
+<div style="background-color:#f5f5f5;padding:20px 25px;text-align:center;color:#999999;font-size:12px;font-family:Arial,sans-serif;">
+  <p style="margin:0 0 8px 0;">Open Distribution Company &bull; 617 18 St SW, Medicine Hat, AB T1A 7Y1</p>
+  <p style="margin:0;"><a href="*|UNSUB|*" style="color:#999999;text-decoration:underline;">Unsubscribe</a></p>
+</div>
+Then close: </div></body>
 
 IMPORTANT: Return ONLY valid JSON, no markdown code fences or other text."""
 
@@ -273,6 +305,136 @@ async def send_email(
         raise HTTPException(status_code=500, detail=f"Mailchimp error: {e.text}")
     except Exception as e:
         logger.error(f"Send failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/send-test")
+async def send_test_email(
+    req: TestSendRequest,
+    current_user: User = Depends(require_admin),
+):
+    """Send a test copy of the email to a single address without touching the list.
+
+    Creates a temporary draft campaign, sets content, fires Mailchimp's test send,
+    then deletes the draft so it doesn't clutter the Mailchimp account.
+    """
+    try:
+        import mailchimp_marketing as MailchimpMarketing
+        from mailchimp_marketing.api_client import ApiClientError
+    except ImportError:
+        raise HTTPException(status_code=500, detail="mailchimp_marketing package not installed")
+
+    mc_api_key = settings.MAILCHIMP_API_KEY
+    mc_server = settings.MAILCHIMP_SERVER_PREFIX
+    mc_audience = settings.MAILCHIMP_AUDIENCE_ID
+
+    if not all([mc_api_key, mc_server, mc_audience]):
+        raise HTTPException(status_code=500, detail="Mailchimp not configured.")
+
+    if not req.subject.strip():
+        raise HTTPException(status_code=400, detail="Subject line cannot be empty")
+
+    test_email = (req.test_email or settings.MAILCHIMP_FROM_EMAIL or "").strip()
+    if "@" not in test_email:
+        raise HTTPException(status_code=400, detail="A valid test email address is required")
+
+    client = MailchimpMarketing.Client()
+    client.set_config({"api_key": mc_api_key, "server": mc_server})
+
+    campaign_id = None
+    try:
+        campaign = client.campaigns.create({
+            "type": "regular",
+            "recipients": {"list_id": mc_audience},
+            "settings": {
+                "subject_line": f"[TEST] {req.subject}",
+                "preview_text": req.preheader,
+                "from_name": settings.MAILCHIMP_FROM_NAME,
+                "reply_to": settings.MAILCHIMP_FROM_EMAIL,
+                "title": f"TEST - {datetime.utcnow().strftime('%b %d, %Y %H:%M')}",
+            }
+        })
+        campaign_id = campaign["id"]
+
+        client.campaigns.set_content(campaign_id, {
+            "html": req.body_html,
+            "plain_text": req.body_text,
+        })
+
+        client.campaigns.send_test_email(campaign_id, {
+            "test_emails": [test_email],
+            "send_type": "html",
+        })
+
+        return {
+            "success": True,
+            "message": f"Test email sent to {test_email}",
+            "test_email": test_email,
+        }
+
+    except ApiClientError as e:
+        logger.error(f"Mailchimp test send error: {e.text}")
+        raise HTTPException(status_code=500, detail=f"Mailchimp error: {e.text}")
+    except Exception as e:
+        logger.error(f"Test send failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Clean up the throwaway draft so the Mailchimp account stays tidy.
+        if campaign_id:
+            try:
+                client.campaigns.remove(campaign_id)
+            except Exception as cleanup_err:
+                logger.warning(f"Could not delete test campaign {campaign_id}: {cleanup_err}")
+
+
+@router.post("/upload-image")
+async def upload_image(
+    image: UploadFile = File(...),
+    current_user: User = Depends(require_admin),
+):
+    """Upload an image to Mailchimp's File Manager (CDN) and return its hosted URL.
+
+    Images are hosted on Mailchimp's CDN — permanent, fast, and reliable in inboxes —
+    rather than the portal's container filesystem (which would not survive redeploys).
+    """
+    try:
+        import mailchimp_marketing as MailchimpMarketing
+        from mailchimp_marketing.api_client import ApiClientError
+    except ImportError:
+        raise HTTPException(status_code=500, detail="mailchimp_marketing package not installed")
+
+    mc_api_key = settings.MAILCHIMP_API_KEY
+    mc_server = settings.MAILCHIMP_SERVER_PREFIX
+    if not all([mc_api_key, mc_server]):
+        raise HTTPException(status_code=500, detail="Mailchimp not configured.")
+
+    content_type = (image.content_type or "").lower()
+    if not content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image (PNG, JPG, GIF).")
+
+    raw = await image.read()
+    # Mailchimp File Manager caps uploads; keep email images reasonable.
+    if len(raw) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image too large (max 5 MB).")
+
+    import base64
+    file_data = base64.b64encode(raw).decode("ascii")
+    safe_name = (image.filename or "image").replace("/", "_").replace("\\", "_")
+
+    client = MailchimpMarketing.Client()
+    client.set_config({"api_key": mc_api_key, "server": mc_server})
+
+    try:
+        result = client.fileManager.upload({"name": safe_name, "file_data": file_data})
+        url = result.get("full_size_url") or result.get("thumbnail_url")
+        if not url:
+            raise HTTPException(status_code=500, detail="Mailchimp did not return an image URL.")
+        return {"success": True, "url": url, "name": result.get("name", safe_name)}
+    except ApiClientError as e:
+        logger.error(f"Mailchimp image upload error: {e.text}")
+        raise HTTPException(status_code=500, detail=f"Mailchimp error: {e.text}")
+    except Exception as e:
+        logger.error(f"Image upload failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

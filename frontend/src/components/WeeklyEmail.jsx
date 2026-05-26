@@ -31,6 +31,15 @@ function WeeklyEmail() {
   const [error, setError] = useState(null)
   const iframeRef = useRef(null)
 
+  // Test send + media insertion
+  const [testEmail, setTestEmail] = useState('')
+  const [testNotice, setTestNotice] = useState(null)
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const [showVideoModal, setShowVideoModal] = useState(false)
+  const [videoUrl, setVideoUrl] = useState('')
+  const htmlRef = useRef(null)
+  const imageInputRef = useRef(null)
+
   // Audience count
   const { data: audienceData } = useQuery({
     queryKey: ['emailAgent', 'audience'],
@@ -92,6 +101,84 @@ function WeeklyEmail() {
       setError(err.response?.data?.detail || 'Failed to send email.')
     },
   })
+
+  // Test send mutation
+  const testMutation = useMutation({
+    mutationFn: async (data) => {
+      const res = await emailAgentApi.sendTest(data)
+      return res.data
+    },
+    onSuccess: (data) => {
+      setTestNotice(data.message || `Test sent to ${data.test_email}`)
+      setError(null)
+    },
+    onError: (err) => {
+      setError(err.response?.data?.detail || 'Failed to send test email.')
+    },
+  })
+
+  // Insert an HTML snippet at the cursor in the body textarea (or append).
+  const insertIntoHtml = (snippet) => {
+    const el = htmlRef.current
+    if (el && typeof el.selectionStart === 'number') {
+      const start = el.selectionStart
+      const next = editedHtml.slice(0, start) + snippet + editedHtml.slice(el.selectionEnd)
+      setEditedHtml(next)
+    } else {
+      setEditedHtml(editedHtml + snippet)
+    }
+  }
+
+  const handleImageSelected = async (e) => {
+    const file = e.target.files?.[0]
+    if (e.target) e.target.value = '' // allow re-selecting the same file
+    if (!file) return
+    setUploadingImage(true)
+    setError(null)
+    try {
+      const formData = new FormData()
+      formData.append('image', file)
+      const res = await emailAgentApi.uploadImage(formData)
+      const url = res.data?.url
+      if (url) {
+        insertIntoHtml(
+          `\n<div style="padding:0 25px 20px;text-align:center;"><img src="${url}" alt="" style="max-width:100%;height:auto;border-radius:4px;" /></div>\n`
+        )
+      }
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Image upload failed.')
+    } finally {
+      setUploadingImage(false)
+    }
+  }
+
+  // Build a YouTube/Vimeo thumbnail URL when possible, so video links get a poster.
+  const youtubeThumb = (url) => {
+    const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w-]{11})/)
+    return m ? `https://img.youtube.com/vi/${m[1]}/hqdefault.jpg` : null
+  }
+
+  const handleInsertVideo = () => {
+    const url = videoUrl.trim()
+    if (!/^https?:\/\//i.test(url)) {
+      setError('Enter a valid video URL (starting with http).')
+      return
+    }
+    const thumb = youtubeThumb(url) || 'https://portal.opendc.ca/assets/opendc-logo.jpg'
+    // Email clients can't play inline video — insert a clickable poster with a play overlay.
+    const snippet =
+      `\n<div style="padding:0 25px 20px;text-align:center;">` +
+      `<a href="${url}" target="_blank" style="display:inline-block;position:relative;text-decoration:none;">` +
+      `<img src="${thumb}" alt="Watch the video" style="max-width:100%;height:auto;border-radius:4px;display:block;" />` +
+      `<span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(224,123,0,0.92);color:#ffffff;width:56px;height:56px;border-radius:50%;line-height:56px;font-size:22px;">&#9654;</span>` +
+      `</a>` +
+      `<p style="margin:8px 0 0;font-size:13px;"><a href="${url}" style="color:#E07B00;">Watch the video &rarr;</a></p>` +
+      `</div>\n`
+    insertIntoHtml(snippet)
+    setVideoUrl('')
+    setShowVideoModal(false)
+    setError(null)
+  }
 
   // Update iframe when HTML changes
   const updateIframe = useCallback(() => {
@@ -341,8 +428,36 @@ function WeeklyEmail() {
 
                 {/* HTML body */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Email body (HTML)</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-sm font-medium text-gray-700">Email body (HTML)</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        ref={imageInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleImageSelected}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => imageInputRef.current?.click()}
+                        disabled={uploadingImage}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        {uploadingImage ? 'Uploading…' : '+ Image'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowVideoModal(true)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 text-gray-700 bg-white hover:bg-gray-50"
+                      >
+                        + Video
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-400 mb-1">Click into the body where you want media, then insert. Images host on Mailchimp's CDN.</p>
                   <textarea
+                    ref={htmlRef}
                     value={editedHtml}
                     onChange={(e) => setEditedHtml(e.target.value)}
                     rows={16}
@@ -407,6 +522,42 @@ function WeeklyEmail() {
             </div>
           </div>
 
+          {/* Test send row */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg px-6 py-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-blue-900">Send yourself a test first</p>
+                <p className="text-xs text-blue-700 mt-0.5">Check branding and media in a real inbox before the full send. Doesn't touch your list.</p>
+                {testNotice && <p className="text-xs text-green-700 mt-1 font-medium">✓ {testNotice}</p>}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="email"
+                  value={testEmail}
+                  onChange={(e) => setTestEmail(e.target.value)}
+                  placeholder="joey@opendc.ca"
+                  className="rounded-md border-gray-300 shadow-sm focus:border-odc-500 focus:ring-odc-500 text-sm w-52"
+                />
+                <button
+                  onClick={() => {
+                    setTestNotice(null)
+                    testMutation.mutate({
+                      subject: editedSubject,
+                      preheader: editedPreheader,
+                      body_html: editedHtml,
+                      body_text: editedText,
+                      test_email: testEmail || undefined,
+                    })
+                  }}
+                  disabled={testMutation.isPending || !editedSubject.trim() || !isConfigured}
+                  className="inline-flex items-center px-4 py-2 border border-blue-300 text-sm font-medium rounded-md text-blue-800 bg-white hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                >
+                  {testMutation.isPending ? 'Sending…' : 'Send Test'}
+                </button>
+              </div>
+            </div>
+          </div>
+
           {/* Send button row */}
           <div className="bg-white shadow rounded-lg px-6 py-4 flex items-center justify-between">
             <button
@@ -435,6 +586,44 @@ function WeeklyEmail() {
             </div>
           </div>
         </>
+      )}
+
+      {/* Insert video modal */}
+      {showVideoModal && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex items-center justify-center min-h-screen px-4">
+            <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={() => setShowVideoModal(false)} />
+            <div className="relative bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Insert Video</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Email can't play video inline, so we insert a clickable thumbnail that links to it.
+                Paste a YouTube/Vimeo or hosted video link — YouTube thumbnails are pulled in automatically.
+              </p>
+              <input
+                type="url"
+                value={videoUrl}
+                onChange={(e) => setVideoUrl(e.target.value)}
+                placeholder="https://youtu.be/…"
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-odc-500 focus:ring-odc-500 text-sm mb-4"
+                autoFocus
+              />
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => { setShowVideoModal(false); setVideoUrl('') }}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleInsertVideo}
+                  className="px-4 py-2 text-sm font-medium text-white bg-odc-600 border border-transparent rounded-md hover:bg-odc-700"
+                >
+                  Insert
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* STEP 3: Success */}

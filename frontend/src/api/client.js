@@ -734,6 +734,14 @@ export const emailAgentApi = {
   send: (data) =>
     apiClient.post('/api/email-agent/send', data),
 
+  sendTest: (data) =>
+    apiClient.post('/api/email-agent/send-test', data),
+
+  uploadImage: (formData) =>
+    apiClient.post('/api/email-agent/upload-image', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+
   getAudienceCount: () =>
     apiClient.get('/api/email-agent/audience-count'),
 
