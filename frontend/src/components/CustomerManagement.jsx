@@ -5,6 +5,27 @@ import apiClient, { customersApi } from '../api/client'
 import InstallPricingPanel from './InstallPricingPanel'
 import { formatDate, formatDateTime } from '../utils/datetime'
 
+// Generate a strong random password using the Web Crypto API. ~16 chars with at
+// least one lower/upper/digit/symbol. Ambiguous characters (l, I, O, 0, 1) are
+// omitted so the admin can read/dictate it without confusion.
+function generatePassword(length = 16) {
+  const lower = 'abcdefghijkmnpqrstuvwxyz'
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+  const digits = '23456789'
+  const symbols = '!@#$%^&*-_=+'
+  const all = lower + upper + digits + symbols
+  const rand = (n) => crypto.getRandomValues(new Uint32Array(1))[0] % n
+  const pick = (set) => set[rand(set.length)]
+  const chars = [pick(lower), pick(upper), pick(digits), pick(symbols)]
+  while (chars.length < Math.max(length, 8)) chars.push(pick(all))
+  // Fisher–Yates shuffle so the guaranteed characters aren't always first.
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = rand(i + 1)
+    ;[chars[i], chars[j]] = [chars[j], chars[i]]
+  }
+  return chars.join('')
+}
+
 // API functions
 const fetchCustomers = async () => {
   const response = await apiClient.get('/api/admin/customers')
@@ -371,6 +392,7 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
   const [resetLink, setResetLink] = useState(null)
   const [showSetPassword, setShowSetPassword] = useState(false)
   const [newPassword, setNewPassword] = useState('')
+  const [showNewPassword, setShowNewPassword] = useState(false)
   const [editForm, setEditForm] = useState({
     name: customer?.name || '',
     is_active: customer?.is_active ?? true,
@@ -756,13 +778,25 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
               <p className="text-sm font-medium text-yellow-900 mb-2">Set New Password</p>
               <div className="flex items-center gap-2">
                 <input
-                  type="password"
+                  type={showNewPassword ? 'text' : 'password'}
                   placeholder="New password (min 8 chars)"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   className="flex-1 text-sm bg-white border border-yellow-300 rounded px-2 py-1"
                   minLength={8}
                 />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const pw = generatePassword()
+                    setNewPassword(pw)
+                    setShowNewPassword(true)
+                    try { navigator.clipboard?.writeText(pw) } catch { /* still shown */ }
+                  }}
+                  className="inline-flex items-center px-3 py-1 border border-yellow-400 text-sm font-medium rounded-md text-yellow-800 bg-white hover:bg-yellow-50 whitespace-nowrap"
+                >
+                  Generate
+                </button>
                 <button
                   onClick={() => setPasswordMutation.mutate()}
                   disabled={setPasswordMutation.isPending || newPassword.length < 8}
@@ -771,7 +805,7 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
                   {setPasswordMutation.isPending ? 'Saving...' : 'Save'}
                 </button>
                 <button
-                  onClick={() => { setShowSetPassword(false); setNewPassword('') }}
+                  onClick={() => { setShowSetPassword(false); setNewPassword(''); setShowNewPassword(false) }}
                   className="text-xs text-yellow-700 hover:text-yellow-900"
                 >
                   Cancel
@@ -962,6 +996,19 @@ function CreateCustomerModal({ onClose, onSuccess, prefillBc = null }) {
   const [showBCSearch, setShowBCSearch] = useState(false)
   const [bcSearchQuery, setBCSearchQuery] = useState('')
   const [selectedBC, setSelectedBC] = useState(prefillBc || null)
+  const [showPassword, setShowPassword] = useState(false)
+  const [pwCopied, setPwCopied] = useState(false)
+
+  const handleGeneratePassword = () => {
+    const pw = generatePassword()
+    setFormData((f) => ({ ...f, password: pw }))
+    setShowPassword(true)
+    try {
+      navigator.clipboard?.writeText(pw)
+      setPwCopied(true)
+      setTimeout(() => setPwCopied(false), 2500)
+    } catch { /* clipboard unavailable — password is still shown */ }
+  }
 
   const { data: bcCustomers } = useQuery({
     queryKey: ['bc-customers', bcSearchQuery],
@@ -1021,15 +1068,34 @@ function CreateCustomerModal({ onClose, onSuccess, prefillBc = null }) {
 
           <div>
             <label className="block text-sm font-medium text-gray-700">Password *</label>
-            <input
-              type="password"
-              required
-              minLength={8}
-              value={formData.password}
-              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-odc-500 focus:border-odc-500 sm:text-sm"
-            />
-            <p className="mt-1 text-xs text-gray-500">Minimum 8 characters</p>
+            <div className="mt-1 flex items-center gap-2">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                required
+                minLength={8}
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                className="block flex-1 border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-odc-500 focus:border-odc-500 sm:text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((s) => !s)}
+                className="px-2 py-2 text-sm text-gray-500 hover:text-gray-700"
+                title={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
+              <button
+                type="button"
+                onClick={handleGeneratePassword}
+                className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 whitespace-nowrap"
+              >
+                Generate
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-gray-500">
+              {pwCopied ? '✓ Generated password copied to clipboard' : 'Minimum 8 characters'}
+            </p>
           </div>
 
           <div>
