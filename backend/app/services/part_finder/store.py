@@ -262,13 +262,22 @@ class PartFinderStore:
                 )
             ]
 
-    def brand_summaries(self) -> str:
-        """Compact brand+category+product-lines text block for the vision prompt."""
+    def brand_summaries(self, category: Optional[str] = None) -> str:
+        """Compact brand+category+product-lines text block for the vision prompt.
+
+        Pass a category code (e.g. "06-Garage-Door-Operators") to ground the
+        model in only that category's brands — a much smaller, sharper list."""
+        clauses, params = ["brand IS NOT NULL"], []
+        if category:
+            clauses.append("category = ?")
+            params.append(category)
+        where = " AND ".join(clauses)
         with self._conn() as c:
             rows = c.execute(
                 "SELECT DISTINCT brand, category_label, MAX(product_lines) pl "
-                "FROM documents WHERE brand IS NOT NULL GROUP BY brand, category_label "
-                "ORDER BY category_label, brand"
+                f"FROM documents WHERE {where} GROUP BY brand, category_label "
+                "ORDER BY category_label, brand",
+                params,
             ).fetchall()
         lines = []
         for r in rows:

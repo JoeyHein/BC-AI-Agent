@@ -121,10 +121,13 @@ function TopBar({ stats, authed }) {
 }
 
 /* ------------------------------------------------------------------ photo */
+// "I'm not sure" sentinel — scans across every category (the original behavior).
+const ANY_CATEGORY = { category: '', label: "I'm not sure", meta: 'Search every category' };
+
 function PhotoMode({ onOpen, authed }) {
+  const [chosenCat, setChosenCat] = useState(null);
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
-  const [category, setCategory] = useState('');
   const [note, setNote] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -140,12 +143,20 @@ function PhotoMode({ onOpen, authed }) {
     setPreview(URL.createObjectURL(f));
   };
 
+  const changeCategory = () => {
+    setChosenCat(null);
+    setFile(null);
+    setPreview(null);
+    setResult(null);
+    setError(null);
+  };
+
   const run = async () => {
     if (!file) return;
     setLoading(true);
     setError(null);
     try {
-      const r = await partFinder.identify({ file, category, note });
+      const r = await partFinder.identify({ file, category: chosenCat?.category || '', note });
       setResult(r);
     } catch (e) {
       setError(e.body?.detail?.detail || e.message);
@@ -154,9 +165,22 @@ function PhotoMode({ onOpen, authed }) {
     }
   };
 
+  // Step 1 — pick what you're looking at.
+  if (!chosenCat) {
+    return <CategoryPicker onPick={setChosenCat} />;
+  }
+
+  // Step 2 — upload + identify, scoped to the chosen category.
+  const scopedLabel = chosenCat.category ? chosenCat.label : null;
   return (
     <div className="pf-panel pf-grid-2">
       <section className="pf-card pf-uploader">
+        <div className="pf-scope-bar">
+          <span className="pf-kicker">Looking at</span>
+          <span className="pf-chip pf-chip-cat">{chosenCat.label}</span>
+          <button className="pf-scope-change" onClick={changeCategory}>Change</button>
+        </div>
+
         <div
           className={`pf-drop ${drag ? 'is-drag' : ''} ${preview ? 'has-img' : ''}`}
           onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
@@ -177,18 +201,11 @@ function PhotoMode({ onOpen, authed }) {
             ref={inputRef}
             type="file"
             accept="image/*"
+            capture="environment"
             hidden
             onChange={(e) => choose(e.target.files[0])}
           />
         </div>
-
-        <label className="pf-field">
-          <span>Category (optional — helps accuracy)</span>
-          <select value={category} onChange={(e) => setCategory(e.target.value)}>
-            <option value="">Not sure</option>
-            {CATEGORY_HINTS.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </label>
 
         <label className="pf-field">
           <span>Anything you can read on it? (optional)</span>
@@ -210,22 +227,70 @@ function PhotoMode({ onOpen, authed }) {
         {!result && !loading && (
           <div className="pf-empty">
             <p className="pf-empty-big">Visual identification</p>
-            <p>Our system reads panel profiles, operator shapes, slat geometry, data-plate
-              text and logos to match your photo against the catalog — then links you to the
-              right manual.</p>
+            <p>We’re focused on <strong>{chosenCat.label}</strong> — narrowing to one
+              category makes the read faster and more accurate. We match panel profiles,
+              operator shapes, slat geometry, data-plate text and logos against the catalog,
+              then link you to the right manual.</p>
           </div>
         )}
         {loading && <SkeletonCards n={2} />}
-        {result && <IdentifyResult result={result} onOpen={onOpen} authed={authed} />}
+        {result && <IdentifyResult result={result} onOpen={onOpen} authed={authed} scopedLabel={scopedLabel} />}
       </section>
     </div>
   );
 }
 
-function IdentifyResult({ result, onOpen, authed }) {
+function CategoryPicker({ onPick }) {
+  const [cats, setCats] = useState(null);
+
+  useEffect(() => {
+    partFinder.facets()
+      .then((f) => setCats(f.categories.map((c) => ({
+        category: c.category, label: c.label, meta: `${c.count} manuals`,
+      }))))
+      .catch(() => setCats(CATEGORY_HINTS.map((label) => ({ category: label, label, meta: '' }))));
+  }, []);
+
+  return (
+    <div className="pf-panel">
+      <div className="pf-opt-block">
+        <h3 className="pf-section-title">What are you looking at?</h3>
+        <p className="pf-subtitle">Pick a category so we can scan faster and zero in on the right product.</p>
+        {cats === null ? (
+          <SkeletonCards n={3} />
+        ) : (
+          <div className="pf-opt-grid">
+            {cats.map((o, i) => (
+              <button key={o.category || o.label} className="pf-opt" style={{ animationDelay: `${i * 35}ms` }} onClick={() => onPick(o)}>
+                <span className="pf-opt-label">{o.label}</span>
+                <span className="pf-opt-meta">{o.meta}</span>
+              </button>
+            ))}
+            <button className="pf-opt pf-opt-any" style={{ animationDelay: `${cats.length * 35}ms` }} onClick={() => onPick(ANY_CATEGORY)}>
+              <span className="pf-opt-label">{ANY_CATEGORY.label}</span>
+              <span className="pf-opt-meta">{ANY_CATEGORY.meta}</span>
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function IdentifyResult({ result, onOpen, authed, scopedLabel }) {
   const cands = result.candidates || [];
+  const mismatch = scopedLabel && result.category &&
+    result.category.toLowerCase() !== scopedLabel.toLowerCase() &&
+    result.category.toLowerCase() !== 'unknown';
   return (
     <div className="pf-stack">
+      {mismatch && (
+        <div className="pf-mismatch">
+          <span className="pf-mismatch-mark">!</span>
+          <p>This looks more like a <strong>{result.category}</strong> than a {scopedLabel}.
+            We widened the search — or <em>Change</em> the category to refocus.</p>
+        </div>
+      )}
       <div className="pf-card pf-summary">
         <span className="pf-kicker">Best read</span>
         <h3>{result.product_summary || result.category}</h3>

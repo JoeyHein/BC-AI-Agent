@@ -43,6 +43,24 @@ CATEGORY_LABELS = {
     "06-Garage-Door-Operators": "Garage Door Operators",
 }
 
+_CATEGORY_CODE_BY_LABEL = {label.casefold(): code for code, label in CATEGORY_LABELS.items()}
+
+
+def resolve_category(value: str | None) -> tuple[str | None, str | None]:
+    """Map a category string (folder code OR human label) to (code, label).
+
+    Lets callers pass either "06-Garage-Door-Operators" or "Garage Door
+    Operators" and get the canonical pair back. Unknown values -> (None, None),
+    so an unrecognized category cleanly falls back to all-categories behavior.
+    """
+    if not value:
+        return None, None
+    v = value.strip()
+    if v in CATEGORY_LABELS:
+        return v, CATEGORY_LABELS[v]
+    code = _CATEGORY_CODE_BY_LABEL.get(v.casefold())
+    return (code, CATEGORY_LABELS[code]) if code else (None, None)
+
 META_FOLDERS = {"_INDEX", "_DOWNLOADS-LOG", "_PLAYBOOK"}
 
 SCANNED_PAGE_CHAR_THRESHOLD = 20

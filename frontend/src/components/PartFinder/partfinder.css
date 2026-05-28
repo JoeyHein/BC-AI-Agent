@@ -265,6 +265,18 @@
 .pf-opt-label { font-family: var(--display); font-weight: 700; font-size: 15px; }
 .pf-opt-meta { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 .pf-opt-tag { position: absolute; top: 10px; right: 10px; font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--rust); border: 1px solid var(--rust); border-radius: 2px; padding: 1px 5px; }
+.pf-opt-any { border-style: dashed; background: transparent; }
+.pf-opt-any:hover { border-color: var(--steel-2); }
+
+/* category scope bar (photo step 2) */
+.pf-scope-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+.pf-scope-change { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--steel-2); background: none; border: none; cursor: pointer; padding: 0; }
+.pf-scope-change:hover { color: var(--amber); }
+
+/* smart-fallback note when the scan disagrees with the chosen category */
+.pf-mismatch { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; margin-bottom: 12px; background: #fff7ea; border: 1px solid var(--amber); border-radius: 4px; }
+.pf-mismatch p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--steel); }
+.pf-mismatch-mark { flex: none; width: 20px; height: 20px; display: grid; place-items: center; font-family: var(--display); font-weight: 700; font-size: 13px; color: var(--paper-2); background: var(--amber); border-radius: 50%; }
 
 .pf-region-row { margin-bottom: 24px; }
 .pf-pills { display: flex; flex-wrap: wrap; gap: 6px; }
