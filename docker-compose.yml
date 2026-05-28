@@ -29,8 +29,18 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-bcagent}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-bc_agent}
       ENVIRONMENT: production
+      # Part Finder reads its prebuilt SQLite index + cover thumbnails from here,
+      # and serves source manuals from the corpus root. Both are host-mounted
+      # below (the index is a ~200MB artifact + 6GB corpus, kept out of the image).
+      PARTFINDER_OUTPUT_DIR: /data/partfinder
+      PARTFINDER_LIBRARY_ROOT: /data/library
     volumes:
       - backend_data:/app/data
+      # Prebuilt Part Finder index (index.db must be in rollback-journal mode so
+      # the read-only mount works) + cover images.
+      - ${PARTFINDER_INDEX_DIR:-/opt/partfinder-data/index}:/data/partfinder:ro
+      # DoorPart-Library corpus — source PDFs for the gated manual-download route.
+      - ${PARTFINDER_LIBRARY_DIR:-/opt/partfinder-data/library}:/data/library:ro
 
   # ── Nginx + React frontend ────────────────────────────────────────────────
   nginx:
