@@ -34,6 +34,9 @@ function WeeklyEmail() {
   // Test send + media insertion
   const [testEmail, setTestEmail] = useState('')
   const [testNotice, setTestNotice] = useState(null)
+  // Scheduling
+  const [scheduleAt, setScheduleAt] = useState('') // datetime-local string (browser local time)
+  const [showScheduleConfirm, setShowScheduleConfirm] = useState(false)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [showVideoModal, setShowVideoModal] = useState(false)
   const [videoUrl, setVideoUrl] = useState('')
@@ -116,6 +119,70 @@ function WeeklyEmail() {
       setError(err.response?.data?.detail || 'Failed to send test email.')
     },
   })
+
+  // Schedule mutation
+  const scheduleMutation = useMutation({
+    mutationFn: async (data) => {
+      const res = await emailAgentApi.schedule(data)
+      return res.data
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        setSendResult(data)
+        setStep('sent')
+        setShowScheduleConfirm(false)
+        queryClient.invalidateQueries({ queryKey: ['emailAgent', 'history'] })
+      }
+    },
+    onError: (err) => {
+      setShowScheduleConfirm(false)
+      setError(err.response?.data?.detail || 'Failed to schedule email.')
+    },
+  })
+
+  // Cancel a scheduled send from the history table
+  const unscheduleMutation = useMutation({
+    mutationFn: async (campaignId) => {
+      const res = await emailAgentApi.unschedule(campaignId)
+      return res.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['emailAgent', 'history'] })
+      setError(null)
+    },
+    onError: (err) => {
+      setError(err.response?.data?.detail || 'Failed to cancel scheduled send.')
+    },
+  })
+
+  const handleSchedule = () => {
+    if (!editedSubject.trim()) {
+      setError('Subject line cannot be empty.')
+      return
+    }
+    if (!scheduleAt) {
+      setError('Pick a date and time to schedule.')
+      return
+    }
+    // datetime-local is in the browser's local zone; convert to a UTC instant.
+    const iso = new Date(scheduleAt).toISOString()
+    setError(null)
+    scheduleMutation.mutate({
+      subject: editedSubject,
+      preheader: editedPreheader,
+      body_html: editedHtml,
+      body_text: editedText,
+      brief_summary: brief.what_happened.substring(0, 100),
+      schedule_time: iso,
+    })
+  }
+
+  // Min selectable time for the picker: ~5 min out, in local-time input format.
+  const minScheduleLocal = (() => {
+    const d = new Date(Date.now() + 5 * 60 * 1000)
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
+    return d.toISOString().slice(0, 16)
+  })()
 
   // Insert an HTML snippet at the cursor in the body textarea (or append).
   const insertIntoHtml = (snippet) => {
@@ -225,6 +292,7 @@ function WeeklyEmail() {
     setBrief({ what_happened: '', coming_up: '', tone: 'Friendly & casual', promo_mention: '', subject_idea: '' })
     setDraft(null)
     setSendResult(null)
+    setScheduleAt('')
     setError(null)
   }
 
@@ -558,6 +626,34 @@ function WeeklyEmail() {
             </div>
           </div>
 
+          {/* Schedule row */}
+          <div className="bg-amber-50 border border-amber-200 rounded-lg px-6 py-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-amber-900">Schedule for later</p>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  Mailchimp queues it and sends at the time you pick (your local time). Snaps to the next 15-minute mark.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="datetime-local"
+                  value={scheduleAt}
+                  min={minScheduleLocal}
+                  onChange={(e) => setScheduleAt(e.target.value)}
+                  className="rounded-md border-gray-300 shadow-sm focus:border-odc-500 focus:ring-odc-500 text-sm"
+                />
+                <button
+                  onClick={() => setShowScheduleConfirm(true)}
+                  disabled={scheduleMutation.isPending || !editedSubject.trim() || !scheduleAt || !isConfigured}
+                  className="inline-flex items-center px-4 py-2 border border-amber-300 text-sm font-medium rounded-md text-amber-800 bg-white hover:bg-amber-100 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                >
+                  {scheduleMutation.isPending ? 'Scheduling…' : 'Schedule Send'}
+                </button>
+              </div>
+            </div>
+          </div>
+
           {/* Send button row */}
           <div className="bg-white shadow rounded-lg px-6 py-4 flex items-center justify-between">
             <button
@@ -626,6 +722,43 @@ function WeeklyEmail() {
         </div>
       )}
 
+      {/* Schedule confirmation dialog */}
+      {showScheduleConfirm && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <div className="flex items-center justify-center min-h-screen px-4">
+            <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={() => setShowScheduleConfirm(false)} />
+            <div className="relative bg-white rounded-lg shadow-xl p-6 max-w-sm w-full">
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Confirm Schedule</h3>
+              <p className="text-sm text-gray-600 mb-2">
+                Schedule this email to{' '}
+                <span className="font-medium">{subscriberCount.toLocaleString()}</span> subscribers for{' '}
+                <span className="font-medium text-gray-900">
+                  {scheduleAt ? new Date(scheduleAt).toLocaleString() : ''}
+                </span>?
+              </p>
+              <p className="text-sm text-gray-500 mb-6 truncate">
+                Subject: <span className="font-medium text-gray-700">{editedSubject}</span>
+              </p>
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setShowScheduleConfirm(false)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSchedule}
+                  disabled={scheduleMutation.isPending}
+                  className="px-4 py-2 text-sm font-medium text-white bg-odc-600 border border-transparent rounded-md hover:bg-odc-700 disabled:opacity-50"
+                >
+                  {scheduleMutation.isPending ? 'Scheduling...' : 'Schedule'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* STEP 3: Success */}
       {step === 'sent' && sendResult && (
         <div className="bg-white shadow rounded-lg p-8 text-center">
@@ -634,14 +767,29 @@ function WeeklyEmail() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="text-xl font-bold text-gray-900 mb-2">Email Sent!</h2>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">
+            {sendResult.scheduled_at ? 'Email Scheduled!' : 'Email Sent!'}
+          </h2>
           <p className="text-gray-600 mb-6">
-            Your weekly update has been sent to{' '}
-            <span className="font-medium">{sendResult.recipient_count?.toLocaleString()}</span> subscribers.
+            {sendResult.scheduled_at ? (
+              <>
+                Your weekly update is scheduled to go out to{' '}
+                <span className="font-medium">{sendResult.recipient_count?.toLocaleString()}</span> subscribers on{' '}
+                <span className="font-medium">{formatDateTime(sendResult.scheduled_at)}</span>.
+              </>
+            ) : (
+              <>
+                Your weekly update has been sent to{' '}
+                <span className="font-medium">{sendResult.recipient_count?.toLocaleString()}</span> subscribers.
+              </>
+            )}
           </p>
           <div className="bg-gray-50 rounded-lg p-4 max-w-sm mx-auto text-left text-sm space-y-1 mb-6">
             <p><span className="text-gray-500">Campaign ID:</span> <span className="font-mono text-gray-700">{sendResult.campaign_id}</span></p>
-            <p><span className="text-gray-500">Sent at:</span> <span className="text-gray-700">{formatDateTime(sendResult.sent_at)}</span></p>
+            <p>
+              <span className="text-gray-500">{sendResult.scheduled_at ? 'Scheduled for:' : 'Sent at:'}</span>{' '}
+              <span className="text-gray-700">{formatDateTime(sendResult.scheduled_at || sendResult.sent_at)}</span>
+            </p>
           </div>
           <button
             onClick={handleStartNew}
@@ -702,32 +850,61 @@ function WeeklyEmail() {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Subject</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Recipients</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mailchimp</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {historyData.campaigns.map((c) => (
+                {historyData.campaigns.map((c) => {
+                  const isScheduled = c.status === 'scheduled'
+                  const isCanceled = c.status === 'canceled'
+                  const isError = c.status === 'error'
+                  const dateValue = isScheduled ? (c.scheduled_at || c.sent_at) : c.sent_at
+                  return (
                   <tr key={c.id}>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {c.sent_at ? formatDate(c.sent_at) : '—'}
+                      {dateValue ? formatDateTime(dateValue) : '—'}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">{c.subject}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{c.recipient_count?.toLocaleString()}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {c.mailchimp_campaign_id && (
-                        <a
-                          href={`https://${audienceData?.audience_name ? '' : ''}admin.mailchimp.com/reports/summary?id=${c.mailchimp_campaign_id}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-odc-600 hover:text-odc-700"
-                        >
-                          View Report
-                        </a>
+                      {isScheduled ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">Scheduled</span>
+                      ) : isCanceled ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500">Canceled</span>
+                      ) : isError ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Failed</span>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Sent</span>
                       )}
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{c.recipient_count?.toLocaleString()}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <div className="flex items-center gap-3">
+                        {c.mailchimp_campaign_id && (
+                          <a
+                            href={`https://admin.mailchimp.com/reports/summary?id=${c.mailchimp_campaign_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-odc-600 hover:text-odc-700"
+                          >
+                            View Report
+                          </a>
+                        )}
+                        {isScheduled && c.mailchimp_campaign_id && (
+                          <button
+                            onClick={() => unscheduleMutation.mutate(c.mailchimp_campaign_id)}
+                            disabled={unscheduleMutation.isPending}
+                            className="text-red-600 hover:text-red-700 disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           )}

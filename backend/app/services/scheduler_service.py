@@ -99,6 +99,19 @@ class SchedulerService:
         )
         logger.info("✓ Scheduled: Sales order sync every 2 hours, 08:00-18:00 America/Edmonton (Mon-Fri)")
 
+        # Weekly-email send queue — fire portal-scheduled campaigns once due.
+        # Mailchimp's native scheduling is paid; instead the /schedule endpoint
+        # parks a built draft locally (status='scheduled') and this job sends it
+        # with the free campaigns.send when its time arrives. Polls every minute.
+        self.scheduler.add_job(
+            func=self._email_send_queue_job,
+            trigger=IntervalTrigger(minutes=1),
+            id='email_send_queue',
+            name='Email Send Queue - fire portal-scheduled campaigns',
+            replace_existing=True,
+        )
+        logger.info("✓ Scheduled: Email send queue check every minute")
+
         # Start scheduler
         self.scheduler.start()
         self.is_running = True
@@ -225,6 +238,78 @@ class SchedulerService:
                 db.close()
             except Exception:
                 pass
+
+    def _email_send_queue_job(self):
+        """Send any portal-scheduled weekly-email campaigns whose time has come.
+
+        The /api/email-agent/schedule endpoint builds the campaign as a Mailchimp
+        draft and records it locally with status='scheduled' and scheduled_at (naive
+        UTC). This poll finds rows that are due and fires the free campaigns.send,
+        then flips the row to 'sent'. Each campaign is handled independently so one
+        failure (e.g. a deleted draft) doesn't block the rest.
+        """
+        from datetime import datetime as _dt
+        from app.db.models import EmailCampaign
+        from app.config import settings
+
+        db = None
+        try:
+            db = SessionLocal()
+            now = _dt.utcnow()
+            due = (
+                db.query(EmailCampaign)
+                .filter(
+                    EmailCampaign.status == "scheduled",
+                    EmailCampaign.scheduled_at != None,  # noqa: E711
+                    EmailCampaign.scheduled_at <= now,
+                )
+                .all()
+            )
+            if not due:
+                return
+
+            mc_api_key = settings.MAILCHIMP_API_KEY
+            mc_server = settings.MAILCHIMP_SERVER_PREFIX
+            if not all([mc_api_key, mc_server]):
+                logger.warning("Email send queue: %d due but Mailchimp not configured", len(due))
+                return
+
+            import mailchimp_marketing as MailchimpMarketing
+            from mailchimp_marketing.api_client import ApiClientError
+
+            client = MailchimpMarketing.Client()
+            client.set_config({"api_key": mc_api_key, "server": mc_server})
+
+            sent = 0
+            for campaign in due:
+                cid = campaign.mailchimp_campaign_id
+                if not cid:
+                    logger.error("Email send queue: campaign %s has no Mailchimp id, skipping", campaign.id)
+                    campaign.status = "error"
+                    continue
+                try:
+                    client.campaigns.send(cid)
+                    campaign.status = "sent"
+                    campaign.sent_at = _dt.utcnow()
+                    sent += 1
+                    logger.info("Email send queue: sent campaign %s (mc=%s)", campaign.id, cid)
+                except ApiClientError as e:
+                    logger.error("Email send queue: Mailchimp send failed for %s: %s", cid, e.text)
+                    campaign.status = "error"
+                except Exception as e:
+                    logger.error("Email send queue: send failed for %s: %s", cid, e, exc_info=True)
+                    campaign.status = "error"
+            db.commit()
+            if sent:
+                logger.info("Email send queue: %d/%d campaign(s) sent", sent, len(due))
+        except Exception as e:
+            logger.error(f"Email send queue job failed: {e}", exc_info=True)
+        finally:
+            if db is not None:
+                try:
+                    db.close()
+                except Exception:
+                    pass
 
     def _sales_order_sync_job(self):
         """Bulk-sync BC sales-order headers into the local SalesOrder table.

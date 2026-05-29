@@ -5,7 +5,7 @@ Generate newsletter emails via Claude and send via Mailchimp
 
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
@@ -93,6 +93,20 @@ class TestSendRequest(BaseModel):
     test_email: Optional[str] = None  # defaults to the configured from-email
 
 
+class ScheduleRequest(BaseModel):
+    subject: str
+    preheader: str
+    body_html: str
+    body_text: str
+    brief_summary: Optional[str] = None
+    # ISO 8601 instant for the send. Sent by the browser already converted to UTC.
+    schedule_time: str
+
+
+class UnscheduleRequest(BaseModel):
+    campaign_id: str
+
+
 # ============================================================================
 # BRANDING
 # ============================================================================
@@ -154,6 +168,43 @@ Footer (use verbatim, ends the email):
 Then close: </div></body>
 
 IMPORTANT: Return ONLY valid JSON, no markdown code fences or other text."""
+
+
+# ============================================================================
+# HELPERS
+# ============================================================================
+
+def _normalize_schedule_time(raw: str) -> datetime:
+    """Parse an ISO instant for a portal-managed scheduled send.
+
+    The portal owns the timing now (a background job fires the free Mailchimp
+    send when the moment arrives), so we no longer need Mailchimp's paid
+    15-minute-boundary rule. We just normalize to UTC, drop sub-minute
+    precision (the queue poller ticks once a minute), and require a small lead
+    so a borderline pick doesn't land in the past before the next poll.
+    """
+    s = (raw or "").strip()
+    if not s:
+        raise HTTPException(status_code=400, detail="A schedule time is required.")
+    # Accept a trailing 'Z' (Python <3.11 fromisoformat doesn't).
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid schedule time format.")
+
+    # Treat a naive timestamp as UTC; otherwise convert to UTC.
+    dt = dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+    dt = dt.replace(second=0, microsecond=0)
+
+    now = datetime.now(timezone.utc)
+    if dt <= now + timedelta(minutes=2):
+        raise HTTPException(
+            status_code=400,
+            detail="Schedule time must be at least a couple of minutes in the future.",
+        )
+    return dt
 
 
 # ============================================================================
@@ -387,6 +438,162 @@ async def send_test_email(
                 logger.warning(f"Could not delete test campaign {campaign_id}: {cleanup_err}")
 
 
+@router.post("/schedule")
+async def schedule_email(
+    req: ScheduleRequest,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """Schedule the email to go out at a future time, managed by the portal.
+
+    Mailchimp's native scheduling (campaigns.schedule) is a paid-plan feature,
+    so on the free plan we own the timing ourselves: build the campaign as a
+    DRAFT at Mailchimp now (create + set_content — both free) and record the
+    UTC release time locally with status='scheduled'. The background
+    `email_send_queue` job (see scheduler_service) fires the free
+    campaigns.send when the moment arrives. No paid feature is touched.
+    """
+    try:
+        import mailchimp_marketing as MailchimpMarketing
+        from mailchimp_marketing.api_client import ApiClientError
+    except ImportError:
+        raise HTTPException(status_code=500, detail="mailchimp_marketing package not installed. Run: pip install mailchimp-marketing")
+
+    mc_api_key = settings.MAILCHIMP_API_KEY
+    mc_server = settings.MAILCHIMP_SERVER_PREFIX
+    mc_audience = settings.MAILCHIMP_AUDIENCE_ID
+
+    if not all([mc_api_key, mc_server, mc_audience]):
+        raise HTTPException(
+            status_code=500,
+            detail="Mailchimp not configured. Set MAILCHIMP_API_KEY, MAILCHIMP_SERVER_PREFIX, and MAILCHIMP_AUDIENCE_ID in .env"
+        )
+
+    if not req.subject.strip():
+        raise HTTPException(status_code=400, detail="Subject line cannot be empty")
+
+    schedule_dt = _normalize_schedule_time(req.schedule_time)
+
+    client = MailchimpMarketing.Client()
+    client.set_config({"api_key": mc_api_key, "server": mc_server})
+
+    campaign_id = None
+    try:
+        # 1. Create campaign
+        campaign = client.campaigns.create({
+            "type": "regular",
+            "recipients": {"list_id": mc_audience},
+            "settings": {
+                "subject_line": req.subject,
+                "preview_text": req.preheader,
+                "from_name": settings.MAILCHIMP_FROM_NAME,
+                "reply_to": settings.MAILCHIMP_FROM_EMAIL,
+                "title": f"Weekly Update - {schedule_dt.strftime('%b %d, %Y')}",
+            }
+        })
+        campaign_id = campaign["id"]
+
+        # 2. Set content — the campaign now exists as a draft at Mailchimp.
+        client.campaigns.set_content(campaign_id, {
+            "html": req.body_html,
+            "plain_text": req.body_text,
+        })
+
+        # 3. Leave it as a draft. The portal's email_send_queue job will fire
+        #    the free campaigns.send at schedule_dt — we do NOT call the paid
+        #    campaigns.schedule here.
+
+        # 4. Audience count (a snapshot — the real count is taken at release)
+        audience = client.lists.get_list(mc_audience)
+        member_count = audience.get("stats", {}).get("member_count", 0)
+
+        # 5. Log to database (naive UTC, matching sent_at convention)
+        schedule_naive = schedule_dt.replace(tzinfo=None)
+        campaign_record = EmailCampaign(
+            subject=req.subject,
+            mailchimp_campaign_id=campaign_id,
+            recipient_count=member_count,
+            brief_summary=(req.brief_summary or req.subject)[:200],
+            sent_by=current_user.id,
+            sent_at=schedule_naive,        # timeline anchor for history sorting
+            scheduled_at=schedule_naive,
+            status="scheduled",
+        )
+        db.add(campaign_record)
+        db.commit()
+
+        return {
+            "success": True,
+            "campaign_id": campaign_id,
+            "recipient_count": member_count,
+            "scheduled_at": schedule_dt.isoformat(),
+            "message": f"Email scheduled for {schedule_dt.strftime('%b %d, %Y at %H:%M UTC')} to {member_count} subscribers",
+        }
+
+    except ApiClientError as e:
+        # Clean up the half-built campaign so a failed schedule doesn't litter Mailchimp.
+        if campaign_id:
+            try:
+                client.campaigns.remove(campaign_id)
+            except Exception:
+                pass
+        logger.error(f"Mailchimp schedule error: {e.text}")
+        raise HTTPException(status_code=500, detail=f"Mailchimp error: {e.text}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Schedule failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/unschedule")
+async def unschedule_email(
+    req: UnscheduleRequest,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """Cancel a portal-scheduled send: delete the Mailchimp draft, mark canceled.
+
+    Since the campaign is only a draft locally queued by the portal (never handed
+    to Mailchimp's paid scheduler), canceling means removing the draft so it can't
+    be picked up by the email_send_queue job, then marking the local row canceled.
+    """
+    try:
+        import mailchimp_marketing as MailchimpMarketing
+        from mailchimp_marketing.api_client import ApiClientError
+    except ImportError:
+        raise HTTPException(status_code=500, detail="mailchimp_marketing package not installed")
+
+    mc_api_key = settings.MAILCHIMP_API_KEY
+    mc_server = settings.MAILCHIMP_SERVER_PREFIX
+    if not all([mc_api_key, mc_server]):
+        raise HTTPException(status_code=500, detail="Mailchimp not configured.")
+
+    client = MailchimpMarketing.Client()
+    client.set_config({"api_key": mc_api_key, "server": mc_server})
+
+    try:
+        # Delete the draft so the queue job can't send it. A 404 here (already
+        # gone) is fine — we still want to mark the local row canceled.
+        client.campaigns.remove(req.campaign_id)
+    except ApiClientError as e:
+        if e.status_code != 404:
+            logger.error(f"Mailchimp remove-draft error: {e.text}")
+            raise HTTPException(status_code=500, detail=f"Mailchimp error: {e.text}")
+
+    # Mark the local record canceled (best-effort; the Mailchimp call is the source of truth).
+    record = (
+        db.query(EmailCampaign)
+        .filter(EmailCampaign.mailchimp_campaign_id == req.campaign_id)
+        .first()
+    )
+    if record:
+        record.status = "canceled"
+        db.commit()
+
+    return {"success": True, "message": "Scheduled send canceled", "campaign_id": req.campaign_id}
+
+
 @router.post("/upload-image")
 async def upload_image(
     image: UploadFile = File(...),
@@ -489,6 +696,8 @@ async def get_send_history(
             {
                 "id": c.id,
                 "sent_at": c.sent_at.isoformat() if c.sent_at else None,
+                "scheduled_at": c.scheduled_at.isoformat() if c.scheduled_at else None,
+                "status": c.status or "sent",
                 "subject": c.subject,
                 "mailchimp_campaign_id": c.mailchimp_campaign_id,
                 "recipient_count": c.recipient_count,
