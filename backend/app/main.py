@@ -18,6 +18,7 @@ from app.api import settings as settings_api
 from app.api import catalog
 from app.api import inventory_agent
 from app.api import po_agent
+from app.api import purchasing
 from app.api import public
 from app.api import email_agent
 from app.api import metrics
@@ -314,6 +315,10 @@ app.include_router(inventory_agent.router)
 # PO Agent router (OPENDC)
 logger.info(f"Including po_agent router: {po_agent.router.prefix}")
 app.include_router(po_agent.router)
+
+# Purchasing tool router (OPENDC)
+logger.info(f"Including purchasing router: {purchasing.router.prefix}")
+app.include_router(purchasing.router)
 
 # Project / Lot Manager router (customer portal)
 logger.info(f"Including projects router: {projects.router.prefix}")

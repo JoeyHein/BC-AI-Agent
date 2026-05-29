@@ -691,6 +691,16 @@ export const poAgentApi = {
   getStats: () => apiClient.get('/api/admin/po-agent/stats'),
 };
 
+// Purchasing tool API (Admin)
+export const purchasingApi = {
+  getRequirements: (params = {}) => apiClient.get('/api/admin/purchasing/requirements', { params }),
+  refreshVendors: () => apiClient.post('/api/admin/purchasing/refresh-vendors'),
+  listVendors: () => apiClient.get('/api/admin/purchasing/vendors'),
+  assignVendor: (data) => apiClient.put('/api/admin/purchasing/vendor-map', data),
+  sendReport: (data = {}) => apiClient.post('/api/admin/purchasing/send-report', data),
+  generatePO: (data) => apiClient.post('/api/admin/purchasing/generate-po', data),
+};
+
 // Install Referrals API (Admin)
 export const installReferralsAdminApi = {
   // List all install referrals (filterable by status)
@@ -736,6 +746,12 @@ export const emailAgentApi = {
 
   sendTest: (data) =>
     apiClient.post('/api/email-agent/send-test', data),
+
+  schedule: (data) =>
+    apiClient.post('/api/email-agent/schedule', data),
+
+  unschedule: (campaignId) =>
+    apiClient.post('/api/email-agent/unschedule', { campaign_id: campaignId }),
 
   uploadImage: (formData) =>
     apiClient.post('/api/email-agent/upload-image', formData, {

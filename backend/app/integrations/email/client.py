@@ -221,6 +221,55 @@ class GraphEmailClient:
             logger.error(f"Failed to create draft reply: {e}")
             return None
 
+    # ==================== Sending ====================
+
+    def send_mail(
+        self,
+        from_email: str,
+        to: Any,
+        subject: str,
+        html_body: str,
+        attachments: Optional[List[Dict[str, Any]]] = None,
+        cc: Optional[Any] = None,
+    ) -> bool:
+        """Send an email via Graph from a mailbox the app can send as.
+
+        Requires the Mail.Send application permission. `to`/`cc` accept a single
+        address or a list. `attachments` is a list of
+        {"name", "content_bytes": bytes, "content_type"}.
+        """
+        import base64
+
+        def recips(addrs):
+            if not addrs:
+                return []
+            if isinstance(addrs, str):
+                addrs = [addrs]
+            return [{"emailAddress": {"address": a}} for a in addrs]
+
+        message: Dict[str, Any] = {
+            "subject": subject,
+            "body": {"contentType": "HTML", "content": html_body},
+            "toRecipients": recips(to),
+        }
+        if cc:
+            message["ccRecipients"] = recips(cc)
+        if attachments:
+            message["attachments"] = [
+                {
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": att["name"],
+                    "contentType": att.get("content_type", "application/octet-stream"),
+                    "contentBytes": base64.b64encode(att["content_bytes"]).decode("ascii"),
+                }
+                for att in attachments
+            ]
+
+        endpoint = f"users/{from_email}/sendMail"
+        self._make_request("POST", endpoint, json={"message": message, "saveToSentItems": True})
+        logger.info(f"Sent email '{subject}' from {from_email} to {to}")
+        return True
+
     # ==================== Sent Items ====================
 
     def get_sent_emails(self, user_email: str, days_back: int = 90, max_count: int = 100) -> List[Dict[str, Any]]:

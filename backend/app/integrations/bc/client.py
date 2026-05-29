@@ -845,7 +845,51 @@ class BusinessCentralClient:
         )
         return result
 
+    def get_open_purchase_orders_with_lines(self, company_id: Optional[str] = None,
+                                             top: int = 100) -> List[Dict[str, Any]]:
+        """Open (not fully received) purchase orders with their lines expanded.
+        Used by the purchasing engine to net out quantity already on order."""
+        cid = company_id or self.company_id
+        url = (
+            f"{self.base_url}/companies({cid})/purchaseOrders"
+            f"?$filter=fullyReceived eq false&$expand=purchaseOrderLines&$top={top}"
+        )
+        return self._paginate_v2(url, "open purchase orders")
+
     # ==================== Sales Orders ====================
+
+    def get_open_sales_orders_with_lines(self, company_id: Optional[str] = None,
+                                          top: int = 100) -> List[Dict[str, Any]]:
+        """Open (not fully shipped) sales orders with their lines expanded.
+        This is the demand source for the purchasing engine — each un-shipped
+        line is outstanding committed demand against stock."""
+        cid = company_id or self.company_id
+        url = (
+            f"{self.base_url}/companies({cid})/salesOrders"
+            f"?$filter=fullyShipped eq false&$expand=salesOrderLines&$top={top}"
+        )
+        return self._paginate_v2(url, "open sales orders")
+
+    def _paginate_v2(self, url: str, label: str) -> List[Dict[str, Any]]:
+        """Follow @odata.nextLink through a v2.0 collection, returning all rows."""
+        out: List[Dict[str, Any]] = []
+        while url:
+            token = self._get_access_token()
+            resp = requests.get(
+                url,
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+                timeout=60,
+            )
+            if resp.status_code >= 400:
+                logger.error(f"BC API error fetching {label}: {resp.status_code} {resp.text[:300]}")
+                break
+            data = resp.json()
+            out.extend(data.get("value", []))
+            url = data.get("@odata.nextLink")
+        logger.info(f"Fetched {len(out)} {label} from BC (paginated)")
+        return out
+
+    # ==================== Sales Orders (legacy) ====================
 
     def get_sales_orders(self, company_id: Optional[str] = None, top: int = 100,
                          status_filter: Optional[str] = None) -> List[Dict[str, Any]]:

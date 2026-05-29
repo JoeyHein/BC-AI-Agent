@@ -1696,6 +1696,10 @@ class POAgentLog(Base):
     # Pipeline tracking
     po_run_id = Column(String(50), nullable=True, index=True)
 
+    # Vendor email delivery (purchasing tool)
+    emailed_to = Column(String(255), nullable=True)
+    emailed_at = Column(DateTime, nullable=True)
+
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, onupdate=datetime.utcnow)
@@ -1709,6 +1713,26 @@ class POAgentLog(Base):
         return f"<POAgentLog(id={self.id}, vendor={self.vendor_name}, status={self.status})>"
 
 
+class ItemVendorMap(Base):
+    """Item → preferred vendor mapping used to group purchasing by vendor.
+
+    Resolved with source precedence (highest first):
+      manual  — set by a purchaser in the UI; never auto-overwritten
+      bc      — pulled from the BC item card's default Vendor No.
+      history — derived from open + posted purchase orders/invoices
+    """
+    __tablename__ = "item_vendor_map"
+
+    bc_item_number = Column(String(100), primary_key=True)
+    vendor_no = Column(String(50), nullable=True)
+    vendor_name = Column(String(255), nullable=True)
+    source = Column(String(20), nullable=False, default="history")
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<ItemVendorMap(item={self.bc_item_number}, vendor={self.vendor_name}, src={self.source})>"
+
+
 class EmailCampaign(Base):
     """Log of weekly email campaigns sent via Mailchimp"""
     __tablename__ = "email_campaigns"
@@ -1720,6 +1744,11 @@ class EmailCampaign(Base):
     brief_summary = Column(String(200), nullable=True)
     sent_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     sent_at = Column(DateTime, default=datetime.utcnow)
+    # 'sent' (went out) | 'scheduled' (built as a Mailchimp draft, queued for the
+    # portal's email_send_queue job to send at scheduled_at) | 'canceled' | 'error'
+    status = Column(String(20), nullable=False, default="sent", server_default="sent")
+    # UTC release time for portal-scheduled campaigns; null for immediate sends
+    scheduled_at = Column(DateTime, nullable=True)
 
     sender = relationship("User", foreign_keys=[sent_by])
 

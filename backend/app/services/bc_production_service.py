@@ -232,6 +232,34 @@ class BCProductionService:
             logger.error(f"OData request error: {e}")
             return None
 
+    def _make_odata_request_all(
+        self,
+        endpoint: str,
+        query_params: Optional[Dict[str, str]] = None,
+        page_size: int = 5000,
+        max_pages: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Fetch every row from an OData web service via ``$skip`` paging.
+
+        These ODataV4 web services do NOT emit ``@odata.nextLink`` — they
+        silently return exactly ``$top`` rows — so we page with ``$skip`` until
+        a short page comes back. Returns the flattened ``value`` list ([] on
+        404/error so callers degrade gracefully).
+        """
+        rows: List[Dict[str, Any]] = []
+        skip = 0
+        for _ in range(max_pages):
+            params = dict(query_params or {})
+            params["$top"] = str(page_size)
+            params["$skip"] = str(skip)
+            resp = self._make_odata_request(endpoint, query_params=params)
+            page = (resp or {}).get("value", [])
+            rows.extend(page)
+            if len(page) < page_size:
+                break
+            skip += page_size
+        return rows
+
     def _check_api_available(self) -> bool:
         """Check if production API is available"""
         if not self.api_available:

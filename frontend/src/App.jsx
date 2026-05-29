@@ -22,6 +22,7 @@ import QuoteLeads from './components/QuoteLeads'
 import QuoteSearch from './components/QuoteSearch'
 import QuotingAnalytics from './pages/QuotingAnalytics'
 import OrderAgeTracker from './pages/OrderAgeTracker'
+import PurchasingDashboard from './components/Purchasing/PurchasingDashboard'
 
 function Navigation() {
   const { user, logout, isAuthenticated } = useAuth()
@@ -79,6 +80,7 @@ function Navigation() {
     { path: '/leads', label: 'Leads' },
     { path: '/install-referrals', label: 'Installs' },
     { path: '/production', label: 'Production' },
+    { path: '/purchasing', label: 'Purchasing' },
     { path: '/settings', label: 'Settings' },
   ]
 
@@ -288,6 +290,12 @@ function AppContent() {
           <Route path="/production" element={
             <ProtectedRoute>
               <ProductionCalendar />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/purchasing" element={
+            <ProtectedRoute requireReviewer>
+              <PurchasingDashboard />
             </ProtectedRoute>
           } />
 
