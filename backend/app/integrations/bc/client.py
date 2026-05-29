@@ -365,7 +365,12 @@ class BusinessCentralClient:
             return {}
 
         cid = company_id or self.company_id
-        select = "$select=number,unitCost,unitPrice,generalProductPostingGroupCode"
+        # inventory/displayName/type/baseUnitOfMeasureCode are needed by the
+        # purchasing demand engine (on-hand netting, description, service filter,
+        # UoM); unitCost/unitPrice/postingGroup serve pricing. Additive — other
+        # callers read a subset.
+        select = ("$select=number,displayName,type,unitCost,unitPrice,inventory,"
+                  "baseUnitOfMeasureCode,generalProductPostingGroupCode")
         result: Dict[str, Dict[str, Any]] = {}
         batch_size = 40
 
