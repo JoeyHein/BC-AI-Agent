@@ -30,6 +30,7 @@ from app.integrations.bc.client import bc_client
 from app.services.bc_production_service import bc_production_service, ODATA_ENDPOINTS
 from app.services.vendor_map_service import vendor_map_service
 from app.services.purchasing_intel_service import purchasing_intel_service
+from app.services.vendor_policy import is_expedite
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +143,7 @@ class PurchasingDemandService:
                 "unit_of_measure": meta.get("baseUnitOfMeasureCode") or "EA",
                 "vendor_no": vendor_no,
                 "vendor_name": vendor_name or UNASSIGNED,
+                "is_expedite_vendor": is_expedite(vendor_no),
                 "last_purchase_vendor": lr.get("vendor_name"),
                 "last_purchase_date": lr.get("date"),
                 "last_purchase_cost": lr.get("unit_cost"),
@@ -186,6 +188,7 @@ class PurchasingDemandService:
             g = groups.setdefault(key, {
                 "vendor_name": key,
                 "vendor_no": r["vendor_no"],
+                "is_expedite": is_expedite(r["vendor_no"]),
                 "item_count": 0,
                 "estimated_cost": 0.0,
                 "items": [],

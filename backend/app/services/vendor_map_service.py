@@ -11,6 +11,7 @@ turned into per-vendor purchase orders. Sources, highest precedence first:
 """
 
 import logging
+from collections import defaultdict
 from datetime import datetime
 from typing import Dict, Optional, Tuple
 
@@ -19,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.db.models import ItemVendorMap
 from app.integrations.bc.client import bc_client
 from app.services.bc_production_service import bc_production_service
+from app.services.vendor_policy import is_preferred
 
 logger = logging.getLogger(__name__)
 
@@ -108,34 +110,53 @@ class VendorMapService:
         return True
 
     def _derive_from_purchase_history(self) -> Dict[str, Tuple[Optional[str], Optional[str]]]:
-        """Most-recent vendor we bought each item from. Open POs (current) take
-        precedence over posted invoices."""
-        item_vendor: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
+        """Best vendor to source each item from, per the sourcing policy:
+        the most-recent PREFERRED vendor we've bought it from; only if there's
+        no preferred-vendor history do we fall back to the most-recent vendor
+        (which may be expedite-only, e.g. DEK). Pulls dated candidates from open
+        POs, posted invoices and posted receipts."""
+        # item -> list of (date_str, vendor_no, vendor_name)
+        cands: Dict[str, list] = defaultdict(list)
+
+        def add(item, date_str, vno, vname):
+            if item and vno:
+                cands[item].append((date_str or "", vno, vname))
 
         try:
-            for po in bc_client.get_open_purchase_orders_with_lines(top=100):
-                v = (po.get("vendorNumber"), po.get("vendorName"))
+            for po in bc_client.get_open_purchase_orders_with_lines():
+                vno, vname, d = po.get("vendorNumber"), po.get("vendorName"), po.get("orderDate")
                 for ln in po.get("purchaseOrderLines", []):
-                    it = ln.get("lineObjectNumber")
-                    if it and ln.get("lineType") == "Item":
-                        item_vendor.setdefault(it, v)
+                    if ln.get("lineType") == "Item":
+                        add(ln.get("lineObjectNumber"), d, vno, vname)
         except Exception as e:
             logger.warning(f"[VendorMap] open PO derivation failed: {e}")
 
         try:
             url = (f"{bc_client.base_url}/companies({bc_client.company_id})"
-                   f"/purchaseInvoices?$expand=purchaseInvoiceLines&$top=200")
-            invoices = bc_client._paginate_v2(url, "purchase invoices")
-            invoices.sort(key=lambda inv: inv.get("invoiceDate") or "", reverse=True)
-            for inv in invoices:
-                v = (inv.get("vendorNumber"), inv.get("vendorName"))
+                   f"/purchaseInvoices?$expand=purchaseInvoiceLines")
+            for inv in bc_client._paginate_v2(url, "purchase invoices"):
+                vno, vname, d = inv.get("vendorNumber"), inv.get("vendorName"), inv.get("invoiceDate")
                 for ln in inv.get("purchaseInvoiceLines", []):
-                    it = ln.get("lineObjectNumber")
-                    if it and ln.get("lineType") == "Item":
-                        item_vendor.setdefault(it, v)
+                    if ln.get("lineType") == "Item":
+                        add(ln.get("lineObjectNumber"), d, vno, vname)
         except Exception as e:
             logger.warning(f"[VendorMap] purchase-invoice derivation failed: {e}")
 
+        try:
+            for rcpt in bc_client.get_purchase_receipts_with_lines():
+                vno, vname, d = rcpt.get("vendorNumber"), rcpt.get("vendorName"), rcpt.get("postingDate")
+                for ln in rcpt.get("purchaseReceiptLines", []):
+                    if ln.get("lineType") == "Item":
+                        add(ln.get("lineObjectNumber"), d, vno, vname)
+        except Exception as e:
+            logger.warning(f"[VendorMap] receipt derivation failed: {e}")
+
+        item_vendor: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
+        for item, rows in cands.items():
+            preferred = [r for r in rows if is_preferred(r[1])]
+            pool = preferred or rows  # prefer preferred vendors; else fall back
+            best = max(pool, key=lambda r: r[0])  # most recent by date
+            item_vendor[item] = (best[1], best[2])
         return item_vendor
 
     def _fetch_item_card_vendors(self) -> Dict[str, Tuple[Optional[str], Optional[str]]]:

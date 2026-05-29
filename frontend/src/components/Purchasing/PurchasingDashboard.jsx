@@ -170,6 +170,12 @@ export default function PurchasingDashboard() {
               onClick={() => setExpanded((e) => ({ ...e, [group.vendor_name]: !open }))}>
               <div className="flex items-center gap-3">
                 <span className={`font-semibold ${isUnassigned ? 'text-red-700' : 'text-gray-900'}`}>{group.vendor_name}</span>
+                {group.is_expedite && (
+                  <span className="px-2 py-0.5 text-xs rounded-full bg-amber-100 text-amber-800 border border-amber-300"
+                    title="Last-resort vendor — only for <1 week urgency. Confirm a preferred source (Upwardor / Lynx / Elton).">
+                    expedite — confirm preferred
+                  </span>
+                )}
                 <span className="text-sm text-gray-500">{group.item_count} item(s) · {fmt(group.estimated_cost)}</span>
               </div>
               <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
