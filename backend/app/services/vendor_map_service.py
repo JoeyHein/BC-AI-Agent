@@ -71,6 +71,11 @@ class VendorMapService:
             if self._upsert(db, item_no, vno, vname, "history"):
                 stats["history_upserts"] += 1
 
+        # Flush history rows so the BC pass's .get() sees them as persistent and
+        # UPDATEs (vs. adding a second pending row with the same PK → duplicate
+        # key on an empty table — the two passes share many items).
+        db.flush()
+
         try:
             from_bc = self._fetch_item_card_vendors()
             for item_no, (vno, vname) in from_bc.items():
