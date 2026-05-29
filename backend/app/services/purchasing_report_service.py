@@ -94,18 +94,27 @@ class PurchasingReportService:
                   <th style="padding:4px 6px">Item</th><th style="padding:4px 6px">Description</th>
                   <th style="padding:4px 6px;text-align:right">Need</th>
                   <th style="padding:4px 6px;text-align:right">Unit&nbsp;Cost</th>
+                  <th style="padding:4px 6px;text-align:right">Last&nbsp;paid</th>
+                  <th style="padding:4px 6px">Last&nbsp;from</th>
                   <th style="padding:4px 6px;text-align:right">Est.</th>
                   <th style="padding:4px 6px">Jobs</th></tr>"""
             )
             for r in g["items"]:
                 est = r["net_need"] * r["unit_cost"]
                 jobs = ", ".join(r["jobs"][:4]) + ("…" if len(r["jobs"]) > 4 else "")
+                last_paid = f"${r['last_purchase_cost']:,.2f}" if r.get("last_purchase_cost") is not None else "—"
+                last_from = r.get("last_purchase_vendor") or "—"
+                # flag when last actually bought from someone other than the assigned vendor
+                diff = r.get("last_purchase_vendor") and r["last_purchase_vendor"] != r["vendor_name"]
+                from_style = "color:#b45309" if diff else "color:#6b7280"
                 parts.append(
                     f"""<tr style="border-top:1px solid #f3f4f6">
                     <td style="padding:4px 6px;font-family:monospace">{r['item_no']}</td>
                     <td style="padding:4px 6px">{r['description']}</td>
                     <td style="padding:4px 6px;text-align:right">{r['net_need']:g} {r['unit_of_measure']}</td>
                     <td style="padding:4px 6px;text-align:right">${r['unit_cost']:,.2f}</td>
+                    <td style="padding:4px 6px;text-align:right" title="{r.get('last_purchase_date') or ''}">{last_paid}</td>
+                    <td style="padding:4px 6px;{from_style}">{last_from}</td>
                     <td style="padding:4px 6px;text-align:right">${est:,.2f}</td>
                     <td style="padding:4px 6px;color:#6b7280">{jobs}</td></tr>"""
                 )

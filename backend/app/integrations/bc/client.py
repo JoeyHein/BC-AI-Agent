@@ -862,9 +862,11 @@ class BusinessCentralClient:
         so we fetch them all and the caller derives outstanding per line as
         quantity − receivedQuantity (which correctly handles partial receipts)."""
         cid = company_id or self.company_id
+        # No $top: in OData $top caps the TOTAL rows (not page size), which would
+        # silently truncate. _paginate_v2 follows @odata.nextLink for full coverage.
         url = (
             f"{self.base_url}/companies({cid})/purchaseOrders"
-            f"?$expand=purchaseOrderLines&$top={top}"
+            f"?$expand=purchaseOrderLines"
         )
         return self._paginate_v2(url, "open purchase orders")
 
@@ -881,11 +883,24 @@ class BusinessCentralClient:
         we fetch all non-posted orders and derive outstanding per line as
         quantity − shippedQuantity."""
         cid = company_id or self.company_id
-        url = (
+        url = (  # no $top — see note on the PO helper
             f"{self.base_url}/companies({cid})/salesOrders"
-            f"?$expand=salesOrderLines&$top={top}"
+            f"?$expand=salesOrderLines"
         )
         return self._paginate_v2(url, "open sales orders")
+
+    def get_purchase_receipts_with_lines(self, company_id: Optional[str] = None,
+                                          top: int = 100) -> List[Dict[str, Any]]:
+        """All posted purchase receipts with lines expanded — the actual
+        received-goods history (date, vendor, qty, real unit cost per item).
+        Used for last-purchase intelligence in the purchasing tool."""
+        cid = company_id or self.company_id
+        url = (  # no $top — see note on get_open_purchase_orders_with_lines
+            f"{self.base_url}/companies({cid})/purchaseReceipts"
+            f"?$expand=purchaseReceiptLines"
+            f"&$select=number,orderNumber,postingDate,vendorNumber,vendorName"
+        )
+        return self._paginate_v2(url, "purchase receipts")
 
     def _paginate_v2(self, url: str, label: str) -> List[Dict[str, Any]]:
         """Follow @odata.nextLink through a v2.0 collection, returning all rows."""

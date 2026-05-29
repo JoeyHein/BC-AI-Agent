@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 from app.integrations.bc.client import bc_client
 from app.services.bc_production_service import bc_production_service, ODATA_ENDPOINTS
 from app.services.vendor_map_service import vendor_map_service
+from app.services.purchasing_intel_service import purchasing_intel_service
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,14 @@ class PurchasingDemandService:
 
         # 5. Build per-item rows.
         vendor_map = vendor_map_service.load_map(db)
+        # Purchasing intelligence (cost / last-purchase / lead time) — best-effort;
+        # never let it break the core requirements computation.
+        try:
+            last_received = purchasing_intel_service.last_received_by_item()
+            vendor_leads = purchasing_intel_service.vendor_lead_times()
+        except Exception as e:
+            logger.warning(f"[Purchasing] intel enrichment unavailable: {e}")
+            last_received, vendor_leads = {}, {}
         rows: List[dict] = []
         for item in item_numbers:
             dmd = demand[item]
@@ -120,6 +129,8 @@ class PurchasingDemandService:
                 continue
             vinfo = vendor_map.get(item, {})
             vendor_no, vendor_name = vinfo.get("vendor_no"), vinfo.get("vendor_name")
+            lr = last_received.get(item, {})
+            lead = vendor_leads.get(vendor_no or "", {})
             rows.append({
                 "item_no": item,
                 "description": meta.get("displayName") or "",
@@ -131,6 +142,10 @@ class PurchasingDemandService:
                 "unit_of_measure": meta.get("baseUnitOfMeasureCode") or "EA",
                 "vendor_no": vendor_no,
                 "vendor_name": vendor_name or UNASSIGNED,
+                "last_purchase_vendor": lr.get("vendor_name"),
+                "last_purchase_date": lr.get("date"),
+                "last_purchase_cost": lr.get("unit_cost"),
+                "lead_time_days": lead.get("median_days"),
                 "jobs": sorted(item_jobs[item]),
             })
 

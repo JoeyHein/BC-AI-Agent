@@ -195,6 +195,9 @@ export default function PurchasingDashboard() {
                       <th className="p-2 text-right">On hand</th>
                       <th className="p-2 text-right">On order</th>
                       <th className="p-2 text-right">Unit cost</th>
+                      <th className="p-2 text-right">Last paid</th>
+                      <th className="p-2 text-left">Last from</th>
+                      <th className="p-2 text-right">Lead</th>
                       {!isUnassigned && <th className="p-2 text-right">Order qty</th>}
                       <th className="p-2 text-left">{isUnassigned ? 'Assign vendor' : 'Jobs'}</th>
                     </tr>
@@ -213,6 +216,20 @@ export default function PurchasingDashboard() {
                         <td className="p-2 text-right text-gray-500">{r.on_hand}</td>
                         <td className="p-2 text-right text-gray-500">{r.on_order}</td>
                         <td className="p-2 text-right">{fmt(r.unit_cost)}</td>
+                        <td className="p-2 text-right">
+                          {r.last_purchase_cost != null ? (
+                            <span title={r.last_purchase_date || ''}>{fmt(r.last_purchase_cost)}</span>
+                          ) : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="p-2 text-left text-gray-500">
+                          {r.last_purchase_vendor
+                            ? <span className={r.last_purchase_vendor !== r.vendor_name ? 'text-amber-700' : ''}
+                                    title={r.last_purchase_date || ''}>{r.last_purchase_vendor}</span>
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="p-2 text-right text-gray-500">
+                          {r.lead_time_days != null ? `${r.lead_time_days}d` : <span className="text-gray-300">—</span>}
+                        </td>
                         {!isUnassigned && (
                           <td className="p-2 text-right">
                             <input type="number" min="0" step="any" value={sel[r.item_no]?.qty ?? r.net_need}
