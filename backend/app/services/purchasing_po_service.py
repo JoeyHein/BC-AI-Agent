@@ -11,7 +11,8 @@ import logging
 from datetime import datetime
 from typing import List, Optional
 
-from fpdf import FPDF
+# fpdf2 is imported lazily inside _build_pdf so this module (and the app/test
+# import chain that loads it via the purchasing router) doesn't hard-require it.
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -159,6 +160,8 @@ class PurchasingPOService:
 
     def _build_pdf(self, po_number: str, vendor_no: Optional[str], vendor_name: str,
                    lines: List[dict], notes: Optional[str]) -> bytes:
+        from fpdf import FPDF  # lazy: only the PO-PDF path needs fpdf2
+
         pdf = FPDF(orientation="P", unit="mm", format="A4")
         pdf.set_auto_page_break(auto=True, margin=15)
         pdf.add_page()
