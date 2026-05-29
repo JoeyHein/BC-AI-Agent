@@ -852,12 +852,19 @@ class BusinessCentralClient:
 
     def get_open_purchase_orders_with_lines(self, company_id: Optional[str] = None,
                                              top: int = 100) -> List[Dict[str, Any]]:
-        """Open (not fully received) purchase orders with their lines expanded.
-        Used by the purchasing engine to net out quantity already on order."""
+        """All open purchase orders with their lines expanded. Used by the
+        purchasing engine to net out quantity already on order.
+
+        NOTE: we do NOT filter on the header `fullyReceived` flag — BC doesn't
+        maintain it reliably (most unreceived POs come back with it true/null,
+        so `fullyReceived eq false` returned only a handful of ~49 live POs).
+        The api/v2.0 purchaseOrders entity holds only non-posted orders anyway,
+        so we fetch them all and the caller derives outstanding per line as
+        quantity − receivedQuantity (which correctly handles partial receipts)."""
         cid = company_id or self.company_id
         url = (
             f"{self.base_url}/companies({cid})/purchaseOrders"
-            f"?$filter=fullyReceived eq false&$expand=purchaseOrderLines&$top={top}"
+            f"?$expand=purchaseOrderLines&$top={top}"
         )
         return self._paginate_v2(url, "open purchase orders")
 
@@ -865,13 +872,18 @@ class BusinessCentralClient:
 
     def get_open_sales_orders_with_lines(self, company_id: Optional[str] = None,
                                           top: int = 100) -> List[Dict[str, Any]]:
-        """Open (not fully shipped) sales orders with their lines expanded.
-        This is the demand source for the purchasing engine — each un-shipped
-        line is outstanding committed demand against stock."""
+        """All open sales orders with their lines expanded. This is the demand
+        source for the purchasing engine — each un-shipped line is outstanding
+        committed demand against stock.
+
+        Same caveat as the PO helper: the header `fullyShipped` flag isn't
+        reliable (`fullyShipped eq false` returned only 6 of ~37 live SOs), so
+        we fetch all non-posted orders and derive outstanding per line as
+        quantity − shippedQuantity."""
         cid = company_id or self.company_id
         url = (
             f"{self.base_url}/companies({cid})/salesOrders"
-            f"?$filter=fullyShipped eq false&$expand=salesOrderLines&$top={top}"
+            f"?$expand=salesOrderLines&$top={top}"
         )
         return self._paginate_v2(url, "open sales orders")
 
