@@ -617,6 +617,7 @@ function QuoteBuilder() {
             <WindowsStep
               door={currentDoor}
               windowInserts={config.windowInserts}
+              windowInsertsShort={config.windowInsertsShort}
               commercialWindowTypes={config.commercialWindowTypes}
               glazingOptions={config.glazingOptions}
               config={config}
@@ -1381,7 +1382,7 @@ function WindowInsertPreview({ insertId, size = 60 }) {
   )
 }
 
-function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOptions, config, onChange }) {
+function WindowsStep({ door, windowInserts, windowInsertsShort, commercialWindowTypes, glazingOptions, config, onChange }) {
   const [hoveredStamp, setHoveredStamp] = useState(null)
   const hasWindows = door.hasWindows || false
   const isCommercial = door.doorType === 'commercial'
@@ -1866,8 +1867,16 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
             </select>
           </div>
 
-          {/* Step 6: Optional Window Inserts (LONG windows only) */}
-          {door.windowSize !== 'short' && (
+          {/* Step 6: Optional Window Inserts — short windows use the short insert list */}
+          {(() => {
+            const isShort = door.windowSize === 'short'
+            const activeInserts = isShort ? (windowInsertsShort || {}) : (windowInserts || {})
+            const defaultInsert = isShort ? 'STOCKTON_SHORT' : 'STOCKTON_STANDARD'
+            const hasAnyInserts = Object.keys(activeInserts).length > 0
+
+            if (!hasAnyInserts) return null
+
+            return (
           <div className="border-t pt-6">
             <div className="flex items-center space-x-3 mb-4">
               <input
@@ -1876,7 +1885,7 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
                 checked={door.hasInserts || false}
                 onChange={(e) => onChange({
                   hasInserts: e.target.checked,
-                  windowInsert: e.target.checked ? 'STOCKTON_STANDARD' : 'NONE'
+                  windowInsert: e.target.checked ? defaultInsert : 'NONE'
                 })}
                 className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
               />
@@ -1885,13 +1894,13 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
               </label>
             </div>
 
-            {door.hasInserts && windowInserts && (
+            {door.hasInserts && (
               <div className="pl-7">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   6. Select Insert Style
                 </label>
                 <div className="space-y-4">
-                  {Object.entries(windowInserts).map(([style, inserts]) => (
+                  {Object.entries(activeInserts).map(([style, inserts]) => (
                     <div key={style}>
                       <h4 className="text-sm font-medium text-gray-600 mb-2">{style}</h4>
                       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
@@ -1918,7 +1927,8 @@ function WindowsStep({ door, windowInserts, commercialWindowTypes, glazingOption
               </div>
             )}
           </div>
-          )}
+            )
+          })()}
         </>
       )}
 
