@@ -63,6 +63,7 @@ function DoorDrawings({
     panelDesign = 'SHXL',
     windowInsert = null,
     windowPositions = [],
+    windowSize = 'long',
     windowSection = 1,
     windowQty = 0,
     windowFrameColor = 'MATCH',
@@ -119,6 +120,7 @@ function DoorDrawings({
       panelColor,
       windowInsert: windowInsert || null,
       windowPositions: windowPositions || [],
+      windowSize: windowSize || 'long',
       windowSection: windowSection || 1,
       windowQty: windowQty || 0,
       windowFrameColor: windowFrameColor || 'MATCH',
@@ -301,6 +303,7 @@ function DoorDrawings({
                 panelDesign={panelDesign}
                 windowInsert={windowInsert}
                 windowPositions={windowPositions}
+                windowSize={windowSize}
                 windowSection={windowSection}
                 windowQty={windowQty}
                 windowFrameColor={windowFrameColor}
