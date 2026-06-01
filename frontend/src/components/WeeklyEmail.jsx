@@ -41,6 +41,10 @@ function WeeklyEmail() {
   const [showVideoModal, setShowVideoModal] = useState(false)
   const [videoUrl, setVideoUrl] = useState('')
   const htmlRef = useRef(null)
+  // Last caret position in the HTML textarea, remembered so it survives the
+  // focus change when you click + Image / + Video (otherwise it collapses to 0,
+  // landing media above the header).
+  const selectionRef = useRef(null)
   const imageInputRef = useRef(null)
 
   // Audience count
@@ -184,16 +188,47 @@ function WeeklyEmail() {
     return d.toISOString().slice(0, 16)
   })()
 
-  // Insert an HTML snippet at the cursor in the body textarea (or append).
-  const insertIntoHtml = (snippet) => {
+  // Remember where the caret is in the HTML textarea. Called on every
+  // select/click/key/blur so the position is still known after focus moves to
+  // the + Image button or the OS file dialog.
+  const rememberSelection = () => {
     const el = htmlRef.current
     if (el && typeof el.selectionStart === 'number') {
-      const start = el.selectionStart
-      const next = editedHtml.slice(0, start) + snippet + editedHtml.slice(el.selectionEnd)
-      setEditedHtml(next)
-    } else {
-      setEditedHtml(editedHtml + snippet)
+      selectionRef.current = { start: el.selectionStart, end: el.selectionEnd }
     }
+  }
+
+  // Locate the editable body content — everything between the (locked) dark
+  // header and the grey footer. Media must land here, never above/below the
+  // header. Anchors are the exact background colors baked into the prompt.
+  const contentBounds = (html) => {
+    let contentStart = 0
+    const headerOpen = html.indexOf('background-color:#1a1a1a')
+    if (headerOpen !== -1) {
+      const headerClose = html.indexOf('</div>', headerOpen)
+      if (headerClose !== -1) contentStart = headerClose + '</div>'.length
+    }
+    // Footer block style is unique (body uses #f5f5f5 too, but without this padding).
+    let contentEnd = html.indexOf('<div style="background-color:#f5f5f5;padding:20px 25px')
+    if (contentEnd === -1) contentEnd = html.length
+    return { contentStart, contentEnd }
+  }
+
+  // Insert an HTML snippet into the body content. Uses the remembered caret if
+  // it falls inside the content; otherwise appends to the end of the content
+  // (just before the footer) so media can never end up around the header.
+  const insertIntoHtml = (snippet) => {
+    const html = editedHtml
+    const { contentStart, contentEnd } = contentBounds(html)
+    const sel = selectionRef.current
+    const caretInContent = sel && sel.start >= contentStart && sel.start <= contentEnd
+    const from = caretInContent ? sel.start : contentEnd
+    const to = caretInContent ? sel.end : contentEnd
+    const next = html.slice(0, from) + snippet + html.slice(to)
+    setEditedHtml(next)
+    // Park the caret right after what we just inserted, for back-to-back inserts.
+    const after = from + snippet.length
+    selectionRef.current = { start: after, end: after }
   }
 
   const handleImageSelected = async (e) => {
@@ -523,11 +558,15 @@ function WeeklyEmail() {
                       </button>
                     </div>
                   </div>
-                  <p className="text-xs text-gray-400 mb-1">Click into the body where you want media, then insert. Images host on Mailchimp's CDN.</p>
+                  <p className="text-xs text-gray-400 mb-1">Click in the body text where you want the image, then + Image. If you don't pick a spot, it's added to the end of the content (never around the header). Images host on Mailchimp's CDN.</p>
                   <textarea
                     ref={htmlRef}
                     value={editedHtml}
-                    onChange={(e) => setEditedHtml(e.target.value)}
+                    onChange={(e) => { setEditedHtml(e.target.value); rememberSelection() }}
+                    onSelect={rememberSelection}
+                    onKeyUp={rememberSelection}
+                    onClick={rememberSelection}
+                    onBlur={rememberSelection}
                     rows={16}
                     className="w-full rounded-md border-gray-300 shadow-sm focus:border-odc-500 focus:ring-odc-500 font-mono text-xs"
                   />
