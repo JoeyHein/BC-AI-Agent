@@ -198,32 +198,44 @@ function WeeklyEmail() {
     }
   }
 
-  // Locate the editable body content — everything between the (locked) dark
-  // header and the grey footer. Media must land here, never above/below the
-  // header. Anchors are the exact background colors baked into the prompt.
+  // Locate the editable body content — between the (locked) header that holds the
+  // OPENDC logo and the footer that holds the unsubscribe tag. We anchor on the
+  // logo filename and the *|UNSUB|* merge tag because the AI copies those verbatim;
+  // matching on inline color codes proved unreliable (spacing/case can drift, which
+  // collapsed contentStart to 0 and let images land above the header).
   const contentBounds = (html) => {
+    // Content starts right after the header <div> that contains the logo image.
     let contentStart = 0
-    const headerOpen = html.indexOf('background-color:#1a1a1a')
-    if (headerOpen !== -1) {
-      const headerClose = html.indexOf('</div>', headerOpen)
+    const logoIdx = html.indexOf('opendc-logo')
+    if (logoIdx !== -1) {
+      const headerClose = html.indexOf('</div>', logoIdx)
       if (headerClose !== -1) contentStart = headerClose + '</div>'.length
     }
-    // Footer block style is unique (body uses #f5f5f5 too, but without this padding).
-    let contentEnd = html.indexOf('<div style="background-color:#f5f5f5;padding:20px 25px')
-    if (contentEnd === -1) contentEnd = html.length
+    // Content ends at the start of the footer <div> that contains the unsub tag.
+    let contentEnd = html.length
+    const unsubIdx = html.indexOf('*|UNSUB|*')
+    if (unsubIdx !== -1) {
+      const footerDivStart = html.lastIndexOf('<div', unsubIdx)
+      if (footerDivStart > contentStart) contentEnd = footerDivStart
+    }
+    if (contentEnd < contentStart) contentEnd = html.length
     return { contentStart, contentEnd }
   }
 
-  // Insert an HTML snippet into the body content. Uses the remembered caret if
-  // it falls inside the content; otherwise appends to the end of the content
-  // (just before the footer) so media can never end up around the header.
+  // Insert an HTML snippet into the body content, HARD-CLAMPED to sit strictly
+  // between header and footer. Uses the remembered caret when it's inside the
+  // content; otherwise drops it at the top of the content (just under the logo).
+  // The clamp guarantees media can never land above/below the header, whatever
+  // the caret state.
   const insertIntoHtml = (snippet) => {
     const html = editedHtml
     const { contentStart, contentEnd } = contentBounds(html)
     const sel = selectionRef.current
     const caretInContent = sel && sel.start >= contentStart && sel.start <= contentEnd
-    const from = caretInContent ? sel.start : contentEnd
-    const to = caretInContent ? sel.end : contentEnd
+    let from = caretInContent ? sel.start : contentStart
+    let to = caretInContent ? sel.end : contentStart
+    from = Math.min(Math.max(from, contentStart), contentEnd)
+    to = Math.min(Math.max(to, from), contentEnd)
     const next = html.slice(0, from) + snippet + html.slice(to)
     setEditedHtml(next)
     // Park the caret right after what we just inserted, for back-to-back inserts.
@@ -558,7 +570,7 @@ function WeeklyEmail() {
                       </button>
                     </div>
                   </div>
-                  <p className="text-xs text-gray-400 mb-1">Click in the body text where you want the image, then + Image. If you don't pick a spot, it's added to the end of the content (never around the header). Images host on Mailchimp's CDN.</p>
+                  <p className="text-xs text-gray-400 mb-1">Click in the HTML box below where you want the image (between paragraphs), then + Image. If you don't pick a spot, it drops at the top of the content, just under the logo — never above the header. Images host on Mailchimp's CDN.</p>
                   <textarea
                     ref={htmlRef}
                     value={editedHtml}
