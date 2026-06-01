@@ -11,14 +11,15 @@ export default function PurchasingDashboard() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(null);        // action label currently running
   const [message, setMessage] = useState(null);
+  const [horizon, setHorizon] = useState(5);     // delivery horizon in weeks (0 = all)
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [horizon]);
 
   async function load() {
     setLoading(true);
     try {
       const [reqRes, venRes] = await Promise.all([
-        purchasingApi.getRequirements(),
+        purchasingApi.getRequirements({ horizon_weeks: horizon }),
         purchasingApi.listVendors(),
       ]);
       setData(reqRes.data);
@@ -132,7 +133,17 @@ export default function PurchasingDashboard() {
     <div className="space-y-6 p-2">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-2xl font-bold text-gray-900">Purchasing</h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <label className="text-sm text-gray-600">Delivery horizon:</label>
+          <select value={horizon} onChange={(e) => setHorizon(Number(e.target.value))}
+            className="px-2 py-2 border rounded-lg text-sm">
+            <option value={4}>4 weeks</option>
+            <option value={5}>5 weeks</option>
+            <option value={6}>6 weeks</option>
+            <option value={8}>8 weeks</option>
+            <option value={12}>12 weeks</option>
+            <option value={0}>All (no horizon)</option>
+          </select>
           <button onClick={load} className="px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm">Reload</button>
           <button onClick={refreshVendors} disabled={busy === 'refresh'}
             className="px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm disabled:opacity-50">
@@ -160,6 +171,14 @@ export default function PurchasingDashboard() {
         <Stat label="Unassigned items" value={s.unassigned_items} warn={s.unassigned_items > 0} />
         <Stat label="Est. spend" value={fmt(s.estimated_cost)} />
       </div>
+
+      {horizon > 0 && (
+        <div className="text-sm text-gray-600">
+          Showing material for orders due within <strong>{horizon} weeks</strong>
+          {data?.horizon_cutoff ? ` (by ${data.horizon_cutoff})` : ''}.
+          {s.deferred_orders > 0 && <> <strong>{s.deferred_orders}</strong> later order(s) deferred — not due yet.</>}
+        </div>
+      )}
 
       {(data?.vendors || []).map((group) => {
         const isUnassigned = group.vendor_name === UNASSIGNED;

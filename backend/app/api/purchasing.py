@@ -81,11 +81,15 @@ class GeneratePORequest(BaseModel):
 @router.get("/requirements")
 async def get_requirements(
     include_met: bool = Query(False, description="Include items whose demand is already covered"),
+    horizon_weeks: Optional[int] = Query(5, description="Only count sales-order demand due within N weeks (time-phasing); 0/blank = no horizon"),
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
     """Live purchasing requirements: per-item net need + vendor grouping."""
-    return purchasing_demand_service.compute_requirements(db, include_met=include_met)
+    return purchasing_demand_service.compute_requirements(
+        db, include_met=include_met,
+        horizon_weeks=horizon_weeks if horizon_weeks else None,
+    )
 
 
 @router.post("/refresh-vendors")

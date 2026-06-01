@@ -21,7 +21,7 @@ typically zero and demand comes from live orders.
 
 import logging
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
@@ -43,7 +43,8 @@ NON_STOCK_ITEMS = {"FREIGHT", "INSTALLATION", "DISCOUNT", "SHIPPING", "MISC", "L
 class PurchasingDemandService:
     """Nets committed job demand against stock to produce a purchasing shortfall list."""
 
-    def compute_requirements(self, db: Session, include_met: bool = False) -> Dict:
+    def compute_requirements(self, db: Session, include_met: bool = False,
+                             horizon_weeks: Optional[int] = 5) -> Dict:
         """
         Build the full purchasing requirement picture.
 
@@ -51,16 +52,30 @@ class PurchasingDemandService:
             db: DB session (for vendor resolution).
             include_met: if True, also return items whose demand is fully covered
                          (net_need <= 0). Default False — only shortfalls.
+            horizon_weeks: only count sales-order demand whose requestedDeliveryDate
+                         is within this many weeks (time-phasing — don't buy material
+                         for jobs that aren't due yet). Past-due / no-date orders are
+                         always included. None = no horizon (count everything).
 
         Returns a dict with: generated_at, summary, items[], vendors[] (grouped),
         and production_included (whether prod-order demand was folded in).
         """
-        # 1. Outstanding demand from open sales orders (committed to jobs).
+        cutoff = (date.today() + timedelta(weeks=horizon_weeks)).isoformat() if horizon_weeks else None
+
+        # 1. Outstanding demand from open sales orders (committed to jobs),
+        #    time-phased to the delivery horizon.
         demand: Dict[str, float] = defaultdict(float)
         item_jobs: Dict[str, set] = defaultdict(set)
+        deferred_orders: set = set()
         try:
-            for so in bc_client.get_open_sales_orders_with_lines(top=100):
+            for so in bc_client.get_open_sales_orders_with_lines():
                 so_no = so.get("number") or "?"
+                # Defer orders not due within the horizon (requestedDeliveryDate in
+                # the future beyond cutoff). Missing/past-due dates are kept.
+                rdd = (so.get("requestedDeliveryDate") or "")[:10]
+                if cutoff and rdd and rdd > cutoff and rdd > "0001-01-01":
+                    deferred_orders.add(so_no)
+                    continue
                 for ln in so.get("salesOrderLines", []):
                     if ln.get("lineType") != "Item":
                         continue
@@ -158,11 +173,15 @@ class PurchasingDemandService:
         return {
             "generated_at": datetime.utcnow().isoformat(),
             "production_included": production_included,
+            "horizon_weeks": horizon_weeks,
+            "horizon_cutoff": cutoff,
+            "deferred_order_count": len(deferred_orders),
             "summary": {
                 "shortfall_items": len(shortfall_rows),
                 "vendor_count": len(vendors),
                 "unassigned_items": sum(1 for r in shortfall_rows if r["vendor_name"] == UNASSIGNED),
                 "estimated_cost": round(sum(r["net_need"] * r["unit_cost"] for r in shortfall_rows), 2),
+                "deferred_orders": len(deferred_orders),
             },
             "items": rows,
             "vendors": vendors,
