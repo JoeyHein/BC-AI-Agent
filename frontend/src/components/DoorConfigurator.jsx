@@ -2874,6 +2874,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
             // Window configuration
             hasWindows: door.hasWindows || false,
             windowPositions: door.windowPositions || [],
+            windowSize: door.windowSize || 'long',
             glassPaneType: door.glassPaneType,
             glassColor: door.glassColor,
             hasInserts: door.hasInserts || false,

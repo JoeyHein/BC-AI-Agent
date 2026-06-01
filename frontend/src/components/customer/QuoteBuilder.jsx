@@ -3003,6 +3003,7 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
                   windowInsert={door.windowInsert}
                   windowSection={door.windowSection}
                   windowPositions={door.windowPositions}
+                  windowSize={door.windowSize || 'long'}
                   hasInserts={door.hasInserts || false}
                   glassColor={door.glassColor || 'CLEAR'}
                   windowQty={door.windowQty || 0}
