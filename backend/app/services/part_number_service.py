@@ -2919,7 +2919,10 @@ class PartNumberService:
 
         For residential KANATA doors:
           SHORT windows (GK15-10xxx): fit one short stamp on SH/BC designs.
-            No decorative frame inserts available (BC catalog has none for short).
+            No decorative frame inserts are offered — BC's GL19 short-insert
+            catalog is too sparse to price/fulfill (no arched short SKU; only a
+            handful of colors). Short inserts are not selectable in either
+            configurator, so config.window_insert is never a short-insert id.
           LONG windows (GK15-11xxx): fit one long stamp on SHXL/BCXL, or span 2
             short stamps on SH/BC.  Decorative GL18 frame inserts are available.
 
@@ -3037,21 +3040,21 @@ class PartNumberService:
             notes=window_note,
         )]
 
-        # Add frame insert for decorative windows
-        # Kanata LONG: GL18, Kanata SHORT: GL19, Craft: GL17
+        # Add frame insert for decorative windows. Only LONG (GL18) and Craft
+        # (GL17) inserts are offered — short (GL19) inserts were pulled because
+        # the BC catalog can't price/fulfill them correctly. A short-insert id
+        # on a legacy saved quote is intentionally ignored (no insert line)
+        # rather than silently shipping free or in the wrong color.
         decorative_inserts = {
             "STOCKTON_STANDARD", "STOCKTON_EIGHT_SQUARE", "STOCKTON_TEN_SQUARE_XL",
             "STOCKTON_ARCHED", "STOCKTON_ARCHED_XL",
             "STOCKBRIDGE_STRAIGHT", "STOCKBRIDGE_STRAIGHT_XL",
             "STOCKBRIDGE_ARCHED", "STOCKBRIDGE_ARCHED_XL",
-            "STOCKTON_SHORT", "STOCKTON_SHORT_ARCHED",
         }
-        if config.window_insert in decorative_inserts:
+        if config.window_insert in decorative_inserts and not is_short:
             if series_upper == "CRAFT":
                 # Craft uses GL17 inserts per rulebook
                 insert_prefix = "GL17"
-            elif is_short:
-                insert_prefix = "GL19"
             else:
                 insert_prefix = "GL18"
 

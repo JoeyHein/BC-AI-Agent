@@ -462,11 +462,11 @@ WINDOW_INSERTS_LONG = {
 }
 
 WINDOW_INSERTS_SHORT = {
-    # Short window inserts — fit in a single SH/BC/TRAF/FLUSH stamp
-    "STOCKTON": [
-        {"id": "STOCKTON_SHORT", "name": "Stockton Short"},
-        {"id": "STOCKTON_SHORT_ARCHED", "name": "Stockton Short Arched"},
-    ],
+    # Short window inserts are NOT offered: BC's GL19 short-insert catalog is
+    # too sparse to price/fulfill correctly (no "ARCHED STOCKTON" SKU at all,
+    # and STOCKTON (1PC) exists only in Sandtone/New Almond/Iron Ore/English
+    # Chestnut — White/Black silently fall back to the wrong-color SKU).
+    # Both configurators auto-hide the insert section when this is empty.
 }
 
 # Combined for backward compatibility
@@ -1016,6 +1016,22 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
     9. Springs
     10. Weather seal
     11. Accessories
+    """
+    return build_bc_quote_from_doors(request, db, source="admin")
+
+
+def build_bc_quote_from_doors(
+    request: QuoteGenerationRequest,
+    db: Session,
+    source: str = "admin",
+):
+    """Canonical BC quote builder shared by the configurator HTTP route and the
+    email auto-quote flow, so both paths produce identical parts, line
+    ordering, part-number validation, and BC SalesPriceLists pricing.
+
+    Raises HTTPException on validation failures (unstocked combo, panel not in
+    BC, etc.) and on unexpected errors; non-HTTP callers (e.g. the email
+    monitor) must catch these and route to manual review.
     """
     try:
         # Load spring inventory from BC so quotes use stocked springs
@@ -1674,7 +1690,7 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
                 db=db,
                 bc_quote_id=bc_quote_id,
                 bc_quote_number=bc_quote_number,
-                source="admin",
+                source=source,
                 all_lines=all_lines,
                 line_pricing=line_pricing if line_pricing else None,
                 pricing_totals=pricing,
