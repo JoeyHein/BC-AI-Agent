@@ -24,6 +24,20 @@ from app.services.quote_review_service import save_quote_snapshot
 from app.services.freight_service import calculate_freight, get_freight_config
 from app.services.install_pricing_service import install_pricing_service
 
+
+def _account_provides_install(customer_user_id: Optional[int], db: Optional[Session]) -> bool:
+    """True when the customer is a home-builder account.
+
+    Home-builder quotes carry an INSTALLATION line whose total already includes
+    per-km crew travel from Medicine Hat. Freight (a % of product) bills the same
+    trip a second time, so we suppress freight whenever we're providing install.
+    """
+    if not customer_user_id or not db:
+        return False
+    from app.db.models import User as UserModel
+    customer_user = db.query(UserModel).filter(UserModel.id == customer_user_id).first()
+    return getattr(customer_user, "account_type", None) == "home_builder" if customer_user else False
+
 # Part number prefix → BC search keyword for AI substitute lookup
 _CATEGORY_SEARCH_TERMS = {
     "SP": "spring",
@@ -1448,9 +1462,11 @@ def _generate_bc_quote_with_items(
         except Exception as esc_err:
             logger.warning(f"Escalating margin check failed: {esc_err}")
 
-    # Step 5: Add freight line if delivery
+    # Step 5: Add freight line if delivery.
+    # Skip entirely for home-builder accounts — their INSTALLATION line already
+    # bills per-km crew travel, so freight would charge the same trip twice.
     freight_info = None
-    if pricing and db:
+    if pricing and db and not _account_provides_install(customer_user_id, db):
         try:
             # Get customer province
             customer_province = None
@@ -2145,8 +2161,9 @@ def _edit_bc_quote_lines(
         logger.warning(f"Could not fetch pricing after edit: {e}")
 
     # ── Step 6: Re-add freight ──────────────────────────────────────────────
+    # Skipped for home-builder accounts — install travel already covers the trip.
     freight_info = None
-    if pricing:
+    if pricing and not _account_provides_install(customer_user_id, db):
         try:
             customer_province = None
             bc_cust = db.query(BCCustomer).filter(BCCustomer.bc_customer_id == bc_customer_id).first()
