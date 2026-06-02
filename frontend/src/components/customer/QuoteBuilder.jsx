@@ -678,6 +678,7 @@ function QuoteBuilder() {
             pricingLoading={pricingLoading}
             onGetPricing={handleGetPricing}
             onConfirmSubmit={handleConfirmSubmit}
+            onUpdateDoor={updateDoorAt}
           />
         )}
       </div>
@@ -2869,7 +2870,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
   )
 }
 
-function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deliveryType, onNameChange, onDescriptionChange, onPoNumberChange, onDeliveryTypeChange, onSave, isSaving, errors, isBCLinked, isHomeBuilder, pricingData, pricingLoading, onGetPricing, onConfirmSubmit }) {
+function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deliveryType, onNameChange, onDescriptionChange, onPoNumberChange, onDeliveryTypeChange, onSave, isSaving, errors, isBCLinked, isHomeBuilder, pricingData, pricingLoading, onGetPricing, onConfirmSubmit, onUpdateDoor }) {
   function getSeriesName(doorType, seriesId) {
     const series = config?.doorSeries?.[doorType]?.find(s => s.id === seriesId)
     return series?.name || seriesId
@@ -3143,7 +3144,7 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
               )}
               <InstallPriceEstimate
                 town={door.installTown || ''}
-                onTownChange={(town) => updateDoorAt(index, { installTown: town })}
+                onTownChange={(town) => onUpdateDoor(index, { installTown: town })}
               />
             </div>
           ))}
