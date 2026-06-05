@@ -1,0 +1,6 @@
+image_path,source,true_brand,true_category,pred_category,top1_brand,top1_conf,top2_brand,top3_brand,brand_top1_ok,brand_top3_ok,category_ok,catalog_match,latency_ms,error
+C:\Users\jhein\bc-ai-agent\backend\data\partfinder\images\42a4cd01ff3e0952\cover.webp,cover,Pentalift,Dock Equipment,Dock Equipment,Pentalift,1.0,,,1,1,1,1,10083,
+C:\Users\jhein\bc-ai-agent\backend\data\partfinder\images\f1c50ae6caa7d1fb\cover.webp,cover,Loading-Systems,Dock Equipment,Dock Equipment,DLM (Dock Leveler Manufacturing / Division of Systems LLC),1.0,,,0,0,1,0,11729,
+C:\Users\jhein\bc-ai-agent\backend\data\partfinder\images\81d818c7ce6acbe9\cover.webp,cover,Canimex,Garage Door Springs,Garage Door Springs,Canimex,0.99,,,1,1,1,1,10546,
+C:\Users\jhein\bc-ai-agent\backend\data\partfinder\images\faa786f0aefb68eb\cover.webp,cover,TKO,Dock Seals & Shelters,Dock Seals & Shelters,TKO,0.99,,,1,1,1,1,10591,
+C:\Users\jhein\bc-ai-agent\backend\data\partfinder\images\f903eb0de3708cf7\cover.webp,cover,Dura-Lift,Garage Door Hardware,Garage Door Hardware,Dura-Lift,1.0,,,1,1,1,1,8610,

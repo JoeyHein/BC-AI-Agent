@@ -126,37 +126,35 @@ const ANY_CATEGORY = { category: '', label: "I'm not sure", meta: 'Search every 
 
 function PhotoMode({ onOpen, authed }) {
   const [chosenCat, setChosenCat] = useState(null);
-  const [file, setFile] = useState(null);
-  const [preview, setPreview] = useState(null);
+  const [face, setFace] = useState(null);
+  const [facePrev, setFacePrev] = useState(null);
+  const [side, setSide] = useState(null);
+  const [sidePrev, setSidePrev] = useState(null);
   const [note, setNote] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
-  const [drag, setDrag] = useState(false);
-  const inputRef = useRef(null);
 
-  const choose = (f) => {
-    if (!f) return;
-    setFile(f);
-    setResult(null);
-    setError(null);
-    setPreview(URL.createObjectURL(f));
-  };
+  // Panels are the category where the edge-on side profile (thickness + joint
+  // profile) is the real discriminator, so we lead with it there.
+  const isPanels = (chosenCat?.category || '').startsWith('01');
+
+  const chooseFace = (f) => { if (!f) return; setFace(f); setFacePrev(URL.createObjectURL(f)); setResult(null); setError(null); };
+  const chooseSide = (f) => { if (!f) return; setSide(f); setSidePrev(URL.createObjectURL(f)); setResult(null); setError(null); };
 
   const changeCategory = () => {
     setChosenCat(null);
-    setFile(null);
-    setPreview(null);
-    setResult(null);
-    setError(null);
+    setFace(null); setFacePrev(null);
+    setSide(null); setSidePrev(null);
+    setResult(null); setError(null);
   };
 
   const run = async () => {
-    if (!file) return;
+    if (!face) return;
     setLoading(true);
     setError(null);
     try {
-      const r = await partFinder.identify({ file, category: chosenCat?.category || '', note });
+      const r = await partFinder.identify({ file: face, sideFile: side, category: chosenCat?.category || '', note });
       setResult(r);
     } catch (e) {
       setError(e.body?.detail?.detail || e.message);
@@ -181,31 +179,19 @@ function PhotoMode({ onOpen, authed }) {
           <button className="pf-scope-change" onClick={changeCategory}>Change</button>
         </div>
 
-        <div
-          className={`pf-drop ${drag ? 'is-drag' : ''} ${preview ? 'has-img' : ''}`}
-          onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
-          onDragLeave={() => setDrag(false)}
-          onDrop={(e) => { e.preventDefault(); setDrag(false); choose(e.dataTransfer.files[0]); }}
-          onClick={() => inputRef.current?.click()}
-        >
-          {preview ? (
-            <img src={preview} alt="upload preview" className="pf-preview" />
-          ) : (
-            <>
-              <div className="pf-drop-icon">⤓</div>
-              <p className="pf-drop-title">Drop a photo here</p>
-              <p className="pf-drop-sub">or click to browse · JPG, PNG, WebP up to 8 MB</p>
-            </>
-          )}
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            hidden
-            onChange={(e) => choose(e.target.files[0])}
+        <div className="pf-slots">
+          <DropSlot label="Face / front" hint="Straight-on view" preview={facePrev} onChoose={chooseFace} />
+          <DropSlot
+            label="Side profile"
+            hint={isPanels ? 'Shows thickness & joint' : 'Optional · edge-on view'}
+            preview={sidePrev}
+            onChoose={chooseSide}
+            emphasized={isPanels}
           />
         </div>
+        {isPanels && !side && (
+          <p className="pf-slot-tip">For panels, the side profile is the best way to tell thickness and joint type apart — add one if you can.</p>
+        )}
 
         <label className="pf-field">
           <span>Anything you can read on it? (optional)</span>
@@ -217,8 +203,8 @@ function PhotoMode({ onOpen, authed }) {
           />
         </label>
 
-        <button className="pf-btn-primary" disabled={!file || loading} onClick={run}>
-          {loading ? 'Analyzing image…' : 'Identify this product'}
+        <button className="pf-btn-primary" disabled={!face || loading} onClick={run}>
+          {loading ? 'Analyzing…' : 'Identify this product'}
         </button>
         {error && <p className="pf-error">{error}</p>}
       </section>
@@ -228,14 +214,43 @@ function PhotoMode({ onOpen, authed }) {
           <div className="pf-empty">
             <p className="pf-empty-big">Visual identification</p>
             <p>We’re focused on <strong>{chosenCat.label}</strong> — narrowing to one
-              category makes the read faster and more accurate. We match panel profiles,
-              operator shapes, slat geometry, data-plate text and logos against the catalog,
-              then link you to the right manual.</p>
+              category makes the read sharper. Add a side-profile photo{isPanels ? ' (the key cue for panels)' : ''} and
+              we’ll match against the catalog, then link you to the right manual.</p>
           </div>
         )}
         {loading && <SkeletonCards n={2} />}
         {result && <IdentifyResult result={result} onOpen={onOpen} authed={authed} scopedLabel={scopedLabel} />}
       </section>
+    </div>
+  );
+}
+
+function DropSlot({ label, hint, preview, onChoose, emphasized }) {
+  const [drag, setDrag] = useState(false);
+  const inputRef = useRef(null);
+  return (
+    <div className="pf-slot">
+      <div className="pf-slot-head">
+        <span className="pf-slot-label">{label}</span>
+        {emphasized && <span className="pf-slot-badge">Recommended</span>}
+      </div>
+      <div
+        className={`pf-drop pf-drop-sm ${drag ? 'is-drag' : ''} ${preview ? 'has-img' : ''} ${emphasized ? 'is-emph' : ''}`}
+        onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+        onDragLeave={() => setDrag(false)}
+        onDrop={(e) => { e.preventDefault(); setDrag(false); onChoose(e.dataTransfer.files[0]); }}
+        onClick={() => inputRef.current?.click()}
+      >
+        {preview ? (
+          <img src={preview} alt={`${label} preview`} className="pf-preview" />
+        ) : (
+          <>
+            <div className="pf-drop-icon">⤓</div>
+            <p className="pf-drop-sub">{hint}</p>
+          </>
+        )}
+        <input ref={inputRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => onChoose(e.target.files[0])} />
+      </div>
     </div>
   );
 }

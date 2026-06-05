@@ -1,0 +1,104 @@
+[
+  {
+    "label": "01-below-threshold",
+    "intent": "<$10k expect 0% discount",
+    "sq": "SQ-002569",
+    "bc_id": "a9633576-6b58-f111-a820-002248b078a3",
+    "lines_added": 15,
+    "subtotal": 1338.2,
+    "total": 1405.11,
+    "target_gm": null,
+    "discount_pct": null,
+    "curve_subtotal": null
+  },
+  {
+    "label": "02-band-10k",
+    "intent": "~$10-12k expect ~5-7%",
+    "sq": "SQ-002570",
+    "bc_id": "cba96e89-6b58-f111-a820-002248b078a3",
+    "lines_added": 15,
+    "subtotal": 8975.2,
+    "total": 9423.96,
+    "target_gm": null,
+    "discount_pct": null,
+    "curve_subtotal": null
+  },
+  {
+    "label": "03-band-16k",
+    "intent": "~$16-20k expect ~9-10%",
+    "sq": "SQ-002571",
+    "bc_id": "8a8cd39b-6b58-f111-a820-002248b078a3",
+    "lines_added": 18,
+    "subtotal": 11894.88,
+    "total": 12489.62,
+    "target_gm": 24.59,
+    "discount_pct": 7.17,
+    "curve_subtotal": 12815.13
+  },
+  {
+    "label": "04-band-25k",
+    "intent": "~$25-28k expect ~11%",
+    "http": 500,
+    "body": "{\"detail\":\"400: panel part PN55-24420-1200 not found in BC and no larger size available. Please contact the office.\"}"
+  },
+  {
+    "label": "05-band-38k",
+    "intent": "~$38-45k expect ~14%",
+    "sq": "SQ-002573",
+    "bc_id": "ff0218bb-6b58-f111-a820-002248b078a3",
+    "lines_added": 18,
+    "subtotal": 22709.34,
+    "total": 23844.81,
+    "target_gm": 21.03,
+    "discount_pct": 11.36,
+    "curve_subtotal": 25630.26
+  },
+  {
+    "label": "06-band-75k",
+    "intent": "~$75k expect ~16.5%",
+    "http": 500,
+    "body": "{\"detail\":\"400: panel part PN57-24400-1600 not found in BC and no larger size available. Please contact the office.\"}"
+  },
+  {
+    "label": "07-band-120k",
+    "intent": "~$120k expect ~19%",
+    "sq": "SQ-002575",
+    "bc_id": "ca8f1cda-6b58-f111-a820-002248b078a3",
+    "lines_added": 18,
+    "subtotal": 64145.16,
+    "total": 67352.42,
+    "target_gm": 16.04,
+    "discount_pct": 16.63,
+    "curve_subtotal": 76890.78
+  },
+  {
+    "label": "08-floor-180k",
+    "intent": ">=$180k expect 22.65% floor",
+    "http": 500,
+    "body": "{\"detail\":\"400: panel part PN57-24400-1600 not found in BC and no larger size available. Please contact the office.\"}"
+  },
+  {
+    "label": "09-alum-exclusion",
+    "intent": "ALUM excluded; steel curve-priced",
+    "sq": "SQ-002577",
+    "bc_id": "e06c2ef4-6b58-f111-a820-002248b078a3",
+    "lines_added": 36,
+    "subtotal": 24274.38,
+    "total": 25488.1,
+    "target_gm": 21.68,
+    "discount_pct": 10.62,
+    "curve_subtotal": 22442.8
+  },
+  {
+    "label": "10-variety-mixed",
+    "intent": "residential variety / woodgrain, mid band",
+    "sq": "SQ-002578",
+    "bc_id": "c5364330-6c58-f111-a820-002248b078a3",
+    "lines_added": 31,
+    "subtotal": 8634.84,
+    "total": 9066.58,
+    "target_gm": null,
+    "discount_pct": null,
+    "curve_subtotal": null
+  }
+]

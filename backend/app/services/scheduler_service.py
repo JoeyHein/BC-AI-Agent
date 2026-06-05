@@ -112,6 +112,16 @@ class SchedulerService:
         )
         logger.info("✓ Scheduled: Email send queue check every minute")
 
+        # Daily purchasing report — 07:00 America/Edmonton, Mon-Fri.
+        self.scheduler.add_job(
+            func=self._purchasing_report_job,
+            trigger=CronTrigger(day_of_week='mon-fri', hour=7, minute=0, timezone='America/Edmonton'),
+            id='purchasing_report',
+            name='Daily Purchasing Report - shortfalls digest',
+            replace_existing=True,
+        )
+        logger.info("✓ Scheduled: Daily purchasing report 07:00 America/Edmonton (Mon-Fri)")
+
         # Start scheduler
         self.scheduler.start()
         self.is_running = True
@@ -238,6 +248,35 @@ class SchedulerService:
                 db.close()
             except Exception:
                 pass
+
+    def _purchasing_report_job(self):
+        """Refresh vendor mapping and email the daily purchasing digest.
+        Default ON — only skipped if 'purchasing_report_enabled' is explicitly false."""
+        db = None
+        try:
+            db = SessionLocal()
+            from app.db.models import AppSettings
+            setting = db.query(AppSettings).filter(
+                AppSettings.setting_key == "purchasing_report_enabled"
+            ).first()
+            if setting is not None and not setting.setting_value:
+                logger.info("Purchasing report disabled, skipping")
+                return
+
+            from app.services.vendor_map_service import vendor_map_service
+            from app.services.purchasing_report_service import purchasing_report_service
+            vendor_map_service.refresh(db)
+            db.commit()
+            result = purchasing_report_service.send_daily_report(db)
+            logger.info(f"Purchasing report complete: {result}")
+        except Exception as e:
+            logger.error(f"Purchasing report job failed: {e}", exc_info=True)
+        finally:
+            if db is not None:
+                try:
+                    db.close()
+                except Exception:
+                    pass
 
     def _email_send_queue_job(self):
         """Send any portal-scheduled weekly-email campaigns whose time has come.

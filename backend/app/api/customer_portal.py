@@ -908,6 +908,7 @@ def _generate_bc_quote_with_items(
             "hardware": door.get("hardware", {}),
             "operator": door.get("operator"),
             "operatorAccessories": door.get("operatorAccessories", []),
+            "chainHoist": door.get("chainHoist"),
             "targetCycles": door.get("targetCycles", 10000),
             "shaftType": door.get("shaftType", "auto"),
         }
@@ -2357,6 +2358,7 @@ def _estimate_pricing_locally(
             "hardware": door.get("hardware", {}),
             "operator": door.get("operator"),
             "operatorAccessories": door.get("operatorAccessories", []),
+            "chainHoist": door.get("chainHoist"),
             "targetCycles": door.get("targetCycles", 10000),
             "shaftType": door.get("shaftType", "auto"),
         }

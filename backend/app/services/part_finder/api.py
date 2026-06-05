@@ -196,16 +196,26 @@ def build_router(
     async def identify(
         request: Request,
         image: UploadFile = File(...),
+        side_image: Optional[UploadFile] = File(None),
         category: Optional[str] = Form(None),
         note: Optional[str] = Form(None),
     ):
-        """Identify a product from an uploaded photo. Preview callers get the
-        guess but the matched manuals are gated."""
+        """Identify a product from an uploaded photo. An optional second photo
+        (`side_image`) is the edge-on side profile — for panels it shows the
+        thickness + joint profile that best discriminates them. Preview callers
+        get the guess but the matched manuals are gated."""
         require_index()
         data = await image.read()
         if len(data) > MAX_IMAGE_BYTES:
             raise HTTPException(status_code=413, detail="Image too large (max 8 MB).")
         media_type = image.content_type or "image/jpeg"
+
+        side_data = side_media_type = None
+        if side_image is not None:
+            side_data = await side_image.read()
+            if len(side_data) > MAX_IMAGE_BYTES:
+                raise HTTPException(status_code=413, detail="Side image too large (max 8 MB).")
+            side_media_type = side_image.content_type or "image/jpeg"
 
         result = identify_image(
             image_bytes=data,
@@ -214,6 +224,8 @@ def build_router(
             api_key=anthropic_api_key,
             hint_category=category,
             note=note,
+            side_image_bytes=side_data,
+            side_media_type=side_media_type,
         )
         if "error" in result:
             code = 503 if result["error"] in ("vision_unavailable", "vision_call_failed") else 422

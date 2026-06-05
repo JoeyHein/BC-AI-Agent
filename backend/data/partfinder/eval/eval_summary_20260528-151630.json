@@ -1,0 +1,24 @@
+{
+  "generated_at": "2026-05-28T21:16:30+00:00",
+  "manifest": "C:\\Users\\jhein\\bc-ai-agent\\backend\\data\\partfinder\\eval\\cover_manifest.csv",
+  "index_dir": "C:\\Users\\jhein\\bc-ai-agent\\backend\\data\\partfinder",
+  "model": "claude-sonnet-4-6",
+  "sources": [
+    "cover"
+  ],
+  "synthetic_cover_baseline": true,
+  "n_total": 98,
+  "n_scored": 0,
+  "n_errors": 0,
+  "n_dry_run": 98,
+  "metrics": {
+    "top1_brand_acc": null,
+    "top3_brand_acc": null,
+    "category_acc": null,
+    "catalog_match_rate": null,
+    "mean_top1_conf": null,
+    "latency_ms_p50": 0.0,
+    "latency_ms_p95": 0.0
+  },
+  "by_category": {}
+}

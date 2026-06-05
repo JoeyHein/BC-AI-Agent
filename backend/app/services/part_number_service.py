@@ -153,6 +153,9 @@ class DoorConfiguration:
     include_bumper_spring: bool = False
     include_track_guards: bool = False
     include_exhaust_port: bool = False
+    # Manual hand-chain hoist for motor-less commercial doors. One per door.
+    # None/'none' = no hoist, 'shaft' = SP12-00084-00, 'wall' = FH12-00190-00.
+    chain_hoist: Optional[str] = None
 
 
 # BC item codes for the optional extras above. Each flag maps to a LIST
@@ -883,7 +886,11 @@ class PartNumberService:
                 window_parts = self._get_window_parts(config)
                 parts.extend(window_parts)
 
-        if config.operator and config.operator != "NONE":
+        # Also runs for motor-less commercial doors that opt into a manual
+        # chain hoist — _get_operator_parts emits the hoist when operator is NONE.
+        has_operator = config.operator and config.operator != "NONE"
+        wants_chain_hoist = (config.chain_hoist or "").lower() in self.CHAIN_HOISTS
+        if has_operator or wants_chain_hoist:
             operator_parts = self._get_operator_parts(config)
             parts.extend(operator_parts)
 
@@ -3497,6 +3504,12 @@ class PartNumberService:
     CHAIN_RAILS = {7: "OP19-02004-00", 8: "OP19-02005-00", 10: "OP19-02006-00"}
     BELT_RAILS = {7: "OP19-02001-00", 8: "OP19-02002-00", 10: "OP19-02003-00"}
 
+    # Manual hand-chain hoist (commercial, motor-less doors). One per door.
+    CHAIN_HOISTS = {
+        "shaft": ("SP12-00084-00", "CHAIN HOIST SHAFT MOUNT 1\" BORE"),
+        "wall": ("FH12-00190-00", "CHAIN HOIST WALL MOUNT 1\" BORE"),
+    }
+
     def _get_operator_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get operator and accessory part numbers using real BC part numbers from catalog."""
         parts = []
@@ -3561,6 +3574,25 @@ class PartNumberService:
                     quantity=1,
                     category="operator"
                 ))
+
+        # Manual hand-chain hoist — commercial, motor-less doors only, one per
+        # door. A chain hoist IS the manual operation method, so it's mutually
+        # exclusive with an electric operator (guard against double-emit if a
+        # caller sends both). Mount type is the user's choice (shaft vs wall).
+        hoist_choice = (config.chain_hoist or "").lower()
+        has_operator = bool(config.operator) and config.operator != "NONE"
+        if (
+            hoist_choice in self.CHAIN_HOISTS
+            and config.door_type == "commercial"
+            and not has_operator
+        ):
+            hoist_pn, hoist_desc = self.CHAIN_HOISTS[hoist_choice]
+            parts.append(PartSelection(
+                part_number=hoist_pn,
+                description=hoist_desc,
+                quantity=1,
+                category="operator",
+            ))
 
         return parts
 
@@ -3733,6 +3765,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         hardware=config_dict.get("hardware", {}),
         operator=config_dict.get("operator"),
         operator_accessories=config_dict.get("operatorAccessories", []),
+        chain_hoist=config_dict.get("chainHoist"),
         target_cycles=config_dict.get("targetCycles", config_dict.get("target_cycles", 10000)),
         shaft_preference=config_dict.get("shaftType", "auto"),
         window_size=config_dict.get("windowSize", "long"),

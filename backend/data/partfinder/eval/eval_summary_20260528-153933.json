@@ -1,0 +1,67 @@
+{
+  "generated_at": "2026-05-28T21:39:33+00:00",
+  "manifest": "C:\\Users\\jhein\\bc-ai-agent\\backend\\data\\partfinder\\eval\\cover_manifest.csv",
+  "index_dir": "C:\\Users\\jhein\\bc-ai-agent\\backend\\data\\partfinder",
+  "model": "claude-sonnet-4-6",
+  "sources": [
+    "cover"
+  ],
+  "synthetic_cover_baseline": true,
+  "n_total": 98,
+  "n_scored": 98,
+  "n_errors": 0,
+  "n_dry_run": 0,
+  "metrics": {
+    "top1_brand_acc": 0.8265,
+    "top3_brand_acc": 0.8571,
+    "category_acc": 0.9082,
+    "catalog_match_rate": 0.9592,
+    "mean_top1_conf": 0.946,
+    "latency_ms_p50": 10500.0,
+    "latency_ms_p95": 14669.8
+  },
+  "by_category": {
+    "Dock Equipment": {
+      "n": 17,
+      "t1": 14,
+      "t3": 16,
+      "top1_acc": 0.8235,
+      "top3_acc": 0.9412
+    },
+    "Garage Door Springs": {
+      "n": 6,
+      "t1": 3,
+      "t3": 3,
+      "top1_acc": 0.5,
+      "top3_acc": 0.5
+    },
+    "Dock Seals & Shelters": {
+      "n": 5,
+      "t1": 3,
+      "t3": 3,
+      "top1_acc": 0.6,
+      "top3_acc": 0.6
+    },
+    "Garage Door Hardware": {
+      "n": 3,
+      "t1": 2,
+      "t3": 2,
+      "top1_acc": 0.6667,
+      "top3_acc": 0.6667
+    },
+    "Garage Door Panels": {
+      "n": 36,
+      "t1": 31,
+      "t3": 31,
+      "top1_acc": 0.8611,
+      "top3_acc": 0.8611
+    },
+    "Garage Door Operators": {
+      "n": 31,
+      "t1": 28,
+      "t3": 29,
+      "top1_acc": 0.9032,
+      "top3_acc": 0.9355
+    }
+  }
+}

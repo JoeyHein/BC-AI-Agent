@@ -1,0 +1,53 @@
+{
+  "generated_at": "2026-05-28T21:17:36+00:00",
+  "manifest": "C:\\Users\\jhein\\bc-ai-agent\\backend\\data\\partfinder\\eval\\cover_manifest.csv",
+  "index_dir": "C:\\Users\\jhein\\bc-ai-agent\\backend\\data\\partfinder",
+  "model": "claude-sonnet-4-6",
+  "sources": [
+    "cover"
+  ],
+  "synthetic_cover_baseline": true,
+  "n_total": 5,
+  "n_scored": 5,
+  "n_errors": 0,
+  "n_dry_run": 0,
+  "metrics": {
+    "top1_brand_acc": 0.8,
+    "top3_brand_acc": 0.8,
+    "category_acc": 1.0,
+    "catalog_match_rate": 0.8,
+    "mean_top1_conf": 0.996,
+    "latency_ms_p50": 10546.0,
+    "latency_ms_p95": 11501.4
+  },
+  "by_category": {
+    "Dock Equipment": {
+      "n": 2,
+      "t1": 1,
+      "t3": 1,
+      "top1_acc": 0.5,
+      "top3_acc": 0.5
+    },
+    "Garage Door Springs": {
+      "n": 1,
+      "t1": 1,
+      "t3": 1,
+      "top1_acc": 1.0,
+      "top3_acc": 1.0
+    },
+    "Dock Seals & Shelters": {
+      "n": 1,
+      "t1": 1,
+      "t3": 1,
+      "top1_acc": 1.0,
+      "top3_acc": 1.0
+    },
+    "Garage Door Hardware": {
+      "n": 1,
+      "t1": 1,
+      "t3": 1,
+      "top1_acc": 1.0,
+      "top3_acc": 1.0
+    }
+  }
+}

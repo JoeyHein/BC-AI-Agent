@@ -278,6 +278,17 @@
 .pf-mismatch p { margin: 0; font-size: 13px; line-height: 1.45; color: var(--steel); }
 .pf-mismatch-mark { flex: none; width: 20px; height: 20px; display: grid; place-items: center; font-family: var(--display); font-weight: 700; font-size: 13px; color: var(--paper-2); background: var(--amber); border-radius: 50%; }
 
+/* two-slot uploader (face + side profile) */
+.pf-slots { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pf-slot { display: flex; flex-direction: column; gap: 6px; }
+.pf-slot-head { display: flex; align-items: center; gap: 8px; min-height: 18px; }
+.pf-slot-label { font-family: var(--mono); font-size: 12px; color: var(--steel-2); text-transform: uppercase; letter-spacing: 0.04em; }
+.pf-slot-badge { font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink); background: var(--amber); border-radius: 2px; padding: 1px 5px; }
+.pf-drop-sm { min-height: 150px; padding: 14px; }
+.pf-drop-sm .pf-drop-sub { text-align: center; }
+.pf-drop.is-emph { border-color: var(--amber); }
+.pf-slot-tip { font-size: 12px; color: var(--muted); margin: 8px 0 0; line-height: 1.4; }
+
 .pf-region-row { margin-bottom: 24px; }
 .pf-pills { display: flex; flex-wrap: wrap; gap: 6px; }
 .pf-pill { font-family: var(--mono); font-size: 12px; padding: 6px 14px; border-radius: 100px; border: 1px solid var(--line); background: #fff; cursor: pointer; transition: all .15s; }

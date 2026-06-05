@@ -197,6 +197,262 @@ Analyze the following email and extract structured quote request information.
                 "confidence": 0.0
             }
 
+    def map_email_to_configurator(
+        self,
+        parsed_data: Dict[str, Any],
+        email_subject: str,
+        email_body: str,
+    ) -> Dict[str, Any]:
+        """Map AI-parsed email data into the door configurator's schema.
+
+        The configurator (POST /api/door-config/generate-quote) is the
+        authoritative quote engine. Its `DoorConfigRequest` needs far more
+        fields than a raw RFQ email contains (panelDesign, trackRadius,
+        liftType, hardware map, etc.). This step uses Claude to fill those
+        gaps intelligently and emit configurator-ready door configs so the
+        email flow produces the SAME parts and BC SalesPriceLists pricing as
+        the interactive configurator.
+
+        It also classifies the request:
+          - "door_quote"    -> full doors that can run through the configurator
+          - "parts_request" -> replacement parts (e.g. replacement panels,
+                                springs, sections). The portal has no
+                                replacement-product costing yet, so these are
+                                routed to manual pricing rather than guessed.
+
+        Returns:
+            {
+              "success": bool,
+              "request_kind": "door_quote" | "parts_request" | "unknown",
+              "doors": [ {<DoorConfigRequest fields>}, ... ],
+              "notes": str,
+              "confidence": float,
+            }
+        """
+        if not self.client:
+            return {
+                "success": False,
+                "error": "AI client not initialized",
+                "request_kind": "unknown",
+                "doors": [],
+                "confidence": 0.0,
+            }
+
+        doors_json = json.dumps(parsed_data.get("doors", []), indent=2)
+        project_json = json.dumps(parsed_data.get("project", {}), indent=2)
+
+        prompt = f"""You convert a parsed garage-door RFQ into the exact JSON \
+schema used by Open Distribution Company's door CONFIGURATOR. The configurator \
+is the single source of truth for parts and pricing, so your output MUST be a \
+valid configurator door config. Fill in any field the email did not specify \
+using the rules below.
+
+PARSED EMAIL DOORS:
+{doors_json}
+
+PROJECT INFO:
+{project_json}
+
+ORIGINAL EMAIL (for context/disambiguation):
+Subject: {email_subject}
+Body:
+{email_body[:4000]}
+
+---
+
+STEP 1 — CLASSIFY the request as one of:
+- "door_quote": one or more COMPLETE doors are being requested (has at least a
+  size or a clear door model). These can run through the configurator.
+- "parts_request": the customer wants REPLACEMENT PARTS only (e.g. "need 2
+  replacement panels", "bottom section", "torsion springs", "new struts") —
+  NOT a complete new door. We cannot price these yet, so do NOT fabricate door
+  configs for them.
+- "unknown": cannot tell.
+
+STEP 2 — If "door_quote", map EACH door to this configurator schema. Output
+EVERY field, using the defaults shown when the email is silent:
+
+{{
+  "doorType": "commercial",        // "residential" | "commercial" | "aluminium". DEFAULT "commercial" unless the email clearly indicates a residential/house door or an aluminium/full-view glass door.
+  "doorSeries": "TX450",           // commercial: TX450 (default), TX450-20, TX500, TX500-20. residential: KANATA (default) or CRAFT. aluminium: AL976 (default), SWD, Solalite, Panorama.
+  "doorWidth": 0,                   // INTEGER inches (feet*12 + inches). REQUIRED.
+  "doorHeight": 0,                  // INTEGER inches. REQUIRED.
+  "doorCount": 1,                   // quantity of identical doors
+  "panelColor": "WHITE",           // WHITE (default), BLACK, NEW_BROWN, SANDTONE, BRONZE, STEEL_GREY, IRON_ORE, NEW_ALMOND, WALNUT, HAZELWOOD, ENGLISH_CHESTNUT
+  "panelDesign": "FLUSH",          // commercial DEFAULT "FLUSH"; residential DEFAULT "SHXL"; others: UDC, BCXL, TRAFALGAR. Use what the email implies.
+  "hasWindows": false,
+  "windowQty": 0,                   // commercial window/section count if windows requested
+  "glazingType": null,              // e.g. "THERMOPANE", "SINGLE", "POLYCARBONATE" if mentioned
+  "trackThickness": "2",           // "2" (default) or "3"
+  "trackRadius": "15",             // "15" (default, for 2\" track) or "12" (for 3\" track)
+  "trackMount": "bracket",
+  "liftType": "standard",          // "standard" (default), "low_headroom", "high_lift", "vertical"
+  "highLiftInches": null,           // integer if liftType is high_lift
+  "hardware": {{"tracks": true, "springs": true, "shafts": true, "struts": true, "hardwareKits": true, "weatherStripping": true, "bottomRetainer": true}},
+  "operator": null,                 // operator/opener model if explicitly requested
+  "targetCycles": 10000,
+  "notes": ""                       // anything the configurator should know (special requests, ambiguities)
+}}
+
+RULES:
+- doorWidth/doorHeight are INTEGER INCHES. Convert feet+inches: 12'2\" -> 146.
+- If a door's size is entirely missing, still emit the door but set its size to
+  0 and add a note "size missing"; the caller will route it to manual review.
+- Keep doorSeries consistent with doorType (don't put TX450 on a residential door).
+- Do NOT invent windows, operators, or high-lift unless the email mentions them.
+- Be conservative: if unsure about a value, use the default and mention it in notes.
+
+OUTPUT FORMAT — JSON only, no prose:
+{{
+  "request_kind": "door_quote" | "parts_request" | "unknown",
+  "doors": [ {{...configurator door...}} ],   // [] for parts_request/unknown
+  "notes": "short summary of assumptions/defaults you applied",
+  "confidence": 0.0-1.0
+}}
+"""
+
+        try:
+            response = self.client.messages.create(
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=4000,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            content = response.content[0].text
+
+            if "```json" in content:
+                json_start = content.find("```json") + 7
+                json_end = content.find("```", json_start)
+                content = content[json_start:json_end].strip()
+            elif "```" in content:
+                json_start = content.find("```") + 3
+                json_end = content.find("```", json_start)
+                content = content[json_start:json_end].strip()
+
+            mapped = json.loads(content)
+            doors = self._normalize_configurator_doors(mapped.get("doors", []))
+
+            return {
+                "success": True,
+                "request_kind": mapped.get("request_kind", "unknown"),
+                "doors": doors,
+                "notes": mapped.get("notes", ""),
+                "confidence": float(mapped.get("confidence", 0.5) or 0.5),
+                "tokens": {
+                    "input": response.usage.input_tokens,
+                    "output": response.usage.output_tokens,
+                },
+            }
+
+        except json.JSONDecodeError as e:
+            logger.error(f"map_email_to_configurator JSON parse error: {e}")
+            return {
+                "success": False,
+                "error": f"JSON parsing error: {str(e)}",
+                "request_kind": "unknown",
+                "doors": [],
+                "confidence": 0.0,
+            }
+        except Exception as e:
+            logger.error(f"map_email_to_configurator failed: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "request_kind": "unknown",
+                "doors": [],
+                "confidence": 0.0,
+            }
+
+    @staticmethod
+    def _normalize_configurator_doors(doors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Coerce LLM-emitted door configs to valid configurator values.
+
+        Guarantees required fields exist and enum-ish fields hold known values.
+        The configurator still does the final authoritative validation
+        (validate_panel_combo + BC part-number checks); this just removes the
+        easy ways an LLM can drift (e.g. "2 inch" instead of "2", lowercase
+        colors, residential series on a commercial door).
+        """
+        VALID_TYPES = {"residential", "commercial", "aluminium"}
+        COLOR_MAP = {
+            "WHITE": "WHITE", "BLACK": "BLACK", "BROWN": "NEW_BROWN",
+            "NEW_BROWN": "NEW_BROWN", "ALMOND": "NEW_ALMOND",
+            "NEW_ALMOND": "NEW_ALMOND", "SANDTONE": "SANDTONE", "SAND": "SANDTONE",
+            "TAN": "SANDTONE", "BRONZE": "BRONZE", "GREY": "STEEL_GREY",
+            "GRAY": "STEEL_GREY", "STEEL_GREY": "STEEL_GREY",
+            "STEEL_GRAY": "STEEL_GREY", "WALNUT": "WALNUT", "IRON_ORE": "IRON_ORE",
+            "HAZELWOOD": "HAZELWOOD", "ENGLISH_CHESTNUT": "ENGLISH_CHESTNUT",
+            "CHESTNUT": "ENGLISH_CHESTNUT",
+        }
+        COMMERCIAL_SERIES = {"TX450", "TX450-20", "TX500", "TX500-20"}
+        RESIDENTIAL_SERIES = {"KANATA", "CRAFT"}
+        ALUMINIUM_SERIES = {"AL976", "SWD", "SOLALITE", "PANORAMA"}
+
+        normalized = []
+        for raw in doors:
+            d = dict(raw or {})
+
+            door_type = str(d.get("doorType", "commercial")).lower().strip()
+            if door_type not in VALID_TYPES:
+                door_type = "commercial"
+
+            series = str(d.get("doorSeries", "")).upper().strip().replace(" ", "")
+            if door_type == "commercial" and series not in COMMERCIAL_SERIES:
+                series = "TX450"
+            elif door_type == "residential" and series not in RESIDENTIAL_SERIES:
+                series = "KANATA"
+            elif door_type == "aluminium" and series not in ALUMINIUM_SERIES:
+                series = "AL976"
+
+            def _to_int(v):
+                try:
+                    return int(round(float(v)))
+                except (TypeError, ValueError):
+                    return 0
+
+            color_key = str(d.get("panelColor", "WHITE")).upper().replace(" ", "_")
+            panel_color = COLOR_MAP.get(color_key, color_key if color_key else "WHITE")
+
+            design = str(d.get("panelDesign", "") or "").upper().strip()
+            if not design:
+                design = "FLUSH" if door_type == "commercial" else "SHXL"
+
+            track_thickness = str(d.get("trackThickness", "2")).strip()
+            track_thickness = "3" if track_thickness.startswith("3") else "2"
+            track_radius = str(d.get("trackRadius", "") or "").strip()
+            if track_radius not in {"12", "15"}:
+                track_radius = "12" if track_thickness == "3" else "15"
+
+            hardware = d.get("hardware")
+            if not isinstance(hardware, dict) or not hardware:
+                hardware = {
+                    "tracks": True, "springs": True, "shafts": True,
+                    "struts": True, "hardwareKits": True,
+                    "weatherStripping": True, "bottomRetainer": True,
+                }
+
+            normalized.append({
+                "doorType": door_type,
+                "doorSeries": series,
+                "doorWidth": _to_int(d.get("doorWidth")),
+                "doorHeight": _to_int(d.get("doorHeight")),
+                "doorCount": max(1, _to_int(d.get("doorCount")) or 1),
+                "panelColor": panel_color,
+                "panelDesign": design,
+                "hasWindows": bool(d.get("hasWindows", False)),
+                "windowQty": _to_int(d.get("windowQty")),
+                "glazingType": d.get("glazingType") or None,
+                "trackThickness": track_thickness,
+                "trackRadius": track_radius,
+                "trackMount": str(d.get("trackMount", "bracket") or "bracket"),
+                "liftType": str(d.get("liftType", "standard") or "standard"),
+                "highLiftInches": _to_int(d.get("highLiftInches")) or None,
+                "hardware": hardware,
+                "operator": d.get("operator") or None,
+                "targetCycles": _to_int(d.get("targetCycles")) or 10000,
+                "notes": str(d.get("notes", "") or ""),
+            })
+        return normalized
+
     def analyze_email_category(self, email_subject: str, email_body: str) -> Dict[str, Any]:
         """Determine if email is a quote request or something else
 

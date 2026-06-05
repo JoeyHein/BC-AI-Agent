@@ -596,6 +596,7 @@ class DoorConfigRequest(BaseModel):
     hardware: Dict[str, bool] = {}
     operator: Optional[str] = None
     operatorAccessories: Optional[List[str]] = None
+    chainHoist: Optional[str] = None  # None/'none', 'shaft', or 'wall' — manual chain hoist
     notes: Optional[str] = None
     targetCycles: int = 10000
     shaftType: str = "auto"  # 'auto', 'single', 'split'
@@ -1109,6 +1110,7 @@ def build_bc_quote_from_doors(
                 "hardware": door.hardware,
                 "operator": door.operator,
                 "operatorAccessories": door.operatorAccessories or [],
+                "chainHoist": getattr(door, "chainHoist", None),
                 "targetCycles": door.targetCycles,
                 "shaftType": door.shaftType,
                 "includeTopSeal": getattr(door, 'includeTopSeal', False),
@@ -1909,6 +1911,7 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "hardware": door.hardware,
                 "operator": door.operator,
                 "operatorAccessories": door.operatorAccessories or [],
+                "chainHoist": getattr(door, "chainHoist", None),
                 "targetCycles": door.targetCycles,
                 "shaftType": door.shaftType,
                 "includeTopSeal": getattr(door, 'includeTopSeal', False),

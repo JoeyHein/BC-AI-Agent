@@ -7,14 +7,14 @@ import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 
+from fastapi import HTTPException
+
 from app.integrations.email.client import graph_client
 from app.integrations.ai.client import ai_client
 from app.db.database import SessionLocal
-from app.db.models import EmailLog, QuoteRequest, AIDecision
+from app.db.models import EmailLog, QuoteRequest, AIDecision, QuoteItem, BCCustomer
 from app.config import settings
 from app.services.memory_service import get_memory_service
-from app.services.quote_service import QuoteGenerationService
-from app.services.bc_quote_service import BCQuoteService
 
 logger = logging.getLogger(__name__)
 
@@ -409,52 +409,162 @@ class EmailMonitorService:
                    f"Customer: {quote_request.customer_name}, "
                    f"Doors: {len(doors)}")
 
-        # AUTO-GENERATE QUOTE: Immediately generate quote items and create in BC
+        # AUTO-GENERATE QUOTE via the door CONFIGURATOR — the single source of
+        # truth for parts, line ordering, and BC SalesPriceLists pricing. This
+        # replaces the legacy QuoteGenerationService margin-pricing path so an
+        # emailed RFQ produces the exact same quote the interactive
+        # configurator would for the same door.
         if confidence >= 0.7 and doors:  # Only auto-generate for reasonable confidence with doors
             try:
-                logger.info(f"  -> Auto-generating quote for request {quote_request.id}")
+                logger.info(f"  -> Mapping email to configurator schema for request {quote_request.id}")
+                mapping = self.ai_client.map_email_to_configurator(parsed_data, subject, body)
+                request_kind = mapping.get("request_kind", "unknown")
 
-                # Step 1: Generate quote items with BC part numbers
-                quote_service = QuoteGenerationService(db)
-                quote_result = quote_service.generate_quote(quote_request.id)
+                if not mapping.get("success"):
+                    logger.warning(f"  -> Configurator mapping failed ({mapping.get('error')}); manual review")
+                    quote_request.status = "needs_manual_review"
+                    db.commit()
+                    return
 
-                logger.info(f"  -> Generated {len(quote_result.get('line_items', []))} line items, "
-                           f"Total: ${quote_result.get('total', 0):.2f}")
+                # Persist the mapping for the review UI / audit regardless of path.
+                quote_request.parsed_data = {**parsed_data, "configurator_mapping": mapping}
 
-                # Step 2: Create quote in Business Central
-                bc_quote_service = BCQuoteService()
-                bc_result = bc_quote_service.create_quote_in_bc(
-                    db=db,
-                    quote_request=quote_request,
-                    user_id="system",
-                    approved_by="auto-generated"
+                if request_kind == "parts_request":
+                    # Replacement parts (panels, sections, springs) have no
+                    # portal costing yet — never guess a price. Route to a human.
+                    logger.info("  -> Classified as parts/replacement request; routing to manual pricing")
+                    quote_request.status = "needs_manual_pricing"
+                    db.commit()
+                    return
+
+                mapped_doors = mapping.get("doors", [])
+                if not mapped_doors or any(
+                    (d.get("doorWidth", 0) or 0) <= 0 or (d.get("doorHeight", 0) or 0) <= 0
+                    for d in mapped_doors
+                ):
+                    logger.info("  -> Mapped doors missing dimensions; routing to manual review")
+                    quote_request.status = "needs_manual_review"
+                    db.commit()
+                    return
+
+                # Resolve BC customer (local lookup only; CASH/retail fallback).
+                customer_id = self._resolve_bc_customer_id(db, quote_request)
+
+                # Lazy import avoids any api<->service import cycle at module load.
+                from app.api.door_configurator import (
+                    build_bc_quote_from_doors,
+                    QuoteGenerationRequest,
+                    DoorConfigRequest,
                 )
 
-                if bc_result.get("success"):
-                    logger.info(f"  -> BC Quote created: {bc_result.get('bc_quote_number')}")
-                    quote_request.status = "bc_created"
+                cfg_request = QuoteGenerationRequest(
+                    doors=[DoorConfigRequest(**d) for d in mapped_doors],
+                    customerId=customer_id,
+                    tagName=(project.get("tag") or project.get("name")
+                             or quote_request.customer_name or "Email Quote"),
+                    poNumber=f"EMAIL-QR-{quote_request.id}",
+                    deliveryType="delivery",
+                )
 
-                    # CUSTOMER LEARNING: Learn from successful quote
+                logger.info(f"  -> Generating BC quote via configurator for {len(mapped_doors)} door(s)")
+                result = build_bc_quote_from_doors(cfg_request, db, source="email")
+                data = result.get("data", {}) if isinstance(result, dict) else {}
+                bc_quote_number = data.get("bc_quote_number")
+
+                # Mirror the configurator's BC line pricing into local QuoteItems
+                # so the existing review UI shows real BC prices, not placeholders.
+                self._persist_quote_items_from_pricing(
+                    db, quote_request.id, data.get("line_pricing") or []
+                )
+
+                if bc_quote_number:
+                    quote_request.bc_quote_id = bc_quote_number
+                    quote_request.status = "bc_created"
+                    logger.info(
+                        f"  -> BC Quote created via configurator: {bc_quote_number} "
+                        f"(total ${(data.get('pricing') or {}).get('total', 0):.2f})"
+                    )
                     try:
                         memory_service.learn_customer_preferences(
                             customer_email=quote_request.contact_email,
                             customer_name=quote_request.customer_name,
                             quote_request=quote_request
                         )
-                        logger.info(f"  -> Learned customer preferences for {quote_request.contact_email}")
                     except Exception as e:
                         logger.warning(f"Failed to learn customer preferences: {e}")
                 else:
-                    logger.warning(f"  -> Failed to create BC quote: {bc_result.get('error')}")
-                    quote_request.status = "quote_generated"  # Items generated but BC failed
+                    quote_request.status = "quote_generated"
+                    logger.warning("  -> Configurator returned no BC quote number")
 
                 db.commit()
 
+            except HTTPException as he:
+                # Configurator rejected the config (unstocked combo, panel not
+                # in BC, etc.) — it already cleaned up any partial BC quote.
+                logger.warning(f"  -> Configurator validation failed ({he.detail}); manual review")
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+                quote_request.status = "needs_manual_review"
+                db.commit()
             except Exception as e:
                 logger.error(f"  -> Auto-generation failed: {e}", exc_info=True)
                 # Don't fail the whole parse - just log and continue
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
                 quote_request.status = "pending"  # Fall back to manual review
                 db.commit()
+
+    def _resolve_bc_customer_id(self, db, quote_request: QuoteRequest) -> Optional[str]:
+        """Best-effort local lookup of the BC customer for pricing.
+
+        Returns the BC customer id (so the configurator resolves the correct
+        SalesPriceLists group) or None to fall back to the CASH/retail
+        customer. Read-only — never creates a BC customer from an unverified
+        inbound email.
+        """
+        email = (quote_request.contact_email or "").strip()
+        name = (quote_request.customer_name or "").strip()
+        match = None
+        if email:
+            match = db.query(BCCustomer).filter(BCCustomer.email.ilike(email)).first()
+        if not match and name:
+            match = db.query(BCCustomer).filter(BCCustomer.company_name.ilike(name)).first()
+        if match:
+            logger.info(f"  -> Matched BC customer {match.bc_customer_id} ({match.company_name})")
+            return match.bc_customer_id
+        logger.info("  -> No BC customer match; using CASH/retail pricing")
+        return None
+
+    def _persist_quote_items_from_pricing(self, db, quote_request_id: int,
+                                          line_pricing: List[Dict[str, Any]]):
+        """Mirror the configurator's BC line pricing into local QuoteItem rows.
+
+        Keeps the existing review/approval UI working while ensuring the prices
+        it shows are the authoritative BC SalesPriceLists prices, not the
+        legacy placeholder margins.
+        """
+        db.query(QuoteItem).filter(
+            QuoteItem.quote_request_id == quote_request_id
+        ).delete()
+        for line in line_pricing:
+            try:
+                qty = int(round(float(line.get("quantity", 1) or 1)))
+            except (TypeError, ValueError):
+                qty = 1
+            db.add(QuoteItem(
+                quote_request_id=quote_request_id,
+                item_type="door_part",
+                product_code=line.get("part_number"),
+                description=(line.get("description") or "")[:1000],
+                quantity=qty,
+                unit_price=line.get("unit_price", 0) or 0,
+                total_price=line.get("line_total", 0) or 0,
+                item_metadata={"source": "configurator"},
+            ))
 
     def _parse_quote_modification(self, db, email_log: EmailLog, subject: str, body: str,
                                    from_name: str, from_address: str,

@@ -286,3 +286,47 @@ class TestHighLiftExtension:
         parts = _get_parts({"liftType": "standard"})
         hl_parts = _by_category(parts, "highlift_track")
         assert len(hl_parts) == 0, "Standard lift should NOT have extension track"
+
+
+# ── Manual chain hoist ───────────────────────────────────────────────────
+
+class TestChainHoist:
+    """Manual hand-chain hoist: commercial, motor-less doors only, 1 per door.
+    'shaft' -> SP12-00084-00, 'wall' -> FH12-00190-00."""
+
+    _COMMERCIAL = {
+        "doorType": "commercial", "doorSeries": "TX450",
+        "panelDesign": "UDC", "operator": "NONE",
+    }
+
+    def _hoist_parts(self, parts):
+        return [p for p in parts
+                if (p.get("part_number") or "").startswith(("SP12-00084", "FH12-00190"))]
+
+    def test_shaft_mount_emits_part(self):
+        parts = _get_parts({**self._COMMERCIAL, "chainHoist": "shaft"})
+        hoists = self._hoist_parts(parts)
+        assert len(hoists) == 1, "Shaft hoist should emit exactly one part"
+        assert hoists[0]["part_number"] == "SP12-00084-00"
+        assert hoists[0]["quantity"] == 1
+        assert hoists[0]["category"] == "operator", "Must be operator category for Output=True"
+
+    def test_wall_mount_emits_part(self):
+        parts = _get_parts({**self._COMMERCIAL, "chainHoist": "wall"})
+        hoists = self._hoist_parts(parts)
+        assert len(hoists) == 1 and hoists[0]["part_number"] == "FH12-00190-00"
+
+    def test_none_emits_nothing(self):
+        for val in ("none", None):
+            parts = _get_parts({**self._COMMERCIAL, "chainHoist": val})
+            assert len(self._hoist_parts(parts)) == 0
+
+    def test_residential_does_not_emit(self):
+        parts = _get_parts({"doorType": "residential", "chainHoist": "shaft"})
+        assert len(self._hoist_parts(parts)) == 0, "Chain hoist is commercial-only"
+
+    def test_operator_present_suppresses_hoist(self):
+        # A chain hoist is the manual option — mutually exclusive with a motor.
+        parts = _get_parts({**self._COMMERCIAL, "operator": "OP19-01048-00",
+                            "chainHoist": "shaft"})
+        assert len(self._hoist_parts(parts)) == 0

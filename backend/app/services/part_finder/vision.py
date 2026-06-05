@@ -37,7 +37,7 @@ _SYSTEM = (
 
 
 def _build_prompt(brand_block: str, category_label: Optional[str], note: Optional[str],
-                  scoped: bool) -> str:
+                  scoped: bool, has_side: bool = False) -> str:
     if scoped and category_label:
         cat_line = (
             f"\nThe user selected the **{category_label}** category, and ONLY "
@@ -50,8 +50,14 @@ def _build_prompt(brand_block: str, category_label: Optional[str], note: Optiona
         cat_line = f"\nThe user believes this is in the category: {category_label}."
     else:
         cat_line = ""
+    side_line = (
+        "\nTwo photos are provided — a face/front view and a SIDE PROFILE (edge-on). "
+        "For panels especially, read panel thickness and the joint / meeting-rail "
+        "profile from the side view; those edge-on cues are the strongest discriminators."
+        if has_side else ""
+    )
     note_line = f"\nUser note: {note}" if note else ""
-    return f"""Identify the product in the image.{cat_line}{note_line}
+    return f"""Identify the product in the image(s).{cat_line}{side_line}{note_line}
 
 These are the brands available in our catalog (use these names when a match is plausible; you may also name a brand not listed if the evidence is strong):
 {brand_block}
@@ -108,6 +114,12 @@ def _match_documents(store: PartFinderStore, brand: str, category: Optional[str]
     return out[:limit]
 
 
+def _image_block(image_bytes: bytes, media_type: str) -> dict:
+    b64 = base64.standard_b64encode(image_bytes).decode("ascii")
+    return {"type": "image",
+            "source": {"type": "base64", "media_type": media_type, "data": b64}}
+
+
 def identify_image(
     image_bytes: bytes,
     media_type: str,
@@ -115,9 +127,15 @@ def identify_image(
     api_key: Optional[str],
     hint_category: Optional[str] = None,
     note: Optional[str] = None,
+    side_image_bytes: Optional[bytes] = None,
+    side_media_type: Optional[str] = None,
 ) -> dict:
     if media_type not in SUPPORTED_MEDIA:
         return {"error": f"unsupported image type: {media_type}",
+                "supported": sorted(SUPPORTED_MEDIA)}
+    has_side = side_image_bytes is not None
+    if has_side and side_media_type not in SUPPORTED_MEDIA:
+        return {"error": f"unsupported image type: {side_media_type}",
                 "supported": sorted(SUPPORTED_MEDIA)}
     if not api_key:
         return {"error": "vision_unavailable",
@@ -134,24 +152,27 @@ def identify_image(
         store.brand_summaries(category=scope_code) if store.available
         else "(catalog index unavailable)"
     )
-    prompt = _build_prompt(brand_block, scope_label or hint_category, note, scoped)
-    b64 = base64.standard_b64encode(image_bytes).decode("ascii")
+    prompt = _build_prompt(brand_block, scope_label or hint_category, note, scoped, has_side)
+
+    # Order images face-first, then the (more discriminating) side profile, each
+    # labeled so the model knows which view it's reading.
+    content: list[dict] = []
+    if has_side:
+        content.append({"type": "text", "text": "Image 1 — face / front view:"})
+        content.append(_image_block(image_bytes, media_type))
+        content.append({"type": "text",
+                        "text": "Image 2 — SIDE PROFILE (edge-on view of the same product):"})
+        content.append(_image_block(side_image_bytes, side_media_type))
+    else:
+        content.append(_image_block(image_bytes, media_type))
+    content.append({"type": "text", "text": prompt})
 
     try:
         resp = client.messages.create(
             model=VISION_MODEL,
             max_tokens=1024,
             system=_SYSTEM,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image",
-                         "source": {"type": "base64", "media_type": media_type, "data": b64}},
-                        {"type": "text", "text": prompt},
-                    ],
-                }
-            ],
+            messages=[{"role": "user", "content": content}],
         )
     except Exception as e:
         logger.exception("Vision API call failed")

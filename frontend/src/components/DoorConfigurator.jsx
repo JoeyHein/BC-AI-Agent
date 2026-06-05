@@ -119,6 +119,7 @@ function DoorConfigurator() {
       },
       operator: 'NONE',
       operatorAccessories: [],  // Array of accessory part numbers
+      chainHoist: 'none',  // 'none' | 'shaft' (SP12-00084-00) | 'wall' (FH12-00190-00)
       // Spring and shaft options
       targetCycles: 10000,
       shaftType: 'auto', // 'auto', 'single', 'split'
@@ -241,6 +242,7 @@ function DoorConfigurator() {
         hardware: door.hardware,
         operator: door.operator !== 'NONE' ? door.operator : null,
         operatorAccessories: (door.operatorAccessories || []).length > 0 ? door.operatorAccessories : undefined,
+        chainHoist: door.chainHoist && door.chainHoist !== 'none' ? door.chainHoist : undefined,
         // Spring and shaft options
         targetCycles: door.targetCycles || 10000,
         shaftType: door.shaftType || 'auto',
@@ -2748,7 +2750,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
                   {items.map((op) => (
                     <button
                       key={op.id}
-                      onClick={() => !op.disabled && onChange({ operator: op.id })}
+                      onClick={() => !op.disabled && onChange({ operator: op.id, chainHoist: 'none' })}
                       disabled={op.disabled}
                       className={`p-3 rounded-lg border-2 text-left transition-all ${
                         op.disabled
@@ -2770,6 +2772,40 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
           )
         })}
       </div>
+
+      {/* Manual Chain Hoist — commercial, motor-less doors only (1 per door) */}
+      {door.doorType === 'commercial' && (door.operator === 'NONE' || !door.operator) && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Manual Chain Hoist
+          </label>
+          <p className="text-xs text-gray-500 mb-2">
+            Hand-chain operation for doors without a motor. One per door.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            {[
+              { id: 'none', name: 'None', desc: 'Push-up / manual', pn: '' },
+              { id: 'shaft', name: 'Shaft Mount', desc: 'Standard / vertical lift', pn: 'SP12-00084-00' },
+              { id: 'wall', name: 'Wall Mount', desc: 'High-lift / tight headroom', pn: 'FH12-00190-00' },
+            ].map((opt) => {
+              const selected = (door.chainHoist || 'none') === opt.id
+              return (
+                <button
+                  key={opt.id}
+                  onClick={() => onChange({ chainHoist: opt.id })}
+                  className={`p-3 rounded-lg border-2 text-left transition-all ${
+                    selected ? 'border-odc-500 bg-odc-50' : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <h4 className="font-medium text-gray-900 text-sm">{opt.name}</h4>
+                  <p className="mt-0.5 text-xs text-gray-400">{opt.desc}</p>
+                  {opt.pn && <p className="mt-0.5 text-xs text-gray-300">{opt.pn}</p>}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Operator Accessories */}
       {Object.keys(accessoryBrands).length > 0 && (
@@ -2895,6 +2931,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
             hardware: door.hardware,
             operator: door.operator !== 'NONE' ? door.operator : null,
             operatorAccessories: (door.operatorAccessories || []).length > 0 ? door.operatorAccessories : undefined,
+        chainHoist: door.chainHoist && door.chainHoist !== 'none' ? door.chainHoist : undefined,
             includeTopSeal: door.includeTopSeal || false,
         includePusherSprings: door.includePusherSprings || false,
           }))

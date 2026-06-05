@@ -33,9 +33,10 @@ export const partFinder = {
   coverUrl: (id) => `${BASE}/cover/${id}`,
   pdfUrl: (id) => `${BASE}/pdf/${id}`,
 
-  async identify({ file, category, note }) {
+  async identify({ file, sideFile, category, note }) {
     const fd = new FormData();
     fd.append('image', file);
+    if (sideFile) fd.append('side_image', sideFile);
     if (category) fd.append('category', category);
     if (note) fd.append('note', note);
     const res = await fetch(BASE + '/identify', {
