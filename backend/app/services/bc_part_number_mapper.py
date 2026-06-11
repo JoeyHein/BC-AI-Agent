@@ -277,6 +277,13 @@ class BCPartNumberMapper:
         "ENGLISH CHESTNUT": "55",
     }
 
+    # Woodgrain finishes that BC does not stock a dedicated weather-strip
+    # SKU for are sealed with a stocked substitute color. French Oak (35)
+    # has no PL10/PL11 strip parts, so its weather seal is New Almond (30).
+    WEATHER_STRIP_COLOR_SUBSTITUTIONS = {
+        "FRENCH OAK": "NEW ALMOND",
+    }
+
     # Weather strip part numbers by length and color
     # PL10 format: PL10-{height}203-{color} (galvanized steel/flexible vinyl)
     # PL11 format: PL11-{1|2}2{height}2-{color} (dual fin, alum/vinyl)
@@ -617,6 +624,15 @@ class BCPartNumberMapper:
             category="SPRING_ACCESSORY"
         )
 
+    def resolve_weather_strip_color(self, color: str) -> str:
+        """Map a panel finish to its stocked weather-strip color.
+
+        Most colors seal in their own color, but woodgrain finishes BC does
+        not stock a strip SKU for (e.g. French Oak) are substituted to a
+        stocked equivalent. Returns the original color if no substitution.
+        """
+        return self.WEATHER_STRIP_COLOR_SUBSTITUTIONS.get(color.upper(), color)
+
     def get_weather_stripping(
         self,
         door_height_feet: int,
@@ -659,6 +675,9 @@ class BCPartNumberMapper:
                 pn = f"PL10-{length_ft:02d}203-{color_code}"
             return pn in self.bc_items
 
+        # Substitute woodgrain finishes with no dedicated strip SKU (e.g.
+        # French Oak -> New Almond) so we resolve to a real, stocked part.
+        color = self.resolve_weather_strip_color(color)
         color_code = self.COLOR_CODES.get(color.upper(), "00")
         color_upper = color.upper()
 

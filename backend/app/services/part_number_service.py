@@ -2312,7 +2312,10 @@ class PartNumberService:
 
         door_height_feet = _strip_feet(config.door_height)
         door_width_feet = _strip_feet(config.door_width)
-        color = config.panel_color.replace("_", " ")
+        # Resolve the seal color up front so both the part lookup and the
+        # human-readable description reflect any substitution (e.g. a French
+        # Oak panel seals in New Almond, which is the stocked strip color).
+        color = mapper.resolve_weather_strip_color(config.panel_color.replace("_", " "))
         is_commercial = config.door_type == "commercial"
 
         # Helper to format actual dimension display string (e.g. 90" → "7'6\"")

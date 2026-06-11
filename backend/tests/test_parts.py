@@ -244,6 +244,36 @@ class TestTopSeal:
         assert len(top_seals) >= 1, "Commercial 20'x12' should always have top seal"
 
 
+# ── Weather stripping color substitution ───────────────────────────────────
+
+class TestWeatherStripColor:
+    """French Oak has no weather-strip SKU in BC; it seals in New Almond.
+
+    Regression for SQ-002677 (French Oak weather stripping dropped because
+    PL10-..-35 does not exist in the BC catalog).
+    """
+
+    def test_french_oak_resolves_to_new_almond(self):
+        mapper = get_bc_mapper()
+        assert mapper.resolve_weather_strip_color("French Oak") == "NEW ALMOND"
+        assert mapper.resolve_weather_strip_color("FRENCH OAK") == "NEW ALMOND"
+        # Non-substituted colors pass through unchanged
+        assert mapper.resolve_weather_strip_color("White") == "White"
+        assert mapper.resolve_weather_strip_color("Walnut") == "Walnut"
+
+    def test_french_oak_seal_parts_exist_in_bc(self):
+        mapper = get_bc_mapper()
+        parts = _get_parts({"panelColor": "French Oak"})
+        strips = _by_category(parts, "weather_stripping")
+        assert strips, "French Oak door produced no weather stripping"
+        for s in strips:
+            pn = s["part_number"]
+            assert pn in mapper.bc_items, f"French Oak strip {pn} not in BC catalog"
+            assert pn.endswith("-30"), f"Expected New Almond (-30) strip, got {pn}"
+            assert "NEW ALMOND" in s["description"], \
+                f"Strip description should say NEW ALMOND, got: {s['description']}"
+
+
 # ── Comment line ──────────────────────────────────────────────────────────
 
 class TestCommentLine:
