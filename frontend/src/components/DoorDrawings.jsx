@@ -66,6 +66,7 @@ function DoorDrawings({
     windowSize = 'long',
     windowSection = 1,
     windowQty = 0,
+    windowPanels = null,
     windowFrameColor = 'MATCH',
     hasInserts = false,
     glassColor = 'CLEAR',
@@ -123,6 +124,7 @@ function DoorDrawings({
       windowSize: windowSize || 'long',
       windowSection: windowSection || 1,
       windowQty: windowQty || 0,
+      windowPanels: windowPanels || null,
       windowFrameColor: windowFrameColor || 'MATCH',
       glassColor: glassColor || 'CLEAR',
       glassPocketsPerSection: glassPocketsPerSection || null,
@@ -306,6 +308,7 @@ function DoorDrawings({
                 windowSize={windowSize}
                 windowSection={windowSection}
                 windowQty={windowQty}
+                windowPanels={windowPanels}
                 windowFrameColor={windowFrameColor}
                 hasInserts={hasInserts}
                 glassColor={glassColor}
