@@ -35,11 +35,9 @@ PROVINCE_NAME_TO_CODE = {
 def get_default_freight_config() -> Dict[str, Any]:
     """Hardcoded default freight configuration."""
     return {
-        "default_rate": 5.0,
+        "default_rate": 9.0,
         "province_overrides": {
-            "SK": 7.0,
-            "MB": 7.0,
-            "BC": 7.0,
+            "AB": 7.0,
         },
         "freight_item_number": "FREIGHT",
         "fallback_to_comment": True,
