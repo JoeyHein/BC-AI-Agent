@@ -260,8 +260,15 @@ def search_bc_customers(
     db: Session = Depends(get_db)
 ):
     """Search BC customers for linking to portal accounts"""
-    # Get all BC customers from cache
-    bc_customers = db.query(BCCustomer).all()
+    # Get all BC customers from cache. Exclude "TEMP-<email>" placeholders: these
+    # are stand-ins the legacy email-quote path writes for users not yet linked to
+    # a real BC customer. They are not valid BC accounts (quote generation rejects
+    # any TEMP- id), so they must never appear in the link dropdown.
+    bc_customers = (
+        db.query(BCCustomer)
+        .filter(~BCCustomer.bc_customer_id.like("TEMP-%"))
+        .all()
+    )
 
     # Filter by search query if provided
     if q:
