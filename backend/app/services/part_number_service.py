@@ -3144,24 +3144,39 @@ class PartNumberService:
         """
         desired = f"{pn_prefix}-{hh}{w}{fff}{pp}-{wwww}"
 
-        # 1. Exact V130G/V230G part.
-        if desired in mapper.bc_items:
-            return desired, False, False
+        # Candidate positions in order of physical preference: the requested
+        # position, then INT. BC stops stocking TOP/BOT full-view sections past
+        # ~20' wide (only INT is carried at 22'+), and TOP/BOT can also be absent
+        # in some finishes. The INT section at the exact width is the canonical
+        # full-view section and a far better substitute than a wider TOP/BOT, so
+        # try INT at the requested size before bumping size.
+        int_pp = {"10": "20", "20": "20", "30": "20",   # SEF: 20 = INT
+                  "45": "52", "52": "52", "61": "52"}.get(pp, pp)  # DEF: 52 = INT
+        positions = [pp] if pp == int_pp else [pp, int_pp]
 
-        # 2. Next bigger size in the same family.
-        alt = self._find_stocked_section(mapper, pn_prefix, hh, fff, pp, wwww)
-        if alt:
-            return alt, False, True
+        # 1. Exact V130G/V230G part (requested position, then INT) at the requested size.
+        for cand_pp in positions:
+            cand = f"{pn_prefix}-{hh}{w}{fff}{cand_pp}-{wwww}"
+            if cand in mapper.bc_items:
+                return cand, False, False
 
-        # 3. AL976 substitute at the same size (identical body encoding → prefix swap).
-        al_exact = f"PN97-{hh}{w}{fff}{pp}-{wwww}"
-        if al_exact in mapper.bc_items:
-            return al_exact, True, False
+        # 2. Next bigger size in the same family (requested position, then INT).
+        for cand_pp in positions:
+            alt = self._find_stocked_section(mapper, pn_prefix, hh, fff, cand_pp, wwww)
+            if alt:
+                return alt, False, True
 
-        # 4. Next bigger AL976 size.
-        alt97 = self._find_stocked_section(mapper, "PN97", hh, fff, pp, wwww)
-        if alt97:
-            return alt97, True, alt97 != f"PN97-{hh}{w}{fff}{pp}-{wwww}"
+        # 3. AL976 substitute (identical body encoding → prefix swap), requested then INT.
+        for cand_pp in positions:
+            al_exact = f"PN97-{hh}{w}{fff}{cand_pp}-{wwww}"
+            if al_exact in mapper.bc_items:
+                return al_exact, True, False
+
+        # 4. Next bigger AL976 size (requested position, then INT).
+        for cand_pp in positions:
+            alt97 = self._find_stocked_section(mapper, "PN97", hh, fff, cand_pp, wwww)
+            if alt97:
+                return alt97, True, alt97 != f"PN97-{hh}{w}{fff}{cand_pp}-{wwww}"
 
         # 5. Nothing stocked — emit the original and let the caller flag it.
         return desired, False, False
@@ -3262,8 +3277,25 @@ class PartNumberService:
                 mapper, pn_prefix, hh, w, fff, pp, wwww
             )
 
+            # Detect a position fallback (e.g. TOP/BOT → INT): BC does not stock
+            # TOP/BOT full-view sections at every width, so the resolver may have
+            # substituted the INT section. Reflect the actual part in the label/note.
+            pos_label_by_code = {"10": "TOP", "20": "INT", "30": "BOT",
+                                 "45": "TOP", "52": "INT", "61": "BOT"}
+            resolved_segs = resolved_pn.split("-")
+            resolved_pp = resolved_segs[1][6:8] if len(resolved_segs) == 3 and len(resolved_segs[1]) >= 8 else pp
+            position_substituted = resolved_pp != pp
+            actual_position = pos_label_by_code.get(resolved_pp, position)
+
             section_model = "AL976" if used_al976 else model_name
             note = f"Full view aluminum section - replaces insulated panel at section {section_num}"
+            if position_substituted:
+                note += (f" | {position} {end_cap_label} not stocked at this width — "
+                         f"substituted {actual_position} {end_cap_label} section {resolved_pn}")
+                logger.info(
+                    f"V130G fallback: {pn_prefix}-{hh}{w}{fff}{pp}-{wwww} ({position} {end_cap_label}) "
+                    f"not stocked, substituting {actual_position} {end_cap_label} {resolved_pn}"
+                )
             if used_al976:
                 note += f" | {model_name} {finish_name} not stocked in BC — substituted AL976 equivalent {resolved_pn}"
                 logger.info(
@@ -3278,7 +3310,7 @@ class PartNumberService:
 
             parts.append(PartSelection(
                 part_number=resolved_pn,
-                description=f"{section_model} FULL VIEW SECTION, {section_height}\" x {width_ft}'{width_extra}\", {position} {end_cap_label}, {finish_name}",
+                description=f"{section_model} FULL VIEW SECTION, {section_height}\" x {width_ft}'{width_extra}\", {actual_position} {end_cap_label}, {finish_name}",
                 quantity=1,
                 category="v130g_section",
                 notes=note

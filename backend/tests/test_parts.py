@@ -161,6 +161,24 @@ class TestV130GFallback:
                 f"{color}: {s['part_number']} is not a stocked BC item"
             )
 
+    def test_wide_door_top_section_falls_back_to_int(self):
+        """BC only stocks the INT full-view section past ~20' wide (no TOP/BOT
+        DEF at 22'+). A 24' wide door's TOP section must resolve to the stocked
+        INT part (PN10-24600352-2402), not a non-existent TOP part."""
+        mapper = get_bc_mapper()
+        # 24' wide × 8' tall commercial → 24" DEF sections, width code 2402.
+        sections = self._sections(
+            self._v130g_door(doorWidth=288, doorHeight=96, windowQty=2, windowSection=1)
+        )
+        assert sections, "expected V130G full-view sections for a 24' door"
+        for s in sections:
+            assert s["part_number"] in mapper.bc_items, (
+                f"{s['part_number']} not stocked in BC (position fallback failed)"
+            )
+        # The top-most section cannot be the unstocked TOP part; INT is stocked.
+        assert "PN10-24600345-2402" not in [s["part_number"] for s in sections]
+        assert "PN10-24600352-2402" in [s["part_number"] for s in sections]
+
 
 # ── Hardware boxes ────────────────────────────────────────────────────────
 
