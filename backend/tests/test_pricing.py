@@ -1,7 +1,7 @@
 """Pricing and freight tests.
 
 Covers:
-- Freight province normalization (Manitoba = MB = 7%)
+- Freight province normalization (Manitoba = MB); default 9%, AB override 7%
 - Glazing margins loaded correctly (not blank)
 - Glass kit pricing uses glazing margins
 """
@@ -42,17 +42,23 @@ class TestProvinceNormalization:
 # ── Freight rates ─────────────────────────────────────────────────────────
 
 class TestFreightRates:
-    def test_manitoba_not_default_rate(self):
+    def test_default_rate_is_9_percent(self):
         config = get_default_freight_config()
-        default = config["default_rate"]
-        mb_rate = config["province_overrides"].get("MB")
-        assert mb_rate is not None, "Manitoba should have a freight override"
-        assert mb_rate != default, f"Manitoba rate ({mb_rate}) should differ from default ({default})"
+        assert config["default_rate"] == 9.0
 
-    def test_sk_bc_have_overrides(self):
+    def test_ab_override_differs_from_default(self):
         config = get_default_freight_config()
-        assert "SK" in config["province_overrides"]
-        assert "BC" in config["province_overrides"]
+        ab_rate = config["province_overrides"].get("AB")
+        assert ab_rate == 7.0, "Alberta freight override should be 7%"
+        assert ab_rate != config["default_rate"]
+
+    def test_other_provinces_use_default_rate(self):
+        # Only Alberta carries an override now; MB/SK/BC fall through to the default.
+        config = get_default_freight_config()
+        for code in ("MB", "SK", "BC"):
+            assert code not in config["province_overrides"], (
+                f"{code} should no longer have a freight override (uses default)"
+            )
 
 
 # ── Tier margins ──────────────────────────────────────────────────────────
