@@ -795,7 +795,14 @@ function DimensionsStep({ door, onChange, series }) {
           <input
             type="number"
             value={door.doorCount}
-            onChange={(e) => onChange({ doorCount: parseInt(e.target.value) || 1 })}
+            onChange={(e) => {
+              const raw = e.target.value
+              onChange({ doorCount: raw === '' ? '' : (parseInt(raw, 10) || 1) })
+            }}
+            onBlur={(e) => {
+              const n = parseInt(e.target.value, 10)
+              onChange({ doorCount: !n || n < 1 ? 1 : Math.min(100, n) })
+            }}
             min={1}
             max={100}
             className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
@@ -837,7 +844,14 @@ function DimensionsStep({ door, onChange, series }) {
           <input
             type="number"
             value={door.doorCount}
-            onChange={(e) => onChange({ doorCount: parseInt(e.target.value) || 1 })}
+            onChange={(e) => {
+              const raw = e.target.value
+              onChange({ doorCount: raw === '' ? '' : (parseInt(raw, 10) || 1) })
+            }}
+            onBlur={(e) => {
+              const n = parseInt(e.target.value, 10)
+              onChange({ doorCount: !n || n < 1 ? 1 : Math.min(100, n) })
+            }}
             min={1}
             max={100}
             className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
