@@ -159,6 +159,20 @@ DOOR_SERIES = {
             "categoryValue": "67ab1db858e8bd835f4898e7",
             "specs": {"rValue": 18.4, "maxWidth": 432, "steel": "20-gauge", "warranty": "10 Year Limited"}
         },
+        {
+            # Built like Kanata/Craft (micro-groove stamp) but 3" thick, commercial.
+            # BC sections: PN75=SEC / PN76=DEC (PN74=BULK), encoded PN7x-{HH}3{CC}-{FFII}.
+            # categoryValue intentionally omitted (CMS id, optional — see TX380).
+            "id": "TX760",
+            "name": "Thermalex TX760",
+            "description": "Premium 3\" commercial insulated door — micro-groove (MG)",
+            "specs": {
+                "thickness": "3\" (76.2mm)",
+                "maxWidth": 288,  # BC stocks PN75/PN76 to 24' wide
+                "features": ["3\" Insulated Panel", "Micro-Groove Stamp", "Commercial Grade"],
+                "warranty": "10 Year Limited",
+            }
+        },
     ],
     "aluminium": [
         {
@@ -388,6 +402,13 @@ PANEL_DESIGNS = {
         # (PN47/48/57/58 carry stamp 0 only — no UDC stamp exists for these).
         {"id": "FLUSH", "code": "FLUSH", "name": "Flush", "type": "Flush/Flat"},
     ],
+    "COMMERCIAL_TX760": [
+        # TX760 (PN75/76) is stocked only in the micro-groove stamp (code 3).
+        # id AND code must both be MICROGROOVE: the engine's COMMERCIAL_STAMP_CODES
+        # maps "MICRO GROOVE"/"MICROGROOVE" -> "3", and the frontend auto-select
+        # uses `code || id`, so a divergent code would build the wrong part number.
+        {"id": "MICROGROOVE", "code": "MICROGROOVE", "name": "Micro Groove (MG)", "type": "Commercial Standard"},
+    ],
     "EXECUTIVE": [
         {"id": "F01", "code": "F01", "name": "Flush Basic", "base": "Flush"},
         {"id": "F01A", "code": "F01A", "name": "Flush Arched Top", "base": "Flush"},
@@ -409,6 +430,7 @@ SERIES_COLOR_KEY = {
     "KANATA": "KANATA", "CRAFT": "CRAFT",
     "TX450": "COMMERCIAL", "TX500": "COMMERCIAL_TX500",
     "TX450-20": "COMMERCIAL_20", "TX500-20": "COMMERCIAL_20",
+    "TX760": "COMMERCIAL",  # White/Black/New Brown/Steel Grey — same as TX450
     "AL976": "AL976", "SWD": "AL976",
     "KANATA_EXECUTIVE": "EXECUTIVE_STAINS",
 }
@@ -416,11 +438,12 @@ SERIES_DESIGN_KEY = {
     "KANATA": "KANATA", "CRAFT": "CRAFT", "KANATA_EXECUTIVE": "EXECUTIVE",
     "TX450": "COMMERCIAL", "TX500": "COMMERCIAL",
     "TX450-20": "COMMERCIAL_20", "TX500-20": "COMMERCIAL_20",
+    "TX760": "COMMERCIAL_TX760",  # micro-groove only
 }
 # Commercial series carry hard BC SKU constraints (e.g. TX500 is White/Black
 # only; 20-gauge is White + Flush only). We validate these at quote time so an
 # unstocked combo returns a clear message instead of a cryptic "panel not found".
-_VALIDATED_SERIES = {"TX450", "TX500", "TX450-20", "TX500-20"}
+_VALIDATED_SERIES = {"TX450", "TX500", "TX450-20", "TX500-20", "TX760"}
 
 
 def validate_panel_combo(series: str, color: Optional[str], design: Optional[str]) -> None:

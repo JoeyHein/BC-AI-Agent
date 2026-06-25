@@ -88,6 +88,7 @@ class DoorModel(Enum):
     TX450_20 = "TX450-20"
     TX500 = "TX500"
     TX500_20 = "TX500-20"
+    TX760 = "TX760"
     KANATA = "KANATA"
     CRAFT = "CRAFT"
 
@@ -237,6 +238,7 @@ class BCPartNumberMapper:
         DoorModel.TX450_20: ("PN47", "PN48"),    # PN47=SEC, PN48=DEC (20-gauge)
         DoorModel.TX500: ("PN55", "PN56"),       # PN55=SEC, PN56=DEC
         DoorModel.TX500_20: ("PN57", "PN58"),    # PN57=SEC, PN58=DEC (20-gauge)
+        DoorModel.TX760: ("PN75", "PN76"),       # PN75=SEC, PN76=DEC (3", PN74=BULK)
     }
 
     # Legacy mapping for backwards compatibility
@@ -316,6 +318,7 @@ class BCPartNumberMapper:
         "TX450-20": ("PL10-00141-00", 'TOP/BOTTOM RETAINER, 1 3/4"'),
         "TX500":    ("PL10-00135-00", 'TOP/BOTTOM RETAINER 2"'),
         "TX500-20": ("PL10-00135-00", 'TOP/BOTTOM RETAINER 2"'),
+        "TX760":    ("PL10-00136-00", 'TOP/BOTTOM RETAINER - 3"'),
     }
 
     # Residential retainer — pre-cut rigid retainer by width
@@ -1040,7 +1043,7 @@ class BCPartNumberMapper:
         COMMERCIAL_STAMP_CODES = {
             "FLUSH": "0",
             "V GROOVE": "2", "VGROOVE": "2",
-            "MICRO GROOVE": "3", "MICROGROOVE": "3",
+            "MICRO GROOVE": "3", "MICROGROOVE": "3", "MG": "3",  # TX760 micro-groove
             "UDC": "4", "UDC GROOVE": "4",
         }
         is_craft = prefix.startswith("PN95") or prefix.startswith("PN90")

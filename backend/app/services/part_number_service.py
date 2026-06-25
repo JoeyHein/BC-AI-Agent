@@ -78,6 +78,7 @@ class DoorSeries(Enum):
     TX500 = "TX500"
     TX450_20 = "TX450-20"
     TX500_20 = "TX500-20"
+    TX760 = "TX760"
     AL976 = "AL976"
     SWD = "SWD"
     KANATA_EXECUTIVE = "KANATA_EXECUTIVE"
@@ -413,6 +414,7 @@ END_CAP_WEIGHT_LBS = {
     ("TX450-20", 21): 1.26, ("TX450-20", 24): 1.45,
     ("TX500", 21): 1.32,  ("TX500", 24): 1.51,    # 2" 20ga SGL
     ("TX500-20", 21): 1.32, ("TX500-20", 24): 1.51,
+    ("TX760", 21): 1.518, ("TX760", 24): 1.7365,  # 3" — TX500 +15% (interim est.)
     # Residential — lighter construction
     ("KANATA", 21): 1.05,  ("KANATA", 24): 1.20,
     ("CRAFT", 21): 1.05,   ("CRAFT", 24): 1.20,
@@ -425,6 +427,7 @@ RETAINER_LBS_PER_FT = {
     "TX450-20": 0.175,
     "TX500": 0.1513,      # 2" retainer
     "TX500-20": 0.1513,
+    "TX760": 0.174,       # 3" retainer (PL10-00136-00) — TX500 +15% (interim est.)
     "KANATA": 0.15,       # residential retainer
     "CRAFT": 0.15,
 }
@@ -968,6 +971,7 @@ class PartNumberService:
             "TX450-20": DoorModel.TX450_20,
             "TX500": DoorModel.TX500,
             "TX500-20": DoorModel.TX500_20,
+            "TX760": DoorModel.TX760,
             "KANATA": DoorModel.KANATA,
             "CRAFT": DoorModel.CRAFT,
         }
@@ -1125,6 +1129,9 @@ class PartNumberService:
             "TX450-20": {"18": 5.18, "21": 5.18, "24": 5.6813, "28": 6.2, "32": 6.8},
             "TX500": {"18": 4.002, "21": 4.002, "24": 4.570, "28": 5.2, "32": 5.7},
             "TX500-20": {"18": 5.2865, "21": 5.2865, "24": 5.63, "28": 6.1, "32": 6.6},
+            # TX760 (3"): TX500 +15% interim estimate — BC API exposes no panel weights.
+            # TODO: replace with exact PN74 BULK lbs/ft when the weights export is available.
+            "TX760": {"18": 4.6023, "21": 4.6023, "24": 5.2555, "28": 5.98, "32": 6.555},
             # Residential models (Kanata/Craft)
             "KANATA": {"18": 3.7655, "21": 4.1875, "24": 4.6392, "28": 5.1363, "32": 6.1875},
             "CRAFT": {"18": 3.7655, "21": 4.1875, "24": 4.6392, "28": 5.1363, "32": 6.1875},

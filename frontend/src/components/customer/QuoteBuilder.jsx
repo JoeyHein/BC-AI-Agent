@@ -531,13 +531,13 @@ function QuoteBuilder() {
             series={config.doorSeries[currentDoor.doorType] || []}
             selected={currentDoor.doorSeries}
             onSelect={(series) => {
-              const isCommercialSeries = ['TX380', 'TX450', 'TX500', 'TX450-20', 'TX500-20'].includes(series)
+              const isCommercialSeries = ['TX380', 'TX450', 'TX500', 'TX450-20', 'TX500-20', 'TX760'].includes(series)
               const isAluminumSeries = ['AL976', 'SWD', 'PANORAMA', 'SOLALITE'].includes(series)
               const isGlassSeries = ['AL976', 'SWD'].includes(series)
               updateCurrentDoor({
                 doorSeries: series,
                 panelColor: isAluminumSeries ? 'CLEAR_ANODIZED' : '',
-                panelDesign: isCommercialSeries ? 'UDC' : isAluminumSeries ? 'FLUSH' : '',
+                panelDesign: isCommercialSeries ? (series === 'TX760' ? 'MICROGROOVE' : 'UDC') : isAluminumSeries ? 'FLUSH' : '',
                 // Reset windows on series change (prevents stale state from previous config)
                 hasWindows: false,
                 windowInsert: null,
@@ -1034,6 +1034,7 @@ function DesignStep({ door, colors, panelDesigns, config, onChange }) {
     'TX500': 'COMMERCIAL',
     'TX450-20': 'COMMERCIAL',
     'TX500-20': 'COMMERCIAL',
+    'TX760': 'COMMERCIAL',
     'AL976': 'AL976',
     'SWD': 'AL976',
     'KANATA_EXECUTIVE': 'EXECUTIVE_STAINS',
@@ -1051,6 +1052,7 @@ function DesignStep({ door, colors, panelDesigns, config, onChange }) {
     'TX500': 'COMMERCIAL',
     'TX450-20': 'COMMERCIAL_20',
     'TX500-20': 'COMMERCIAL_20',
+    'TX760': 'COMMERCIAL_TX760',
   }
   const designKey = designMap[door.doorSeries] || 'KANATA'
   const availableDesigns = panelDesigns?.[designKey] || []
