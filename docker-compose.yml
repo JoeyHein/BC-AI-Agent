@@ -35,7 +35,12 @@ services:
       PARTFINDER_OUTPUT_DIR: /data/partfinder
       PARTFINDER_LIBRARY_ROOT: /data/library
     volumes:
-      - backend_data:/app/data
+      # NOTE: /app/data is intentionally NOT a named volume. It holds static,
+      # git-tracked data (the bc_items.json part cache + analysis exports) that
+      # must track the image on every deploy. A named volume here only gets
+      # populated the FIRST time it's created, then shadows the image copy —
+      # silently serving a stale cache (e.g. a new product line's parts missing,
+      # causing "panel part X not found in BC"). Use the image's copy instead.
       # Prebuilt Part Finder index (index.db must be in rollback-journal mode so
       # the read-only mount works) + cover images.
       - ${PARTFINDER_INDEX_DIR:-/opt/partfinder-data/index}:/data/partfinder:ro
@@ -61,4 +66,3 @@ services:
 
 volumes:
   postgres_data:
-  backend_data:
