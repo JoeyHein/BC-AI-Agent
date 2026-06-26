@@ -3458,6 +3458,8 @@ class PartNumberService:
             s = "4"
         elif series_upper.startswith("TX380"):
             s = "3"
+        elif series_upper.startswith("TX760"):
+            s = "7"  # GK16-732xx (e.g. GK16-73200-00 White / -73205-00 Black)
         else:
             s = "2"  # TX450 or default
 

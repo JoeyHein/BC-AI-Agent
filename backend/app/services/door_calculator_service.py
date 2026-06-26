@@ -42,6 +42,9 @@ DOOR_MODEL_WEIGHTS = {
     "TX450-20": {"18": 5.18, "21": 5.18, "24": 5.6813, "28": 6.2, "32": 6.8},
     "TX500": {"18": 4.002, "21": 4.002, "24": 4.570, "28": 5.2, "32": 5.7},
     "TX500-20": {"18": 5.2865, "21": 5.2865, "24": 5.63, "28": 6.1, "32": 6.6},
+    # TX760 (3"): TX500 +15% interim estimate (matches part_number_service MODEL_WEIGHTS).
+    # TODO: replace with exact PN74 BULK lbs/ft when the weights export is available.
+    "TX760": {"18": 4.6023, "21": 4.6023, "24": 5.2555, "28": 5.98, "32": 6.555},
     # Residential models (Kanata/Craft use same weights)
     "KANATA": {"18": 3.7655, "21": 4.1875, "24": 4.6392, "28": 5.1363, "32": 6.1875},
     "CRAFT": {"18": 3.7655, "21": 4.1875, "24": 4.6392, "28": 5.1363, "32": 6.1875},
