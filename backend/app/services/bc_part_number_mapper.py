@@ -233,7 +233,7 @@ class BCPartNumberMapper:
     PANEL_SERIES_BY_MODEL = {
         DoorModel.KANATA: ("PN65", "PN65"),      # Same for all widths
         DoorModel.CRAFT: ("PN95", "PN95"),       # Same for all widths
-        DoorModel.TX380: ("PN35", "PN35"),       # Max width 16', only SEC
+        DoorModel.TX380: ("PN35", "PN36"),       # PN35=SEC (<=16'), PN36=DEC (>16', up to 20')
         DoorModel.TX450: ("PN45", "PN46"),       # PN45=SEC, PN46=DEC
         DoorModel.TX450_20: ("PN47", "PN48"),    # PN47=SEC, PN48=DEC (20-gauge)
         DoorModel.TX500: ("PN55", "PN56"),       # PN55=SEC, PN56=DEC

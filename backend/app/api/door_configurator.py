@@ -113,11 +113,11 @@ DOOR_SERIES = {
         {
             "id": "TX380",
             "name": "Thermalex TX380",
-            "description": "Commercial insulated door — max 16' wide × 16' tall",
+            "description": "Commercial insulated door — max 20' wide × 16' tall",
             "specs": {
                 "features": ["Commercial Grade Insulated"],
                 "warranty": "10 Year Limited",
-                "maxWidth": 192,
+                "maxWidth": 240,  # 20' — BC stocks PN35/PN36 well past 16'
                 "maxHeight": 192,
             }
         },
