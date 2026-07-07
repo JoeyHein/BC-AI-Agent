@@ -2103,14 +2103,12 @@ def _edit_bc_quote_lines(
                 intended_desc = line.get("description", "")
                 if intended_desc and added_line.get("description", "") != intended_desc:
                     patch_data["description"] = intended_desc[:100]
-                if pricing_tier:
-                    selling_price = calculate_selling_price(
-                        part_number=line["part_number"],
-                        door_type=line.get("door_type", "residential"),
-                        tier=pricing_tier, db=db,
-                    )
-                    if selling_price is not None:
-                        patch_data["unitPrice"] = selling_price
+                # Trust BC SalesPriceLists for unit price — do NOT override with
+                # the legacy margin engine. This matches the new-quote generate
+                # path (_generate_bc_quote_with_items / build_bc_quote_from_doors),
+                # which leave unitPrice untouched so BC resolves it natively
+                # (Customer → Customer Price Group → All Customers → Item card).
+                # Editing a quote must not silently re-price it off BC's prices.
                 if patch_data:
                     etag = added_line.get("@odata.etag", "*")
                     try:
