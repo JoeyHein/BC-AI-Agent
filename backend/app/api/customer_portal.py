@@ -1256,16 +1256,10 @@ def _generate_bc_quote_with_items(
                         if original_desc and bc_sub_desc != original_desc:
                             sub_patch["description"] = original_desc[:100]
 
-                        if pricing_tier and db:
-                            selling_price = calculate_selling_price(
-                                part_number=substitute["number"],
-                                door_type=line.get("door_type", "residential"),
-                                tier=pricing_tier,
-                                db=db,
-                            )
-                            if selling_price is not None:
-                                sub_patch["unitPrice"] = selling_price
-
+                        # Trust BC for the substitute's price — it's a real BC
+                        # SKU, so BC resolves it natively on POST (Customer →
+                        # Price Group → All → Item card). Never override with the
+                        # legacy margin engine; matches the rest of this path.
                         if sub_patch:
                             etag = added_sub.get("@odata.etag", "*")
                             bc_client.update_quote_line(
@@ -4053,23 +4047,10 @@ def create_cart_quote(
                 }
                 added_line = bc_client.add_quote_line(bc_quote_id, line_data)
 
-                # Apply tier pricing
-                selling_price = calculate_selling_price(
-                    part_number=item.item_number,
-                    door_type="residential",
-                    tier=pricing_tier,
-                    db=db,
-                )
-                if selling_price is not None:
-                    etag = added_line.get("@odata.etag", "*")
-                    bc_client.update_quote_line(
-                        bc_quote_id,
-                        added_line["id"],
-                        etag,
-                        {"unitPrice": selling_price},
-                    )
-
-                unit_price = selling_price if selling_price is not None else added_line.get("unitPrice", 0)
+                # Trust BC SalesPriceLists for the price — do NOT override with
+                # the legacy margin engine. BC resolves the unit price on POST
+                # (Customer → Price Group → All Customers → Item card).
+                unit_price = added_line.get("unitPrice", 0)
                 line_pricing.append({
                     "item_number": item.item_number,
                     "description": added_line.get("description", item.description or ""),
