@@ -180,6 +180,76 @@ class TestV130GFallback:
         assert "PN10-24600352-2402" in [s["part_number"] for s in sections]
 
 
+class TestAluminumWidthSnap:
+    """Aluminum full-view sections (Solalite/AL976/Panorama/SWD) exist only in
+    discrete standard widths. The generator must snap the section width code UP
+    to the smallest covering standard panel — a per-inch code (e.g. PN20-...1603
+    for a 16'1" door) is not a stocked BC item and makes BC reject the quote
+    line. Root cause of SQ-002808.
+    """
+
+    def _alu_door(self, **overrides):
+        cfg = {
+            "doorType": "aluminium", "doorSeries": "SOLALITE",
+            "doorWidth": 192, "doorHeight": 120, "doorCount": 1,
+            "panelColor": "CLEAR_ANODIZED", "glazingType": "polycarbonate",
+            "glassColor": "CLEAR", "hasWindows": True, "operator": "NONE",
+            "hardware": {},
+        }
+        cfg.update(overrides)
+        return _by_category(_get_parts(cfg), "aluminum_section")
+
+    def test_odd_width_snaps_to_standard_and_exists(self):
+        """SQ-002808: a 16'1" Solalite must emit the 16' panel (…1602), not …1603."""
+        mapper = get_bc_mapper()
+        sections = self._alu_door(doorWidth=193, doorHeight=168,
+                                  hardware={"thermalBreak": True})
+        assert sections
+        for s in sections:
+            assert s["part_number"].endswith("-1602"), (
+                f"16'1\" door should snap to the 16' panel, got {s['part_number']}"
+            )
+            assert s["part_number"] in mapper.bc_items, (
+                f"{s['part_number']} is not a stocked BC item"
+            )
+
+    def test_twelve_foot_solalite_is_valid(self):
+        """12' Solalite is SEF but uses option 1/3, never 0 — the s=0 code
+        (PN20-2400010-1202) does not exist in BC."""
+        mapper = get_bc_mapper()
+        sections = self._alu_door(doorWidth=144)
+        assert sections
+        for s in sections:
+            assert s["part_number"] in mapper.bc_items, (
+                f"{s['part_number']} not stocked (12' option-code bug)"
+            )
+
+    def test_mill_plus_thermal_falls_back_to_clear_anodized(self):
+        """Mill has no thermal variant — thermal wins, finish becomes Clear Ano."""
+        mapper = get_bc_mapper()
+        sections = self._alu_door(doorWidth=192, panelColor="MILL",
+                                  hardware={"thermalBreak": True})
+        assert sections
+        for s in sections:
+            # finish digit sits at index 9 of "PN20-2400043-1602" → '0' (Clear Ano)
+            assert s["part_number"][9] == "0", (
+                f"mill+thermal should encode Clear Ano, got {s['part_number']}"
+            )
+            assert s["part_number"] in mapper.bc_items
+
+    @pytest.mark.parametrize("series", ["SOLALITE", "AL976", "PANORAMA", "SWD"])
+    @pytest.mark.parametrize("width", [98, 145, 170, 193, 205, 217, 241])
+    def test_all_series_odd_widths_exist_in_bc(self, series, width):
+        """Every aluminum series snaps odd widths to a real stocked section."""
+        mapper = get_bc_mapper()
+        sections = self._alu_door(doorSeries=series, doorWidth=width)
+        assert sections
+        for s in sections:
+            assert s["part_number"] in mapper.bc_items, (
+                f"{series} @ {width}\": {s['part_number']} is not a stocked BC item"
+            )
+
+
 # ── Hardware boxes ────────────────────────────────────────────────────────
 
 class TestHardwareBoxes:

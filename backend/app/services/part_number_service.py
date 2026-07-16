@@ -2549,6 +2549,49 @@ class PartNumberService:
                 result.append(p)
         return result
 
+    # Aluminum sections are manufactured only in discrete standard widths.
+    # These are the width codes (feet+inches, e.g. "1602" = 16'2") that
+    # actually exist as BC items per series — verified against the production
+    # item master. Any per-inch code outside this set (e.g. "1603") is NOT a
+    # real item and BC rejects the quote line (root cause of SQ-002808).
+    _ALUM_STD_WIDTH_CODES = {
+        "SOLALITE": ["0802", "1002", "1202", "1402", "1602", "1802", "2002"],
+        "AL976":    ["0802", "0902", "1002", "1202", "1402", "1602", "1802", "2002", "2200", "3002"],
+        "PANORAMA": ["0802", "0902", "1002", "1202", "1402", "1602", "1802", "2002", "2402"],
+        "SWD":      ["0802", "1002", "1202", "1402", "1602", "1802", "2002", "2102"],
+    }
+
+    def _snap_aluminum_width_code(self, series: str, door_width_in: int) -> str:
+        """Snap a door opening width to the smallest standard panel that covers it.
+
+        Aluminum full-view sections come only in the fixed sizes listed in
+        _ALUM_STD_WIDTH_CODES. We round UP to the smallest standard panel whose
+        width >= the opening so the panel always covers the door (the built-in
+        2" overhang absorbs sub-inch tolerance). If the opening exceeds the
+        largest standard panel, we clamp to that largest size.
+
+        Unknown/non-aluminum series fall back to the legacy per-inch encoding.
+        """
+        key = series.upper()
+        if key in ("AL-SWD", "AL_SWD", "ALSWD", "SWD"):
+            key = "SWD"
+        codes = self._ALUM_STD_WIDTH_CODES.get(key)
+        if not codes:
+            ft = door_width_in // 12
+            extra = door_width_in % 12 + 2
+            if extra >= 12:
+                ft += 1
+                extra -= 12
+            return f"{ft:02d}{extra:02d}"
+
+        def _code_inches(c: str) -> int:
+            return int(c[:2]) * 12 + int(c[2:])
+
+        for c in codes:  # ascending
+            if _code_inches(c) >= door_width_in:
+                return c
+        return codes[-1]  # opening exceeds largest standard panel — clamp
+
     def _get_aluminum_section_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get aluminum door section parts (PN97, PN80, PN20, PN70) + glass for all panels.
 
@@ -2586,19 +2629,22 @@ class PartNumberService:
         section_height = 21 if config.door_height <= 84 else 24
         hh = str(section_height)
 
-        # Width code: door width + 2" overhang
-        width_ft = config.door_width // 12
-        width_extra = config.door_width % 12 + 2
-        if width_extra >= 12:
-            width_ft += 1
-            width_extra -= 12
-        wwww = f"{width_ft:02d}{width_extra:02d}"
+        # Width code: aluminum sections exist only in discrete standard sizes,
+        # so snap UP to the smallest standard panel that covers the opening.
+        # A raw per-inch code (e.g. 1603 for a 16'1" door) is not a real BC
+        # item and would make BC reject the line (root cause of SQ-002808).
+        wwww = self._snap_aluminum_width_code(series, config.door_width)
+        width_ft = int(wwww[:2])
+        width_extra = int(wwww[2:])
 
         # Finish code from panel_color
         finish_color = (config.panel_color or "CLEAR_ANODIZED").upper().replace(" ", "_")
 
-        # Determine if door needs DEF sections (wider doors)
-        door_width_feet = config.door_width / 12
+        # Group / SEF-vs-DEF decisions follow the snapped standard panel (its
+        # nominal feet), not the raw opening — so a 16'1" door encodes exactly
+        # like a 16'0" one instead of drifting into the next width group.
+        snapped_width_in = width_ft * 12 + width_extra
+        door_width_feet = width_ft
 
         if series == "AL976":
             # PN97 width groups
@@ -2679,17 +2725,47 @@ class PartNumberService:
 
         elif series == "SOLALITE":
             # PN20: {hh}00{f}{p}{s}-{wwww}
-            finish_map = {"CLEAR_ANODIZED": "0", "MILL": "1", "WHITE": "3", "BLACK_ANODIZED": "8", "BLACK": "8"}
-            finish_names = {"0": "CLEAR ANO", "1": "MILL", "3": "WHITE", "8": "BLACK ANODIZED"}
+            # Solalite is manufactured only in Clear Anodized (0) and Mill (1);
+            # other colours don't exist as items — fall back to Clear Anodized
+            # so the line resolves to a real BC item (same policy as Panorama
+            # white).
+            finish_map = {"CLEAR_ANODIZED": "0", "MILL": "1"}
+            finish_names = {"0": "CLEAR ANO", "1": "MILL"}
             f = finish_map.get(finish_color, "0")
             finish_name = finish_names.get(f, "CLEAR ANO")
-
-            # Determine if DEF needed (>12' uses DEF)
-            use_def = door_width_feet > 12
 
             # Thermal break option
             hw = config.hardware or {}
             has_therm = hw.get("thermalBreak", False)
+
+            # Mill has no thermal-break variant in BC — only Clear Anodized
+            # does. Thermal is a functional spec, so it wins: force Clear
+            # Anodized when both are requested.
+            if has_therm and f == "1":
+                f = "0"
+                finish_name = "CLEAR ANO"
+
+            # Position (p) and glazing option (s) depend on the standard panel
+            # width. Verified against the BC PN20 item matrix:
+            #   <=10' : SEF (p 1/2/3), s = 3 (therm) else 0 (no opt)
+            #    12'  : SEF (p 1/2/3), s = 3 (therm) else 1 (double) -- no s=0
+            #   >=14' : DEF (p 4/5/6), s = 3 (therm) else 1 (double)
+            nominal_ft = width_ft
+            if nominal_ft <= 10:
+                p_by_pos = {"TOP": "1", "INT": "2", "BOT": "3"}
+                s = "3" if has_therm else "0"
+                end_label = "SEF"
+                opt_label = "THERM Y" if has_therm else "NO OPT."
+            elif nominal_ft == 12:
+                p_by_pos = {"TOP": "1", "INT": "2", "BOT": "3"}
+                s = "3" if has_therm else "1"
+                end_label = "SEF"
+                opt_label = "THERM Y" if has_therm else "DOUBLE"
+            else:
+                p_by_pos = {"TOP": "4", "INT": "5", "BOT": "6"}
+                s = "3" if has_therm else "1"
+                end_label = "DEF"
+                opt_label = "THERM Y" if has_therm else "DOUBLE"
 
             for section_num in range(1, panel_count + 1):
                 if section_num == 1:
@@ -2699,23 +2775,7 @@ class PartNumberService:
                 else:
                     pos_label = "INT"
 
-                if use_def:
-                    p_map = {"TOP": "4", "INT": "5", "BOT": "6"}
-                    p = p_map[pos_label]
-                    if has_therm:
-                        s = "3"  # THERM Y
-                        opt_label = "THERM Y"
-                    else:
-                        s = "1"  # DOUBLE
-                        opt_label = "DOUBLE"
-                    end_label = "DEF"
-                else:
-                    p_map = {"TOP": "1", "INT": "2", "BOT": "3"}
-                    p = p_map[pos_label]
-                    s = "0"
-                    end_label = "SEF"
-                    opt_label = "NO OPT."
-
+                p = p_by_pos[pos_label]
                 pn = f"PN20-{hh}00{f}{p}{s}-{wwww}"
                 parts.append(PartSelection(
                     part_number=pn,
@@ -2733,7 +2793,7 @@ class PartNumberService:
             #   3 (300): 10'3"-16'2" (123-194")
             #   4 (400): 16'3"-18'2" (195-218")
             #   5 (500): 18'3"-21'2" (219-254")
-            door_width_in = config.door_width
+            door_width_in = snapped_width_in
             if door_width_in <= 98:
                 www = "100"
             elif door_width_in <= 122:
