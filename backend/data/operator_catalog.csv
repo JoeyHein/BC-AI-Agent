@@ -18,11 +18,11 @@ OP19-01085-00,LiftMaster,Residential,98022MC MD RJO DC BBU WiFi,748.55,CURRENT,,
 OP19-01040-00,LiftMaster,Commercial,MH5011UL 1/2HP 115V LH Medium Duty Hoist,682.5,CURRENT,,Medium-duty hoist left hand,Y
 OP19-01041-00,LiftMaster,Commercial,MH5011UR 1/2HP 115V RH Medium Duty Hoist,649,CURRENT,,Medium-duty hoist right hand,Y
 OP19-01044-00,LiftMaster,Commercial,H501L5R Hoist RH 1/2HP 115/230V Industrial,879.04,DISCONTINUED,JHDC,H series replaced by JHDC,N
-OP19-01071-00,LiftMaster,Commercial,RBH501L5R-MC Hoist 1/2HP 115/230V,1146,CURRENT,,Roller brake hoist 1/2HP,Y
-OP19-01048-00,LiftMaster,Commercial,RBH751L5R 3/4HP 115/230V Hoist,1158,CURRENT,,Roller brake hoist 3/4HP single phase,Y
-OP19-01078-00,LiftMaster,Commercial,RBH755L5R 3/4HP 575V 3PH Hoist,1259,CURRENT,,Roller brake hoist 3/4HP 575V,Y
-OP19-01072-00,LiftMaster,Commercial,RBH101L5R 1HP 115/230V Hoist,1259,CURRENT,,Roller brake hoist 1HP,Y
-OP19-01105-00,LiftMaster,Commercial,RBH103L5R-MC 1HP 208/230V/460V 3PH Hoist,1350,CURRENT,,Roller brake hoist 1HP 3PH,Y
+OP19-01071-00,LiftMaster,Commercial,RBH501L5R-MC Hoist 1/2HP 115/230V,1146,CURRENT,,Roller brake hoist 1/2HP,N
+OP19-01048-00,LiftMaster,Commercial,RBH751L5R 3/4HP 115/230V Hoist,1158,CURRENT,,Roller brake hoist 3/4HP single phase,N
+OP19-01078-00,LiftMaster,Commercial,RBH755L5R 3/4HP 575V 3PH Hoist,1259,CURRENT,,Roller brake hoist 3/4HP 575V,N
+OP19-01072-00,LiftMaster,Commercial,RBH101L5R 1HP 115/230V Hoist,1259,CURRENT,,Roller brake hoist 1HP,N
+OP19-01105-00,LiftMaster,Commercial,RBH103L5R-MC 1HP 208/230V/460V 3PH Hoist,1350,CURRENT,,Roller brake hoist 1HP 3PH,N
 OP19-01056-00,LiftMaster,Commercial,CRBH751L5R 3/4HP 115/230V Carwash Hoist,1489.43,CURRENT,,Carwash roller brake hoist 3/4HP,Y
 OP19-01078-01,LiftMaster,Commercial,CRBH755L5R 3/4HP 575V 3PH Carwash Hoist,1757.16,CURRENT,,Carwash roller brake hoist 575V,Y
 OP19-01081-01,LiftMaster,Commercial,CRBH753L5R 3/4HP 208/230/460V 3PH Carwash,1579,CURRENT,,Carwash roller brake hoist 3PH,Y
