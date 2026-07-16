@@ -26,6 +26,7 @@ from app.services.spring_calculator_service import (
     SpringResult,
     normalize_wire_diameter,
 )
+from app.services import spring_pricing
 
 logger = logging.getLogger(__name__)
 
@@ -606,6 +607,72 @@ class DoorCalculatorService:
         self.section_table = SECTION_HEIGHT_TABLE
         self.drum_table = DRUM_TABLE
         self.spring_mip = SPRING_MIP_TABLE
+
+    # Coil IDs OPENDC stocks, matching bc_part_number_mapper.COIL_SIZE_CODES.
+    # 1.75" is deliberately absent: it's in the Canimex tables but has no BC SKU.
+    _STOCKED_COILS = (2.0, 2.625, 3.75, 6.0)
+
+    def _enumerate_spring_candidates(
+        self,
+        door_weight: float,
+        height_inches: int,
+        track_radius: int,
+        spring_qty: int,
+        target_cycles: int,
+        drum_model: Optional[str],
+        high_lift_inches: int,
+    ) -> List[Any]:
+        """Every (coil, wire) that meets MIP at target_cycles for this spring count.
+
+        The caller filters these by shaft fit and then picks on cost. Wires are
+        taken from the Canimex divider table, so a pairing may still have no BC
+        SKU — the cost model returns None for those and they drop out.
+        """
+        candidates = []
+        for coil in self._STOCKED_COILS:
+            for wire in sorted(spring_calculator.mip_capacity.keys()):
+                # Wire/coil pairing must exist in the Canimex divider table
+                if coil not in spring_calculator.dividers.get(wire, {}):
+                    continue
+                capacity = spring_calculator.get_mip_capacity(wire, target_cycles)
+                if capacity is None:
+                    continue
+                result = spring_calculator.calculate_spring(
+                    door_weight=door_weight,
+                    door_height=height_inches,
+                    track_radius=track_radius,
+                    spring_qty=spring_qty,
+                    wire_diameter=wire,
+                    coil_diameter=coil,
+                    target_cycles=target_cycles,
+                    drum_model=drum_model,
+                    high_lift_inches=high_lift_inches,
+                )
+                if result is None:
+                    continue
+                # calculate_spring doesn't re-check capacity when the wire is
+                # pinned, so enforce the cycle target here.
+                if capacity < result.mip_per_spring:
+                    continue
+                candidates.append(result)
+        return candidates
+
+    def _candidate_cost(self, candidate) -> Optional[float]:
+        """Assembly cost of a candidate, or None if any part lacks a real price."""
+        if isinstance(candidate, self._DuplexCandidate):
+            sel = candidate.selection
+            return spring_pricing.assembly_cost(
+                sel.wire_diameter, sel.coil_diameter, sel.length, sel.quantity,
+                is_duplex=True,
+                inner_wire_diameter=sel.inner_wire_diameter,
+                inner_coil_diameter=sel.inner_coil_diameter,
+                inner_length=sel.inner_length,
+                duplex_pairs=sel.duplex_pairs,
+            )
+        return spring_pricing.assembly_cost(
+            candidate.wire_diameter, candidate.coil_diameter,
+            candidate.length, candidate.spring_quantity,
+        )
 
     def calculate_door(
         self,
@@ -1191,31 +1258,34 @@ class DoorCalculatorService:
 
         all_candidates = []
         for qty in unfiltered_progression:
-            # Let calculator auto-select wire and coil — starts at 2" coil,
-            # escalates to larger coils only when MIP requires it.
-            # This preserves the proper Canimex wire/coil pairing.
-            result = spring_calculator.calculate_spring(
+            # Enumerate every stocked coil, and every wire that meets MIP on that
+            # coil — not just the auto-selected one.
+            #
+            # calculate_spring(coil_diameter=2.0) escalates to the *first* coil
+            # meeting MIP and returns the *smallest* wire that fits. Both are the
+            # wrong objective:
+            #   - first-coil-that-fits stops at a small coil, which needs a long
+            #     spring; the fit check then rejects it and the door falls through
+            #     to duplex even though a bigger coil would have fit fine.
+            #   - smallest-wire assumes price rises with wire size, but it doesn't
+            #     (.421 x 6" is $17.18/in; the thicker .437 is $10.28/in — cheaper,
+            #     stronger, and shorter).
+            # Enumerating lets the cost model below judge them on price instead.
+            for result in self._enumerate_spring_candidates(
                 door_weight=door_weight,
-                door_height=height_inches,
+                height_inches=height_inches,
                 track_radius=track_radius,
                 spring_qty=qty,
-                coil_diameter=2.0,  # default start; auto-escalates inside calculate_spring
                 target_cycles=target_cycles,
                 drum_model=drum_model,
                 high_lift_inches=high_lift_inches,
-            )
-            if result is None:
-                continue
-            if not _springs_fit_on_shaft(
-                width_inches, result.length, qty, result.coil_diameter, drum_model,
-                turns=result.turns, wire_diameter=result.wire_diameter,
             ):
-                logger.info(
-                    f"Skipping {qty}x {result.coil_diameter}\" coil / {result.wire_diameter}\" wire "
-                    f"({result.length}\" long) — doesn't fit on {width_inches}\" wide door"
-                )
-                continue
-            all_candidates.append(result)
+                if not _springs_fit_on_shaft(
+                    width_inches, result.length, qty, result.coil_diameter, drum_model,
+                    turns=result.turns, wire_diameter=result.wire_diameter,
+                ):
+                    continue
+                all_candidates.append(result)
 
         # Heavy doors that don't fit on a single regular spring layout often
         # work as duplex (6" outer + 3.75" inner). Try 2/3/4/5 pairs (totals
@@ -1253,7 +1323,35 @@ class DoorCalculatorService:
                 r.length,
             )
 
-        best = min(all_candidates, key=sort_key)
+        # Cost-aware pick: cheapest assembly that already met MIP at the target
+        # cycle life and fits the shaft. Every candidate here is mechanically
+        # valid, so price is the right tiebreak — the old key optimized length,
+        # which is inversely correlated with price (shorter spring = bigger coil
+        # = dearer per inch + dearer winder + a PVC tube at 6").
+        #
+        # Candidates whose parts have no trustworthy BC price (absent, blocked,
+        # or $0) score None and are excluded rather than treated as free. If that
+        # leaves nothing priced, fall back to the legacy ordering so a door that
+        # only has unpriced options still gets a spring plus the "EDIT IN BC"
+        # warning the parts service raises.
+        priced = [(cost, c) for c in all_candidates if (cost := self._candidate_cost(c)) is not None]
+        if priced:
+            best = min(
+                priced,
+                key=lambda pair: (
+                    0 if pair[1].length <= MAX_PRACTICAL_LENGTH else 1,
+                    pair[0],                      # assembly cost — the objective
+                    pair[1].spring_quantity,      # tiebreak: fewer springs = less labour
+                    pair[1].length,               # tiebreak: shorter = easier handling
+                ),
+            )[1]
+        else:
+            if spring_pricing.has_price_book():
+                logger.warning(
+                    f"No spring candidate for {door_weight:.0f} lbs @ {target_cycles} cycles "
+                    f"has a usable BC price — falling back to legacy length ordering"
+                )
+            best = min(all_candidates, key=sort_key)
         # Duplex candidate already has all the inner-spring info populated;
         # return it directly so the caller sees is_duplex=True and the inner
         # specs flow through to the parts service.

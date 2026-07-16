@@ -2725,47 +2725,25 @@ class PartNumberService:
 
         elif series == "SOLALITE":
             # PN20: {hh}00{f}{p}{s}-{wwww}
-            # Solalite is manufactured only in Clear Anodized (0) and Mill (1);
-            # other colours don't exist as items — fall back to Clear Anodized
-            # so the line resolves to a real BC item (same policy as Panorama
-            # white).
-            finish_map = {"CLEAR_ANODIZED": "0", "MILL": "1"}
-            finish_names = {"0": "CLEAR ANO", "1": "MILL"}
-            f = finish_map.get(finish_color, "0")
-            finish_name = finish_names.get(f, "CLEAR ANO")
+            # The ONLY sellable Solalite sections in BC are Clear Anodized (f=0)
+            # with the thermal option (s=3). Every Mill (f=1), no-opt (s=0) and
+            # plain-double (s=1) section exists in the item master but is BLOCKED
+            # — BC rejects a blocked item on a quote line and the portal drops it
+            # to a comment line, so the "sections" carry no item/price (root
+            # cause of SQ-002814). Solalite therefore always encodes clear
+            # anodized + thermal; only the SEF/DEF position varies by width.
+            f = "0"
+            finish_name = "CLEAR ANO"
+            s = "3"  # THERM Y — the only sellable glazing option
+            opt_label = "THERM Y"
 
-            # Thermal break option
-            hw = config.hardware or {}
-            has_therm = hw.get("thermalBreak", False)
-
-            # Mill has no thermal-break variant in BC — only Clear Anodized
-            # does. Thermal is a functional spec, so it wins: force Clear
-            # Anodized when both are requested.
-            if has_therm and f == "1":
-                f = "0"
-                finish_name = "CLEAR ANO"
-
-            # Position (p) and glazing option (s) depend on the standard panel
-            # width. Verified against the BC PN20 item matrix:
-            #   <=10' : SEF (p 1/2/3), s = 3 (therm) else 0 (no opt)
-            #    12'  : SEF (p 1/2/3), s = 3 (therm) else 1 (double) -- no s=0
-            #   >=14' : DEF (p 4/5/6), s = 3 (therm) else 1 (double)
-            nominal_ft = width_ft
-            if nominal_ft <= 10:
+            # Position: SEF (single end frame) up to 12', DEF at 14'+.
+            if width_ft <= 12:
                 p_by_pos = {"TOP": "1", "INT": "2", "BOT": "3"}
-                s = "3" if has_therm else "0"
                 end_label = "SEF"
-                opt_label = "THERM Y" if has_therm else "NO OPT."
-            elif nominal_ft == 12:
-                p_by_pos = {"TOP": "1", "INT": "2", "BOT": "3"}
-                s = "3" if has_therm else "1"
-                end_label = "SEF"
-                opt_label = "THERM Y" if has_therm else "DOUBLE"
             else:
                 p_by_pos = {"TOP": "4", "INT": "5", "BOT": "6"}
-                s = "3" if has_therm else "1"
                 end_label = "DEF"
-                opt_label = "THERM Y" if has_therm else "DOUBLE"
 
             for section_num in range(1, panel_count + 1):
                 if section_num == 1:

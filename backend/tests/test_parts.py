@@ -186,6 +186,11 @@ class TestAluminumWidthSnap:
     to the smallest covering standard panel — a per-inch code (e.g. PN20-...1603
     for a 16'1" door) is not a stocked BC item and makes BC reject the quote
     line. Root cause of SQ-002808.
+
+    Beyond existence, a section must also be SELLABLE (blocked=False): a blocked
+    item is rejected on a quote line and silently drops to a comment (root cause
+    of SQ-002814). For Solalite the only sellable config is Clear Anodized +
+    thermal, so every emitted section must resolve to an unblocked BC item.
     """
 
     def _alu_door(self, **overrides):
@@ -199,48 +204,59 @@ class TestAluminumWidthSnap:
         cfg.update(overrides)
         return _by_category(_get_parts(cfg), "aluminum_section")
 
-    def test_odd_width_snaps_to_standard_and_exists(self):
-        """SQ-002808: a 16'1" Solalite must emit the 16' panel (…1602), not …1603."""
+    @staticmethod
+    def _assert_sellable(mapper, pn, ctx=""):
+        item = mapper.bc_items.get(pn)
+        assert item is not None, f"{ctx}{pn} is not a stocked BC item"
+        assert not item.get("blocked"), f"{ctx}{pn} is BLOCKED (not sellable)"
+
+    def test_odd_width_snaps_to_standard_and_sellable(self):
+        """SQ-002808: a 16'1" Solalite emits the 16' panel (…1602), not …1603."""
         mapper = get_bc_mapper()
-        sections = self._alu_door(doorWidth=193, doorHeight=168,
-                                  hardware={"thermalBreak": True})
+        sections = self._alu_door(doorWidth=193, doorHeight=168)
         assert sections
         for s in sections:
             assert s["part_number"].endswith("-1602"), (
                 f"16'1\" door should snap to the 16' panel, got {s['part_number']}"
             )
-            assert s["part_number"] in mapper.bc_items, (
-                f"{s['part_number']} is not a stocked BC item"
-            )
+            self._assert_sellable(mapper, s["part_number"])
 
-    def test_twelve_foot_solalite_is_valid(self):
-        """12' Solalite is SEF but uses option 1/3, never 0 — the s=0 code
-        (PN20-2400010-1202) does not exist in BC."""
+    def test_solalite_is_always_clear_anodized_thermal(self):
+        """SQ-002814: the only sellable Solalite is Clear Ano (f=0) + THERM (s=3).
+        Mill / no-opt / double sections all exist but are blocked, so requesting
+        Mill or a non-thermal door must still emit the clear-ano thermal item."""
         mapper = get_bc_mapper()
-        sections = self._alu_door(doorWidth=144)
+        for color in ("CLEAR_ANODIZED", "MILL", "WHITE"):
+            for therm in (False, True):
+                sections = self._alu_door(
+                    doorWidth=144, panelColor=color,
+                    hardware={"thermalBreak": therm},
+                )
+                assert sections
+                for s in sections:
+                    pn = s["part_number"]  # PN20-{hh}00{f}{p}{s}-{wwww}
+                    assert pn[9] == "0", f"{color}/therm={therm}: expected f=0, got {pn}"
+                    assert pn[11] == "3", f"{color}/therm={therm}: expected s=3, got {pn}"
+                    self._assert_sellable(mapper, pn, f"{color}/therm={therm}: ")
+
+    @pytest.mark.parametrize("width", [96, 110, 120, 144, 168, 192, 193, 205, 216, 240, 250])
+    @pytest.mark.parametrize("height", [72, 120])
+    def test_solalite_full_matrix_sellable(self, width, height):
+        """Every Solalite section across widths/heights resolves to a sellable item."""
+        mapper = get_bc_mapper()
+        sections = self._alu_door(doorWidth=width, doorHeight=height)
         assert sections
         for s in sections:
-            assert s["part_number"] in mapper.bc_items, (
-                f"{s['part_number']} not stocked (12' option-code bug)"
-            )
-
-    def test_mill_plus_thermal_falls_back_to_clear_anodized(self):
-        """Mill has no thermal variant — thermal wins, finish becomes Clear Ano."""
-        mapper = get_bc_mapper()
-        sections = self._alu_door(doorWidth=192, panelColor="MILL",
-                                  hardware={"thermalBreak": True})
-        assert sections
-        for s in sections:
-            # finish digit sits at index 9 of "PN20-2400043-1602" → '0' (Clear Ano)
-            assert s["part_number"][9] == "0", (
-                f"mill+thermal should encode Clear Ano, got {s['part_number']}"
-            )
-            assert s["part_number"] in mapper.bc_items
+            self._assert_sellable(mapper, s["part_number"], f"{width}x{height}: ")
 
     @pytest.mark.parametrize("series", ["SOLALITE", "AL976", "PANORAMA", "SWD"])
     @pytest.mark.parametrize("width", [98, 145, 170, 193, 205, 217, 241])
     def test_all_series_odd_widths_exist_in_bc(self, series, width):
-        """Every aluminum series snaps odd widths to a real stocked section."""
+        """Every aluminum series snaps odd widths to a real stocked section.
+
+        NOTE: existence only — Panorama has blocked finish/width combos at
+        18'–20' that need a product-rule decision; tracked separately.
+        """
         mapper = get_bc_mapper()
         sections = self._alu_door(doorSeries=series, doorWidth=width)
         assert sections
