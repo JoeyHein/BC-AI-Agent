@@ -32,15 +32,24 @@ TRAVEL_DESTINATION_REGION_CODE = "CA"
 
 TRAVEL_DISTANCES_KEY = "install_travel_distances"
 
-# Builder-account installation defaults (as of 2026-05-12).
-# Per-customer overrides on CustomerInstallPricing still win.
-BUILDER_INSTALL_RATE_PER_SQFT = 4.50      # $/sqft of door, > 130 sqft residential + all commercial
-BUILDER_RESIDENTIAL_SMALL_FLAT = 500.00   # flat install for residential < 90 sqft
-BUILDER_RESIDENTIAL_MEDIUM_FLAT = 600.00  # flat install for residential 90 - 130 sqft
-BUILDER_RESIDENTIAL_LARGE_THRESHOLD = 130 # > 130 sqft -> per-sqft model
-BUILDER_RESIDENTIAL_SMALL_THRESHOLD = 90  # < 90 sqft -> small flat
+# Builder-account installation defaults.
+BUILDER_INSTALL_RATE_PER_SQFT = 4.50      # wood-mount $/sqft (default / fallback)
 
-BUILDER_TRAVEL_RATE_PER_KM = 2.00         # $/km, one-way from Medicine Hat
+# Install $/sqft is set by the door's mount surface, uniform across all builder
+# accounts (not a per-customer rate). 'concrete' is wired up but dormant until
+# the configurator exposes mountSurface='concrete'.
+BUILDER_INSTALL_RATE_BY_MOUNT = {
+    "wood": 4.50,
+    "steel": 5.50,
+    "concrete": 7.50,
+}
+
+BUILDER_RESIDENTIAL_SMALL_FLAT = 500.00   # flat FLOOR for residential < 90 sqft
+BUILDER_RESIDENTIAL_MEDIUM_FLAT = 600.00  # flat FLOOR for residential 90 - 130 sqft
+BUILDER_RESIDENTIAL_LARGE_THRESHOLD = 130 # > 130 sqft -> per-sqft model
+BUILDER_RESIDENTIAL_SMALL_THRESHOLD = 90  # < 90 sqft -> small flat floor
+
+BUILDER_TRAVEL_RATE_PER_KM = 1.00         # $/km, one-way from Medicine Hat
 BUILDER_LIFT_BLOCK_SQFT = 400             # one charge per 400 sqft of qualifying door
 BUILDER_LIFT_BLOCK_PRICE = 400.00         # $/block (when any door > 12' tall)
 BUILDER_PER_DIEM_BLOCK_PRICE = 200.00     # $/block (when total > 400 sqft)
@@ -348,24 +357,36 @@ class InstallPricingService:
         return result
 
 
-    def _install_for_single_door(self, area_sqft: float, door_type: str, sqft_rate: float) -> Dict[str, Any]:
+    def _install_for_single_door(self, area_sqft: float, door_type: str,
+                                 mount_surface: str = "wood") -> Dict[str, Any]:
         """
         Install fee for one door under the builder model.
 
-        Residential:
-          < 90 sqft         -> flat $500
-          90 - 130 sqft     -> flat $600
-          > 130 sqft        -> sqft_rate * area_sqft (the same per-sqft model
-                                used for commercial doors)
-        Commercial (and anything non-residential):
-          per-sqft model: sqft_rate * area_sqft
+        The $/sqft rate is set by the mount surface (uniform across builders):
+          wood $4.50, steel $5.50, concrete $7.50.
+
+        Residential doors <= 130 sqft carry a flat FLOOR ($500 < 90 sqft,
+        $600 for 90-130). We bill the HIGHER of that floor and the per-sqft
+        amount, so a steel/concrete mount that exceeds the floor bills per sqft.
+        Larger residential (> 130) and all commercial doors are always per-sqft.
         """
+        rate = BUILDER_INSTALL_RATE_BY_MOUNT.get(
+            (mount_surface or "wood").lower(), BUILDER_INSTALL_RATE_PER_SQFT
+        )
+        per_sqft_price = round(area_sqft * rate, 2)
+
         is_residential = (door_type or "").lower() == "residential"
+        floor = None
         if is_residential and area_sqft < BUILDER_RESIDENTIAL_SMALL_THRESHOLD:
-            return {"price": BUILDER_RESIDENTIAL_SMALL_FLAT, "tier": "residential-small-flat"}
-        if is_residential and area_sqft <= BUILDER_RESIDENTIAL_LARGE_THRESHOLD:
-            return {"price": BUILDER_RESIDENTIAL_MEDIUM_FLAT, "tier": "residential-medium-flat"}
-        return {"price": round(area_sqft * sqft_rate, 2), "tier": "per-sqft"}
+            floor = BUILDER_RESIDENTIAL_SMALL_FLAT
+        elif is_residential and area_sqft <= BUILDER_RESIDENTIAL_LARGE_THRESHOLD:
+            floor = BUILDER_RESIDENTIAL_MEDIUM_FLAT
+
+        if floor is not None and floor >= per_sqft_price:
+            return {"price": floor, "tier": "residential-flat-floor",
+                    "rate": rate, "mount_surface": mount_surface}
+        return {"price": per_sqft_price, "tier": "per-sqft",
+                "rate": rate, "mount_surface": mount_surface}
 
     def calculate_total_install_price(
         self,
@@ -395,14 +416,12 @@ class InstallPricingService:
         No height cap, no "custom quote required" branch — installation is
         always priced.
         """
+        # Install $/sqft is driven by each door's mount surface, uniform across
+        # builders. Only travel is a per-customer override (rarely set now).
         pricing = self.get_customer_pricing(customer_id, db)
-        sqft_rate = BUILDER_INSTALL_RATE_PER_SQFT
         travel_rate = BUILDER_TRAVEL_RATE_PER_KM
-        if pricing:
-            if pricing.commercial_sqft_rate is not None:
-                sqft_rate = float(pricing.commercial_sqft_rate)
-            if pricing.travel_rate_per_km is not None:
-                travel_rate = float(pricing.travel_rate_per_km)
+        if pricing and pricing.travel_rate_per_km is not None:
+            travel_rate = float(pricing.travel_rate_per_km)
 
         total_install = 0.0
         total_sqft = 0.0
@@ -414,12 +433,13 @@ class InstallPricingService:
             h = float(d.get("doorHeight") or 0)
             count = int(d.get("doorCount") or 1)
             door_type = d.get("doorType", "residential")
+            mount_surface = str(d.get("mountSurface") or "wood").lower()
             operator = (d.get("operator") or "").upper()
             has_operator = operator not in ("", "NONE", "MANUAL")
             area = (w * h) / 144.0
             if h > max_height_in:
                 max_height_in = h
-            unit = self._install_for_single_door(area, door_type, sqft_rate)
+            unit = self._install_for_single_door(area, door_type, mount_surface)
             line_total = round(unit["price"] * count, 2)
             total_install += line_total
             total_sqft += area * count
@@ -427,8 +447,9 @@ class InstallPricingService:
                 operator_doors += count
             per_door.append({
                 "door_width_in": w, "door_height_in": h, "door_count": count,
-                "door_type": door_type, "area_sqft": round(area, 2),
-                "tier": unit["tier"], "unit_install": unit["price"],
+                "door_type": door_type, "mount_surface": mount_surface,
+                "area_sqft": round(area, 2), "tier": unit["tier"],
+                "install_rate_per_sqft": unit["rate"], "unit_install": unit["price"],
                 "line_total": line_total, "has_operator": has_operator,
             })
 
@@ -462,7 +483,7 @@ class InstallPricingService:
             "total_sqft": round(total_sqft, 2),
             "door_count_total": sum(p["door_count"] for p in per_door),
             "max_height_in": max_height_in,
-            "install_rate_per_sqft": sqft_rate,
+            "install_rate_by_mount": dict(BUILDER_INSTALL_RATE_BY_MOUNT),
             "base_install_price": round(total_install, 2),
             "per_door": per_door,
             "needs_lift": needs_lift,
