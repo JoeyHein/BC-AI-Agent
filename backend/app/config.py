@@ -75,6 +75,16 @@ class Settings(BaseSettings):
     CUSTOMER_PORTAL_URL: str = "http://localhost:3001/customer.html"
     ADMIN_PORTAL_URL: str = "http://localhost:3001"
 
+    # Daily planning workbook (4 AM job)
+    # Recipients for the emailed workbook; falls back to ADMIN_NOTIFICATION_EMAILS.
+    PLANNING_WORKBOOK_RECIPIENTS: Optional[str] = None  # comma-separated
+    # SharePoint/Excel Online publish (fast-follow — needs Files/Sites Graph perm).
+    # While disabled, delivery is by email attachment only.
+    PLANNING_SHAREPOINT_ENABLED: bool = False
+    PLANNING_SHAREPOINT_DRIVE_ID: Optional[str] = None       # Graph drive id of the doc library
+    PLANNING_SHAREPOINT_FILE_PATH: str = "Planning/OPENDC_Planning.xlsx"  # path within the drive
+    PLANNING_SHAREPOINT_WEB_URL: Optional[str] = None        # shown in the notification email
+
     # Feature Flags
     ENABLE_EMAIL_MONITORING: bool = True
     ENABLE_AI_PARSING: bool = True

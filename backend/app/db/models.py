@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Optional
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Date, Boolean, Float,
-    ForeignKey, JSON, Enum as SQLEnum, ARRAY, Numeric
+    ForeignKey, JSON, Enum as SQLEnum, ARRAY, Numeric, UniqueConstraint
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.mutable import MutableDict, MutableList
@@ -1295,6 +1295,44 @@ class AppSettings(Base):
             "description": self.description,
             "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
             "updatedBy": self.updated_by,
+        }
+
+
+class SOTimelineSnapshot(Base):
+    """Weekly on-target snapshot for an open sales order.
+
+    Written once per (sales order, ISO week) by the daily planning-workbook job
+    so the Timeline tab can show week-over-week movement (e.g. GREEN -> AMBER as a
+    project slips). Upsert keyed on (so_number, week_ending): re-runs within the
+    same week overwrite, and the row finalizes when the week ends.
+    """
+    __tablename__ = "so_timeline_snapshot"
+    __table_args__ = (
+        UniqueConstraint("so_number", "week_ending", name="uq_so_timeline_week"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    so_number = Column(String(50), nullable=False, index=True)
+    week_ending = Column(Date, nullable=False, index=True)  # Sunday of the ISO week
+    rag = Column(String(10), nullable=False)                # 'red' | 'amber' | 'green'
+    requested_delivery_date = Column(Date, nullable=True)
+    short_item_count = Column(Integer, nullable=False, default=0)
+    status = Column(String(50), nullable=True)              # BC SO status string
+    snapshot_json = Column(JSON, nullable=True)             # full computed row for audit/detail
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<SOTimelineSnapshot(so={self.so_number}, week={self.week_ending}, rag={self.rag})>"
+
+    def to_dict(self):
+        return {
+            "soNumber": self.so_number,
+            "weekEnding": self.week_ending.isoformat() if self.week_ending else None,
+            "rag": self.rag,
+            "requestedDeliveryDate": self.requested_delivery_date.isoformat() if self.requested_delivery_date else None,
+            "shortItemCount": self.short_item_count,
+            "status": self.status,
         }
 
 

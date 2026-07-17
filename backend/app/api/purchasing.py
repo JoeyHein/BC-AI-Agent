@@ -8,7 +8,7 @@ vendor mapping management, daily-report trigger, and per-vendor PO generation.
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -20,6 +20,7 @@ from app.services.purchasing_demand_service import purchasing_demand_service
 from app.services.vendor_map_service import vendor_map_service
 from app.services.purchasing_report_service import purchasing_report_service
 from app.services.purchasing_po_service import purchasing_po_service
+from app.services.planning_workbook_service import planning_workbook_service, XLSX_MIME
 from app.integrations.bc.client import bc_client
 
 router = APIRouter(prefix="/api/admin/purchasing", tags=["purchasing"])
@@ -146,6 +147,35 @@ async def send_report(
     recipients = body.recipients if body else None
     result = purchasing_report_service.send_daily_report(db, recipients=recipients)
     return result
+
+
+@router.post("/planning-workbook/run")
+async def run_planning_workbook(
+    body: SendReportRequest = None,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Build, snapshot, and deliver the daily planning workbook now (manual trigger)."""
+    recipients = body.recipients if body else None
+    vendor_map_service.refresh(db)
+    db.commit()
+    return planning_workbook_service.build_and_deliver(db, recipients=recipients)
+
+
+@router.get("/planning-workbook/download")
+async def download_planning_workbook(
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Build and return the planning workbook for preview (no snapshot, no delivery)."""
+    xlsx, _ = planning_workbook_service.build_workbook_bytes(db)
+    from datetime import date as _date
+    fname = f"OPENDC_Planning_{_date.today().isoformat()}.xlsx"
+    return Response(
+        content=xlsx,
+        media_type=XLSX_MIME,
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
 
 
 @router.post("/generate-po")

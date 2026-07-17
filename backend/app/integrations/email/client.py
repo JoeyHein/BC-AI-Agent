@@ -270,6 +270,38 @@ class GraphEmailClient:
         logger.info(f"Sent email '{subject}' from {from_email} to {to}")
         return True
 
+    # ==================== SharePoint / OneDrive file publish ====================
+
+    def upload_drive_file(self, drive_id: str, item_path: str, content: bytes) -> str:
+        """Overwrite a file in a SharePoint/OneDrive drive, returning its webUrl.
+
+        Simple PUT to /content (fine for files < 4 MB — the planning workbook is
+        tens of KB). Overwriting the same path keeps the shared link constant so
+        the document is always "the latest". Requires the Files.ReadWrite.All or
+        Sites.Selected (with write granted on the site) application permission on
+        the Graph app registration — NOT included by the mail-only grant, so this
+        raises until that permission is added in Azure.
+        """
+        token = self._get_access_token()
+        path = item_path.strip("/")
+        url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{path}:/content"
+        resp = requests.put(
+            url,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/octet-stream",
+            },
+            data=content,
+            timeout=120,
+        )
+        if resp.status_code >= 400:
+            logger.error(f"Graph drive upload failed {resp.status_code}: {resp.text[:400]}")
+            resp.raise_for_status()
+        item = resp.json() if resp.content else {}
+        web_url = item.get("webUrl", "")
+        logger.info(f"Uploaded planning workbook to drive {drive_id}:/{path}")
+        return web_url
+
     # ==================== Sent Items ====================
 
     def get_sent_emails(self, user_email: str, days_back: int = 90, max_count: int = 100) -> List[Dict[str, Any]]:
