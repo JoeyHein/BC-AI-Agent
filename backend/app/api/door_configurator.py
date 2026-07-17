@@ -634,6 +634,7 @@ class QuoteGenerationRequest(BaseModel):
     tagName: Optional[str] = None
     customerId: Optional[str] = None
     deliveryType: str = "delivery"  # "delivery" or "pickup"
+    installTown: Optional[str] = None  # job-site town for home-builder install travel
     # When provided, the endpoint clears all lines on this BC quote and
     # re-adds them rather than creating a new quote. Used by the internal
     # configurator so successive "Generate Quote" presses (e.g. after the
@@ -1618,9 +1619,22 @@ def build_bc_quote_from_doors(
             except Exception as esc_err:
                 logger.warning(f"Escalating margin check failed: {esc_err}")
 
-        # Step 5: Add freight line if delivery
+        # Detect a home-builder customer via the portal account linked to this
+        # BC customer. Builders get an INSTALLATION line and NO freight — the
+        # install total already bills per-km crew travel, so freight would
+        # charge the same trip twice (mirrors the customer-portal behaviour).
+        from app.db.models import User as _User
+        builder_user = None
+        if request.customerId:
+            builder_user = db.query(_User).filter(
+                _User.bc_customer_id == request.customerId,
+                _User.account_type == "home_builder",
+            ).first()
+        is_home_builder = builder_user is not None
+
+        # Step 5: Add freight line if delivery (skipped for home builders)
         freight_info = None
-        if pricing:
+        if pricing and not is_home_builder:
             try:
                 # Get customer province
                 customer_province = None
@@ -1706,6 +1720,66 @@ def build_bc_quote_from_doors(
 
             except Exception as freight_err:
                 logger.warning(f"Could not calculate/add freight: {freight_err}")
+
+        # Step 5b: Builder installation line (one consolidated INSTALLATION
+        # line: per-sqft labour by mount surface + lift + per-diem + operator
+        # add-on + per-km travel). Same service the customer portal uses.
+        if pricing and is_home_builder:
+            try:
+                from app.services.install_pricing_service import install_pricing_service
+                door_dicts = [{
+                    "doorWidth": d.doorWidth, "doorHeight": d.doorHeight,
+                    "doorCount": d.doorCount, "doorType": d.doorType,
+                    "operator": d.operator, "mountSurface": d.mountSurface,
+                } for d in request.doors]
+                install_result = install_pricing_service.calculate_total_install_price(
+                    customer_id=builder_user.id,
+                    doors=door_dicts,
+                    town=request.installTown,
+                    db=db,
+                )
+                install_total = install_result.get("grand_total", 0) or 0
+                if install_total > 0:
+                    sqft = install_result["total_sqft"]
+                    dcount = install_result["door_count_total"]
+                    town = install_result.get("town")
+                    desc = (f"Installation - {town} ({sqft:.0f} sqft, {dcount} door(s))"
+                            if town else f"Installation ({sqft:.0f} sqft, {dcount} door(s))")
+                    inst_line = bc_client.add_quote_line(bc_quote_id, {
+                        "lineType": "Item",
+                        "lineObjectNumber": "INSTALLATION",
+                        "description": desc[:100],
+                        "quantity": 1,
+                    })
+                    bc_client.update_quote_line(
+                        bc_quote_id, inst_line["id"],
+                        inst_line.get("@odata.etag", "*"),
+                        {"unitPrice": install_total},
+                    )
+                    if inst_line.get("sequence"):
+                        try:
+                            bc_client.set_quote_line_output(
+                                bc_quote_number, inst_line["sequence"], output=True
+                            )
+                        except Exception as out_err:
+                            logger.warning(f"Failed to set Output on install line: {out_err}")
+                    # Re-fetch totals so the response reflects the install line.
+                    try:
+                        uq = bc_client.get_sales_quote(bc_quote_id)
+                        st = uq.get("totalAmountExcludingTax", 0)
+                        tt = uq.get("totalAmountIncludingTax", 0)
+                        pricing = {
+                            "subtotal": round(st, 2), "tax": round(tt - st, 2),
+                            "total": round(tt, 2), "currency": "CAD",
+                        }
+                    except Exception:
+                        pass
+                    logger.info(
+                        f"Added install line to {bc_quote_number}: ${install_total:.2f} "
+                        f"({sqft:.0f} sqft, town={request.installTown!r})"
+                    )
+            except Exception as inst_err:
+                logger.warning(f"Could not add installation pricing: {inst_err}")
 
         # Save snapshot for quote review system
         try:

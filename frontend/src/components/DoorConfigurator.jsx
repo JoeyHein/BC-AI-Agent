@@ -32,6 +32,7 @@ function DoorConfigurator() {
   const [selectedCustomer, setSelectedCustomer] = useState(null) // { bc_customer_id, company_name }
   const [poNumber, setPoNumber] = useState('')
   const [deliveryType, setDeliveryType] = useState('delivery')
+  const [installTown, setInstallTown] = useState('')
 
   // Clear the held BC quote id when the customer changes so a fresh quote
   // is created for the new customer instead of editing the previous one's.
@@ -257,6 +258,7 @@ function DoorConfigurator() {
       customerId: selectedCustomer?.bc_customer_id || null,
       poNumber: poNumber || undefined,
       deliveryType,
+      installTown: selectedCustomer?.is_home_builder ? (installTown || undefined) : undefined,
       // Reuse the existing BC quote on subsequent generations (e.g. after
       // adding another door) so the BC quote number stays the same.
       bcQuoteId: quoteResult?.data?.bc_quote_id || undefined,
@@ -524,6 +526,8 @@ function DoorConfigurator() {
             onAddDoor={addDoor}
             deliveryType={deliveryType}
             onDeliveryTypeChange={setDeliveryType}
+            installTown={installTown}
+            onInstallTownChange={setInstallTown}
             onStartNewQuote={handleStartNewQuote}
           />
         )}
@@ -2888,7 +2892,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
   )
 }
 
-function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult, selectedCustomer, poNumber, onPoNumberChange, onAddDoor, deliveryType, onDeliveryTypeChange, onStartNewQuote }) {
+function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult, selectedCustomer, poNumber, onPoNumberChange, onAddDoor, deliveryType, onDeliveryTypeChange, installTown, onInstallTownChange, onStartNewQuote }) {
   const [partsData, setPartsData] = useState(null)
   const [loadingParts, setLoadingParts] = useState(false)
   const [showParts, setShowParts] = useState(false)
@@ -3575,6 +3579,26 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
         )}
       </div>
 
+      {/* Install town — home-builder accounts get an installation line (no
+          freight); the town sets the crew travel distance from Medicine Hat. */}
+      {selectedCustomer?.is_home_builder && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Install Town <span className="font-normal text-gray-400">(builder install — job site)</span>
+          </label>
+          <input
+            type="text"
+            value={installTown || ''}
+            onChange={(e) => onInstallTownChange(e.target.value)}
+            placeholder="e.g. Regina, SK"
+            className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-odc-500 focus:border-odc-500"
+          />
+          <p className="mt-1 text-xs text-gray-500">
+            {selectedCustomer.company_name} is a builder — an installation line is added and freight is skipped. Leave blank to price install without travel.
+          </p>
+        </div>
+      )}
+
       {/* Generate Quote Button */}
       <button
         onClick={onGenerateQuote}
@@ -3785,7 +3809,7 @@ function CustomerSelector({ selectedCustomer, onCustomerChange }) {
                 type="button"
                 onMouseDown={(e) => {
                   e.preventDefault()
-                  onCustomerChange({ bc_customer_id: bc.bc_customer_id, company_name: bc.company_name })
+                  onCustomerChange({ bc_customer_id: bc.bc_customer_id, company_name: bc.company_name, is_home_builder: bc.is_home_builder })
                   setSearch('')
                   setOpen(false)
                 }}

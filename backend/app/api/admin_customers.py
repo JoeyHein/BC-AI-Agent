@@ -178,6 +178,7 @@ class BCCustomerSearchResponse(BaseModel):
     email: Optional[str]
     phone: Optional[str]
     already_linked: bool
+    is_home_builder: bool = False
 
 
 class PendingCustomerResponse(BaseModel):
@@ -281,11 +282,14 @@ def search_bc_customers(
                (c.bc_customer_id and q_lower in c.bc_customer_id.lower())
         ]
 
-    # Check which are already linked
-    linked_ids = set(
-        u.bc_customer_id for u in
-        db.query(User).filter(User.bc_customer_id.isnot(None)).all()
-    )
+    # Check which are already linked, and which are home-builder accounts (so
+    # the configurator can collect an install town + add the install line).
+    linked_ids = set()
+    hb_ids = set()
+    for u in db.query(User).filter(User.bc_customer_id.isnot(None)).all():
+        linked_ids.add(u.bc_customer_id)
+        if u.account_type == "home_builder":
+            hb_ids.add(u.bc_customer_id)
 
     result = []
     for bc in bc_customers[:50]:  # Limit results
@@ -295,7 +299,8 @@ def search_bc_customers(
             contact_name=bc.contact_name,
             email=bc.email,
             phone=bc.phone,
-            already_linked=bc.bc_customer_id in linked_ids
+            already_linked=bc.bc_customer_id in linked_ids,
+            is_home_builder=bc.bc_customer_id in hb_ids,
         ))
 
     return result
