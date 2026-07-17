@@ -464,3 +464,83 @@ class TestChainHoist:
         parts = _get_parts({**self._COMMERCIAL, "operator": "OP19-01048-00",
                             "chainHoist": "shaft"})
         assert len(self._hoist_parts(parts)) == 0
+
+
+class TestJackshaftAccessories:
+    """Commercial jackshaft operators auto-include a spreader bar; the LiftMaster
+    JHDC additionally gets a chain tensioner. Both follow the torsion shaft bore
+    (1-1/4" only on >2000 lb doors, else 1"). One of each per door."""
+
+    _COMMERCIAL = {
+        "doorType": "commercial", "doorSeries": "TX450",
+        "doorWidth": 144, "doorHeight": 144, "panelDesign": "FLUSH",
+        "trackThickness": "3",
+    }
+
+    def _ops(self, parts):
+        return {p.get("part_number") for p in parts if p.get("category") == "operator"}
+
+    def test_jhdc_emits_spreader_and_tensioner_1in(self):
+        parts = _get_parts({**self._COMMERCIAL, "operator": "OP19-01107-00"})
+        pns = self._ops(parts)
+        assert "OP20-02001-00" in pns, "JHDC should get the 1\" spreader bar"
+        assert "OP19-02126-00" in pns, "JHDC should get the 1\" tensioner"
+
+    def test_spreader_and_tensioner_are_one_each(self):
+        parts = _get_parts({**self._COMMERCIAL, "operator": "OP19-01106-00"})
+        spreaders = [p for p in parts if (p.get("part_number") or "").startswith("OP20-0200")]
+        tensioners = [p for p in parts if (p.get("part_number") or "").startswith("OP19-0212")]
+        assert len(spreaders) == 1 and spreaders[0]["quantity"] == 1
+        assert len(tensioners) == 1 and tensioners[0]["quantity"] == 1
+        assert spreaders[0]["category"] == "operator"  # Output=True on the quote
+
+    def test_heavy_door_uses_1_25in_bore(self):
+        # >2000 lb door runs a 1-1/4" shaft, so both accessories step up. Weight
+        # isn't injectable through the quote dict (always computed), so exercise
+        # the bore branch directly on a heavy DoorConfiguration.
+        from app.services.part_number_service import PartNumberService, DoorConfiguration
+
+        svc = PartNumberService()
+        cfg = DoorConfiguration(
+            door_type="commercial", door_series="TX450", door_width=288, door_height=240,
+            door_count=1, panel_color="WHITE", panel_design="FLUSH",
+            operator="OP19-01109-00", door_weight=2500,
+        )
+        assert svc._torsion_shaft_bore(cfg) == "1-1/4"
+        pns = {p.part_number for p in svc._get_operator_parts(cfg)}
+        assert "OP20-02002-00" in pns and "OP19-02127-00" in pns
+        assert "OP20-02001-00" not in pns and "OP19-02126-00" not in pns
+
+    def test_accessory_bore_matches_shaft_bore(self):
+        # The invariant: whatever bore the shaft gets, the spreader/tensioner match.
+        # Both read config.door_weight or _calculate_door_weight with the same
+        # >2000 threshold, so they can't diverge.
+        from app.services.part_number_service import PartNumberService, DoorConfiguration
+
+        svc = PartNumberService()
+        for weight, expect in ((800, "1"), (2500, "1-1/4")):
+            cfg = DoorConfiguration(
+                door_type="commercial", door_series="TX450", door_width=200, door_height=180,
+                door_count=1, panel_color="WHITE", panel_design="FLUSH",
+                operator="OP19-01107-00", door_weight=weight,
+            )
+            bore = svc._torsion_shaft_bore(cfg)
+            assert bore == expect
+            spreader = svc.JACKSHAFT_SPREADER_BARS[bore][0]
+            tensioner = svc.JHDC_TENSIONERS[bore][0]
+            pns = {p.part_number for p in svc._get_operator_parts(cfg)}
+            assert spreader in pns and tensioner in pns
+
+    def test_non_jackshaft_commercial_gets_neither(self):
+        # Micanan hoist and LiftMaster trolley are commercial but not jackshaft.
+        for op in ("OP20-01001-00", "OP19-01057-00"):
+            pns = self._ops(_get_parts({**self._COMMERCIAL, "operator": op}))
+            assert not (pns & {"OP20-02001-00", "OP20-02002-00",
+                               "OP19-02126-00", "OP19-02127-00"}), f"{op} should add neither"
+
+    def test_residential_jackshaft_gets_neither(self):
+        # Residential jackshaft (LJ8900W) on a residential door — commercial gate.
+        pns = self._ops(_get_parts({"doorType": "residential", "doorSeries": "KANATA",
+                                    "operator": "OP19-01082-00"}))
+        assert not (pns & {"OP20-02001-00", "OP20-02002-00",
+                           "OP19-02126-00", "OP19-02127-00"})

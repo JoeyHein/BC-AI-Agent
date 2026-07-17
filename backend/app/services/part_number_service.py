@@ -3594,6 +3594,35 @@ class PartNumberService:
         "wall": ("FH12-00190-00", "CHAIN HOIST WALL MOUNT 1\" BORE"),
     }
 
+    # Bore-specific jackshaft accessories, keyed by torsion shaft bore (see
+    # _torsion_shaft_bore — 1-1/4" only on >2000 lb doors, else 1"). One per door.
+    # Every commercial jackshaft operator gets a spreader bar; the LiftMaster
+    # JHDC additionally needs a chain tensioner.
+    JACKSHAFT_SPREADER_BARS = {
+        "1": ("OP20-02001-00", "SPREADER BAR, 1\" - 1\" (JACKSHAFT)"),
+        "1-1/4": ("OP20-02002-00", "SPREADER BAR, 1\" - 1-1/4\" (JACKSHAFT)"),
+    }
+    JHDC_TENSIONERS = {
+        "1": ("OP19-02126-00", "LIFTMASTER CHAIN TENSIONER 1\" (JHDC)"),
+        "1-1/4": ("OP19-02127-00", "LIFTMASTER CHAIN TENSIONER 1-1/4\" (JHDC)"),
+    }
+    # LiftMaster JHDC jackshaft operator SKUs — these get the tensioner.
+    JHDC_OPERATORS = {
+        "OP19-01106-00", "OP19-01107-00", "OP19-01108-00", "OP19-01109-00",
+    }
+
+    def _torsion_shaft_bore(self, config: DoorConfiguration) -> str:
+        """Torsion shaft bore key ('1' or '1-1/4') for bore-specific accessories.
+
+        Mirrors the single bore split in _get_shaft_parts: >2000 lb doors run a
+        1-1/4" keyed shaft, everything else is 1". Keeps the spreader bar /
+        tensioner bore matched to the shaft the door actually gets.
+        """
+        door_weight = config.door_weight
+        if door_weight is None:
+            door_weight = self._calculate_door_weight(config)
+        return "1-1/4" if door_weight > 2000 else "1"
+
     def _get_operator_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get operator and accessory part numbers using real BC part numbers from catalog."""
         parts = []
@@ -3677,6 +3706,42 @@ class PartNumberService:
                 quantity=1,
                 category="operator",
             ))
+
+        # Jackshaft operator accessories (commercial, one per door). Every
+        # commercial jackshaft operator needs a spreader bar; the LiftMaster
+        # JHDC additionally needs a chain tensioner. Both follow the torsion
+        # shaft bore. Detection is by name ("JACKSHAFT"/"JHDC") so a future
+        # non-JHDC commercial jackshaft still gets the spreader bar; the
+        # tensioner stays keyed to the JHDC SKUs (or a "JHDC"-named variant).
+        if config.operator and config.operator != "NONE" and config.door_type == "commercial":
+            from app.services.operator_service import get_operator_display_name
+            op_name = get_operator_display_name(config.operator).upper()
+            is_jackshaft = "JACKSHAFT" in op_name or "JHDC" in op_name
+
+            if is_jackshaft:
+                bore = self._torsion_shaft_bore(config)
+
+                spreader_pn, spreader_desc = self.JACKSHAFT_SPREADER_BARS[bore]
+                if spreader_pn not in accessory_pns:
+                    parts.append(PartSelection(
+                        part_number=spreader_pn,
+                        description=spreader_desc,
+                        quantity=1,
+                        category="operator",
+                    ))
+                    accessory_pns.add(spreader_pn)
+
+                is_jhdc = config.operator in self.JHDC_OPERATORS or "JHDC" in op_name
+                if is_jhdc:
+                    tensioner_pn, tensioner_desc = self.JHDC_TENSIONERS[bore]
+                    if tensioner_pn not in accessory_pns:
+                        parts.append(PartSelection(
+                            part_number=tensioner_pn,
+                            description=tensioner_desc,
+                            quantity=1,
+                            category="operator",
+                        ))
+                        accessory_pns.add(tensioner_pn)
 
         return parts
 
