@@ -146,7 +146,7 @@ function QuoteBuilder() {
       operatorSide: 'right', // 'left' or 'right' — drives operator mount
                               // location on shop drawings (industry default = right)
       trackMount: 'bracket', // 'bracket' or 'angle'
-      mountSurface: 'wood', // 'wood' or 'steel' — install method, no pricing impact; 'steel' adds quote comment
+      mountSurface: 'wood', // 'wood', 'steel', or 'concrete' — install method; steel/concrete add a builder install premium + comment (door price unaffected)
       // High lift inches (only used for high_lift)
       highLiftInches: null,  // extra inches above door opening
       // Additional optional extras (mirror the title-block extras list)
@@ -2522,10 +2522,11 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         <label className="block text-sm font-medium text-gray-700 mb-2">
           Mounting Surface
         </label>
-        <div className="grid grid-cols-2 gap-3 max-w-md">
+        <div className="grid grid-cols-3 gap-3 max-w-2xl">
           {[
             { id: 'wood', name: 'Wood Mount', description: 'Standard install to wood jamb' },
             { id: 'steel', name: 'Steel Mount / Reverse Angle', description: 'Adds note to quote — same price' },
+            { id: 'concrete', name: 'Concrete Mount', description: 'Adds note to quote — same door price' },
           ].map((option) => (
             <button
               key={option.id}

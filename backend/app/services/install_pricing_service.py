@@ -36,8 +36,8 @@ TRAVEL_DISTANCES_KEY = "install_travel_distances"
 BUILDER_INSTALL_RATE_PER_SQFT = 4.50      # wood-mount $/sqft (default / fallback)
 
 # Install $/sqft is set by the door's mount surface, uniform across all builder
-# accounts (not a per-customer rate). 'concrete' is wired up but dormant until
-# the configurator exposes mountSurface='concrete'.
+# accounts (not a per-customer rate). Steel and concrete are harder mounts and
+# carry a higher install rate; the door product price is unaffected by mount.
 BUILDER_INSTALL_RATE_BY_MOUNT = {
     "wood": 4.50,
     "steel": 5.50,

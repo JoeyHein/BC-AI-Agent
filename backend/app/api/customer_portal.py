@@ -25,6 +25,18 @@ from app.services.freight_service import calculate_freight, get_freight_config
 from app.services.install_pricing_service import install_pricing_service
 
 
+def _mount_surface_note(door: dict) -> Optional[str]:
+    """Shop install note for the door's mount surface, or None for a plain wood
+    mount. Steel (reverse-angle) and concrete are harder mounts that carry a
+    builder install premium; the door product price is unaffected by mount."""
+    mount = str(door.get("mountSurface", "wood") or "wood").lower()
+    if mount == "steel":
+        return "** STEEL MOUNT / REVERSE ANGLE INSTALL **"
+    if mount == "concrete":
+        return "** CONCRETE MOUNT INSTALL **"
+    return None
+
+
 def _account_provides_install(customer_user_id: Optional[int], db: Optional[Session]) -> bool:
     """True when the customer is a home-builder account.
 
@@ -852,11 +864,12 @@ def _generate_bc_quote_with_items(
             "is_door_desc": True,
         })
 
-        # Steel mount install note (no pricing impact — affects shop install only)
-        if str(door.get("mountSurface", "wood")).lower() == "steel":
+        # Mount-surface install note for the shop.
+        _mount_note = _mount_surface_note(door)
+        if _mount_note:
             all_lines.append({
                 "lineType": "Comment",
-                "description": "** STEEL MOUNT / REVERSE ANGLE INSTALL **",
+                "description": _mount_note,
                 "category": "COMMENT",
                 "door_index": door_index,
                 "is_note": True,
@@ -1951,10 +1964,11 @@ def _edit_bc_quote_lines(
             "door_index": door_index, "is_door_desc": True,
         })
 
-        if str(door.get("mountSurface", "wood")).lower() == "steel":
+        _mount_note = _mount_surface_note(door)
+        if _mount_note:
             all_new_lines.append({
                 "lineType": "Comment",
-                "description": "** STEEL MOUNT / REVERSE ANGLE INSTALL **",
+                "description": _mount_note,
                 "category": "COMMENT", "door_index": door_index, "is_note": True,
             })
 
@@ -2299,11 +2313,12 @@ def _estimate_pricing_locally(
             "door_index": door_index,
         })
 
-        # Steel mount install note (no pricing impact — affects shop install only)
-        if str(door.get("mountSurface", "wood")).lower() == "steel":
+        # Mount-surface install note for the shop.
+        _mount_note = _mount_surface_note(door)
+        if _mount_note:
             all_lines.append({
                 "lineType": "Comment",
-                "description": "** STEEL MOUNT / REVERSE ANGLE INSTALL **",
+                "description": _mount_note,
                 "door_index": door_index,
             })
 

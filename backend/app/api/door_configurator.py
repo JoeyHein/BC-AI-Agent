@@ -613,7 +613,7 @@ class DoorConfigRequest(BaseModel):
     trackRadius: str = "15"
     trackThickness: str = "2"
     trackMount: str = "bracket"  # 'bracket' or 'angle'
-    mountSurface: str = "wood"  # 'wood' or 'steel' — install method, no pricing impact; 'steel' adds quote comment
+    mountSurface: str = "wood"  # 'wood', 'steel', or 'concrete' — install method; steel/concrete add a builder install premium + quote comment (door product price unaffected)
     liftType: str = "standard"  # 'standard', 'low_headroom', 'high_lift', 'vertical'
     highLiftInches: Optional[int] = None
     hardware: Dict[str, bool] = {}
@@ -1089,11 +1089,17 @@ def build_bc_quote_from_doors(
                 "is_door_desc": True,
             })
 
-            # Steel mount install note (no pricing impact — affects shop install only)
-            if str(getattr(door, 'mountSurface', 'wood') or 'wood').lower() == 'steel':
+            # Mount-surface install note for the shop.
+            _mount = str(getattr(door, 'mountSurface', 'wood') or 'wood').lower()
+            _mount_note = None
+            if _mount == 'steel':
+                _mount_note = "** STEEL MOUNT / REVERSE ANGLE INSTALL **"
+            elif _mount == 'concrete':
+                _mount_note = "** CONCRETE MOUNT INSTALL **"
+            if _mount_note:
                 all_lines.append({
                     "lineType": "Comment",
-                    "description": "** STEEL MOUNT / REVERSE ANGLE INSTALL **",
+                    "description": _mount_note,
                     "category": "COMMENT",
                     "door_index": door_index,
                     "is_note": True,
