@@ -3483,10 +3483,14 @@ class PartNumberService:
         """Get commercial thermopane window parts using GK16 part numbers.
 
         GK16 format: GK16-{S}3{G}{CC}-{VV}
-          S  = Series: 2=TX450 (1-3/4"), 4=TX500 (2")
+          S  = Series: 2=TX450 (1-3/4"), 4=TX500 (2"), 7=TX760 (1-3/4")
           G  = Glass type: 2=THERM-CLEAR
           CC = Color: 00=WHITE, 05=BLACK
           VV = Variant: 00=24x12, 01=24x8
+
+        TX380 has no glass kit of its own in BC — it uses the TX450 (series 2)
+        kit. (An earlier S="3" produced GK16-33xxx, which doesn't exist, so the
+        glass line silently fell back to a comment — SQ-002828.)
         """
         mapper = get_bc_mapper()
 
@@ -3494,12 +3498,10 @@ class PartNumberService:
         series_upper = config.door_series.upper()
         if series_upper.startswith("TX500"):
             s = "4"
-        elif series_upper.startswith("TX380"):
-            s = "3"
         elif series_upper.startswith("TX760"):
             s = "7"  # GK16-732xx (e.g. GK16-73200-00 White / -73205-00 Black)
         else:
-            s = "2"  # TX450 or default
+            s = "2"  # TX450, TX380, or default — all use the TX450 glass kit
 
         # G: Glass type (always THERM for commercial)
         g = "2"
