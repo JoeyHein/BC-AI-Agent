@@ -45,7 +45,7 @@ class TestPriceBook:
         SP11-25036-01/-02 are live and unblocked in BC at $0.00 — they must not
         reach the price book.
         """
-        bad = {pn: p for pn, p in spring_pricing.PRICES.items() if p <= 0}
+        bad = {pn: p for pn, p in spring_pricing.prices().items() if p <= 0}
         assert not bad, f"non-positive prices in book: {bad}"
 
     def test_phantom_zero_priced_spring_excluded(self):
@@ -65,12 +65,28 @@ class TestAssemblyCost:
         assert small is not None and big is not None
         assert small < big
 
-    def test_unpriced_wire_coil_returns_none_not_zero(self):
-        """.375 x 3.75" is a valid Canimex pairing with no BC SKU.
+    def test_steps_up_to_sellable_part_like_the_emitter(self):
+        """.375 x 3.75" has no direct BC SKU, but part_number_service steps it up
+        to a real part (.375 x 6") and sells it. The cost model must price that
+        same stepped-up part, not drop the candidate as unpriceable.
+        """
+        from app.services.bc_part_number_mapper import get_bc_mapper
+
+        mapper = get_bc_mapper()
+        found, rw, rc = mapper.resolve_spring_in_bc(0.375, 3.75)
+        assert found and (rw, rc) == (0.375, 6.0)
+        cost = spring_pricing.assembly_cost(0.375, 3.75, 40, 2)
+        assert cost is not None and cost > 0
+
+    def test_truly_unsellable_wire_coil_returns_none_not_zero(self):
+        """A wire past the top of the BC catalog resolves to nothing.
 
         None keeps it out of the running; 0.0 would make it win outright.
         """
-        assert spring_pricing.assembly_cost(0.375, 3.75, 40, 2) is None
+        from app.services.bc_part_number_mapper import get_bc_mapper
+
+        assert get_bc_mapper().resolve_spring_in_bc(0.5, 6.0)[0] is False
+        assert spring_pricing.assembly_cost(0.5, 6.0, 40, 2) is None
 
     def test_pvc_tube_charged_for_six_inch_only(self):
         """6" springs need a PVC tube; smaller coils don't.
@@ -265,8 +281,14 @@ class TestInventoryPathCostAware:
 
 class TestFallbackWithoutPriceBook:
     def test_falls_back_to_legacy_ordering_when_book_empty(self, svc, monkeypatch):
-        """No price book (fresh checkout, unreadable file) must still quote a door."""
-        monkeypatch.setattr(spring_pricing, "PRICES", {})
+        """No price book (fresh checkout, unreadable file) must still quote a door,
+        AND the legacy pick must stay cheap-coil — not silently flip to 6"."""
+        monkeypatch.setattr(spring_pricing, "_PRICES", {})
         sel, _ = _select(svc, 314, 120, 122)
         assert sel is not None
         assert sel.wire_diameter > 0 and sel.coil_diameter > 0
+        # Regression guard for the fallback-picks-largest-coil bug: with no prices,
+        # the length-based fallback must still prefer the smaller/cheaper coil.
+        assert sel.coil_diameter <= 3.75, (
+            f"empty-book fallback picked {sel.coil_diameter}\" coil — should prefer smaller"
+        )

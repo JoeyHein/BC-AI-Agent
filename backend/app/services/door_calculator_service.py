@@ -657,37 +657,27 @@ class DoorCalculatorService:
                 candidates.append(result)
         return candidates
 
-    def _candidate_cost(self, candidate) -> Optional[float]:
-        """Assembly cost of a candidate, or None if any part lacks a real price."""
-        if isinstance(candidate, self._DuplexCandidate):
-            sel = candidate.selection
-            return spring_pricing.assembly_cost(
-                sel.wire_diameter, sel.coil_diameter, sel.length, sel.quantity,
-                is_duplex=True,
-                inner_wire_diameter=sel.inner_wire_diameter,
-                inner_coil_diameter=sel.inner_coil_diameter,
-                inner_length=sel.inner_length,
-                duplex_pairs=sel.duplex_pairs,
-            )
-        return spring_pricing.assembly_cost(
-            candidate.wire_diameter, candidate.coil_diameter,
-            candidate.length, candidate.spring_quantity,
-        )
+    def _cost_of(self, obj) -> Optional[float]:
+        """Assembly cost of any spring candidate, or None if a part isn't priced.
 
-    def _selection_cost(self, sel: "SpringSelection") -> Optional[float]:
-        """Assembly cost of a finished SpringSelection (inventory path).
-
-        SpringSelection uses `.quantity`/`.is_duplex`; the generic candidates in
-        the unfiltered path use `.spring_quantity`. Kept separate so each path
-        reads its own object without attribute juggling.
+        Handles all three shapes both selection paths produce:
+        - `_DuplexCandidate` (unfiltered path adapter) — unwrapped to its
+          SpringSelection, which carries the full inner-spring specs;
+        - raw SpringResult (unfiltered candidates) — `.spring_quantity`, no duplex;
+        - SpringSelection (inventory candidates) — `.quantity`, `.is_duplex`, inner_*.
         """
+        if isinstance(obj, self._DuplexCandidate):
+            obj = obj.selection
+        qty = getattr(obj, "quantity", None)
+        if qty is None:
+            qty = obj.spring_quantity
         return spring_pricing.assembly_cost(
-            sel.wire_diameter, sel.coil_diameter, sel.length, sel.quantity,
-            is_duplex=sel.is_duplex,
-            inner_wire_diameter=sel.inner_wire_diameter,
-            inner_coil_diameter=sel.inner_coil_diameter,
-            inner_length=sel.inner_length,
-            duplex_pairs=sel.duplex_pairs,
+            obj.wire_diameter, obj.coil_diameter, obj.length, qty,
+            is_duplex=getattr(obj, "is_duplex", False),
+            inner_wire_diameter=getattr(obj, "inner_wire_diameter", None),
+            inner_coil_diameter=getattr(obj, "inner_coil_diameter", None),
+            inner_length=getattr(obj, "inner_length", None),
+            duplex_pairs=getattr(obj, "duplex_pairs", 0),
         )
 
     def calculate_door(
@@ -1274,19 +1264,25 @@ class DoorCalculatorService:
 
         all_candidates = []
         for qty in unfiltered_progression:
-            # Enumerate every stocked coil, and every wire that meets MIP on that
-            # coil — not just the auto-selected one.
+            # Enumerate every stocked coil × every wire that meets MIP at the
+            # target cycle life (via _enumerate_spring_candidates), then let the
+            # cost model below pick the cheapest that fits.
             #
-            # calculate_spring(coil_diameter=2.0) escalates to the *first* coil
-            # meeting MIP and returns the *smallest* wire that fits. Both are the
-            # wrong objective:
-            #   - first-coil-that-fits stops at a small coil, which needs a long
-            #     spring; the fit check then rejects it and the door falls through
-            #     to duplex even though a bigger coil would have fit fine.
-            #   - smallest-wire assumes price rises with wire size, but it doesn't
-            #     (.421 x 6" is $17.18/in; the thicker .437 is $10.28/in — cheaper,
-            #     stronger, and shorter).
-            # Enumerating lets the cost model below judge them on price instead.
+            # This deliberately IS the brute-force cheapest-material search that
+            # bug #49 once warned against. The safeguard that bug #49 lacked —
+            # and the reason cheapest-material is now safe — is that
+            # _enumerate_spring_candidates re-checks MIP capacity for every pinned
+            # wire, so an undersized combo (e.g. .218 x 2" that barely clears MIP
+            # then fails in service) can't enter the candidate set. calculate_spring
+            # does NOT re-check capacity when the wire is pinned, so that guard
+            # lives in the enumerator, not here.
+            #
+            # It also replaces the old calculate_spring(coil=2.0) auto-escalation,
+            # which stopped at the first coil meeting MIP (a small coil → long
+            # spring → fit-rejected → door fell through to duplex even when a
+            # bigger coil fit) and returned the smallest wire (but price isn't
+            # monotonic in wire: .421 x 6" is $17.18/in, the thicker .437 only
+            # $10.28/in — cheaper, stronger, shorter).
             for result in self._enumerate_spring_candidates(
                 door_weight=door_weight,
                 height_inches=height_inches,
@@ -1300,6 +1296,11 @@ class DoorCalculatorService:
                     width_inches, result.length, qty, result.coil_diameter, drum_model,
                     turns=result.turns, wire_diameter=result.wire_diameter,
                 ):
+                    logger.info(
+                        f"Skipping {qty}x {result.coil_diameter}\" coil / "
+                        f"{result.wire_diameter}\" wire ({result.length}\" long) — "
+                        f"doesn't fit on {width_inches}\" wide door"
+                    )
                     continue
                 all_candidates.append(result)
 
@@ -1332,10 +1333,18 @@ class DoorCalculatorService:
         MAX_PRACTICAL_LENGTH = 75.0
 
         def sort_key(r):
+            # Legacy fallback ordering, used only when NOTHING is priced. It must
+            # reproduce the old cheap-coil outcome. The pre-enumeration code fed
+            # this key a single auto-escalated candidate per qty (the smallest
+            # coil meeting MIP), so smallest-coil won implicitly. Now the key sees
+            # the FULL coil enumeration, so coil_diameter must lead length — else
+            # length-minimization would pick the 6" coil (shortest spring, dearest
+            # assembly), the exact inversion this fallback exists to avoid.
             is_reasonable = r.length <= MAX_PRACTICAL_LENGTH
             return (
                 0 if is_reasonable else 1,
                 r.spring_quantity,
+                r.coil_diameter,     # smaller coil = cheaper (cost-free proxy)
                 r.length,
             )
 
@@ -1350,7 +1359,7 @@ class DoorCalculatorService:
         # leaves nothing priced, fall back to the legacy ordering so a door that
         # only has unpriced options still gets a spring plus the "EDIT IN BC"
         # warning the parts service raises.
-        priced = [(cost, c) for c in all_candidates if (cost := self._candidate_cost(c)) is not None]
+        priced = [(cost, c) for c in all_candidates if (cost := self._cost_of(c)) is not None]
         if priced:
             best = min(
                 priced,
@@ -1561,7 +1570,7 @@ class DoorCalculatorService:
         # priced assembly among options that fit and hit the cycle target. Only
         # length reasonableness leads (a 90" spring nobody can ship shouldn't win
         # on price). Falls back to the legacy heuristic when nothing is priced.
-        priced = [(cost, c) for c in all_candidates if (cost := self._selection_cost(c)) is not None]
+        priced = [(cost, c) for c in all_candidates if (cost := self._cost_of(c)) is not None]
         if priced:
             best = min(
                 priced,

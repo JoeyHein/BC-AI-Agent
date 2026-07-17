@@ -27,15 +27,19 @@ PREFIXES = ("SP11-", "SP12-", "PK14-")
 OUT_PATH = Path(__file__).resolve().parents[1] / "app" / "services" / "spring_price_book.json"
 
 
-def fetch_prices(bc: BusinessCentralClient) -> tuple[dict, list]:
-    prices: dict[str, float] = {}
-    dropped: list[str] = []
+def fetch_prices(bc: BusinessCentralClient) -> tuple:
+    prices: dict = {}
+    dropped: list = []
     cid = bc.company_id
     for prefix in PREFIXES:
-        resp = bc._make_request(
-            "GET", f"companies({cid})/items?$filter=startswith(number,'{prefix}')&$top=1000"
+        # Follow @odata.nextLink so a prefix with >1 page isn't silently
+        # truncated (a missing winder/coupler price silently disables cost-aware
+        # selection for every candidate that needs it).
+        url = (
+            f"{bc.base_url}/companies({cid})/items"
+            f"?$filter=startswith(number,'{prefix}')&$top=1000"
         )
-        for item in resp.get("value", []):
+        for item in bc._paginate_v2(url, f"{prefix} items"):
             number = item.get("number") or ""
             price = item.get("unitPrice")
             if item.get("blocked"):
