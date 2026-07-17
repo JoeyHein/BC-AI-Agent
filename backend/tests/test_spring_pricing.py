@@ -223,6 +223,46 @@ class TestCostAwareSelection:
         assert sel.length <= 75.0
 
 
+class TestInventoryPathCostAware:
+    """The portal/configurator route through _calculate_springs_from_inventory,
+    a separate selector. It must pick on cost too, so a door quoted through the
+    portal matches the same door quoted through email."""
+
+    def test_prefers_cheaper_coil_within_stock(self, svc):
+        # .289 x 3.75 fits the 98" door and is cheaper than any 6" option; with
+        # it in stock the inventory path must not fall back to a 6" coil.
+        inv = {"3.75": ["0.2890", "0.3125"], "6.0": ["0.2950", "0.3125"]}
+        drum = svc._select_drum(120, 256, STD_LIFT, track_size=3)
+        sel = svc._calculate_springs_from_inventory(
+            256, 120, 50000, 15, inv, 98, drum_model=drum.model
+        )
+        assert sel is not None
+        assert not sel.is_duplex
+        assert sel.coil_diameter == 3.75
+
+    def test_respects_stock_constraint(self, svc):
+        # Only 6" stocked → must pick 6" even though 3.75" would be cheaper.
+        inv = {"6.0": ["0.2950", "0.3125", "0.3310"]}
+        drum = svc._select_drum(120, 256, STD_LIFT, track_size=3)
+        sel = svc._calculate_springs_from_inventory(
+            256, 120, 50000, 15, inv, 98, drum_model=drum.model
+        )
+        assert sel is not None
+        assert sel.coil_diameter == 6.0
+
+    def test_meets_cycle_life_from_inventory(self, svc):
+        from app.services.spring_calculator_service import spring_calculator
+
+        inv = {"3.75": ["0.2890", "0.3125", "0.3437"], "6.0": ["0.3125", "0.3310"]}
+        drum = svc._select_drum(120, 314, STD_LIFT, track_size=3)
+        sel = svc._calculate_springs_from_inventory(
+            314, 120, 100000, 15, inv, 122, drum_model=drum.model
+        )
+        assert sel is not None
+        cap = spring_calculator.get_mip_capacity(sel.wire_diameter, 100000)
+        assert cap is not None
+
+
 class TestFallbackWithoutPriceBook:
     def test_falls_back_to_legacy_ordering_when_book_empty(self, svc, monkeypatch):
         """No price book (fresh checkout, unreadable file) must still quote a door."""

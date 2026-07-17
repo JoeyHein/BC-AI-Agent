@@ -674,6 +674,22 @@ class DoorCalculatorService:
             candidate.length, candidate.spring_quantity,
         )
 
+    def _selection_cost(self, sel: "SpringSelection") -> Optional[float]:
+        """Assembly cost of a finished SpringSelection (inventory path).
+
+        SpringSelection uses `.quantity`/`.is_duplex`; the generic candidates in
+        the unfiltered path use `.spring_quantity`. Kept separate so each path
+        reads its own object without attribute juggling.
+        """
+        return spring_pricing.assembly_cost(
+            sel.wire_diameter, sel.coil_diameter, sel.length, sel.quantity,
+            is_duplex=sel.is_duplex,
+            inner_wire_diameter=sel.inner_wire_diameter,
+            inner_coil_diameter=sel.inner_coil_diameter,
+            inner_length=sel.inner_length,
+            duplex_pairs=sel.duplex_pairs,
+        )
+
     def calculate_door(
         self,
         door_model: str,
@@ -1465,8 +1481,19 @@ class DoorCalculatorService:
                         qty_candidates.append(result)
 
             if qty_candidates:
-                # Pick best spring for this quantity: prefer smaller coil (cheaper), then shortest length
-                best = min(qty_candidates, key=lambda r: (r.coil_diameter, r.length))
+                # Pick best spring for this quantity by real assembly cost when a
+                # price book is loaded; otherwise the legacy smaller-coil proxy.
+                # (Every candidate here already met MIP at the target cycles and
+                # fits the shaft, so cost is a safe tiebreak.)
+                def _qty_key(r):
+                    cost = spring_pricing.assembly_cost(
+                        r.wire_diameter, r.coil_diameter, r.length, r.spring_quantity
+                    )
+                    # Unpriced options sort last, then fall back to coil/length.
+                    return (0 if cost is not None else 1,
+                            cost if cost is not None else 0.0,
+                            r.coil_diameter, r.length)
+                best = min(qty_candidates, key=_qty_key)
                 all_candidates.append(SpringSelection(
                     quantity=best.spring_quantity,
                     coil_diameter=best.coil_diameter,
@@ -1530,7 +1557,23 @@ class DoorCalculatorService:
                 total_material,              # less material as tiebreaker
             )
 
-        best = min(all_candidates, key=candidate_sort_key)
+        # Cost-aware final pick, consistent with the unfiltered path: cheapest
+        # priced assembly among options that fit and hit the cycle target. Only
+        # length reasonableness leads (a 90" spring nobody can ship shouldn't win
+        # on price). Falls back to the legacy heuristic when nothing is priced.
+        priced = [(cost, c) for c in all_candidates if (cost := self._selection_cost(c)) is not None]
+        if priced:
+            best = min(
+                priced,
+                key=lambda pair: (
+                    0 if pair[1].length <= MAX_PRACTICAL_LENGTH else 1,
+                    pair[0],              # assembly cost
+                    pair[1].quantity,     # fewer springs = less labour
+                    pair[1].length,       # shorter = easier handling
+                ),
+            )[1]
+        else:
+            best = min(all_candidates, key=candidate_sort_key)
 
         logger.info(
             f"Selected {'duplex ' if best.is_duplex else ''}"
