@@ -11,13 +11,22 @@ Deliberately read-only in this phase: it annotates rows, it does not reduce
 its on-hand, the exact cut list, the resulting waste) so a human can check it
 against the rack before it is ever allowed to suppress a purchase.
 
+INVENTORY MUST BE LIVE, NEVER THE CACHE
+    Donor stock is read via a LIVE ``inventory_lookup`` (bc_client, api/v2.0
+    items.inventory), the same source the demand engine nets against — NOT the
+    committed ``bc_items.json`` catalog cache, whose ``inventory`` field is a
+    frozen snapshot (it read 16 for a panel BC live reported as 8). Using the
+    cache for a quantity decision would over-purchase. The cache is a SKU list
+    + descriptions only; its stock numbers are never a decision input.
+
 WHY IT DOES NOT AUTO-SUPPRESS
-    BC on-hand is known to be under-recorded (``inventory`` reads 0 on a large
-    share of items). A confident "don't buy, cut it from stock" against stock
-    that is not physically there stops a job, which is far worse than the
-    over-buy it would have prevented. So the bias is: recommend, show the
-    evidence, let a human say yes. Feedback on those yes/no calls is what
-    eventually earns this the right to act on its own.
+    Live BC on-hand is the source of truth and is trusted, but it can still be
+    briefly wrong from an adjustment mis-allocation. A confident "don't buy,
+    cut it from stock" against stock that is not physically there stops a job,
+    which is worse than the over-buy it would have prevented. So the bias is:
+    recommend, show the evidence (donor SKU, live on-hand, the exact cut), let
+    a human say yes. Feedback on those yes/no calls is what eventually earns
+    this the right to act on its own.
 """
 
 import logging
