@@ -8,6 +8,14 @@ Uses the configured bc_client (production env per .env) and paginates the
 items endpoint. Drops the result on top of the existing cache so downstream
 mappers (bc_part_number_mapper.py) and the customer portal's AI substitute
 search both see the latest catalog.
+
+DELIBERATELY DROPS the ``inventory`` (on-hand quantity) field. This file is a
+SKU CATALOG — the mapper reads it for existence, descriptions, unit cost and
+length parsing, never for stock levels. A committed quantity snapshot goes
+stale the moment it is written (it read 16 for a panel BC live had at 8), and
+any code that ever trusted it for a purchase decision would over-buy. On-hand
+is ALWAYS pulled live from BC at decision time (bc_client.get_items_by_numbers).
+Keeping the number out of the cache makes that mistake impossible.
 """
 
 import json
@@ -43,10 +51,19 @@ def fetch_all_items():
     return items
 
 
+# On-hand quantity is intentionally excluded — this is a catalog, not a stock
+# snapshot. See the module docstring.
+DROP_FIELDS = ("inventory",)
+
+
 def main():
     log.info(f"Pulling all items from BC company {bc_client.company_id}...")
     items = fetch_all_items()
     log.info(f"Total: {len(items)} items")
+
+    for it in items:
+        for fld in DROP_FIELDS:
+            it.pop(fld, None)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     with OUT.open("w", encoding="utf-8") as f:

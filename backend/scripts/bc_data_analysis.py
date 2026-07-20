@@ -607,10 +607,14 @@ class BCDataAnalyzer:
         """Save all analysis results to files"""
         logger.info("Saving results...")
 
-        # Save raw items
+        # Save raw items — WITHOUT on-hand quantity. bc_items.json is a SKU
+        # catalog; a committed stock snapshot goes stale and must never drive a
+        # purchase decision (on-hand is pulled live at decision time). See
+        # scripts/refresh_bc_items_cache.py.
+        catalog = [{k: v for k, v in it.items() if k != "inventory"} for it in self.items]
         with open(OUTPUT_DIR / "bc_items.json", "w") as f:
-            json.dump(self.items, f, indent=2, default=str)
-        logger.info(f"  Saved {len(self.items)} items to bc_items.json")
+            json.dump(catalog, f, indent=2, default=str)
+        logger.info(f"  Saved {len(catalog)} items to bc_items.json (on-hand excluded)")
 
         # Save raw quotes
         with open(OUTPUT_DIR / "bc_quotes.json", "w") as f:
