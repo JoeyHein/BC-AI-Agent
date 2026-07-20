@@ -1992,8 +1992,31 @@ class PartNumberService:
         width_display = f"{actual_ft}'{actual_in}\"" if actual_in else f"{actual_ft}'"
 
         if door_weight > 2000:
-            # Very heavy door — 1-1/4" keyed shaft regardless of type
-            shaft = mapper.get_shaft(door_width_feet=0, shaft_type="1-1/4")
+            # Very heavy door — 1-1/4" keyed shaft regardless of type.
+            #
+            # This used to return SH10-00002-00 with quantity=1. That SKU is
+            # BULK BAR STOCK with a base UoM of IN, so quantity=1 billed ONE
+            # INCH of shaft (~$0.34) on a door that needs 20-odd feet of it.
+            # Pick a discrete SH10 length instead, sized like every other
+            # shaft: door_width + 18" of asymmetric overhang.
+            needed_inches = config.door_width + 18
+            shaft = mapper.get_shaft_by_length(
+                needed_inches=needed_inches, shaft_type="1-1/4"
+            )
+            if shaft is None:
+                # No discrete SH10 long enough — fall back to bulk bar, billed
+                # by the inch as its UoM demands rather than as a single piece.
+                logger.warning(
+                    f"No discrete 1-1/4\" shaft covers {needed_inches}\" for "
+                    f"{width_display} door — billing bulk bar by the inch"
+                )
+                bulk = mapper.get_shaft(door_width_feet=0, shaft_type="1-1/4")
+                return [PartSelection(
+                    part_number=bulk.part_number,
+                    description=f"{bulk.description} ({needed_inches}\")",
+                    quantity=needed_inches,
+                    category="shaft",
+                )]
             return [PartSelection(
                 part_number=shaft.part_number,
                 description=shaft.description,
@@ -2042,29 +2065,33 @@ class PartNumberService:
         elif config.shaft_preference == 'split' and N < 2:
             N = 2
 
-        # Get all available SH11 sizes (FF values) from BC catalog
-        available_sh11 = []
-        for pn in mapper.bc_items:
-            if (pn.startswith("SH11-1") and len(pn) == 13 and
-                    pn[8:10] == "06" and pn.endswith("-00")):
-                try:
-                    available_sh11.append(int(pn[6:8]))
-                except ValueError:
-                    pass
-        available_sh11.sort()
-        if not available_sh11:
-            available_sh11 = [7, 8, 9, 10, 11, 12, 13, 14, 15]
+        # Available SH11 sizes from the BC catalog, with lengths read off each
+        # SKU by sku_geometry rather than recomputed as ff*12+6 here. The old
+        # inline arithmetic was correct only because this block filters to
+        # SH11; it would have gone 4" short per shaft the moment an SH12 (which
+        # ends 10", not 06") reached it.
+        from app.services import sku_geometry
 
-        # Convert FF values to physical lengths (inches)
-        sh11_lengths = [(ff, ff * 12 + 6) for ff in available_sh11]
+        sh11_lengths: List[Tuple[int, int]] = []
+        for pn in mapper.bc_items:
+            if not pn.startswith("SH11-"):
+                continue
+            geo = sku_geometry.parse(pn)
+            if geo is None:
+                continue
+            sh11_lengths.append((geo.length_inches // 12, geo.length_inches))
+        sh11_lengths.sort()
+        if not sh11_lengths:
+            sh11_lengths = [(ff, ff * 12 + 6) for ff in
+                            (7, 8, 9, 10, 11, 12, 13, 14, 15)]
+        available_sh11 = [ff for ff, _ in sh11_lengths]
 
         if N == 1:
             # Single solid shaft: FF*12+6 >= door_width+18 → FF >= (door_width+12)/12
             required_ff = math.ceil((config.door_width + 12) / 12)
             shaft = mapper.get_shaft(door_width_feet=required_ff, shaft_type="solid")
 
-            selected_ff = int(shaft.part_number[6:8])
-            physical_length = selected_ff * 12 + 6
+            physical_length = sku_geometry.sku_to_inches(shaft.part_number) or 0
             needed = config.door_width + 18
             if physical_length < needed:
                 logger.warning(
@@ -2085,27 +2112,25 @@ class PartNumberService:
             base = total_needed / N
 
             # Standard shaft: largest available SH11 <= base (round DOWN)
-            std_ff = available_sh11[0]  # fallback to smallest
+            std_ff, std_length = sh11_lengths[0]  # fallback to smallest
             for ff, length in sh11_lengths:
                 if length <= base:
-                    std_ff = ff
+                    std_ff, std_length = ff, length
                 else:
                     break
-            std_length = std_ff * 12 + 6
 
             # Operator shaft: remainder rounded UP to nearest available SH11
             op_remainder = total_needed - (std_length * (N - 1))
-            op_ff = available_sh11[-1]  # fallback to largest
+            op_ff, op_length = sh11_lengths[-1]  # fallback to largest
             for ff, length in sh11_lengths:
                 if length >= op_remainder:
-                    op_ff = ff
+                    op_ff, op_length = ff, length
                     break
 
             shaft_std = mapper.get_shaft(door_width_feet=std_ff, shaft_type="solid")
             shaft_op = mapper.get_shaft(door_width_feet=op_ff, shaft_type="solid")
             coupler = mapper.get_shaft_coupler(bore_size=1.0)
 
-            op_length = op_ff * 12 + 6
             total_actual = std_length * (N - 1) + op_length
             if total_actual < total_needed:
                 logger.warning(

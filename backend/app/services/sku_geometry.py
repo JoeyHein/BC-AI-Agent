@@ -15,10 +15,17 @@ Two families carry a linear, cuttable dimension:
     long they are, so one can be cut from the other. Section height is a
     discrete forming dimension and is NOT cuttable.
 
-**Shafts** ``SH{ss}-1{FF}{ext}-00``
-    Length is ``FF * 12 + ext`` where ext is a per-type constant (SH11 = 6",
-    SH12 = 10"). The stocked ladder is sparse (no 12'6", no 14'6" in SH11),
-    which is exactly why buying up and cutting down is routine here.
+**Shafts** ``SH{ss}-{b}{FF}{II}-00``
+    ``b`` is a bore indicator (1 = 1", 2 = 1-1/4"), ``FF`` is feet and ``II``
+    is literal inches, so length is ``FF * 12 + II``. SH11 happens to always
+    end 06 and SH12 always 10, but those are properties of the stocked ladder,
+    not of the format — the digits are read, never assumed. The ladder is
+    sparse (no 12'6" or 14'6" in SH11), which is exactly why buying up and
+    cutting down is routine here.
+
+    ``SH10-00002-00`` is the odd one out: bulk 1-1/4" bar stock sold by the
+    INCH (base UoM ``IN``), not a discrete length. It has no FF and is
+    deliberately excluded from parsing — a zero-feet "shaft" is bar stock.
 
 Colour and design can never be substituted. That falls out of the encoding for
 free: both live upstream of the length segment, so a cut family is by
@@ -53,11 +60,16 @@ ALUMINUM_PANEL_PREFIXES = {"PN10", "PN12", "PN97"}
 KANATA_CUTTABLE_STAMPS = {"0", "3"}   # 0 = FLUSH, 3 = TRAF/Trafalgar/RIB
 CRAFT_CUTTABLE_STAMPS = {"0"}         # 0 = FLUSH only; Denison/Granville/Muskoka are stamped
 
-# Shaft trailing-inch constant by series.
-SHAFT_EXT_INCHES = {"SH11": 6, "SH12": 10}
+# Trailing inches seen on each stocked shaft ladder. Used only to warn on an
+# unexpected entry — the SKU's own digits always win.
+SHAFT_EXPECTED_INCHES = {"SH11": 6, "SH12": 10}
+
+# Bulk bar stock: priced and stocked per inch, not a discrete length.
+BULK_BAR_SKUS = {"SH10-00002-00"}
 
 PANEL_RE = re.compile(r"^(PN\d{2})-(\d{2})(\d)(\d{2})-(\d{4})$")
-SHAFT_RE = re.compile(r"^(SH\d{2})-1(\d{2})(\d{2})-00$")
+# Bore digit 1 (1") or 2 (1-1/4"), then FF feet, then II inches.
+SHAFT_RE = re.compile(r"^(SH\d{2})-([12])(\d{2})(\d{2})-00$")
 
 
 @dataclass(frozen=True)
@@ -113,31 +125,34 @@ def parse(sku: str) -> Optional[SkuGeometry]:
             reason=reason,
         )
 
+    if sku in BULK_BAR_SKUS:
+        return None  # priced per inch; has no discrete length to cut from
+
     m = SHAFT_RE.match(sku)
     if m:
-        prefix, feet, ext = m.groups()
-        expected_ext = SHAFT_EXT_INCHES.get(prefix)
-        if expected_ext is None:
-            return None
-        # The ext digits ARE the trailing inches; trust the SKU over the table
-        # so an unexpected ladder entry parses correctly rather than silently
-        # coming out short (the ff*12+6 bug this module replaces).
+        prefix, bore, feet, inches = m.groups()
         try:
-            ext_in = int(ext)
+            ft, inch = int(feet), int(inches)
         except ValueError:
             return None
-        if ext_in != expected_ext:
+        if ft <= 0:
+            return None  # not a discrete length (bulk stock or a malformed SKU)
+        # Trust the SKU's own digits. Assuming a fixed trailing 6" is exactly
+        # the bug this module replaces — it silently made every SH12 4" short.
+        expected = SHAFT_EXPECTED_INCHES.get(prefix)
+        if expected is not None and inch != expected:
             logger.warning(
-                "Shaft %s has ext %02d but %s is expected to use %02d — "
-                "trusting the SKU", sku, ext_in, prefix, expected_ext
+                "Shaft %s ends %02d\" but %s normally ends %02d\" — "
+                "trusting the SKU", sku, inch, prefix, expected
             )
-        length = int(feet) * 12 + ext_in
         return SkuGeometry(
             sku=sku,
-            family=prefix,
-            length_inches=length,
+            # Bore is part of the family: a 1" shaft cannot substitute for a
+            # 1-1/4" one no matter how the lengths line up.
+            family=f"{prefix}-{bore}",
+            length_inches=ft * 12 + inch,
             kind="shaft",
-            cuttable=True,  # shafts are plain bar stock in every design
+            cuttable=True,  # plain bar stock in every design
             reason="",
         )
 

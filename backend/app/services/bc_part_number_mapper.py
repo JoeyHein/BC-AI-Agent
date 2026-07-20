@@ -1156,6 +1156,48 @@ class BCPartNumberMapper:
             category="PANEL",
         )
 
+    def get_shaft_by_length(
+        self, needed_inches: int, shaft_type: str = "solid"
+    ) -> Optional[BCPartNumber]:
+        """Smallest stocked shaft SKU at least ``needed_inches`` long.
+
+        Length comes from ``sku_geometry`` rather than being recomputed here,
+        so the trailing-inches value is read off each SKU instead of assumed
+        (SH11 ends 06, SH12 ends 10, SH10 varies — assuming 06 for all of them
+        is what made every SH12 come out 4" short).
+
+        Returns None when nothing in the catalog is long enough, so callers
+        must decide explicitly what to do rather than silently under-billing.
+        """
+        from app.services import sku_geometry
+
+        prefix = {"solid": "SH11", "tube": "SH12", "1-1/4": "SH10"}.get(shaft_type)
+        if not prefix:
+            return None
+
+        candidates: List[Tuple[int, str]] = []
+        for pn in self.bc_items:
+            if not pn.startswith(f"{prefix}-"):
+                continue
+            geo = sku_geometry.parse(pn)
+            if geo is None:      # bulk bar or malformed — not a discrete length
+                continue
+            candidates.append((geo.length_inches, pn))
+
+        if not candidates:
+            return None
+
+        candidates.sort()
+        for length, pn in candidates:
+            if length >= needed_inches:
+                item = self.bc_items[pn]
+                return BCPartNumber(
+                    part_number=pn,
+                    description=item.get("displayName", item.get("description", "")),
+                    category="SHAFT",
+                )
+        return None
+
     def get_strut(self, door_width_feet: int, gauge: int = 20) -> BCPartNumber:
         """
         Get strut part number based on door width.

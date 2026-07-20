@@ -126,6 +126,24 @@ class TestShaftParsing:
         ok, _ = sku_geometry.can_cut_from("SH11-11306-00", "SH11-10906-00")
         assert ok is True
 
+    def test_bulk_bar_stock_is_not_a_discrete_length(self):
+        """SH10-00002-00 is priced per inch (UoM IN); it has no FF and must
+        not parse as a cuttable shaft."""
+        assert sku_geometry.parse("SH10-00002-00") is None
+        assert sku_geometry.sku_to_inches("SH10-00002-00") is None
+
+    def test_sh10_discrete_lengths_parse(self):
+        assert sku_geometry.sku_to_inches("SH10-21506-00") == 15 * 12 + 6
+        assert sku_geometry.sku_to_inches("SH10-22006-00") == 20 * 12 + 6
+        assert sku_geometry.sku_to_inches("SH10-22000-00") == 20 * 12
+
+    def test_bore_is_part_of_the_family(self):
+        """A 1" shaft can never substitute for a 1-1/4" one."""
+        assert sku_geometry.cut_family("SH11-11306-00") == "SH11-1"
+        assert sku_geometry.cut_family("SH10-21506-00") == "SH10-2"
+        ok, why = sku_geometry.can_cut_from("SH10-22006-00", "SH11-11306-00")
+        assert ok is False and "different cut family" in why
+
 
 class TestFormatInches:
     def test_renders_feet_and_inches(self):
