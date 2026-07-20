@@ -273,8 +273,9 @@ class TestCuttingStockService:
         recs = self.svc.analyze(rows)
         assert sum(r.donor_sticks_used for r in recs) <= 1
 
-    def test_flags_waste_over_tolerance(self):
-        """9'6" out of a 13'6" stick = 4' of drop: allowed, but flagged."""
+    def test_flags_scrap_over_tolerance(self):
+        """9'6" out of a 13'6" shaft = 4' of scrap: allowed, but flagged.
+        Shaft drop is never recoverable, so it counts fully against the limit."""
         rows = [
             _row("SH11-10906-00", demand=1, net_need=1),
             _row("SH11-11306-00", on_hand=2),
@@ -282,7 +283,37 @@ class TestCuttingStockService:
         recs = self.svc.analyze(rows)
         assert len(recs) == 1
         assert recs[0].within_tolerance is False
+        assert recs[0].scrap_inches > 0
+        assert recs[0].recovered_inches == 0
         assert "exceeds" in recs[0].note
+
+    def test_panel_offcut_is_recovered_not_scrap(self):
+        """Cut ONE 32'4" panel down to a single 18'2": the 14'2" remainder is
+        a common size, so it is recovered inventory, not scrap — the cut stays
+        within tolerance despite a large leftover."""
+        rows = [
+            _row("PN40-24400-1802", demand=1, net_need=1),   # 18'2"
+            _row("PN40-24400-3204", on_hand=1),              # 32'4"
+        ]
+        recs = self.svc.analyze(rows)
+        assert len(recs) == 1
+        r = recs[0]
+        assert r.recovered_inches >= 120          # >= 10' of usable panel
+        assert r.scrap_inches == 0
+        assert r.within_tolerance is True
+        assert "reusable" in r.note
+
+    def test_panel_short_remainder_is_scrap(self):
+        """Cut a 32'4" into three 10' panels: the 2'4" remainder is below the
+        10' common-size floor, so it is scrap and trips the 1' limit."""
+        rows = [
+            _row("PN40-24400-1000", demand=3, net_need=3),   # 10'
+            _row("PN40-24400-3204", on_hand=1),
+        ]
+        recs = self.svc.analyze(rows)
+        assert len(recs) == 1
+        assert recs[0].scrap_inches > 12          # 2'4" of true scrap
+        assert recs[0].within_tolerance is False
 
     def test_no_donor_stock_yields_nothing(self):
         rows = [
@@ -296,6 +327,40 @@ class TestCuttingStockService:
                 _row("GK17-11600-00", on_hand=50)]
         assert self.svc.analyze(rows) == []
 
+    def test_donor_seeding_finds_stock_nothing_demands(self):
+        """The BusyBee case: 6x 18' short, a 32'4" donor sits in stock that
+        NOTHING demands, so it is absent from the demand rows. Seeding pulls it
+        in from inventory and the allocation then works."""
+        rows = [_row("PN40-21400-1800", demand=6, net_need=6, jobs=["SO-001238"])]
+        catalog = ["PN40-21400-1800", "PN40-21400-3204", "PN40-21400-1000"]
+
+        def inv(skus):
+            return {"PN40-21400-3204": {"inventory": 8, "unitCost": 393.6,
+                                        "displayName": "32'4 bulk"}}
+
+        donors = self.svc.donor_rows_for_shortfalls(rows, catalog, inv)
+        assert len(donors) == 1
+        assert donors[0]["item_no"] == "PN40-21400-3204"
+        assert donors[0]["on_hand"] == 8
+        assert donors[0]["is_donor_stock"] is True
+
+        recs = self.svc.analyze(rows + donors)
+        r = next(x for x in recs if x.target_sku == "PN40-21400-1800")
+        assert r.donor_sku == "PN40-21400-3204"
+        assert r.pieces_yielded >= 6
+        assert r.within_tolerance is True
+
+    def test_donor_seeding_skips_families_with_no_shortfall(self):
+        rows = [_row("PN40-21400-1800", demand=0, net_need=0)]  # met
+        called = {"n": 0}
+
+        def inv(skus):
+            called["n"] += 1
+            return {}
+
+        assert self.svc.donor_rows_for_shortfalls(rows, ["PN40-21400-3204"], inv) == []
+        assert called["n"] == 0   # no shortfall -> no inventory call at all
+
     def test_summary_shape(self):
         rows = [
             _row("PN40-24400-1602", demand=4, net_need=4, unit_cost=250.0),
@@ -308,4 +373,5 @@ class TestCuttingStockService:
         assert set(s) == {
             "opportunity_count", "items_covered", "estimated_cost_avoided",
             "within_tolerance", "over_tolerance", "total_waste_inches",
+            "scrap_inches", "recovered_inches",
         }

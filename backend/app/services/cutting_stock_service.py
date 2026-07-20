@@ -28,11 +28,36 @@ from app.services import sku_geometry
 
 logger = logging.getLogger(__name__)
 
-# Preferred maximum drop per donor stick. Joey's rule of thumb: keep waste
-# under a foot. Exceeding it is allowed but must be flagged, because clearing a
-# job can be worth more than the steel (the shafts get cut with 3-4' of drop
-# precisely because the lead time was worse than the waste).
+# Maximum SCRAP per donor stick before a cut is flagged. Joey (2026-07-20):
+# one foot is the limit — for BOTH panels and shafts. Exceeding it is allowed
+# but flagged, because clearing a job can beat the steel: a 13'6" shaft gets
+# consumed for a 9'6" door (4' of scrap) purely to get the completion when the
+# alternative is waiting on a PO. Scrap, not total leftover — see below.
 DEFAULT_WASTE_TOLERANCE_INCHES = 12
+
+# A panel offcut at or above this length is a COMMON SIZE that moves, so it is
+# recovered INVENTORY, not scrap. Joey: "12 feet and up moves easy; tens are
+# slower but move in volume." 10' is the floor where an offcut still sells.
+# This is what keeps cutting a 32'4" into an 18 + a 14 from looking like 14' of
+# waste — the 14' is stock, and only a sub-10' remainder counts against the
+# 1' scrap limit. Shafts have no such floor: their drop is pure scrap.
+COMMON_PANEL_MIN_INCHES = 120
+RECOVERY_FLOOR_BY_KIND = {
+    "panel": COMMON_PANEL_MIN_INCHES,
+    "shaft": None,   # None = never recoverable; all drop is scrap
+}
+
+
+def classify_leftover(leftover_inches: float, kind: str) -> tuple[float, float]:
+    """Split a stick's leftover into (scrap, recovered_inventory).
+
+    A leftover long enough to be a saleable size is recovered inventory; the
+    rest is scrap. Only scrap counts against the waste tolerance.
+    """
+    floor = RECOVERY_FLOOR_BY_KIND.get(kind)
+    if floor is not None and leftover_inches >= floor:
+        return 0.0, leftover_inches
+    return leftover_inches, 0.0
 
 # Kerf — material actually lost to the blade on each cut.
 DEFAULT_KERF_INCHES = 0.125
@@ -87,8 +112,10 @@ class CutRecommendation:
     donor_on_hand: float
     donor_sticks_used: int
     pieces_yielded: int
-    total_waste_inches: float
-    within_tolerance: bool
+    total_waste_inches: float          # all leftover across sticks (scrap + recovered)
+    scrap_inches: float                # leftover too short to be a saleable size
+    recovered_inches: float            # leftover that is a common size = inventory
+    within_tolerance: bool             # judged on SCRAP, not total leftover
     plans: List[CutPlan]
     jobs: List[str]
     unit_cost_avoided: float
@@ -108,6 +135,8 @@ class CutRecommendation:
         d["target_length"] = sku_geometry.format_inches(self.target_length_inches)
         d["donor_length"] = sku_geometry.format_inches(self.donor_length_inches)
         d["total_waste"] = sku_geometry.format_inches(round(self.total_waste_inches))
+        d["scrap"] = sku_geometry.format_inches(round(self.scrap_inches))
+        d["recovered"] = sku_geometry.format_inches(round(self.recovered_inches))
         return d
 
 
@@ -175,6 +204,76 @@ def pack_pieces(
 class CuttingStockService:
     """Finds cut-from-stock opportunities across a demand-engine result."""
 
+    def donor_rows_for_shortfalls(
+        self,
+        rows: List[dict],
+        catalog_skus,
+        inventory_lookup,
+    ) -> List[dict]:
+        """Build donor rows from ON-HAND STOCK in each shortfall's cut family.
+
+        The demand engine only emits SKUs that something DEMANDS or that are on
+        order. Cut-donor stock — e.g. a 32'4" panel bought purely to cut down —
+        is demanded by nobody, so it never appears in those rows and the solver
+        would see no donors (exactly the BusyBee SO-001238 case: 6x 18' short,
+        16 x 32'4" in stock, zero recommendations). This seeds the missing
+        donors directly from inventory.
+
+        ``catalog_skus``   iterable of every known SKU (for the LIST of possible
+                           family members — not for their stock levels).
+        ``inventory_lookup`` callable(list_of_sku) -> {sku: {"inventory": float,
+                           "unitCost": float, "displayName": str}} using LIVE
+                           inventory, so a donor's stock matches what the demand
+                           engine would report rather than a stale cache.
+        """
+        # Longest shortfall length per family — a donor only helps if it is at
+        # least that long.
+        want: Dict[str, int] = {}
+        for r in rows:
+            if (r.get("net_need") or 0) <= 0:
+                continue
+            geo = sku_geometry.parse(r.get("item_no") or "")
+            if geo is None:
+                continue
+            want[geo.family] = max(want.get(geo.family, 0), geo.length_inches)
+        if not want:
+            return []
+
+        already = {r.get("item_no") for r in rows}
+        candidates: List[str] = []
+        for sku in catalog_skus:
+            geo = sku_geometry.parse(sku)
+            if geo is None or sku in already:
+                continue
+            need_len = want.get(geo.family)
+            if need_len is None or not geo.cuttable:
+                continue
+            if geo.length_inches >= need_len:
+                candidates.append(sku)
+        if not candidates:
+            return []
+
+        stock = inventory_lookup(candidates)
+        donor_rows: List[dict] = []
+        for sku in candidates:
+            meta = stock.get(sku) or {}
+            on_hand = float(meta.get("inventory") or 0)
+            if on_hand <= 0:
+                continue
+            donor_rows.append({
+                "item_no": sku,
+                "description": meta.get("displayName") or "",
+                "demand": 0.0,          # donor stock, demanded by nobody
+                "on_hand": on_hand,
+                "on_order": 0.0,
+                "net_need": 0.0,
+                "unit_cost": float(meta.get("unitCost") or 0),
+                "unit_of_measure": "EA",
+                "jobs": [],
+                "is_donor_stock": True,
+            })
+        return donor_rows
+
     def analyze(
         self,
         rows: List[dict],
@@ -184,7 +283,9 @@ class CuttingStockService:
 
         ``rows`` must be the FULL row set including met items (``include_met=True``)
         — a row with net_need <= 0 is exactly the surplus that can donate, so
-        filtering shortfalls first would hide every donor.
+        filtering shortfalls first would hide every donor. For donor stock that
+        nothing demands (the common cutting case), first merge in the output of
+        ``donor_rows_for_shortfalls``.
         """
         by_family: Dict[str, List[dict]] = {}
         geo_cache: Dict[str, sku_geometry.SkuGeometry] = {}
@@ -266,34 +367,50 @@ class CuttingStockService:
                             continue
 
                         yielded = sum(len(p.pieces) for p in cand)
-                        waste = sum(p.waste_inches for p in cand)
-                        # Waste per usable piece, so a stick that nests four
-                        # pieces beats one that nests a single piece even if
-                        # its absolute drop is larger.
-                        score = waste / max(1, yielded)
+                        # Score on SCRAP per usable piece, not total leftover: a
+                        # panel offcut that is itself a saleable size is
+                        # inventory, so a donor leaving a 14' panel must not be
+                        # penalised like one leaving 14' of true scrap.
+                        scrap = sum(
+                            classify_leftover(p.waste_inches, d_geo.kind)[0] for p in cand
+                        )
+                        score = scrap / max(1, yielded)
                         if best is None or score < best[0]:
-                            best = (score, d_sku, d_geo, cand, yielded, waste)
+                            best = (score, d_sku, d_geo, cand, yielded)
 
                     if best is None:
                         break
 
-                    _score, d_sku, d_geo, plans, yielded, _waste = best
+                    _score, d_sku, d_geo, plans, yielded = best
                     for p in plans:
                         p.donor_sku = d_sku
 
                     yielded = sum(len(p.pieces) for p in plans)
                     total_waste = sum(p.waste_inches for p in plans)
-                    worst = max(p.waste_inches for p in plans)
+                    scrap_total = 0.0
+                    recovered_total = 0.0
+                    worst_scrap = 0.0
+                    for p in plans:
+                        s, rec = classify_leftover(p.waste_inches, d_geo.kind)
+                        scrap_total += s
+                        recovered_total += rec
+                        worst_scrap = max(worst_scrap, s)
 
                     claimed[d_sku] = claimed.get(d_sku, 0.0) + len(plans)
 
                     note = ""
-                    if worst > waste_tolerance_inches:
+                    if recovered_total > 0:
                         note = (
-                            f"drop of {sku_geometry.format_inches(round(worst))} per stick "
-                            f"exceeds the {sku_geometry.format_inches(waste_tolerance_inches)} "
-                            f"target — worth it only if it clears the job"
+                            f"leaves {sku_geometry.format_inches(round(recovered_total))} "
+                            f"of reusable {d_geo.kind} stock"
                         )
+                    if worst_scrap > waste_tolerance_inches:
+                        over = (
+                            f"scrap of {sku_geometry.format_inches(round(worst_scrap))} per stick "
+                            f"exceeds the {sku_geometry.format_inches(waste_tolerance_inches)} "
+                            f"limit — worth it only if it clears the job"
+                        )
+                        note = f"{note}; {over}" if note else over
 
                     recommendations.append(
                         CutRecommendation(
@@ -306,7 +423,9 @@ class CuttingStockService:
                             donor_sticks_used=len(plans),
                             pieces_yielded=yielded,
                             total_waste_inches=round(total_waste, 2),
-                            within_tolerance=worst <= waste_tolerance_inches,
+                            scrap_inches=round(scrap_total, 2),
+                            recovered_inches=round(recovered_total, 2),
+                            within_tolerance=worst_scrap <= waste_tolerance_inches,
                             plans=plans,
                             jobs=short.get("jobs") or [],
                             unit_cost_avoided=round(
@@ -332,6 +451,8 @@ class CuttingStockService:
             "within_tolerance": sum(1 for r in recs if r.within_tolerance),
             "over_tolerance": sum(1 for r in recs if not r.within_tolerance),
             "total_waste_inches": round(sum(r.total_waste_inches for r in recs), 1),
+            "scrap_inches": round(sum(r.scrap_inches for r in recs), 1),
+            "recovered_inches": round(sum(r.recovered_inches for r in recs), 1),
         }
 
 
