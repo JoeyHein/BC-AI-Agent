@@ -28,7 +28,7 @@ jobs:
           pip install -q msal requests anthropic httpx
           pip install -q psycopg2-binary python-dotenv python-multipart
           pip install -q apscheduler cryptography email-validator
-          pip install -q ezdxf matplotlib fpdf2
+          pip install -q ezdxf matplotlib fpdf2 openpyxl
 
       - name: Run tests
         working-directory: backend
