@@ -34,19 +34,31 @@ logger = logging.getLogger(__name__)
 # precisely because the lead time was worse than the waste).
 DEFAULT_WASTE_TOLERANCE_INCHES = 12
 
-# Kerf — material lost per cut. This is NOT a rounding detail: 2 x 16'2" is
-# 388", exactly a 32'4" stick, so any kerf at all drops the yield from two
-# pieces to one. Panels are sheared (no material lost), shafts are sawn.
-#
-# ASSUMPTION FLAGGED FOR JOEY: panel kerf = 0 is inferred from his statement
-# that one 32'4" yields two 16'2" with no waste. If panels are in fact sawn,
-# set this to the blade width and the second piece stops fitting — which would
-# mean the real yield is one piece per stick, not two.
-KERF_BY_KIND = {
-    "panel": 0.0,      # sheared
-    "shaft": 0.125,    # sawn, 1/8" blade
-}
+# Kerf — material actually lost to the blade on each cut.
 DEFAULT_KERF_INCHES = 0.125
+KERF_BY_KIND = {
+    "panel": 0.125,
+    "shaft": 0.125,
+}
+
+# Fit tolerance — how far under nominal a finished piece may run and still be
+# a good section. Per Joey (2026-07-20): blade thickness does not affect the
+# size of a typical sectional door section; normal variance on a panel is an
+# eighth to a quarter inch.
+#
+# This is what makes 2 x 16'2" come out of a 32'4" stick. Nominal is 388" from
+# 388", so the 1/8" kerf has to come from somewhere — it comes out of the
+# tolerance, leaving two sections each a sixteenth under. Without modelling
+# this the solver reports a yield of ONE per stick and the buy list roughly
+# doubles for every nested panel.
+#
+# 0.25 is the top of the range Joey quoted. Dropping it to 0.125 is the
+# conservative setting: it still absorbs a single kerf but leaves no margin.
+FIT_TOLERANCE_BY_KIND = {
+    "panel": 0.25,
+    "shaft": 0.0,      # not stated for shafts — assume none until told otherwise
+}
+DEFAULT_FIT_TOLERANCE_INCHES = 0.0
 
 
 @dataclass
@@ -105,8 +117,13 @@ def pack_pieces(
     qty_needed: int,
     donor_sticks_available: int,
     kerf: float = DEFAULT_KERF_INCHES,
+    fit_tolerance: float = DEFAULT_FIT_TOLERANCE_INCHES,
 ) -> List[CutPlan]:
     """First-fit-decreasing pack of identical pieces into donor sticks.
+
+    ``fit_tolerance`` is how far under nominal a finished piece may run and
+    still be usable, which is what lets the blade kerf be absorbed instead of
+    costing a whole piece. See FIT_TOLERANCE_BY_KIND.
 
     Uniform piece length keeps this exact: pieces-per-stick is a closed form,
     no search needed. Mixed-length nesting across different target SKUs in one
@@ -115,14 +132,17 @@ def pack_pieces(
     """
     if donor_length <= 0 or piece_length <= 0 or qty_needed <= 0:
         return []
-    if piece_length > donor_length:
+
+    # Minimum acceptable finished length for one piece.
+    effective_piece = piece_length - fit_tolerance
+    if effective_piece > donor_length:
         return []
 
     # n pieces need (n-1) kerfs: the last cut frees the offcut, not a piece.
     per_stick = 1
     while True:
         nxt = per_stick + 1
-        if nxt * piece_length + (nxt - 1) * kerf <= donor_length:
+        if nxt * effective_piece + (nxt - 1) * kerf <= donor_length:
             per_stick = nxt
         else:
             break
@@ -132,13 +152,18 @@ def pack_pieces(
     sticks_used = 0
     while remaining > 0 and sticks_used < donor_sticks_available:
         take = min(per_stick, remaining)
+        # Waste is measured against NOMINAL piece length, not the tolerance-
+        # reduced one, so the drop reported is the real offcut a human will see
+        # on the floor. Clamped at zero: when the tolerance absorbs the kerf
+        # the arithmetic can go a fraction negative, which is not a negative
+        # offcut, it is a piece finishing a sixteenth under nominal.
         consumed = take * piece_length + max(0, take - 1) * kerf
         plans.append(
             CutPlan(
                 donor_sku="",  # filled by caller
                 donor_length_inches=donor_length,
                 pieces=[piece_length] * take,
-                waste_inches=round(donor_length - consumed, 3),
+                waste_inches=round(max(0.0, donor_length - consumed), 3),
             )
         )
         remaining -= take
@@ -233,6 +258,9 @@ class CuttingStockService:
                             qty_needed=qty_needed,
                             donor_sticks_available=available,
                             kerf=KERF_BY_KIND.get(d_geo.kind, DEFAULT_KERF_INCHES),
+                            fit_tolerance=FIT_TOLERANCE_BY_KIND.get(
+                                d_geo.kind, DEFAULT_FIT_TOLERANCE_INCHES
+                            ),
                         )
                         if not cand:
                             continue

@@ -15,6 +15,8 @@ import pytest
 
 from app.services import sku_geometry
 from app.services.cutting_stock_service import (
+    KERF_BY_KIND,
+    FIT_TOLERANCE_BY_KIND,
     CuttingStockService,
     pack_pieces,
 )
@@ -133,23 +135,34 @@ class TestFormatInches:
 
 
 class TestPacking:
-    def test_two_16ft2_from_one_32ft4_when_sheared(self):
-        """Joey's example: one 32'4" gives two 16'2" with nothing left over.
-        Only true at zero kerf — panels are sheared, not sawn."""
-        plans = pack_pieces(donor_length=388, piece_length=194,
-                            qty_needed=2, donor_sticks_available=5, kerf=0)
+    def test_two_16ft2_from_one_32ft4_with_a_real_blade(self):
+        """Joey's example, with the blade modelled honestly. 2 x 194 + 1/8"
+        kerf = 388.125" out of a 388" stick, which only works because a panel
+        may finish up to 1/4" under nominal. Both pieces come off one stick."""
+        plans = pack_pieces(donor_length=388, piece_length=194, qty_needed=2,
+                            donor_sticks_available=5,
+                            kerf=KERF_BY_KIND["panel"],
+                            fit_tolerance=FIT_TOLERANCE_BY_KIND["panel"])
         assert len(plans) == 1
         assert plans[0].pieces == [194, 194]
-        assert plans[0].waste_inches == 0
 
-    def test_a_saw_kerf_would_cost_the_second_piece(self):
-        """Guards the assumption above. 2 x 194 + 1/8" = 388.125 > 388, so if
-        panels were ever sawn the yield halves. If this test starts failing,
-        the kerf assumption changed and the buy-list numbers move with it."""
-        plans = pack_pieces(donor_length=388, piece_length=194,
-                            qty_needed=2, donor_sticks_available=5, kerf=0.125)
+    def test_without_fit_tolerance_the_kerf_costs_a_piece(self):
+        """Guards the tolerance model. Zero tolerance and a real blade halves
+        the yield — if this ever becomes the live config, panel buy quantities
+        roughly double."""
+        plans = pack_pieces(donor_length=388, piece_length=194, qty_needed=2,
+                            donor_sticks_available=5, kerf=0.125,
+                            fit_tolerance=0.0)
         assert len(plans) == 2
         assert all(len(p.pieces) == 1 for p in plans)
+
+    def test_waste_never_reported_negative(self):
+        """When tolerance absorbs the kerf the arithmetic can go a hair
+        negative; that is a piece finishing under nominal, not an offcut."""
+        plans = pack_pieces(donor_length=388, piece_length=194, qty_needed=2,
+                            donor_sticks_available=1, kerf=0.125,
+                            fit_tolerance=0.25)
+        assert all(p.waste_inches >= 0 for p in plans)
 
     def test_14ft_and_18ft2_leaves_2_inches(self):
         """168 + 218 = 386 out of 388 -> 2" drop. Verifies the arithmetic
