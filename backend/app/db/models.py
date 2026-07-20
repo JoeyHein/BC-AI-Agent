@@ -1881,6 +1881,69 @@ class ItemLeadTime(Base):
         }
 
 
+class CutWorkOrder(Base):
+    """A per-sales-order cut plan, approved yay/nay, then posted as inventory.
+
+    Proposed work orders are computed LIVE from the cutting analysis and are not
+    stored — only a DECIDED work order (approved / rejected / posted) persists
+    here, the same way the buy-list is live but POAgentLog records what was
+    acted on. One work order = every cut + inventory move that makes one SO
+    shippable, which is why the queue is ordered by invoiceable value.
+
+    The ``journal_json`` is the tagged item-journal spec — the negative
+    adjustment on each donor stick and the positive adjustments on the pieces
+    produced (job sections + received offcuts). Tagging every cut as a distinct
+    CUT document is what turns the item ledger into a clean, auditable, mineable
+    cut history — historically cuts were indistinguishable from count
+    reconciliations. ``posted_document_no`` is filled once the move hits BC.
+    """
+    __tablename__ = "cut_work_order"
+
+    id = Column(Integer, primary_key=True, index=True)
+    so_number = Column(String(50), nullable=False, index=True)
+
+    # proposed | approved | rejected | posted | canceled
+    status = Column(String(20), nullable=False, default="approved", index=True)
+
+    makes_invoiceable = Column(Boolean, nullable=False, default=False)
+    purchase_avoided = Column(Numeric(12, 2), nullable=True)
+
+    plan_json = Column(JSON, nullable=True)      # the cut recommendations, snapshot
+    journal_json = Column(JSON, nullable=True)   # neg/pos item-journal adjustment lines
+
+    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    rejected_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    rejected_at = Column(DateTime, nullable=True)
+    reason = Column(Text, nullable=True)
+
+    posted_at = Column(DateTime, nullable=True)
+    posted_document_no = Column(String(50), nullable=True)  # BC doc once the move is posted
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    approver = relationship("User", foreign_keys=[approved_by])
+    rejector = relationship("User", foreign_keys=[rejected_by])
+
+    def __repr__(self):
+        return f"<CutWorkOrder(so={self.so_number}, status={self.status})>"
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "soNumber": self.so_number,
+            "status": self.status,
+            "makesInvoiceable": self.makes_invoiceable,
+            "purchaseAvoided": float(self.purchase_avoided) if self.purchase_avoided is not None else None,
+            "plan": self.plan_json,
+            "journal": self.journal_json,
+            "postedDocumentNo": self.posted_document_no,
+            "reason": self.reason,
+            "createdAt": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class EmailCampaign(Base):
     """Log of weekly email campaigns sent via Mailchimp"""
     __tablename__ = "email_campaigns"

@@ -211,6 +211,28 @@ def can_cut_from(donor_sku: str, target_sku: str) -> tuple[bool, str]:
     return True, ""
 
 
+def resolve_length_to_sku(family: str, inches: int, catalog_skus) -> Optional[str]:
+    """The catalog SKU in ``family`` whose length best matches ``inches`` — the
+    receivable size for an offcut.
+
+    Picks the SKU at or BELOW the physical length (you can never receive a
+    longer piece than the steel you actually have), largest such, within the
+    same cut family. Returns None if the offcut is shorter than every catalog
+    size (i.e. it is scrap, not a receivable remnant).
+    """
+    if inches <= 0:
+        return None
+    best = None  # (length, sku)
+    for sku in catalog_skus:
+        geo = parse(sku)
+        if geo is None or geo.family != family:
+            continue
+        if geo.length_inches <= inches:
+            if best is None or geo.length_inches > best[0]:
+                best = (geo.length_inches, sku)
+    return best[1] if best else None
+
+
 def format_inches(total_inches: int) -> str:
     """Render inches as FF'II" for human-facing reports."""
     sign = "-" if total_inches < 0 else ""
