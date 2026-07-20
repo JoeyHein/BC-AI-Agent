@@ -6,7 +6,7 @@ import logging
 from typing import Optional, Dict, List, Any
 import msal
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 from app.config import settings
 
@@ -22,10 +22,14 @@ class BusinessCentralClient:
         self.client_secret = settings.BC_CLIENT_SECRET
         self.base_url = settings.bc_api_url
         self.odata_url = settings.bc_odata_url
+        self.picking_api_url = settings.bc_picking_api_url
         self.company_id = settings.BC_COMPANY_ID
 
         self._token: Optional[str] = None
         self._token_expires_at: Optional[datetime] = None
+
+        # None = not yet probed, False = 404 (extension not deployed), True = OK
+        self._picking_api_deployed: Optional[bool] = None
 
         # MSAL Confidential Client
         self.app: Optional[msal.ConfidentialClientApplication] = None
@@ -1423,6 +1427,194 @@ class BusinessCentralClient:
         except Exception as e:
             logger.error(f"Error fetching customer order details: {e}")
             return None
+
+    # ==================== Picking / Activity (custom API) ====================
+    # Backed by AL API pages 70134-70140 in the Upwardor_BC_Repos extension
+    # (source vendored at bc-extension/picking-api/). These live under
+    # api/upwardor/picking/v1.0, NOT api/v2.0, so they need their own base URL.
+    #
+    # Every method here returns [] rather than raising when the extension is not
+    # deployed - callers treat "no picking data" as an empty result, not an outage.
+
+    def _picking_api(
+        self,
+        entity_set: str,
+        odata_filter: Optional[str] = None,
+        order_by: Optional[str] = None,
+        company_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """GET a picking custom-API collection, following @odata.nextLink."""
+        if not self.picking_api_url:
+            logger.warning("BC picking API URL not configured; returning no rows")
+            return []
+
+        cid = company_id or self.company_id
+        url = f"{self.picking_api_url}/companies({cid})/{entity_set}"
+
+        params = []
+        if odata_filter:
+            params.append(f"$filter={odata_filter}")
+        if order_by:
+            params.append(f"$orderby={order_by}")
+        if params:
+            url += "?" + "&".join(params)
+
+        out: List[Dict[str, Any]] = []
+        while url:
+            token = self._get_access_token()
+            resp = requests.get(
+                url,
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+                timeout=60,
+            )
+            if resp.status_code == 404:
+                # Extension not deployed to this environment. Distinct from an
+                # empty collection, which returns 200 with value: [].
+                self._picking_api_deployed = False
+                logger.warning(
+                    "Picking API not deployed (404 on %s). "
+                    "Deploy AL pages 70134-70140 to the %s environment.",
+                    entity_set, settings.BC_ENVIRONMENT,
+                )
+                return []
+            if resp.status_code >= 400:
+                logger.error(
+                    "BC picking API error on %s: %s %s",
+                    entity_set, resp.status_code, resp.text[:300],
+                )
+                return []
+
+            self._picking_api_deployed = True
+            data = resp.json()
+            out.extend(data.get("value", []))
+            url = data.get("@odata.nextLink")
+
+        logger.info("Fetched %d rows from picking/%s", len(out), entity_set)
+        return out
+
+    def picking_api_available(self) -> bool:
+        """Whether the picking extension answered on the last call.
+
+        None (never called) is treated as available so callers do not report a
+        false outage before the first request.
+        """
+        if not self.picking_api_url:
+            return False
+        return self._picking_api_deployed is not False
+
+    @staticmethod
+    def _odata_date(value: date) -> str:
+        """OData V4 Edm.Date literal - unquoted, YYYY-MM-DD."""
+        return value.isoformat()
+
+    def get_activity_time_logs(
+        self,
+        from_date: Optional[date] = None,
+        to_date: Optional[date] = None,
+        employee_no: Optional[str] = None,
+        activity_type: Optional[str] = None,
+        company_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Labour minutes per employee per customer batch.
+
+        NOTE granularity: sourceNo/sourceLineNo are currently written as ''/0 by
+        the AL call sites, so rows attribute to (employee x customer x activity
+        type x date) - NOT to a sales order or line.
+        """
+        clauses = []
+        if from_date:
+            clauses.append(f"activityDate ge {self._odata_date(from_date)}")
+        if to_date:
+            clauses.append(f"activityDate le {self._odata_date(to_date)}")
+        if employee_no:
+            clauses.append(f"employeeNo eq '{employee_no}'")
+        if activity_type:
+            clauses.append(f"activityType eq '{activity_type}'")
+
+        return self._picking_api(
+            "activityTimeLogs",
+            odata_filter=" and ".join(clauses) if clauses else None,
+            order_by="activityDate desc,entryNo desc",
+            company_id=company_id,
+        )
+
+    def get_activity_pause_logs(
+        self,
+        activity_entry_nos: Optional[List[int]] = None,
+        open_only: bool = False,
+        company_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Downtime records. open_only returns pauses that have not ended yet."""
+        clauses = []
+        if activity_entry_nos:
+            ors = " or ".join(f"activityEntryNo eq {n}" for n in activity_entry_nos)
+            clauses.append(f"({ors})")
+        if open_only:
+            clauses.append("pauseEnd eq null")
+
+        return self._picking_api(
+            "activityPauseLogs",
+            odata_filter=" and ".join(clauses) if clauses else None,
+            company_id=company_id,
+        )
+
+    def get_picking_queue(self, company_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """LIVE picking queue. Rows are deleted on post - this is never history."""
+        return self._picking_api(
+            "pickingQueue", order_by="pickingDate,customerNo", company_id=company_id
+        )
+
+    def get_picker_sessions(
+        self, active_only: bool = True, company_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Who is signed in right now."""
+        odata_filter = "status eq 'Active' and archived eq false" if active_only else None
+        return self._picking_api(
+            "pickerSessions", odata_filter=odata_filter, company_id=company_id
+        )
+
+    def get_posted_picking_sessions(
+        self,
+        from_date: Optional[date] = None,
+        to_date: Optional[date] = None,
+        company_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Durable throughput history, one row per customer batch.
+
+        WARNING: pickingDurationMinutes is LABOUR-minutes (summed across pickers),
+        not wall-clock. Wall-clock is pickingEnd - pickingStart.
+        """
+        clauses = []
+        if from_date:
+            clauses.append(f"postingDate ge {self._odata_date(from_date)}")
+        if to_date:
+            clauses.append(f"postingDate le {self._odata_date(to_date)}")
+
+        return self._picking_api(
+            "postedPickingSessions",
+            odata_filter=" and ".join(clauses) if clauses else None,
+            order_by="postingDate desc,entryNo desc",
+            company_id=company_id,
+        )
+
+    def get_posted_picking_lines(
+        self,
+        session_entry_no: Optional[int] = None,
+        sales_order_no: Optional[str] = None,
+        company_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Per-line picker/loader attribution from the archive."""
+        clauses = []
+        if session_entry_no is not None:
+            clauses.append(f"sessionEntryNo eq {session_entry_no}")
+        if sales_order_no:
+            clauses.append(f"salesOrderNo eq '{sales_order_no}'")
+
+        return self._picking_api(
+            "postedPickingLines",
+            odata_filter=" and ".join(clauses) if clauses else None,
+            company_id=company_id,
+        )
 
 
 # Global BC client instance

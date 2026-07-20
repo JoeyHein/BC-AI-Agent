@@ -129,6 +129,21 @@ class Settings(BaseSettings):
         return f"{self.BC_BASE_URL}/{self.BC_TENANT_ID}/{self.BC_ENVIRONMENT}/ODataV4"
 
     @property
+    def bc_picking_api_url(self) -> str:
+        """Construct the BC custom API URL for the Upwardor picking extension.
+
+        Custom API pages live under api/{publisher}/{group}/{version}, NOT under
+        api/v2.0. Requires the picking API pages (70134-70140) to be deployed to
+        the target environment - until then every call here returns 404.
+        """
+        if not all([self.BC_TENANT_ID, self.BC_ENVIRONMENT]):
+            return ""
+        return (
+            f"{self.BC_BASE_URL}/{self.BC_TENANT_ID}/{self.BC_ENVIRONMENT}"
+            f"/api/upwardor/picking/v1.0"
+        )
+
+    @property
     def is_production(self) -> bool:
         """Check if running in production"""
         return self.ENVIRONMENT.lower() == "production"
