@@ -1771,6 +1771,116 @@ class ItemVendorMap(Base):
         return f"<ItemVendorMap(item={self.bc_item_number}, vendor={self.vendor_name}, src={self.source})>"
 
 
+class CutFeedback(Base):
+    """Human verdicts on cutting-stock recommendations — the learning spine.
+
+    Append-only event log (like POAgentLog): each row is ONE verdict a person
+    gave on ONE cut opportunity — approve it, reject it, or note a change — with
+    the reason and a full snapshot of the recommendation. Nothing here is a hard
+    constraint; these are the raw signal. Rules ("never cut this family") are
+    DERIVED from patterns across many verdicts and only take effect after Joey
+    approves them, so one offhand note can never silently suppress a product
+    line.
+
+    The cut pair (donor_sku -> target_sku) is the stable identity: the same pair
+    recurs across many sales orders, and accumulated verdicts on it are what
+    teach the engine. so_number is the context the verdict arose in, not the
+    key. Query latest-by-created_at for "the current call on this opportunity",
+    or group by the pair to build a rule.
+    """
+    __tablename__ = "cut_feedback"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # The cut pair — stable identity for rule-building.
+    target_sku = Column(String(50), nullable=False, index=True)   # what we needed
+    donor_sku = Column(String(50), nullable=False, index=True)    # what we'd cut it from
+    cut_family = Column(String(60), nullable=True, index=True)     # denormalised for grouping
+
+    # Context the verdict arose in.
+    so_number = Column(String(50), nullable=True, index=True)
+    qty_pieces = Column(Integer, nullable=True)
+    scrap_inches = Column(Numeric(10, 2), nullable=True)
+
+    # The verdict.
+    verdict = Column(String(20), nullable=False, index=True)      # approved | rejected | modified
+    reason = Column(Text, nullable=True)                          # why — the learning signal
+
+    # Full recommendation snapshot for audit + learning.
+    opportunity_json = Column(JSON, nullable=True)
+
+    # Provenance: portal = Joey reviewing; excel = purchaser's workbook note.
+    source = Column(String(30), nullable=False, default="portal")
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    author = relationship("User", foreign_keys=[created_by])
+
+    def __repr__(self):
+        return (f"<CutFeedback(id={self.id}, {self.donor_sku}->{self.target_sku}, "
+                f"verdict={self.verdict})>")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "targetSku": self.target_sku,
+            "donorSku": self.donor_sku,
+            "cutFamily": self.cut_family,
+            "soNumber": self.so_number,
+            "qtyPieces": self.qty_pieces,
+            "scrapInches": float(self.scrap_inches) if self.scrap_inches is not None else None,
+            "verdict": self.verdict,
+            "reason": self.reason,
+            "source": self.source,
+            "createdBy": self.created_by,
+            "createdAt": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class ItemLeadTime(Base):
+    """Purchaser-entered lead time per item, in days.
+
+    Routes around BC's unpublished PurchRcptHeader web service (which leaves the
+    demand engine's vendor-level lead_time_days blank) AND is better data: it
+    captures the lead time QUOTED at order time, item-specific, not just a
+    historical vendor average. Feeds portal delivery-date projections.
+
+    Upserted per (item_no, vendor_no) — latest value wins, with updated_at and
+    author preserved so a stale entry is visible. vendor_no null = a general
+    item lead time not tied to a specific supplier.
+    """
+    __tablename__ = "item_lead_time"
+    __table_args__ = (
+        UniqueConstraint("item_no", "vendor_no", name="uq_item_lead_time"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    item_no = Column(String(50), nullable=False, index=True)
+    vendor_no = Column(String(50), nullable=True)
+    lead_time_days = Column(Integer, nullable=False)
+    note = Column(Text, nullable=True)
+    source = Column(String(30), nullable=False, default="portal")  # portal | excel
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    author = relationship("User", foreign_keys=[created_by])
+
+    def __repr__(self):
+        return f"<ItemLeadTime(item={self.item_no}, days={self.lead_time_days})>"
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "itemNo": self.item_no,
+            "vendorNo": self.vendor_no,
+            "leadTimeDays": self.lead_time_days,
+            "note": self.note,
+            "source": self.source,
+            "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class EmailCampaign(Base):
     """Log of weekly email campaigns sent via Mailchimp"""
     __tablename__ = "email_campaigns"
