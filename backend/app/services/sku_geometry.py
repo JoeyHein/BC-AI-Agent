@@ -67,6 +67,14 @@ SHAFT_EXPECTED_INCHES = {"SH11": 6, "SH12": 10}
 # Bulk bar stock: priced and stocked per inch, not a discrete length.
 BULK_BAR_SKUS = {"SH10-00002-00"}
 
+# A few shaft SKUs carry their length only in the description, not in the SKU
+# body (the body is a sequence number). SH10-00002-01 is the 24'6" 1-1/4"
+# shaft OPENDC actually buys as stock and cuts down. Mapped explicitly here as
+# (length_inches, bore_digit) so it parses like any other discrete shaft.
+SPECIAL_SHAFT_LENGTHS = {
+    "SH10-00002-01": (24 * 12 + 6, "2"),   # 24'6", 1-1/4" bore
+}
+
 PANEL_RE = re.compile(r"^(PN\d{2})-(\d{2})(\d)(\d{2})-(\d{4})$")
 # Bore digit 1 (1") or 2 (1-1/4"), then FF feet, then II inches.
 SHAFT_RE = re.compile(r"^(SH\d{2})-([12])(\d{2})(\d{2})-00$")
@@ -127,6 +135,19 @@ def parse(sku: str) -> Optional[SkuGeometry]:
 
     if sku in BULK_BAR_SKUS:
         return None  # priced per inch; has no discrete length to cut from
+
+    special = SPECIAL_SHAFT_LENGTHS.get(sku)
+    if special:
+        length, bore = special
+        prefix = sku.split("-")[0]
+        return SkuGeometry(
+            sku=sku,
+            family=f"{prefix}-{bore}",
+            length_inches=length,
+            kind="shaft",
+            cuttable=True,
+            reason="",
+        )
 
     m = SHAFT_RE.match(sku)
     if m:

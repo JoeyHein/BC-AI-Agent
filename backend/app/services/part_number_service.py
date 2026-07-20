@@ -1997,17 +1997,19 @@ class PartNumberService:
             # This used to return SH10-00002-00 with quantity=1. That SKU is
             # BULK BAR STOCK with a base UoM of IN, so quantity=1 billed ONE
             # INCH of shaft (~$0.34) on a door that needs 20-odd feet of it.
-            # Pick a discrete SH10 length instead, sized like every other
-            # shaft: door_width + 18" of asymmetric overhang.
+            #
+            # 1-1/4" shafts are bought as 24'6" stock (SH10-00002-01) and cut
+            # down, so that discrete stock length is the normal pick — sized
+            # like every other shaft: door_width + 18" of span. Only a door too
+            # wide even for a 24'6" stick falls through to bulk bar, billed by
+            # the inch as its UoM demands rather than as a single piece.
             needed_inches = config.door_width + 18
             shaft = mapper.get_shaft_by_length(
                 needed_inches=needed_inches, shaft_type="1-1/4"
             )
             if shaft is None:
-                # No discrete SH10 long enough — fall back to bulk bar, billed
-                # by the inch as its UoM demands rather than as a single piece.
                 logger.warning(
-                    f"No discrete 1-1/4\" shaft covers {needed_inches}\" for "
+                    f"No stocked 1-1/4\" shaft covers {needed_inches}\" for "
                     f"{width_display} door — billing bulk bar by the inch"
                 )
                 bulk = mapper.get_shaft(door_width_feet=0, shaft_type="1-1/4")

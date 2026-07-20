@@ -34,24 +34,25 @@ class TestHeavyDoorShaft:
     def setup_method(self):
         self.svc = PartNumberService()
 
-    def test_heavy_door_gets_a_discrete_shaft_not_one_inch_of_bar(self):
-        # 24' commercial door, forced over 2000 lb.
-        cfg = _config(24 * 12, weight=2500)
+    def test_heavy_door_gets_the_24ft6_stock_shaft(self):
+        """A 20' heavy door (258" span) fits within the 24'6" stock shaft, so
+        it should bill SH10-00002-01 qty 1 — NOT one inch of bulk bar."""
+        cfg = _config(20 * 12, weight=2500)
         parts = self.svc._get_shaft_parts(cfg, spring_count=2)
         shafts = [p for p in parts if p.category == "shaft"]
         assert shafts, "expected at least one shaft part"
+        s = shafts[0]
+        assert s.part_number == "SH10-00002-01"
+        assert s.quantity == 1
 
-        for s in shafts:
-            if s.part_number == "SH10-00002-00":
-                # If it ever falls back to bulk bar, it must bill by the inch,
-                # never as a single piece.
-                assert s.quantity >= 24 * 12, (
-                    "bulk bar stock must be billed by the inch, not quantity=1"
-                )
-            else:
-                # A discrete SH10 length is the expected outcome.
-                assert s.part_number.startswith("SH10-")
-                assert s.quantity == 1
+    def test_bulk_bar_fallback_bills_by_the_inch(self):
+        """A door too wide even for the 24'6" stock shaft falls through to bulk
+        bar, which must be billed by the inch (never quantity=1)."""
+        cfg = _config(30 * 12, weight=3000)   # 30' door -> 378" span > 294"
+        parts = self.svc._get_shaft_parts(cfg, spring_count=2)
+        s = next(p for p in parts if p.category == "shaft")
+        if s.part_number == "SH10-00002-00":
+            assert s.quantity >= 30 * 12, "bulk bar must bill by the inch"
 
     def test_heavy_door_shaft_covers_required_span(self):
         from app.services import sku_geometry

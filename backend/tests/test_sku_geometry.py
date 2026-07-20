@@ -137,6 +137,19 @@ class TestShaftParsing:
         assert sku_geometry.sku_to_inches("SH10-22006-00") == 20 * 12 + 6
         assert sku_geometry.sku_to_inches("SH10-22000-00") == 20 * 12
 
+    def test_sh10_24ft6_stock_shaft_parses_from_special_map(self):
+        """SH10-00002-01 is the 24'6" 1-1/4" stock shaft OPENDC buys and cuts
+        down. Its length is only in the description, so it is mapped explicitly
+        rather than parsed from the SKU body."""
+        geo = sku_geometry.parse("SH10-00002-01")
+        assert geo is not None
+        assert geo.length_inches == 24 * 12 + 6
+        assert geo.family == "SH10-2"
+        assert geo.cuttable is True
+        # It can donate to any shorter 1-1/4" discrete length.
+        ok, _ = sku_geometry.can_cut_from("SH10-00002-01", "SH10-22006-00")
+        assert ok is True
+
     def test_bore_is_part_of_the_family(self):
         """A 1" shaft can never substitute for a 1-1/4" one."""
         assert sku_geometry.cut_family("SH11-11306-00") == "SH11-1"
