@@ -64,9 +64,15 @@ if ! docker compose up -d --remove-orphans 2>&1 | tee /tmp/deploy-up.log; then
     fi
 fi
 
-# ── 5. Run DB migrations ──────────────────────────────────────────────────────
-echo "[5/5] Running database migrations..."
-docker compose exec backend alembic upgrade head
+# ── 5. Verify DB migrations ───────────────────────────────────────────────────
+# Do NOT run `alembic upgrade head` here. The container CMD (backend/Dockerfile)
+# already runs it before gunicorn starts, so a second run races the first: on a
+# deploy that carries a new migration both processes execute the same revision
+# concurrently and the loser dies on a duplicate-object error (seen 2026-07-20
+# with so_timeline_snapshot). Migration-free deploys hid the race because both
+# runs were no-ops. Just report where we landed.
+echo "[5/5] Verifying database migrations..."
+docker compose exec -T backend alembic current
 
 echo ""
 echo "✓ Deploy complete!"
