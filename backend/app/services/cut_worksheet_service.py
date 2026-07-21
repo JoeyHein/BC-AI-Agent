@@ -69,7 +69,15 @@ class CutWorksheetService:
                 f"{c['qty_needed']}x {c['target_sku']} <- {c['donor_sku']}" for c in w["cuts"]
             )
             donors = "; ".join(sorted({c["donor_sku"] for c in w["cuts"]}))
-            stock = "; ".join(sorted({f"{c['donor_sku']}={c['donor_on_hand']}" for c in w["cuts"]}))
+
+            def _stock_str(c):
+                base = f"{c['donor_sku']}={c['donor_on_hand']}"
+                v = c.get("donor_velocity") or {}
+                if v.get("is_slow"):
+                    ms = v.get("months_supply")
+                    base += f" [SLOW{f', {ms}mo supply' if ms is not None else ''}]"
+                return base
+            stock = "; ".join(sorted({_stock_str(c) for c in w["cuts"]}))
             journal = "  ".join(
                 f"{'-' if l['entry_type'].startswith('Negative') else '+'}{l['quantity']} {l['item_no']}"
                 for l in w["journal"]["lines"]

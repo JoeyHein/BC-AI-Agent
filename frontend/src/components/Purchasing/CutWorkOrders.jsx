@@ -111,6 +111,9 @@ function WorkOrderCard({ wo, busy, rejecting, reason, setReason, onApprove, onSt
           {wo.makes_invoiceable && (
             <span className="rounded-full bg-green-100 text-green-700 text-xs px-2 py-0.5">Invoiceable now</span>
           )}
+          {wo.clears_slow_stock && (
+            <span className="rounded-full bg-purple-100 text-purple-700 text-xs px-2 py-0.5" title="Cuts down slow-moving long stock — reduces held inventory">Clears slow stock</span>
+          )}
           {anyOverTol && (
             <span className="rounded-full bg-amber-100 text-amber-700 text-xs px-2 py-0.5">Over waste limit</span>
           )}
@@ -129,6 +132,12 @@ function WorkOrderCard({ wo, busy, rejecting, reason, setReason, onApprove, onSt
               <span className={`text-xs rounded px-1.5 py-0.5 ${c.donor_on_hand > 0 ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
                 {c.donor_on_hand} in stock
               </span>
+              {c.donor_velocity && c.donor_velocity.is_slow && (
+                <span className="text-xs rounded px-1.5 py-0.5 bg-purple-50 text-purple-700"
+                  title={c.donor_velocity.months_supply != null ? `${c.donor_velocity.months_supply} months of supply on hand` : 'no recent movement'}>
+                  slow-moving{c.donor_velocity.days_since_movement != null ? ` · last moved ${c.donor_velocity.days_since_movement}d ago` : ''}
+                </span>
+              )}
               {c.prior_verdict && (
                 <span className={`text-xs rounded px-1.5 py-0.5 ${c.prior_verdict.verdict === 'approved' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
                   previously {c.prior_verdict.verdict}

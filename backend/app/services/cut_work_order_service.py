@@ -105,7 +105,35 @@ class CutWorkOrderService:
         # Stamp each cut with its prior verdict (one batched query per WO).
         for wo in proposals:
             wo["cuts"] = fb.annotate_recommendations(db, wo["cuts"])
+
+        self._annotate_velocity(proposals)
         return proposals
+
+    def _annotate_velocity(self, proposals: List[dict]) -> None:
+        """Tag each donor with how fast it moves and float slow-stock-clearing
+        work orders up the queue — the 12-month goal is to hold only
+        ~3-month-consumable stock, so cutting dead long-stock is the win."""
+        from app.services.item_velocity_service import item_velocity_service
+
+        on_hand = {}
+        for wo in proposals:
+            for c in wo["cuts"]:
+                on_hand[c["donor_sku"]] = c.get("donor_on_hand") or 0
+        if not on_hand:
+            return
+        vel = item_velocity_service.donor_velocity(on_hand)
+
+        for wo in proposals:
+            clears_slow = False
+            for c in wo["cuts"]:
+                v = vel.get(c["donor_sku"])
+                c["donor_velocity"] = v
+                if v and v.get("is_slow"):
+                    clears_slow = True
+            wo["clears_slow_stock"] = clears_slow
+
+        # Slow-stock-clearing WOs first, then by dollars avoided.
+        proposals.sort(key=lambda w: (not w.get("clears_slow_stock"), -w["purchase_avoided"]))
 
     def _build_journal(
         self, so_number: str, recs: List[CutRecommendation], catalog_skus
