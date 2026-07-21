@@ -108,6 +108,11 @@ function WorkOrderCard({ wo, busy, rejecting, reason, setReason, onApprove, onSt
       <div className="flex items-center justify-between px-4 py-3 border-b">
         <div className="flex items-center gap-3">
           <span className="font-semibold text-lg">{wo.so_number}</span>
+          {wo.prod_orders && wo.prod_orders.length > 0 && (
+            <span className="text-xs text-gray-500" title="Production orders under this sales order">
+              {wo.prod_orders.length} prod order{wo.prod_orders.length === 1 ? '' : 's'}: {wo.prod_orders.join(', ')}
+            </span>
+          )}
           {wo.makes_invoiceable ? (
             <span className="rounded-full bg-green-100 text-green-700 text-xs px-2 py-0.5">Ships the order</span>
           ) : (
@@ -134,6 +139,9 @@ function WorkOrderCard({ wo, busy, rejecting, reason, setReason, onApprove, onSt
               <span className="font-medium">{c.qty_needed}× {c.target_sku}</span>
               <span className="text-gray-400">←</span>
               <span>cut from <span className="font-medium">{c.donor_sku}</span> ({c.donor_length})</span>
+              {c.prod_order && (
+                <span className="text-xs text-gray-500">for {c.prod_order}</span>
+              )}
               <span className={`text-xs rounded px-1.5 py-0.5 ${c.donor_on_hand > 0 ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
                 {c.donor_on_hand} in stock
               </span>

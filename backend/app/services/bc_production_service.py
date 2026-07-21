@@ -34,7 +34,41 @@ ODATA_ENDPOINTS = {
     "routing": "ProdOrderRouting",
     "work_centers": "WorkCenters",
     "bom_lines": "ProductionBomLines",
+    "reservations": "ReservationEntries",   # published by Joey to link PROD->SO
 }
+
+# BC reservation Source_Type codes.
+RES_SRC_SALES_LINE = 37
+RES_SRC_PROD_ORDER_LINE = 5407
+
+
+def build_prod_so_map(entries) -> Dict[str, str]:
+    """Map {prod_order_no: sales_order_no} from reservation entries.
+
+    A reservation is two rows sharing one Reservation_Entry (Entry No.): the
+    supply side (Prod. Order Line, type 5407, Source_ID = PROD-xxx) and the
+    demand side (Sales Line, type 37, Source_ID = SO-xxx). Pairing them on the
+    shared entry number gives the production-order -> sales-order link.
+    """
+    by_entry: Dict[str, Dict[int, str]] = {}
+    for e in entries or []:
+        entry_no = e.get("Reservation_Entry") or e.get("Entry_No")
+        try:
+            src_type = int(e.get("Source_Type"))
+        except (TypeError, ValueError):
+            continue
+        src_id = (e.get("Source_ID") or "").strip()
+        if entry_no is None or not src_id:
+            continue
+        by_entry.setdefault(str(entry_no), {})[src_type] = src_id
+
+    prod_so: Dict[str, str] = {}
+    for sides in by_entry.values():
+        prod = sides.get(RES_SRC_PROD_ORDER_LINE)
+        so = sides.get(RES_SRC_SALES_LINE)
+        if prod and so:
+            prod_so[prod] = so
+    return prod_so
 
 
 class ProductionOrderStatus(Enum):
@@ -259,6 +293,20 @@ class BCProductionService:
                 break
             skip += page_size
         return rows
+
+    def get_prod_so_map(self) -> Dict[str, str]:
+        """{prod_order_no: sales_order_no} from BC reservation entries.
+
+        Returns {} until the ReservationEntries web service is published (404),
+        so callers degrade to production orders standing on their own.
+        """
+        entries = self._make_odata_request_all(
+            ODATA_ENDPOINTS["reservations"],
+            query_params={"$filter": f"Source_Type eq {RES_SRC_PROD_ORDER_LINE} or Source_Type eq {RES_SRC_SALES_LINE}"},
+        )
+        if not entries:
+            return {}
+        return build_prod_so_map(entries)
 
     def _check_api_available(self) -> bool:
         """Check if production API is available"""

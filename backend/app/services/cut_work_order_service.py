@@ -52,33 +52,55 @@ class CutWorkOrderService:
         recs: List[CutRecommendation],
         catalog_skus,
         so_numbers: Optional[List[str]] = None,
+        prod_so_map: Optional[Dict[str, str]] = None,
     ) -> List[dict]:
         """Group cut recommendations into per-SO work orders, live (not stored).
 
         ``recs`` are CutRecommendation objects from cutting_stock_service.
         ``catalog_skus`` is the SKU list used to resolve each offcut to a
-        receivable size. Returns work-order dicts ordered by purchase avoided
-        (the invoiceable-value proxy) descending.
+        receivable size. ``prod_so_map`` ({PROD->SO} from BC reservations)
+        re-anchors production orders under their parent sales order, so a job
+        that surfaces as PROD-xxx is grouped and shown under SO-xxx with the
+        production order noted on each cut. Empty map (service not yet
+        published) => production orders stand on their own, as before.
+
+        Returns work-order dicts ordered by purchase avoided descending.
         """
-        by_so: Dict[str, List[CutRecommendation]] = {}
+        prod_so_map = prod_so_map or {}
+
+        # (grouping key, per-cut origin job) — the origin is the raw job so the
+        # card can show which production order each cut belongs to.
+        by_key: Dict[str, List[tuple]] = {}
         for r in recs:
-            for so in (r.jobs or ["(unassigned)"]):
-                if so_numbers and so not in so_numbers:
+            for job in (r.jobs or ["(unassigned)"]):
+                key = prod_so_map.get(job, job)   # PROD -> its SO when known
+                if so_numbers and key not in so_numbers:
                     continue
-                by_so.setdefault(so, []).append(r)
+                by_key.setdefault(key, []).append((r, job))
 
         work_orders = []
-        for so, so_recs in by_so.items():
-            journal = self._build_journal(so, so_recs, catalog_skus)
+        for key, pairs in by_key.items():
+            so_recs = [r for r, _ in pairs]
+            origin = {id(r): job for r, job in pairs}
+            journal = self._build_journal(key, so_recs, catalog_skus)
             avoided = round(sum(r.unit_cost_avoided for r in so_recs), 2)
             all_within = all(r.within_tolerance for r in so_recs)
+            # Production orders represented under this SO.
+            prod_orders = sorted({job for _, job in pairs if job != key and str(job).startswith("PROD")})
+            cuts = []
+            for r in so_recs:
+                d = r.to_dict()
+                job = origin.get(id(r))
+                d["prod_order"] = job if job != key and str(job).startswith("PROD") else None
+                cuts.append(d)
             work_orders.append({
-                "so_number": so,
+                "so_number": key,
                 "status": "proposed",
-                "makes_invoiceable": True,   # every cut here satisfies a shortfall on this SO
+                "makes_invoiceable": True,
                 "purchase_avoided": avoided,
                 "all_within_tolerance": all_within,
-                "cuts": [r.to_dict() for r in so_recs],
+                "prod_orders": prod_orders,
+                "cuts": cuts,
                 "journal": journal,
             })
 
@@ -122,8 +144,16 @@ class CutWorkOrderService:
             suppressed_pairs=sup_pairs, suppressed_families=sup_families,
         )
 
+        # PROD->SO reservation map (empty until the BC web service is published).
+        from app.services.bc_production_service import bc_production_service
+        try:
+            prod_so_map = bc_production_service.get_prod_so_map()
+        except Exception as e:
+            logger.warning(f"prod->SO map unavailable: {e}")
+            prod_so_map = {}
+
         so_filter = [so_number] if so_number else None
-        proposals = self.build_proposed(recs, catalog, so_numbers=so_filter)
+        proposals = self.build_proposed(recs, catalog, so_numbers=so_filter, prod_so_map=prod_so_map)
 
         # Drop SOs already decided — an approved/posted cut plan shouldn't keep
         # reappearing in the queue for the same job. (When so_number is given
@@ -141,7 +171,7 @@ class CutWorkOrderService:
         for wo in proposals:
             wo["cuts"] = fb.annotate_recommendations(db, wo["cuts"])
 
-        self._assess_completeness(proposals, req)
+        self._assess_completeness(proposals, req, prod_so_map)
         self._annotate_blocker_workarounds(proposals, get_bc_mapper(), inv_lookup)
         self._annotate_velocity(proposals)
 
@@ -195,7 +225,8 @@ class CutWorkOrderService:
                 if wa:
                     b["workaround"] = wa
 
-    def _assess_completeness(self, proposals: List[dict], req: dict) -> None:
+    def _assess_completeness(self, proposals: List[dict], req: dict,
+                             prod_so_map: Optional[Dict[str, str]] = None) -> None:
         """Decide whether each cut ACTUALLY makes its sales order shippable.
 
         A cut only earns "invoiceable now" if it clears the LAST thing standing
@@ -204,7 +235,11 @@ class CutWorkOrderService:
         looks at ALL of the SO's shortfalls, marks the ones its cuts cover, and
         flags whatever still blocks the order. makes_invoiceable is true only
         when nothing is left blocking.
+
+        Shortfalls tagged to a production order roll up to its sales order via
+        prod_so_map, matching how the work orders are grouped.
         """
+        prod_so_map = prod_so_map or {}
         # Every SO's still-short items, straight from the demand engine (net_need
         # is already netted against stock + open POs, so >0 means genuinely short).
         so_short: Dict[str, Dict[str, float]] = {}
@@ -213,7 +248,8 @@ class CutWorkOrderService:
             if nn <= 0:
                 continue
             for job in item.get("jobs", []):
-                so_short.setdefault(job, {})[item["item_no"]] = nn
+                key = prod_so_map.get(job, job)
+                so_short.setdefault(key, {})[item["item_no"]] = nn
 
         for wo in proposals:
             so = wo["so_number"]
