@@ -73,6 +73,40 @@ class CutWorkOrderService:
         work_orders.sort(key=lambda w: w["purchase_avoided"], reverse=True)
         return work_orders
 
+    def build_live_proposals(self, db: Session, so_number: Optional[str] = None) -> List[dict]:
+        """The full pipeline behind the approval window: demand -> donor stock
+        from live inventory -> cut analysis -> per-SO work orders, each stamped
+        with its prior verdict so the reviewer sees "you approved this before".
+
+        Imports its heavy deps lazily to avoid a circular import at module load.
+        """
+        from app.services.purchasing_demand_service import purchasing_demand_service
+        from app.services.bc_part_number_mapper import get_bc_mapper
+        from app.integrations.bc.client import bc_client
+        from app.services.cutting_stock_service import cutting_stock_service
+        from app.services.cut_feedback_service import cut_feedback_service as fb
+
+        req = purchasing_demand_service.compute_requirements(db, include_met=True, horizon_weeks=None)
+        catalog = list(get_bc_mapper().bc_items.keys())
+
+        def inv_lookup(skus):
+            return {
+                s: {"inventory": m.get("inventory"), "unitCost": m.get("unitCost"),
+                    "displayName": m.get("displayName")}
+                for s, m in bc_client.get_items_by_numbers(skus).items()
+            }
+
+        donors = cutting_stock_service.donor_rows_for_shortfalls(req["items"], catalog, inv_lookup)
+        recs = cutting_stock_service.analyze(req["items"] + donors)
+
+        so_filter = [so_number] if so_number else None
+        proposals = self.build_proposed(recs, catalog, so_numbers=so_filter)
+
+        # Stamp each cut with its prior verdict (one batched query per WO).
+        for wo in proposals:
+            wo["cuts"] = fb.annotate_recommendations(db, wo["cuts"])
+        return proposals
+
     def _build_journal(
         self, so_number: str, recs: List[CutRecommendation], catalog_skus
     ) -> dict:

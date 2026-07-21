@@ -699,6 +699,11 @@ export const purchasingApi = {
   assignVendor: (data) => apiClient.put('/api/admin/purchasing/vendor-map', data),
   sendReport: (data = {}) => apiClient.post('/api/admin/purchasing/send-report', data),
   generatePO: (data) => apiClient.post('/api/admin/purchasing/generate-po', data),
+  // Cut work orders (yay/nay approval)
+  listCutWorkOrders: () => apiClient.get('/api/admin/purchasing/cut-work-orders'),
+  approveCutWorkOrder: (data) => apiClient.post('/api/admin/purchasing/cut-work-orders/approve', data),
+  rejectCutWorkOrder: (data) => apiClient.post('/api/admin/purchasing/cut-work-orders/reject', data),
+  cutWorkOrderHistory: (params = {}) => apiClient.get('/api/admin/purchasing/cut-work-orders/history', { params }),
 };
 
 // Install Referrals API (Admin)

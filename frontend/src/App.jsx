@@ -23,6 +23,7 @@ import QuoteSearch from './components/QuoteSearch'
 import QuotingAnalytics from './pages/QuotingAnalytics'
 import OrderAgeTracker from './pages/OrderAgeTracker'
 import PurchasingDashboard from './components/Purchasing/PurchasingDashboard'
+import CutWorkOrders from './components/Purchasing/CutWorkOrders'
 
 function Navigation() {
   const { user, logout, isAuthenticated } = useAuth()
@@ -81,6 +82,7 @@ function Navigation() {
     { path: '/install-referrals', label: 'Installs' },
     { path: '/production', label: 'Production' },
     { path: '/purchasing', label: 'Purchasing' },
+    { path: '/cut-work-orders', label: 'Cut Orders' },
     { path: '/settings', label: 'Settings' },
   ]
 
@@ -296,6 +298,12 @@ function AppContent() {
           <Route path="/purchasing" element={
             <ProtectedRoute requireReviewer>
               <PurchasingDashboard />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/cut-work-orders" element={
+            <ProtectedRoute requireReviewer>
+              <CutWorkOrders />
             </ProtectedRoute>
           } />
 

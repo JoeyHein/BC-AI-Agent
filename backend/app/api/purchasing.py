@@ -203,3 +203,73 @@ async def generate_po(
     except Exception as e:
         logger.error(f"PO generation failed: {e}")
         raise HTTPException(status_code=502, detail=f"PO generation failed: {e}")
+
+
+# ==================== Cut work orders (yay/nay approval) ====================
+
+class CutDecisionRequest(BaseModel):
+    so_number: str
+    reason: Optional[str] = None
+
+
+@router.get("/cut-work-orders")
+async def list_cut_work_orders(
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Live per-SO cut proposals for the approval window: which jobs become
+    shippable now by cutting stock on hand, each with the donor inventory that
+    triggered it and any prior verdict."""
+    from app.services.cut_work_order_service import cut_work_order_service
+    proposals = cut_work_order_service.build_live_proposals(db)
+    return {"work_orders": proposals, "count": len(proposals)}
+
+
+@router.post("/cut-work-orders/approve")
+async def approve_cut_work_order(
+    body: CutDecisionRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Approve one SO's cut plan. Rebuilds the proposal server-side (so the
+    journal is authoritative), persists it, and records a verdict per cut."""
+    from app.services.cut_work_order_service import cut_work_order_service
+    proposals = cut_work_order_service.build_live_proposals(db, so_number=body.so_number)
+    if not proposals:
+        raise HTTPException(status_code=404, detail=f"No cut proposal for {body.so_number}")
+    wo = cut_work_order_service.approve(db, proposals[0], created_by=admin.id)
+    db.commit()
+    return {"success": True, "work_order": wo.to_dict()}
+
+
+@router.post("/cut-work-orders/reject")
+async def reject_cut_work_order(
+    body: CutDecisionRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Reject one SO's cut plan, recording the reason as the learning signal."""
+    from app.services.cut_work_order_service import cut_work_order_service
+    proposals = cut_work_order_service.build_live_proposals(db, so_number=body.so_number)
+    if not proposals:
+        raise HTTPException(status_code=404, detail=f"No cut proposal for {body.so_number}")
+    wo = cut_work_order_service.reject(db, proposals[0], reason=body.reason, created_by=admin.id)
+    db.commit()
+    return {"success": True, "work_order": wo.to_dict()}
+
+
+@router.get("/cut-work-orders/history")
+async def cut_work_order_history(
+    limit: int = Query(50, le=200),
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Recently decided cut work orders (approved / rejected / posted)."""
+    from app.db.models import CutWorkOrder
+    rows = (
+        db.query(CutWorkOrder)
+        .order_by(CutWorkOrder.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return {"work_orders": [r.to_dict() for r in rows]}
