@@ -108,8 +108,13 @@ function WorkOrderCard({ wo, busy, rejecting, reason, setReason, onApprove, onSt
       <div className="flex items-center justify-between px-4 py-3 border-b">
         <div className="flex items-center gap-3">
           <span className="font-semibold text-lg">{wo.so_number}</span>
-          {wo.makes_invoiceable && (
-            <span className="rounded-full bg-green-100 text-green-700 text-xs px-2 py-0.5">Invoiceable now</span>
+          {wo.makes_invoiceable ? (
+            <span className="rounded-full bg-green-100 text-green-700 text-xs px-2 py-0.5">Ships the order</span>
+          ) : (
+            <span className="rounded-full bg-red-100 text-red-700 text-xs px-2 py-0.5"
+              title="Cutting this alone will NOT make the order shippable — other items are still missing">
+              Won't ship yet · {wo.blockers?.length} blocking
+            </span>
           )}
           {wo.clears_slow_stock && (
             <span className="rounded-full bg-purple-100 text-purple-700 text-xs px-2 py-0.5" title="Cuts down slow-moving long stock — reduces held inventory">Clears slow stock</span>
@@ -152,6 +157,20 @@ function WorkOrderCard({ wo, busy, rejecting, reason, setReason, onApprove, onSt
           </div>
         ))}
       </div>
+
+      {/* What else the order still needs — the reason it may not ship yet */}
+      {wo.blockers && wo.blockers.length > 0 && (
+        <div className="px-4 py-2 bg-red-50 border-t text-sm">
+          <div className="text-red-700 font-medium mb-1">
+            Order still blocked by {wo.blockers.length} other item{wo.blockers.length === 1 ? '' : 's'} — cutting this won't ship it on its own:
+          </div>
+          <div className="text-xs text-red-600 flex flex-wrap gap-x-4 gap-y-0.5">
+            {wo.blockers.map((b, i) => (
+              <span key={i}>{b.net_need}× {b.item_no}</span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* The inventory move that will be posted */}
       <div className="px-4 py-2 bg-gray-50 border-t text-xs font-mono text-gray-600">

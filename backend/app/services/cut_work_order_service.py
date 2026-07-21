@@ -124,8 +124,42 @@ class CutWorkOrderService:
         for wo in proposals:
             wo["cuts"] = fb.annotate_recommendations(db, wo["cuts"])
 
+        self._assess_completeness(proposals, req)
         self._annotate_velocity(proposals)
         return proposals
+
+    def _assess_completeness(self, proposals: List[dict], req: dict) -> None:
+        """Decide whether each cut ACTUALLY makes its sales order shippable.
+
+        A cut only earns "invoiceable now" if it clears the LAST thing standing
+        between the order and the dock. Cutting a shaft for SO-1225 is pointless
+        if the order still needs panels that aren't in stock — so the work order
+        looks at ALL of the SO's shortfalls, marks the ones its cuts cover, and
+        flags whatever still blocks the order. makes_invoiceable is true only
+        when nothing is left blocking.
+        """
+        # Every SO's still-short items, straight from the demand engine (net_need
+        # is already netted against stock + open POs, so >0 means genuinely short).
+        so_short: Dict[str, Dict[str, float]] = {}
+        for item in req.get("items", []):
+            nn = item.get("net_need") or 0
+            if nn <= 0:
+                continue
+            for job in item.get("jobs", []):
+                so_short.setdefault(job, {})[item["item_no"]] = nn
+
+        for wo in proposals:
+            so = wo["so_number"]
+            covered = {c["target_sku"] for c in wo["cuts"]}
+            shortfall = so_short.get(so, {})
+            blockers = [
+                {"item_no": itm, "net_need": nn}
+                for itm, nn in sorted(shortfall.items())
+                if itm not in covered
+            ]
+            wo["blockers"] = blockers
+            wo["makes_invoiceable"] = len(blockers) == 0
+            wo["so_short_item_count"] = len(shortfall)
 
     def _annotate_velocity(self, proposals: List[dict]) -> None:
         """Tag each donor with how fast it moves and float slow-stock-clearing
@@ -150,8 +184,14 @@ class CutWorkOrderService:
                     clears_slow = True
             wo["clears_slow_stock"] = clears_slow
 
-        # Slow-stock-clearing WOs first, then by dollars avoided.
-        proposals.sort(key=lambda w: (not w.get("clears_slow_stock"), -w["purchase_avoided"]))
+        # Truly shippable orders first (the cut clears the LAST blocker), then
+        # slow-stock-clearing, then dollars avoided. A cut that doesn't complete
+        # its order isn't "invoiceable now", so it sinks below the ones that are.
+        proposals.sort(key=lambda w: (
+            not w.get("makes_invoiceable"),
+            not w.get("clears_slow_stock"),
+            -w["purchase_avoided"],
+        ))
 
     def _build_journal(
         self, so_number: str, recs: List[CutRecommendation], catalog_skus

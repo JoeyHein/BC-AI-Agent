@@ -68,6 +68,15 @@ class CutWorksheetService:
             cut_lines = "; ".join(
                 f"{c['qty_needed']}x {c['target_sku']} <- {c['donor_sku']}" for c in w["cuts"]
             )
+            # Whole-order shippability up front: a cut that doesn't complete its
+            # order shouldn't be posted just because a shaft could be cut.
+            blockers = w.get("blockers") or []
+            if not w.get("makes_invoiceable") and blockers:
+                blk = "; ".join(f"{b['net_need']}x {b['item_no']}" for b in blockers[:6])
+                more = f" +{len(blockers) - 6} more" if len(blockers) > 6 else ""
+                cut_lines = f"[WON'T SHIP — order still needs: {blk}{more}]  {cut_lines}"
+            else:
+                cut_lines = f"[SHIPS ORDER]  {cut_lines}"
             donors = "; ".join(sorted({c["donor_sku"] for c in w["cuts"]}))
 
             def _stock_str(c):
