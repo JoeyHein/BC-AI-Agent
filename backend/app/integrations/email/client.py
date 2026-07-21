@@ -302,6 +302,27 @@ class GraphEmailClient:
         logger.info(f"Uploaded planning workbook to drive {drive_id}:/{path}")
         return web_url
 
+    def download_drive_file(self, drive_id: str, item_path: str) -> Optional[bytes]:
+        """Download a file from a SharePoint/OneDrive drive by path.
+
+        Returns the raw bytes, or None if the file does not exist yet (404) —
+        the read-back path treats "no file yet" as "no edits to read", not an
+        error, so the first-ever run has nothing to merge.
+        """
+        token = self._get_access_token()
+        path = item_path.strip("/")
+        url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{path}:/content"
+        resp = requests.get(
+            url, headers={"Authorization": f"Bearer {token}"}, timeout=120
+        )
+        if resp.status_code == 404:
+            logger.info(f"Drive file {drive_id}:/{path} not found — nothing to read back")
+            return None
+        if resp.status_code >= 400:
+            logger.error(f"Graph drive download failed {resp.status_code}: {resp.text[:400]}")
+            resp.raise_for_status()
+        return resp.content
+
     # ==================== Sent Items ====================
 
     def get_sent_emails(self, user_email: str, days_back: int = 90, max_count: int = 100) -> List[Dict[str, Any]]:

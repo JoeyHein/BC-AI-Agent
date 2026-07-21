@@ -283,6 +283,15 @@ class PlanningWorkbookService:
         self._tab_production(wb, data["production"])
         self._tab_timeline(wb, so_rows, history, today)
 
+        # Editable purchaser surface: cut work orders with Decision/Comment
+        # columns the next run reads back. Best-effort — a failure here must not
+        # sink the whole workbook.
+        try:
+            from app.services.cut_worksheet_service import cut_worksheet_service
+            cut_worksheet_service.write_tab(wb, cut_worksheet_service.build_rows(db))
+        except Exception as e:
+            logger.error(f"[PlanningWorkbook] cut work-order tab failed: {e}")
+
         buf = io.BytesIO()
         wb.save(buf)
         return buf.getvalue(), so_rows
@@ -299,6 +308,24 @@ class PlanningWorkbookService:
         emails the workbook as an attachment. SharePoint failure falls back to the
         attachment so a delivery always happens.
         """
+        # Read back yesterday's Excel cut decisions BEFORE we overwrite the file.
+        # The purchaser types APPROVE/REJECT + a comment into the SharePoint copy;
+        # this turns those into verdicts + work orders. Must run before the
+        # in-place overwrite below, or a day's edits are lost.
+        readback = None
+        if settings.PLANNING_SHAREPOINT_ENABLED and settings.PLANNING_SHAREPOINT_DRIVE_ID:
+            try:
+                from app.services.cut_worksheet_service import cut_worksheet_service
+                current = graph_client.download_drive_file(
+                    settings.PLANNING_SHAREPOINT_DRIVE_ID,
+                    settings.PLANNING_SHAREPOINT_FILE_PATH,
+                )
+                if current:
+                    readback = cut_worksheet_service.read_back(current, db)
+                    db.commit()
+            except Exception as e:
+                logger.error(f"[PlanningWorkbook] cut read-back failed: {e}")
+
         xlsx, so_rows = self.build_workbook_bytes(db, horizon_weeks=horizon_weeks)
         snap_count = self.upsert_weekly_snapshots(db, so_rows)
 
@@ -309,6 +336,8 @@ class PlanningWorkbookService:
         for r in so_rows:
             rag[r["rag"]] = rag.get(r["rag"], 0) + 1
         result = {"snapshots": snap_count, "sales_orders": len(so_rows), "rag": rag}
+        if readback and readback.get("applied"):
+            result["cut_readback"] = readback
 
         sharepoint_url = None
         if settings.PLANNING_SHAREPOINT_ENABLED and settings.PLANNING_SHAREPOINT_DRIVE_ID:

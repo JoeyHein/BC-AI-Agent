@@ -170,23 +170,24 @@ class CutWorkOrderService:
     # ---- decisions ----------------------------------------------------------
 
     def approve(
-        self, db: Session, work_order: dict, created_by: Optional[int] = None
+        self, db: Session, work_order: dict, created_by: Optional[int] = None,
+        source: str = "portal",
     ) -> CutWorkOrder:
         """Approve a proposed work order: persist it and record an approved
         verdict for each cut (the learning signal)."""
-        return self._decide(db, work_order, "approved", None, created_by)
+        return self._decide(db, work_order, "approved", None, created_by, source)
 
     def reject(
         self, db: Session, work_order: dict, reason: str,
-        created_by: Optional[int] = None
+        created_by: Optional[int] = None, source: str = "portal",
     ) -> CutWorkOrder:
         """Reject a work order: persist it and record a rejected verdict + reason
         for each cut, so the engine learns not to keep proposing it."""
-        return self._decide(db, work_order, "rejected", reason, created_by)
+        return self._decide(db, work_order, "rejected", reason, created_by, source)
 
     def _decide(
         self, db: Session, work_order: dict, verdict: str,
-        reason: Optional[str], created_by: Optional[int],
+        reason: Optional[str], created_by: Optional[int], source: str = "portal",
     ) -> CutWorkOrder:
         so = work_order["so_number"]
         now = datetime.utcnow()
@@ -217,7 +218,7 @@ class CutWorkOrderService:
                 qty_pieces=cut.get("pieces_yielded"),
                 scrap_inches=cut.get("scrap_inches"),
                 opportunity=cut,
-                source="portal",
+                source=source,
                 created_by=created_by,
             )
         db.flush()
