@@ -387,9 +387,19 @@ class BCPartNumberMapper:
                     for item in items:
                         self.hardware_items[item['number']] = item
 
+        # Register cuttable struts (their length/gauge live in the description,
+        # not the SKU) so the cutting engine can treat a longer strut as a donor.
+        try:
+            from app.services import sku_geometry
+            n_struts = sku_geometry.register_struts(self.bc_items.values())
+        except Exception as e:
+            n_struts = 0
+            logger.warning(f"strut registration failed: {e}")
+
         logger.info(f"Loaded {len(self.bc_items)} BC items, "
                    f"{len(self.spring_items)} springs, "
-                   f"{len(self.hardware_items)} hardware items")
+                   f"{len(self.hardware_items)} hardware items, "
+                   f"{n_struts} cuttable struts")
 
     def get_spring_part_number(
         self,

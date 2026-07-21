@@ -54,6 +54,7 @@ COMMON_PANEL_MIN_INCHES = 120
 RECOVERY_FLOOR_BY_KIND = {
     "panel": COMMON_PANEL_MIN_INCHES,
     "shaft": None,   # None = never recoverable; all drop is scrap
+    "strut": None,   # strut drop is scrap, like a shaft
 }
 
 
@@ -73,6 +74,7 @@ DEFAULT_KERF_INCHES = 0.125
 KERF_BY_KIND = {
     "panel": 0.125,
     "shaft": 0.125,
+    "strut": 0.125,
 }
 
 # Fit tolerance — how far under nominal a finished piece may run and still be
@@ -91,6 +93,7 @@ KERF_BY_KIND = {
 FIT_TOLERANCE_BY_KIND = {
     "panel": 0.25,
     "shaft": 0.0,      # not stated for shafts — assume none until told otherwise
+    "strut": 0.0,
 }
 DEFAULT_FIT_TOLERANCE_INCHES = 0.0
 

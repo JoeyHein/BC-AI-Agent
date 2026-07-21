@@ -35,7 +35,7 @@ construction single-colour and single-design.
 import logging
 import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -106,12 +106,90 @@ def _panel_cuttable(prefix: str, stamp: str) -> tuple[bool, str]:
     return False, f"unknown panel series {prefix} — not cuttable until classified"
 
 
+# Geometry that can't be read from the SKU alone — struts carry their length
+# and gauge only in the description. The catalog mapper parses these once at
+# load and registers them here, so parse() resolves them like any other SKU.
+_REGISTERED: Dict[str, "SkuGeometry"] = {}
+
+STRUT_GA_RE = re.compile(r"(\d+)\s*GA")
+# The trailing feet measure, e.g. "… X 16'" or "24'" or "16 GA. 28'".
+STRUT_FEET_RE = re.compile(r"(\d+)\s*'")
+# Explicit face width before the 'X', e.g. "2-1/4 X" or "3 X".
+STRUT_WIDTH_RE = re.compile(r"(\d)(?:-(\d+)/(\d+))?\s*[xX]")
+# Struts that are hardware, not cuttable stock.
+_STRUT_NONSTOCK = ("CLIP", "PLATE", "STRAP", "COUPLING")
+
+# Joey's rule: struts up to 18' are 2-1/4" face; over 18' are 3". You can NEVER
+# mix face widths — cutting a 20' (3") down to an 18' (2-1/4") is invalid, the
+# height differs. So face width is part of the cut family, taken from the
+# description when stated and otherwise derived from this length boundary.
+STRUT_WIDTH_BOUNDARY_INCHES = 18 * 12
+
+
+def _strut_face_width(description: str, length_inches: int) -> str:
+    m = STRUT_WIDTH_RE.search(description)
+    if m:
+        whole = int(m.group(1))
+        if m.group(2) and m.group(3):
+            return f"{round(whole + int(m.group(2)) / int(m.group(3)), 2)}"
+        return f"{float(whole)}"
+    # Not stated -> derive from the 18' boundary.
+    return "2.25" if length_inches <= STRUT_WIDTH_BOUNDARY_INCHES else "3.0"
+
+
+def parse_strut_description(sku: str, description: str) -> Optional["SkuGeometry"]:
+    """Geometry for an FH17 strut from its description. Length, gauge and FACE
+    WIDTH live in the text ('STRUT, 16 GA, 2-1/4 X 16''), not the SKU. Gauge,
+    face width (2-1/4 vs 3) and Z-vs-regular are all part of the cut family —
+    none may be mixed, so a 16 GA can't cut a 20 GA, and a 3" (>18') can't cut a
+    2-1/4" (<=18')."""
+    if not description:
+        return None
+    d = description.upper()
+    if "STRUT" not in d or any(w in d for w in _STRUT_NONSTOCK):
+        return None
+    ga = STRUT_GA_RE.search(d)
+    feet = STRUT_FEET_RE.findall(d)
+    if not ga or not feet:
+        return None
+    gauge = ga.group(1)
+    length = int(feet[-1]) * 12  # struts are stocked on whole feet
+    if length <= 0:
+        return None
+    width = _strut_face_width(d, length)
+    is_z = "Z-STRUT" in d or "Z STRUT" in d
+    family = f"STRUT-{gauge}GA-{width}{'-Z' if is_z else ''}"
+    return SkuGeometry(
+        sku=sku.strip().upper(), family=family, length_inches=length,
+        kind="strut", cuttable=True, reason="",
+    )
+
+
+def register_struts(items) -> int:
+    """Register cuttable struts from catalog items (each a dict with 'number'
+    and 'displayName'/'description'). Idempotent; returns how many registered."""
+    n = 0
+    for it in items:
+        sku = (it.get("number") or "").strip().upper()
+        if not sku.startswith("FH17"):
+            continue
+        geo = parse_strut_description(sku, it.get("displayName") or it.get("description") or "")
+        if geo:
+            _REGISTERED[sku] = geo
+            n += 1
+    return n
+
+
 def parse(sku: str) -> Optional[SkuGeometry]:
     """Parse a SKU into its physical geometry, or None if it carries no
     cuttable linear dimension (hardware, springs, kits, unknown formats)."""
     if not sku:
         return None
     sku = sku.strip().upper()
+
+    reg = _REGISTERED.get(sku)
+    if reg is not None:
+        return reg
 
     m = PANEL_RE.match(sku)
     if m:
