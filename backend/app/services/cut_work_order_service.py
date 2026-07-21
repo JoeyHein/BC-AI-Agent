@@ -142,11 +142,58 @@ class CutWorkOrderService:
             wo["cuts"] = fb.annotate_recommendations(db, wo["cuts"])
 
         self._assess_completeness(proposals, req)
+        self._annotate_blocker_workarounds(proposals, get_bc_mapper(), inv_lookup)
         self._annotate_velocity(proposals)
 
         if so_number is None:
             self._proposals_cache = (time.time() + _PROPOSALS_TTL_SECONDS, proposals)
         return proposals
+
+    def _annotate_blocker_workarounds(self, proposals, mapper, inv_lookup) -> None:
+        """Tag glass-kit blockers with their workaround (paint a different-colour
+        frame, commercial flexibility, residential long/short) so a blocked order
+        still shows how it might be worked around rather than a dead end."""
+        from app.services.glass_kit_service import glass_kit_service
+
+        gk_catalog = {
+            sku: (it.get("displayName") or it.get("description") or "")
+            for sku, it in mapper.bc_items.items() if sku.startswith("GK")
+        }
+        # Which glass kits are blocking anything?
+        gk_blockers = {
+            b["item_no"] for wo in proposals for b in wo.get("blockers", [])
+            if b["item_no"].startswith("GK")
+        }
+        if not gk_blockers:
+            return
+
+        # Candidate paint-substitutes: same paint_key, any colour. Look their
+        # live stock up once, in a single batch.
+        from app.services.glass_kit_service import parse_gk
+        # Paint substitutes only matter for RESIDENTIAL (GK15) blockers.
+        keys = {}
+        for sku in gk_blockers:
+            g = parse_gk(sku, gk_catalog.get(sku, ""))
+            if g and g["paintable"]:
+                keys[sku] = g["paint_key"]
+        candidates = set()
+        for sku, desc in gk_catalog.items():
+            g = parse_gk(sku, desc)
+            if g and g["paintable"] and g["paint_key"] in keys.values():
+                candidates.add(sku)
+        stock = {}
+        if candidates:
+            stock = {s: (m.get("inventory") or 0) for s, m in inv_lookup(list(candidates)).items()}
+
+        for wo in proposals:
+            for b in wo.get("blockers", []):
+                if not b["item_no"].startswith("GK"):
+                    continue
+                wa = glass_kit_service.workaround(
+                    b["item_no"], gk_catalog.get(b["item_no"], ""), gk_catalog, stock
+                )
+                if wa:
+                    b["workaround"] = wa
 
     def _assess_completeness(self, proposals: List[dict], req: dict) -> None:
         """Decide whether each cut ACTUALLY makes its sales order shippable.

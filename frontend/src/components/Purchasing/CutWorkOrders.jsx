@@ -164,9 +164,16 @@ function WorkOrderCard({ wo, busy, rejecting, reason, setReason, onApprove, onSt
           <div className="text-red-700 font-medium mb-1">
             Order still blocked by {wo.blockers.length} other item{wo.blockers.length === 1 ? '' : 's'} — cutting this won't ship it on its own:
           </div>
-          <div className="text-xs text-red-600 flex flex-wrap gap-x-4 gap-y-0.5">
+          <div className="text-xs text-red-600 flex flex-col gap-y-0.5">
             {wo.blockers.map((b, i) => (
-              <span key={i}>{b.net_need}× {b.item_no}</span>
+              <span key={i}>
+                {b.net_need}× {b.item_no}
+                {b.workaround && (
+                  <span className="ml-2 text-emerald-700 bg-emerald-50 rounded px-1.5 py-0.5">
+                    workaround: {b.workaround.detail}
+                  </span>
+                )}
+              </span>
             ))}
           </div>
         </div>
