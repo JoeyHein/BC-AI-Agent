@@ -289,8 +289,9 @@ class PlanningWorkbookService:
         try:
             from app.services.cut_worksheet_service import cut_worksheet_service
             cut_worksheet_service.write_tab(wb, cut_worksheet_service.build_rows(db))
+            cut_worksheet_service.write_journals_tab(wb, db, today=today)
         except Exception as e:
-            logger.error(f"[PlanningWorkbook] cut work-order tab failed: {e}")
+            logger.error(f"[PlanningWorkbook] cut work-order tabs failed: {e}")
 
         buf = io.BytesIO()
         wb.save(buf)

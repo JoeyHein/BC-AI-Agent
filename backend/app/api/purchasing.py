@@ -258,6 +258,40 @@ async def reject_cut_work_order(
     return {"success": True, "work_order": wo.to_dict()}
 
 
+@router.get("/cut-work-orders/journals")
+async def cut_work_order_journals(
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Filled-out item journals for approved cuts awaiting manual posting."""
+    from app.services.cut_worksheet_service import cut_worksheet_service
+    from app.services.cut_work_order_service import cut_work_order_service
+    return {
+        "journals": cut_worksheet_service.journal_rows(db),
+        "pending": [wo.to_dict() for wo in cut_work_order_service.pending_posting(db)],
+    }
+
+
+class MarkPostedRequest(BaseModel):
+    work_order_id: int
+    document_no: str
+
+
+@router.post("/cut-work-orders/mark-posted")
+async def mark_cut_work_order_posted(
+    body: MarkPostedRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Mark an approved work order's journal as posted in BC (Joey posts by hand)."""
+    from app.services.cut_work_order_service import cut_work_order_service
+    wo = cut_work_order_service.mark_posted(db, body.work_order_id, body.document_no)
+    if wo is None:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    db.commit()
+    return {"success": True, "work_order": wo.to_dict()}
+
+
 @router.get("/cut-work-orders/history")
 async def cut_work_order_history(
     limit: int = Query(50, le=200),

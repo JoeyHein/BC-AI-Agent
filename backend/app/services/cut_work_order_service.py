@@ -225,6 +225,16 @@ class CutWorkOrderService:
         logger.info("Work order %s %s (%d cuts)", so, verdict, len(work_order.get("cuts", [])))
         return wo
 
+    def pending_posting(self, db: Session) -> List[CutWorkOrder]:
+        """Approved work orders whose inventory move has not yet been posted in
+        BC — the manual posting queue. Oldest first, so nothing lingers."""
+        return (
+            db.query(CutWorkOrder)
+            .filter(CutWorkOrder.status == "approved")
+            .order_by(CutWorkOrder.created_at.asc())
+            .all()
+        )
+
     def mark_posted(
         self, db: Session, work_order_id: int, document_no: str
     ) -> Optional[CutWorkOrder]:

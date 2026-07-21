@@ -111,3 +111,31 @@ class TestDecisions:
         assert posted.status == "posted"
         assert posted.posted_document_no == "CUT-001238"
         assert posted.posted_at is not None
+
+
+class TestJournalFilling:
+    def test_pending_posting_and_journal_rows(self):
+        from datetime import date
+        from app.services.cut_worksheet_service import cut_worksheet_service as ws
+        db = _db()
+        wos.approve(db, wos.build_proposed(_busybee_recs(), CATALOG)[0], created_by=1)
+
+        pending = wos.pending_posting(db)
+        assert len(pending) == 1
+
+        rows = ws.journal_rows(db, today=date(2026, 7, 20))
+        # Every line carries BC item-journal fields, ready to key in.
+        assert rows and all(
+            {"posting_date", "document_no", "entry_type", "item_no", "quantity", "description"} <= set(r)
+            for r in rows
+        )
+        assert {r["document_no"] for r in rows} == {"CUT-001238"}
+        assert any(r["entry_type"] == "Negative Adjmt." and r["item_no"] == "PN40-21400-3204" for r in rows)
+        assert any(r["entry_type"] == "Positive Adjmt." and r["item_no"] == "PN40-21400-1800" for r in rows)
+
+    def test_posted_wo_drops_out_of_the_queue(self):
+        db = _db()
+        wo = wos.approve(db, wos.build_proposed(_busybee_recs(), CATALOG)[0], created_by=1)
+        assert len(wos.pending_posting(db)) == 1
+        wos.mark_posted(db, wo.id, "CUT-001238")
+        assert wos.pending_posting(db) == []

@@ -115,6 +115,74 @@ class CutWorksheetService:
             ws.column_dimensions[chr(64 + col)].width = w
         ws.freeze_panes = "A2"
 
+    def journal_rows(self, db: Session, today=None) -> List[dict]:
+        """Every approved-but-unposted work order flattened to BC item-journal
+        lines, ready to review and key/paste into BC. One block per work order.
+
+        Columns mirror a BC item journal: Posting Date, Document No., Entry Type,
+        Item No., Quantity, Description. Joey posts these manually for now.
+        """
+        from datetime import date as _date
+        today = today or _date.today()
+        rows: List[dict] = []
+        for wo in cut_work_order_service.pending_posting(db):
+            j = wo.journal_json or {}
+            doc = j.get("document_no") or f"CUT-{wo.so_number}"
+            for line in j.get("lines", []):
+                rows.append({
+                    "posting_date": today.isoformat(),
+                    "document_no": doc,
+                    "entry_type": line.get("entry_type"),
+                    "item_no": line.get("item_no"),
+                    "quantity": line.get("quantity"),
+                    "description": line.get("reason") or f"cut for {wo.so_number}",
+                    "wo_id": wo.id,
+                    "so_number": wo.so_number,
+                })
+        return rows
+
+    def write_journals_tab(self, wb: Workbook, db: Session, today=None) -> None:
+        """Add a 'Cut Journals' tab: the filled-out item journals for approved
+        cuts awaiting posting. Read-only review surface — Joey posts by hand."""
+        rows = self.journal_rows(db, today=today)
+        name = "Cut Journals"
+        if name in wb.sheetnames:
+            del wb[name]
+        ws = wb.create_sheet(name)
+
+        headers = ["Posting Date", "Document No.", "Entry Type", "Item No.",
+                   "Quantity", "Description", "SO"]
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill("solid", fgColor="7030A0")
+        for c, title in enumerate(headers, start=1):
+            cell = ws.cell(row=1, column=c, value=title)
+            cell.font = header_font
+            cell.fill = header_fill
+
+        neg_font = Font(color="C00000")
+        pos_font = Font(color="107C10")
+        r = 2
+        prev_doc = None
+        for row in rows:
+            # Blank spacer row between distinct documents for readability.
+            if prev_doc is not None and row["document_no"] != prev_doc:
+                r += 1
+            prev_doc = row["document_no"]
+            ws.cell(row=r, column=1, value=row["posting_date"])
+            ws.cell(row=r, column=2, value=row["document_no"])
+            et = ws.cell(row=r, column=3, value=row["entry_type"])
+            ws.cell(row=r, column=4, value=row["item_no"])
+            qty = ws.cell(row=r, column=5, value=row["quantity"])
+            ws.cell(row=r, column=6, value=row["description"])
+            ws.cell(row=r, column=7, value=row["so_number"])
+            et.font = neg_font if (row["entry_type"] or "").startswith("Negative") else pos_font
+            qty.font = et.font
+            r += 1
+
+        for col, w in {1: 13, 2: 16, 3: 18, 4: 22, 5: 10, 6: 46, 7: 14}.items():
+            ws.column_dimensions[chr(64 + col)].width = w
+        ws.freeze_panes = "A2"
+
     def read_back(
         self, workbook_bytes: bytes, db: Session, created_by: Optional[int] = None
     ) -> dict:
