@@ -24,8 +24,14 @@ posting as CUT-* work orders, outflow will capture cutting directly too.
 """
 
 import logging
+import time
 from datetime import date, datetime
 from typing import Dict, Optional
+
+# Velocity moves slowly and each SKU costs a BC ledger call, so cache the
+# ledger-derived stats per SKU. on_hand-dependent bits (months_supply, is_slow)
+# are recomputed each call from the live on_hand, so caching stays correct.
+_LEDGER_TTL_SECONDS = 3600
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +94,14 @@ class ItemVelocityService:
                 out[sku] = self._slow_default(on_hand)
         return out
 
-    def _one(self, bc_client, sku, on_hand, months, today) -> dict:
+    def _ledger_stats(self, bc_client, sku, months, today) -> dict:
+        """on_hand-INDEPENDENT ledger stats for a SKU, cached per SKU. This is
+        the expensive part (a BC call); months_supply/is_slow are derived from
+        it plus live on_hand each call, so the cache stays correct."""
+        hit = self._cache.get(sku)
+        if hit and hit[0] > time.time():
+            return hit[1]
+
         company_id = bc_client.company_id
         resp = bc_client._make_request(
             "GET",
@@ -96,9 +109,6 @@ class ItemVelocityService:
             f"&$orderby=postingDate desc&$top=500",
         )
         entries = resp.get("value", [])
-
-        cutoff = date(today.year - (months // 12), today.month, 1) if months >= 12 else today
-        # Simpler trailing window: months back from today.
         cutoff = self._months_ago(today, months)
 
         consumed = 0.0
@@ -124,9 +134,26 @@ class ItemVelocityService:
                     purchases += 1
 
         monthly_rate = round(consumed / months, 3) if months else 0.0
-        months_supply = round(on_hand / monthly_rate, 1) if monthly_rate > 0 else None
         days_since = (today - last_movement).days if last_movement else None
         days_since_purchase = (today - last_purchase).days if last_purchase else None
+        stats = {
+            "monthly_rate": monthly_rate,
+            "last_movement": last_movement.isoformat() if last_movement else None,
+            "days_since_movement": days_since,
+            "last_purchase": last_purchase.isoformat() if last_purchase else None,
+            "days_since_purchase": days_since_purchase,
+            "purchases_12mo": purchases,
+            "sample": sample,
+        }
+        self._cache[sku] = (time.time() + _LEDGER_TTL_SECONDS, stats)
+        return stats
+
+    def _one(self, bc_client, sku, on_hand, months, today) -> dict:
+        s = self._ledger_stats(bc_client, sku, months, today)
+        monthly_rate = s["monthly_rate"]
+        days_since = s["days_since_movement"]
+        days_since_purchase = s["days_since_purchase"]
+        months_supply = round(on_hand / monthly_rate, 1) if monthly_rate > 0 else None
 
         # Actively repurchased = turning, even if its consumption is recorded as
         # cuts the ledger can't see (the bulk-cut-stock case).
@@ -141,14 +168,14 @@ class ItemVelocityService:
         return {
             "monthly_rate": monthly_rate,
             "months_supply": months_supply,
-            "last_movement": last_movement.isoformat() if last_movement else None,
+            "last_movement": s["last_movement"],
             "days_since_movement": days_since,
-            "last_purchase": last_purchase.isoformat() if last_purchase else None,
+            "last_purchase": s["last_purchase"],
             "days_since_purchase": days_since_purchase,
-            "purchases_12mo": purchases,
+            "purchases_12mo": s["purchases_12mo"],
             "recently_replenished": bool(recently_replenished),
             "is_slow": bool(is_slow),
-            "sample": sample,
+            "sample": s["sample"],
         }
 
     @staticmethod

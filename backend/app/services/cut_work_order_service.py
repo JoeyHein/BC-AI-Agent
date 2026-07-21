@@ -17,6 +17,7 @@ spec is what a human posts in BC. Auto-posting waits on a BC write path.
 """
 
 import logging
+import time
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -33,8 +34,19 @@ logger = logging.getLogger(__name__)
 # distinguishable from count/correction adjustments in the ledger forever after.
 CUT_DOC_PREFIX = "CUT"
 
+# The full proposal build hits BC hard (compute_requirements ~28s + a ledger
+# call per donor), so the whole-queue result is cached briefly. Any decision
+# (approve/reject/post) invalidates it so the queue reflects the change at once.
+_PROPOSALS_TTL_SECONDS = 300
+
 
 class CutWorkOrderService:
+    def __init__(self):
+        self._proposals_cache = None   # (expires_at_epoch, value)
+
+    def invalidate_proposals_cache(self):
+        self._proposals_cache = None
+
     def build_proposed(
         self,
         recs: List[CutRecommendation],
@@ -79,7 +91,12 @@ class CutWorkOrderService:
         with its prior verdict so the reviewer sees "you approved this before".
 
         Imports its heavy deps lazily to avoid a circular import at module load.
+        The full-queue result is cached briefly (the build hits BC hard); an
+        explicit so_number (the approve/reject rebuild path) always runs fresh.
         """
+        if so_number is None and self._proposals_cache and self._proposals_cache[0] > time.time():
+            return self._proposals_cache[1]
+
         from app.services.purchasing_demand_service import purchasing_demand_service
         from app.services.bc_part_number_mapper import get_bc_mapper
         from app.integrations.bc.client import bc_client
@@ -126,6 +143,9 @@ class CutWorkOrderService:
 
         self._assess_completeness(proposals, req)
         self._annotate_velocity(proposals)
+
+        if so_number is None:
+            self._proposals_cache = (time.time() + _PROPOSALS_TTL_SECONDS, proposals)
         return proposals
 
     def _assess_completeness(self, proposals: List[dict], req: dict) -> None:
@@ -338,6 +358,7 @@ class CutWorkOrderService:
                 created_by=created_by,
             )
         db.flush()
+        self.invalidate_proposals_cache()   # the decided SO must drop out at once
         logger.info("Work order %s %s (%d cuts)", so, verdict, len(work_order.get("cuts", [])))
         return wo
 
@@ -362,6 +383,7 @@ class CutWorkOrderService:
         wo.posted_at = datetime.utcnow()
         wo.posted_document_no = document_no
         db.flush()
+        self.invalidate_proposals_cache()
         return wo
 
 

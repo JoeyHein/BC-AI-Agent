@@ -44,6 +44,9 @@ def _entry(dt, etype, qty, doc="PROD-1"):
 
 
 class TestVelocity:
+    def setup_method(self):
+        svc._cache.clear()   # ledger cache is a singleton; isolate each case
+
     def _run(self, monkeypatch, entries, on_hand, today=date(2026, 7, 20)):
         monkeypatch.setattr(mod, "bc_client", _FakeClient(entries), raising=False)
         # bc_client is imported inside donor_velocity; patch at source module.
