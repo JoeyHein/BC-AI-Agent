@@ -210,6 +210,63 @@ def pack_pieces(
     return plans
 
 
+def plan_family_cuts(
+    pieces: List[tuple],
+    donor_sticks: List[tuple],
+    kerf: float = DEFAULT_KERF_INCHES,
+    fit_tolerance: float = DEFAULT_FIT_TOLERANCE_INCHES,
+) -> tuple:
+    """Multi-size nesting: pack differently-sized NEEDED pieces onto the fewest
+    donor sticks. This is what lets an 18' and a 14' come off ONE 32'4" instead
+    of two, when a job actually needs both.
+
+    ``pieces``       [(length_inches, target_sku), …] — one entry per needed piece.
+    ``donor_sticks`` [(length_inches, donor_sku), …]  — one entry per available stick.
+
+    Returns (stick_plans, unmet). Each stick plan is
+    {donor_sku, donor_length, pieces:[(len,target)], leftover}. Only NEEDED
+    pieces are placed; whatever remains stays as one leftover per stick, kept
+    whole so it resolves to the LONGEST catalog size (Joey's rule: a 14'4" still
+    serves a 14'2" or 14'0" — never pre-cut the offcut for its own sake).
+    """
+    pieces_sorted = sorted(pieces, key=lambda p: p[0], reverse=True)
+    donors = sorted(donor_sticks, key=lambda d: d[0])  # smallest first, to minimise waste
+    open_sticks: List[dict] = []
+    unmet: List[tuple] = []
+
+    for plen, tsku in pieces_sorted:
+        # Prefer nesting onto an already-open stick — tightest remaining that
+        # still fits (best-fit), so long sticks stay available for long pieces.
+        best = None
+        for s in open_sticks:
+            need = plen + (kerf if s["pieces"] else 0)
+            if s["remaining"] + fit_tolerance >= need and (best is None or s["remaining"] < best["remaining"]):
+                best = s
+        if best is not None:
+            best["remaining"] -= plen + (kerf if best["pieces"] else 0)
+            best["pieces"].append((plen, tsku))
+            continue
+
+        # Otherwise open the smallest donor stick that fits this piece.
+        fit = [d for d in donors if d[0] + fit_tolerance >= plen]
+        if not fit:
+            unmet.append((plen, tsku))
+            continue
+        d = fit[0]
+        donors.remove(d)
+        open_sticks.append({
+            "donor_sku": d[1], "donor_length": d[0],
+            "remaining": d[0] - plen, "pieces": [(plen, tsku)],
+        })
+
+    stick_plans = [
+        {"donor_sku": s["donor_sku"], "donor_length": s["donor_length"],
+         "pieces": s["pieces"], "leftover": max(0, int(round(s["remaining"])))}
+        for s in open_sticks
+    ]
+    return stick_plans, unmet
+
+
 class CuttingStockService:
     """Finds cut-from-stock opportunities across a demand-engine result."""
 

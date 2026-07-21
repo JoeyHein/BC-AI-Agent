@@ -162,39 +162,69 @@ class CutWorkOrderService:
         Mirrors the manual process exactly — down the donor, up the pieces —
         and every line shares one CUT document number so the whole cut is a
         single, attributable ledger event.
-        """
-        document_no = f"{CUT_DOC_PREFIX}-{so_number.replace('SO-', '') or so_number}"
-        lines: List[dict] = []
 
+        NESTS across the SO's cuts within a family: when the job needs an 18'
+        and a 14' of the same panel, both come off ONE 32'4" (not two), and the
+        leftover is kept whole so it receives as the longest catalog size. This
+        is computed here, at journal time, so the inventory move reflects the
+        real minimum stick consumption; the per-target cut cards are unchanged.
+        """
+        from app.services.cutting_stock_service import (
+            plan_family_cuts, KERF_BY_KIND, FIT_TOLERANCE_BY_KIND, DEFAULT_KERF_INCHES,
+            DEFAULT_FIT_TOLERANCE_INCHES,
+        )
+        document_no = f"{CUT_DOC_PREFIX}-{so_number.replace('SO-', '') or so_number}"
+
+        # Group the SO's cuts by family so nesting only mixes compatible pieces.
+        by_family: Dict[str, List[CutRecommendation]] = {}
         for r in recs:
             geo = sku_geometry.parse(r.donor_sku)
-            family = geo.family if geo else None
+            by_family.setdefault(geo.family if geo else r.donor_sku, []).append(r)
 
-            # Negative: consume the donor sticks.
-            lines.append({
-                "item_no": r.donor_sku,
-                "entry_type": "Negative Adjmt.",
-                "quantity": r.donor_sticks_used,
-                "reason": f"cut into {r.pieces_yielded}x {sku_geometry.format_inches(r.target_length_inches)} for {so_number}",
-            })
-            # Positive: the job pieces produced.
-            lines.append({
-                "item_no": r.target_sku,
-                "entry_type": "Positive Adjmt.",
-                "quantity": r.pieces_yielded,
-                "reason": f"cut from {r.donor_sku} for {so_number}",
-            })
-            # Positive: received offcuts, resolved to a receivable catalog SKU.
-            for plan in r.plans:
-                leftover = int(round(plan.waste_inches))
-                offcut_sku = sku_geometry.resolve_length_to_sku(family, leftover, catalog_skus) if family else None
-                if offcut_sku and offcut_sku not in (r.donor_sku, r.target_sku):
-                    lines.append({
-                        "item_no": offcut_sku,
-                        "entry_type": "Positive Adjmt.",
-                        "quantity": 1,
-                        "reason": f"offcut from {r.donor_sku}",
-                    })
+        lines: List[dict] = []
+        for family, frecs in by_family.items():
+            kind = None
+            g = sku_geometry.parse(frecs[0].donor_sku)
+            kind = g.kind if g else "panel"
+
+            # Needed pieces + the donor sticks the solver earmarked for them.
+            pieces = []
+            donor_sticks = []
+            for r in frecs:
+                t_geo = sku_geometry.parse(r.target_sku)
+                t_len = t_geo.length_inches if t_geo else r.target_length_inches
+                pieces += [(t_len, r.target_sku)] * r.pieces_yielded
+                d_geo = sku_geometry.parse(r.donor_sku)
+                d_len = d_geo.length_inches if d_geo else r.donor_length_inches
+                donor_sticks += [(d_len, r.donor_sku)] * r.donor_sticks_used
+
+            plans, unmet = plan_family_cuts(
+                pieces, donor_sticks,
+                kerf=KERF_BY_KIND.get(kind, DEFAULT_KERF_INCHES),
+                fit_tolerance=FIT_TOLERANCE_BY_KIND.get(kind, DEFAULT_FIT_TOLERANCE_INCHES),
+            )
+
+            donor_consumed: Dict[str, int] = {}
+            pieces_made: Dict[str, int] = {}
+            offcuts: Dict[str, int] = {}
+            for p in plans:
+                donor_consumed[p["donor_sku"]] = donor_consumed.get(p["donor_sku"], 0) + 1
+                for _plen, tsku in p["pieces"]:
+                    pieces_made[tsku] = pieces_made.get(tsku, 0) + 1
+                offcut_sku = sku_geometry.resolve_length_to_sku(family, p["leftover"], catalog_skus)
+                if offcut_sku and offcut_sku not in donor_consumed:
+                    offcuts[offcut_sku] = offcuts.get(offcut_sku, 0) + 1
+
+            for d_sku, n in donor_consumed.items():
+                lines.append({"item_no": d_sku, "entry_type": "Negative Adjmt.",
+                              "quantity": n, "reason": f"cut for {so_number}"})
+            for t_sku, n in pieces_made.items():
+                lines.append({"item_no": t_sku, "entry_type": "Positive Adjmt.",
+                              "quantity": n, "reason": f"cut for {so_number}"})
+            for o_sku, n in offcuts.items():
+                if o_sku not in pieces_made:  # a produced piece is not also an offcut
+                    lines.append({"item_no": o_sku, "entry_type": "Positive Adjmt.",
+                                  "quantity": n, "reason": f"offcut for {so_number}"})
 
         return {"document_no": document_no, "lines": self._merge_lines(lines)}
 

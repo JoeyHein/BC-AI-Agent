@@ -80,6 +80,31 @@ class TestBuildAndJournal:
         assert "PN40-21400-1404" not in skus
 
 
+class TestNestedJournal:
+    def _recs_18_and_14(self):
+        """One SO short an 18' AND a 14' of the same family, 32'4" in stock."""
+        rows = [
+            {"item_no": "PN40-21400-1800", "demand": 1, "on_hand": 0, "on_order": 0,
+             "net_need": 1, "unit_cost": 206.73, "unit_of_measure": "EA", "jobs": ["SO-500"]},
+            {"item_no": "PN40-21400-1400", "demand": 1, "on_hand": 0, "on_order": 0,
+             "net_need": 1, "unit_cost": 170.43, "unit_of_measure": "EA", "jobs": ["SO-500"]},
+            {"item_no": "PN40-21400-3204", "demand": 0, "on_hand": 5, "on_order": 0,
+             "net_need": 0, "unit_cost": 393.60, "unit_of_measure": "EA", "jobs": []},
+        ]
+        return CuttingStockService().analyze(rows)
+
+    def test_18_and_14_nest_to_one_donor_stick(self):
+        cat = ["PN40-21400-3204", "PN40-21400-1800", "PN40-21400-1400", "PN40-21400-1404"]
+        wo = wos.build_proposed(self._recs_18_and_14(), cat, so_numbers=["SO-500"])[0]
+        by = {(l["item_no"], l["entry_type"]): l for l in wo["journal"]["lines"]}
+        # ONE 32'4" consumed for both pieces, not two.
+        assert by[("PN40-21400-3204", "Negative Adjmt.")]["quantity"] == 1
+        assert by[("PN40-21400-1800", "Positive Adjmt.")]["quantity"] == 1
+        assert by[("PN40-21400-1400", "Positive Adjmt.")]["quantity"] == 1
+        # 18 + 14 = 32', ~4" scrap -> no whole receivable offcut.
+        assert ("PN40-21400-1404", "Positive Adjmt.") not in by
+
+
 class TestDecisions:
     def test_approve_persists_and_records_feedback(self):
         db = _db()
