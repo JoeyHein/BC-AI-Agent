@@ -1944,6 +1944,48 @@ class CutWorkOrder(Base):
         }
 
 
+class CutRule(Base):
+    """A human-approved cutting rule derived from accumulated verdicts.
+
+    The learning loop's OUTPUT: when a donor->target cut (or a whole family) is
+    rejected over and over, the system PROPOSES a rule; Joey approves it, and
+    only then does it take effect — the solver stops proposing that cut. This is
+    the deliberate gate that keeps one offhand rejection from silently
+    suppressing a product line: verdicts are the raw signal, rules are the
+    ratified policy, and nothing becomes policy without an explicit approval.
+
+    scope 'pair'   -> suppress exactly donor_sku -> target_sku
+    scope 'family' -> suppress any cut in cut_family (never cut this family)
+    """
+    __tablename__ = "cut_rule"
+
+    id = Column(Integer, primary_key=True, index=True)
+    scope = Column(String(10), nullable=False, default="pair")   # pair | family
+    action = Column(String(20), nullable=False, default="suppress")
+    donor_sku = Column(String(50), nullable=True, index=True)
+    target_sku = Column(String(50), nullable=True, index=True)
+    cut_family = Column(String(60), nullable=True, index=True)
+    reason = Column(Text, nullable=True)
+    active = Column(Boolean, nullable=False, default=True, index=True)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    author = relationship("User", foreign_keys=[created_by])
+
+    def __repr__(self):
+        tgt = self.cut_family if self.scope == "family" else f"{self.donor_sku}->{self.target_sku}"
+        return f"<CutRule({self.scope} {self.action} {tgt} active={self.active})>"
+
+    def to_dict(self):
+        return {
+            "id": self.id, "scope": self.scope, "action": self.action,
+            "donorSku": self.donor_sku, "targetSku": self.target_sku,
+            "cutFamily": self.cut_family, "reason": self.reason,
+            "active": self.active,
+            "createdAt": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class EmailCampaign(Base):
     """Log of weekly email campaigns sent via Mailchimp"""
     __tablename__ = "email_campaigns"

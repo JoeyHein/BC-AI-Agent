@@ -287,6 +287,8 @@ class CuttingStockService:
         self,
         rows: List[dict],
         waste_tolerance_inches: int = DEFAULT_WASTE_TOLERANCE_INCHES,
+        suppressed_pairs: Optional[set] = None,
+        suppressed_families: Optional[set] = None,
     ) -> List[CutRecommendation]:
         """Scan demand rows for shortfalls satisfiable by cutting surplus stock.
 
@@ -295,7 +297,13 @@ class CuttingStockService:
         filtering shortfalls first would hide every donor. For donor stock that
         nothing demands (the common cutting case), first merge in the output of
         ``donor_rows_for_shortfalls``.
+
+        ``suppressed_pairs`` / ``suppressed_families`` are ratified cut rules
+        (see cut_rule_service) — a (donor, target) pair or a whole family the
+        solver must not propose, because Joey approved a rule against it.
         """
+        suppressed_pairs = suppressed_pairs or set()
+        suppressed_families = suppressed_families or set()
         by_family: Dict[str, List[dict]] = {}
         geo_cache: Dict[str, sku_geometry.SkuGeometry] = {}
 
@@ -310,6 +318,8 @@ class CuttingStockService:
         recommendations: List[CutRecommendation] = []
 
         for family, members in by_family.items():
+            if family in suppressed_families:
+                continue  # ratified "never cut this family" rule
             shorts = [r for r in members if (r.get("net_need") or 0) > 0]
             if not shorts:
                 continue
@@ -348,6 +358,8 @@ class CuttingStockService:
                         d_sku = donor["item_no"]
                         if d_sku == t_sku:
                             continue
+                        if (d_sku, t_sku) in suppressed_pairs:
+                            continue  # ratified rule against this exact cut
                         d_geo = geo_cache[d_sku]
 
                         allowed, _why = sku_geometry.can_cut_from(d_sku, t_sku)

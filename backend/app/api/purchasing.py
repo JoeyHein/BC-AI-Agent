@@ -292,6 +292,68 @@ async def mark_cut_work_order_posted(
     return {"success": True, "work_order": wo.to_dict()}
 
 
+@router.get("/cut-rules/proposals")
+async def cut_rule_proposals(
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Suggested suppression rules from repeated rejections (not yet in effect)."""
+    from app.services.cut_rule_service import cut_rule_service
+    return {"proposals": cut_rule_service.propose(db)}
+
+
+@router.get("/cut-rules")
+async def list_cut_rules(
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Active ratified cut rules the solver honours."""
+    from app.services.cut_rule_service import cut_rule_service
+    return {"rules": [r.to_dict() for r in cut_rule_service.list_rules(db)]}
+
+
+class CutRuleIn(BaseModel):
+    scope: str = "pair"                 # pair | family
+    donor_sku: Optional[str] = None
+    target_sku: Optional[str] = None
+    cut_family: Optional[str] = None
+    reason: Optional[str] = None
+
+
+@router.post("/cut-rules")
+async def create_cut_rule(
+    body: CutRuleIn,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Ratify a rule — from here the solver stops proposing that cut."""
+    from app.services.cut_rule_service import cut_rule_service
+    try:
+        rule = cut_rule_service.create_rule(
+            db, scope=body.scope, donor_sku=body.donor_sku, target_sku=body.target_sku,
+            cut_family=body.cut_family, reason=body.reason, created_by=admin.id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    db.commit()
+    return {"success": True, "rule": rule.to_dict()}
+
+
+@router.delete("/cut-rules/{rule_id}")
+async def deactivate_cut_rule(
+    rule_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Turn a rule off — the solver may propose that cut again."""
+    from app.services.cut_rule_service import cut_rule_service
+    rule = cut_rule_service.deactivate(db, rule_id)
+    if rule is None:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    db.commit()
+    return {"success": True, "rule": rule.to_dict()}
+
+
 @router.get("/cut-work-orders/history")
 async def cut_work_order_history(
     limit: int = Query(50, le=200),

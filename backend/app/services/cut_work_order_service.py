@@ -96,11 +96,29 @@ class CutWorkOrderService:
                 for s, m in bc_client.get_items_by_numbers(skus).items()
             }
 
+        from app.services.cut_rule_service import cut_rule_service
+        sup_pairs, sup_families = cut_rule_service.active_suppressions(db)
+
         donors = cutting_stock_service.donor_rows_for_shortfalls(req["items"], catalog, inv_lookup)
-        recs = cutting_stock_service.analyze(req["items"] + donors)
+        recs = cutting_stock_service.analyze(
+            req["items"] + donors,
+            suppressed_pairs=sup_pairs, suppressed_families=sup_families,
+        )
 
         so_filter = [so_number] if so_number else None
         proposals = self.build_proposed(recs, catalog, so_numbers=so_filter)
+
+        # Drop SOs already decided — an approved/posted cut plan shouldn't keep
+        # reappearing in the queue for the same job. (When so_number is given
+        # explicitly — the approve/reject path rebuilding to act — we keep it.)
+        if not so_number:
+            decided = {
+                so for (so,) in db.query(CutWorkOrder.so_number)
+                .filter(CutWorkOrder.status.in_(("approved", "posted")))
+                .all()
+            }
+            if decided:
+                proposals = [w for w in proposals if w["so_number"] not in decided]
 
         # Stamp each cut with its prior verdict (one batched query per WO).
         for wo in proposals:
