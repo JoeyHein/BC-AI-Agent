@@ -1106,6 +1106,21 @@ def build_bc_quote_from_doors(
                     "is_note": True,
                 })
 
+            # Sections + glass-pockets comment for aluminium doors
+            if door.doorType == "aluminium":
+                from app.services.part_number_service import format_aluminum_section_comment
+                all_lines.append({
+                    "lineType": "Comment",
+                    "description": format_aluminum_section_comment(
+                        door.doorHeight,
+                        door.doorWidth,
+                        getattr(door, "glassPocketsPerSection", None),
+                    ),
+                    "category": "COMMENT",
+                    "door_index": door_index,
+                    "is_note": True,
+                })
+
             # Get parts for this door configuration
             # Calculate window count from windowPositions array
             window_count = len(door.windowPositions) if door.windowPositions else (1 if door.windowSection else 0)
@@ -1740,11 +1755,7 @@ def build_bc_quote_from_doors(
                 )
                 install_total = install_result.get("grand_total", 0) or 0
                 if install_total > 0:
-                    sqft = install_result["total_sqft"]
-                    dcount = install_result["door_count_total"]
-                    town = install_result.get("town")
-                    desc = (f"Installation - {town} ({sqft:.0f} sqft, {dcount} door(s))"
-                            if town else f"Installation ({sqft:.0f} sqft, {dcount} door(s))")
+                    desc = install_pricing_service.build_install_description(install_result)
                     inst_line = bc_client.add_quote_line(bc_quote_id, {
                         "lineType": "Item",
                         "lineObjectNumber": "INSTALLATION",

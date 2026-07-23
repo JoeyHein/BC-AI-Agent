@@ -875,13 +875,16 @@ def _generate_bc_quote_with_items(
                 "is_note": True,
             })
 
-        # Glass pockets comment for aluminium doors
+        # Sections + glass-pockets comment for aluminium doors
         if door.get("doorType") == "aluminium":
-            from app.services.part_number_service import _default_glass_pockets
-            pockets = door.get("glassPocketsPerSection") or _default_glass_pockets(door.get("doorWidth", 96))
+            from app.services.part_number_service import format_aluminum_section_comment
             all_lines.append({
                 "lineType": "Comment",
-                "description": f"** {pockets} GLASS POCKETS PER SECTION **",
+                "description": format_aluminum_section_comment(
+                    door.get("doorHeight", 84),
+                    door.get("doorWidth", 96),
+                    door.get("glassPocketsPerSection"),
+                ),
                 "category": "COMMENT",
                 "door_index": door_index,
                 "is_note": True,
@@ -1973,11 +1976,14 @@ def _edit_bc_quote_lines(
             })
 
         if door.get("doorType") == "aluminium":
-            from app.services.part_number_service import _default_glass_pockets
-            pockets = door.get("glassPocketsPerSection") or _default_glass_pockets(door.get("doorWidth", 96))
+            from app.services.part_number_service import format_aluminum_section_comment
             all_new_lines.append({
                 "lineType": "Comment",
-                "description": f"** {pockets} GLASS POCKETS PER SECTION **",
+                "description": format_aluminum_section_comment(
+                    door.get("doorHeight", 84),
+                    door.get("doorWidth", 96),
+                    door.get("glassPocketsPerSection"),
+                ),
                 "category": "COMMENT", "door_index": door_index, "is_note": True,
             })
 
@@ -2324,11 +2330,14 @@ def _estimate_pricing_locally(
 
         # Glass pockets comment for aluminium doors
         if door.get("doorType") == "aluminium":
-            from app.services.part_number_service import _default_glass_pockets
-            pockets = door.get("glassPocketsPerSection") or _default_glass_pockets(door.get("doorWidth", 96))
+            from app.services.part_number_service import format_aluminum_section_comment
             all_lines.append({
                 "lineType": "Comment",
-                "description": f"** {pockets} GLASS POCKETS PER SECTION **",
+                "description": format_aluminum_section_comment(
+                    door.get("doorHeight", 84),
+                    door.get("doorWidth", 96),
+                    door.get("glassPocketsPerSection"),
+                ),
                 "door_index": door_index,
             })
 

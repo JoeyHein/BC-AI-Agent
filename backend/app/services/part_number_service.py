@@ -154,6 +154,10 @@ class DoorConfiguration:
     include_bumper_spring: bool = False
     include_track_guards: bool = False
     include_exhaust_port: bool = False
+    # Auto shaft accessory (spreader bar / JHDC tensioner) for commercial
+    # shaft-mounted operators is included by default; the portals expose an
+    # opt-out (e.g. customer already owns the bar). False suppresses the auto-add.
+    include_shaft_accessory: bool = True
     # Manual hand-chain hoist for motor-less commercial doors. One per door.
     # None/'none' = no hoist, 'shaft' = SP12-00084-00, 'wall' = FH12-00190-00.
     chain_hoist: Optional[str] = None
@@ -3623,11 +3627,11 @@ class PartNumberService:
 
     # Bore-specific jackshaft accessories, keyed by torsion shaft bore (see
     # _torsion_shaft_bore — 1-1/4" only on >2000 lb doors, else 1"). One per door.
-    # Every commercial jackshaft operator gets a spreader bar; the LiftMaster
-    # JHDC additionally needs a chain tensioner.
+    # Every commercial SHAFT-mounted operator (hoist/jackshaft/direct-drive) gets
+    # a spreader bar; the LiftMaster JHDC gets a chain tensioner instead.
     JACKSHAFT_SPREADER_BARS = {
-        "1": ("OP20-02001-00", "SPREADER BAR, 1\" - 1\" (JACKSHAFT)"),
-        "1-1/4": ("OP20-02002-00", "SPREADER BAR, 1\" - 1-1/4\" (JACKSHAFT)"),
+        "1": ("OP20-02001-00", "SPREADER BAR, 1\" - 1\" (SHAFT OPERATOR)"),
+        "1-1/4": ("OP20-02002-00", "SPREADER BAR, 1\" - 1-1/4\" (SHAFT OPERATOR)"),
     }
     JHDC_TENSIONERS = {
         "1": ("OP19-02126-00", "LIFTMASTER CHAIN TENSIONER 1\" (JHDC)"),
@@ -3734,41 +3738,43 @@ class PartNumberService:
                 category="operator",
             ))
 
-        # Jackshaft operator accessories (commercial, one per door). Every
-        # commercial jackshaft operator needs a spreader bar; the LiftMaster
-        # JHDC additionally needs a chain tensioner. Both follow the torsion
-        # shaft bore. Detection is by name ("JACKSHAFT"/"JHDC") so a future
-        # non-JHDC commercial jackshaft still gets the spreader bar; the
-        # tensioner stays keyed to the JHDC SKUs (or a "JHDC"-named variant).
-        if config.operator and config.operator != "NONE" and config.door_type == "commercial":
-            from app.services.operator_service import get_operator_display_name
+        # Shaft-mounted operator accessory (commercial, one per door). Every
+        # commercial SHAFT-mounted operator (hoist / jackshaft / direct-drive,
+        # per the catalog Mount column) rides on the torsion shaft and needs a
+        # shaft accessory. The LiftMaster JHDC jackshaft takes a chain TENSIONER;
+        # every other shaft-mounted operator takes a SPREADER BAR (tensioner and
+        # spreader are mutually exclusive). Trolley/rail operators get neither.
+        # Accessory bore follows the torsion shaft bore. This is auto-included on
+        # ALL commercial quotes; the portals expose it as a removable option.
+        if (config.operator and config.operator != "NONE"
+                and config.door_type == "commercial"
+                and config.include_shaft_accessory):
+            from app.services.operator_service import get_operator_display_name, get_operator_mount
             op_name = get_operator_display_name(config.operator).upper()
-            is_jackshaft = "JACKSHAFT" in op_name or "JHDC" in op_name
+            mount = get_operator_mount(config.operator)
+            # Fallback for catalog rows without a Mount value: treat a
+            # jackshaft/hoist name as shaft-mounted so we never silently skip one.
+            is_shaft = mount == "shaft" or (
+                mount == "" and ("JACKSHAFT" in op_name or "JHDC" in op_name or "HOIST" in op_name)
+            )
 
-            if is_jackshaft:
+            if is_shaft:
                 bore = self._torsion_shaft_bore(config)
+                is_jhdc = config.operator in self.JHDC_OPERATORS or "JHDC" in op_name
 
-                spreader_pn, spreader_desc = self.JACKSHAFT_SPREADER_BARS[bore]
-                if spreader_pn not in accessory_pns:
+                if is_jhdc:
+                    acc_pn, acc_desc = self.JHDC_TENSIONERS[bore]
+                else:
+                    acc_pn, acc_desc = self.JACKSHAFT_SPREADER_BARS[bore]
+
+                if acc_pn not in accessory_pns:
                     parts.append(PartSelection(
-                        part_number=spreader_pn,
-                        description=spreader_desc,
+                        part_number=acc_pn,
+                        description=acc_desc,
                         quantity=1,
                         category="operator",
                     ))
-                    accessory_pns.add(spreader_pn)
-
-                is_jhdc = config.operator in self.JHDC_OPERATORS or "JHDC" in op_name
-                if is_jhdc:
-                    tensioner_pn, tensioner_desc = self.JHDC_TENSIONERS[bore]
-                    if tensioner_pn not in accessory_pns:
-                        parts.append(PartSelection(
-                            part_number=tensioner_pn,
-                            description=tensioner_desc,
-                            quantity=1,
-                            category="operator",
-                        ))
-                        accessory_pns.add(tensioner_pn)
+                    accessory_pns.add(acc_pn)
 
         return parts
 
@@ -3893,6 +3899,57 @@ def _default_glass_pockets(door_width_inches: int) -> int:
         return 7
 
 
+def _section_count(door_height_inches: int) -> int:
+    """Number of horizontal sections (panels) for a door of this height.
+
+    Mirrors DoorConfiguration._get_section_breakdown: max(3, ceil(height/24)).
+    """
+    return max(3, -(-int(door_height_inches) // 24))
+
+
+def format_aluminum_section_comment(
+    door_height_inches: int,
+    door_width_inches: int,
+    glass_pockets_per_section=None,
+) -> str:
+    """Build the aluminum sections + glass-pockets comment for a BC quote/order.
+
+    Aluminum doors need the shop/customer to see, as a comment line, how many
+    sections the door has and how many glass pockets sit in each section.
+
+        "** 4 SECTIONS, 4 GLASS POCKETS PER SECTION **"
+
+    glass_pockets_per_section may be:
+      - a per-section dict {0: n, 1: n, ...} (the customized/persisted shape)
+      - a scalar int (already-resolved uniform count)
+      - None (fall back to the width-based default)
+
+    When pockets vary between sections, the per-section breakdown is listed:
+        "** 4 SECTIONS, GLASS POCKETS PER SECTION: 5/4/4/4 **"
+    """
+    num_sections = _section_count(door_height_inches)
+
+    pockets = glass_pockets_per_section
+    if isinstance(pockets, dict) and pockets:
+        ordered = [
+            pockets.get(str(i), pockets.get(i))
+            for i in sorted(pockets.keys(), key=lambda x: int(x))
+        ]
+        ordered = [p for p in ordered if p is not None]
+        if ordered and len(set(ordered)) == 1:
+            per = f"{ordered[0]} GLASS POCKETS PER SECTION"
+        elif ordered:
+            per = "GLASS POCKETS PER SECTION: " + "/".join(str(p) for p in ordered)
+        else:
+            per = f"{_default_glass_pockets(door_width_inches)} GLASS POCKETS PER SECTION"
+    elif isinstance(pockets, int):
+        per = f"{pockets} GLASS POCKETS PER SECTION"
+    else:
+        per = f"{_default_glass_pockets(door_width_inches)} GLASS POCKETS PER SECTION"
+
+    return f"** {num_sections} SECTIONS, {per} **"
+
+
 def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Optional[Dict[str, list]] = None) -> Dict[str, Any]:
     """
     Convenience function to get parts from a dictionary configuration.
@@ -3958,6 +4015,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         include_bumper_spring=bool(config_dict.get("bumperSpring", False)),
         include_track_guards=bool(config_dict.get("trackGuards", False)),
         include_exhaust_port=bool(config_dict.get("exhaustPort", False)),
+        include_shaft_accessory=bool(config_dict.get("includeShaftAccessory", True)),
     )
 
     parts = part_number_service.get_parts_for_configuration(config)
