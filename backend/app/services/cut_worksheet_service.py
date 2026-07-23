@@ -192,8 +192,12 @@ class CutWorksheetService:
             qty = ws.cell(row=r, column=5, value=row["quantity"])
             ws.cell(row=r, column=6, value=row["description"])
             ws.cell(row=r, column=7, value=row["so_number"])
-            et.font = neg_font if (row["entry_type"] or "").startswith("Negative") else pos_font
-            qty.font = et.font
+            # Assign the real Font object to both cells — NOT et.font (a
+            # StyleProxy), which openpyxl can't hash when it de-dupes styles on
+            # save (fails with "unhashable type: StyleProxy" on some versions).
+            line_font = neg_font if (row["entry_type"] or "").startswith("Negative") else pos_font
+            et.font = line_font
+            qty.font = line_font
             r += 1
 
         for col, w in {1: 13, 2: 16, 3: 18, 4: 22, 5: 10, 6: 46, 7: 14}.items():
