@@ -1106,6 +1106,21 @@ def build_bc_quote_from_doors(
                     "is_note": True,
                 })
 
+            # Sections + glass-pockets comment for aluminium doors
+            if door.doorType == "aluminium":
+                from app.services.part_number_service import format_aluminum_section_comment
+                all_lines.append({
+                    "lineType": "Comment",
+                    "description": format_aluminum_section_comment(
+                        door.doorHeight,
+                        door.doorWidth,
+                        getattr(door, "glassPocketsPerSection", None),
+                    ),
+                    "category": "COMMENT",
+                    "door_index": door_index,
+                    "is_note": True,
+                })
+
             # Get parts for this door configuration
             # Calculate window count from windowPositions array
             window_count = len(door.windowPositions) if door.windowPositions else (1 if door.windowSection else 0)

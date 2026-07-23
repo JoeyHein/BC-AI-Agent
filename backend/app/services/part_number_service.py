@@ -3893,6 +3893,57 @@ def _default_glass_pockets(door_width_inches: int) -> int:
         return 7
 
 
+def _section_count(door_height_inches: int) -> int:
+    """Number of horizontal sections (panels) for a door of this height.
+
+    Mirrors DoorConfiguration._get_section_breakdown: max(3, ceil(height/24)).
+    """
+    return max(3, -(-int(door_height_inches) // 24))
+
+
+def format_aluminum_section_comment(
+    door_height_inches: int,
+    door_width_inches: int,
+    glass_pockets_per_section=None,
+) -> str:
+    """Build the aluminum sections + glass-pockets comment for a BC quote/order.
+
+    Aluminum doors need the shop/customer to see, as a comment line, how many
+    sections the door has and how many glass pockets sit in each section.
+
+        "** 4 SECTIONS, 4 GLASS POCKETS PER SECTION **"
+
+    glass_pockets_per_section may be:
+      - a per-section dict {0: n, 1: n, ...} (the customized/persisted shape)
+      - a scalar int (already-resolved uniform count)
+      - None (fall back to the width-based default)
+
+    When pockets vary between sections, the per-section breakdown is listed:
+        "** 4 SECTIONS, GLASS POCKETS PER SECTION: 5/4/4/4 **"
+    """
+    num_sections = _section_count(door_height_inches)
+
+    pockets = glass_pockets_per_section
+    if isinstance(pockets, dict) and pockets:
+        ordered = [
+            pockets.get(str(i), pockets.get(i))
+            for i in sorted(pockets.keys(), key=lambda x: int(x))
+        ]
+        ordered = [p for p in ordered if p is not None]
+        if ordered and len(set(ordered)) == 1:
+            per = f"{ordered[0]} GLASS POCKETS PER SECTION"
+        elif ordered:
+            per = "GLASS POCKETS PER SECTION: " + "/".join(str(p) for p in ordered)
+        else:
+            per = f"{_default_glass_pockets(door_width_inches)} GLASS POCKETS PER SECTION"
+    elif isinstance(pockets, int):
+        per = f"{pockets} GLASS POCKETS PER SECTION"
+    else:
+        per = f"{_default_glass_pockets(door_width_inches)} GLASS POCKETS PER SECTION"
+
+    return f"** {num_sections} SECTIONS, {per} **"
+
+
 def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Optional[Dict[str, list]] = None) -> Dict[str, Any]:
     """
     Convenience function to get parts from a dictionary configuration.
