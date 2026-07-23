@@ -1774,13 +1774,9 @@ def _add_install_block(
     if not install_result or install_result.get("grand_total", 0) <= 0:
         return added_ids
 
-    sqft = install_result["total_sqft"]
-    door_count = install_result["door_count_total"]
-    town = install_result.get("town")
     total = install_result["grand_total"]
 
-    desc = f"Installation - {town} ({sqft:.0f} sqft, {door_count} door(s))" if town \
-           else f"Installation ({sqft:.0f} sqft, {door_count} door(s))"
+    desc = install_pricing_service.build_install_description(install_result)
 
     try:
         line = bc_client.add_quote_line(bc_quote_id, {
