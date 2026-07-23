@@ -30,6 +30,23 @@ class TestReservationMap:
         m = build_prod_so_map(entries)
         assert m == {"PROD-000828": "SO-001187", "PROD-001339": "SO-001187"}
 
+    def test_pairs_on_component_source_type_5406(self):
+        """Live data pairs the sales line with a Prod. Order COMPONENT (5406),
+        not the line (5407) — pairing must work by document prefix regardless."""
+        entries = [
+            _res(10780, RES_SRC_SALES_LINE, "SO-000661"),
+            _res(10780, 5406, "PROD-000429"),   # Prod. Order Component
+        ]
+        assert build_prod_so_map(entries) == {"PROD-000429": "SO-000661"}
+
+    def test_ignores_non_so_non_prod_sides(self):
+        # A PLANNING reservation (type 246) shouldn't produce a mapping.
+        entries = [
+            _res(12893, 246, "PLANNING"),
+            _res(12893, RES_SRC_SALES_LINE, "SO-000900"),
+        ]
+        assert build_prod_so_map(entries) == {}
+
     def test_unpaired_prod_is_ignored(self):
         # A prod order with no sales-line partner (make-to-stock) doesn't map.
         entries = [_res(200, RES_SRC_PROD_ORDER_LINE, "PROD-000828")]

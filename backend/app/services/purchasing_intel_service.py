@@ -98,15 +98,18 @@ class PurchasingIntelService:
         return self._cached("vendor_lead_times", self._build_vendor_lead_times)
 
     def _build_vendor_lead_times(self) -> Dict[str, dict]:
+        # Fetch without $select so we adapt to whatever the PurchRcptHeader
+        # publication exposes. Receipt-based lead time = Posting_Date − Order_Date,
+        # but the current publication (Page 138) does NOT expose Order Date, so
+        # this yields {} and manual item_lead_time entries are the source. It
+        # self-heals: republish PurchRcptHeader as a query including the Order
+        # Date column and this lights up with no code change.
         try:
-            rows = bc_production_service._make_odata_request_all(
-                "PurchRcptHeader",
-                query_params={"$select": "Buy_from_Vendor_No,Order_Date,Posting_Date"},
-            )
+            rows = bc_production_service._make_odata_request_all("PurchRcptHeader")
         except Exception as e:
             logger.warning(f"[PurchIntel] PurchRcptHeader unavailable: {e}")
             return {}
-        if not rows:
+        if not rows or "Order_Date" not in (rows[0] or {}):
             return {}
         by_vendor: Dict[str, List[int]] = {}
         for r in rows:

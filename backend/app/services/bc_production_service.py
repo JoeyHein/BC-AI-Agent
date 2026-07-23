@@ -37,37 +37,43 @@ ODATA_ENDPOINTS = {
     "reservations": "ReservationEntries",   # published by Joey to link PROD->SO
 }
 
-# BC reservation Source_Type codes.
+# BC reservation Source_Type codes. Sales Line reserves against BOTH the prod
+# order LINE (5407, finished output) and its COMPONENTS (5406) — live data pairs
+# the sales line with 5406 — so we accept either on the production side.
 RES_SRC_SALES_LINE = 37
 RES_SRC_PROD_ORDER_LINE = 5407
+RES_SRC_PROD_ORDER_COMPONENT = 5406
+RES_SRC_PROD = (RES_SRC_PROD_ORDER_LINE, RES_SRC_PROD_ORDER_COMPONENT)
 
 
 def build_prod_so_map(entries) -> Dict[str, str]:
     """Map {prod_order_no: sales_order_no} from reservation entries.
 
-    A reservation is two rows sharing one Reservation_Entry (Entry No.): the
-    supply side (Prod. Order Line, type 5407, Source_ID = PROD-xxx) and the
-    demand side (Sales Line, type 37, Source_ID = SO-xxx). Pairing them on the
-    shared entry number gives the production-order -> sales-order link.
+    A reservation shares one Entry No. across its two sides. Rather than trust a
+    specific Source_Type on the supply side (live data uses 5406 Prod. Order
+    Component, not just 5407), we pair by the DOCUMENT PREFIX: any Source_ID
+    starting SO- is the sales order, any starting PROD- is the production order.
+    That is robust to which prod source type BC used.
     """
-    by_entry: Dict[str, Dict[int, str]] = {}
+    by_entry: Dict[str, Dict[str, list]] = {}
     for e in entries or []:
-        entry_no = e.get("Reservation_Entry") or e.get("Entry_No")
-        try:
-            src_type = int(e.get("Source_Type"))
-        except (TypeError, ValueError):
-            continue
+        entry_no = e.get("Entry_No") or e.get("Reservation_Entry")
         src_id = (e.get("Source_ID") or "").strip()
         if entry_no is None or not src_id:
             continue
-        by_entry.setdefault(str(entry_no), {})[src_type] = src_id
+        g = by_entry.setdefault(str(entry_no), {"so": [], "prod": []})
+        up = src_id.upper()
+        if up.startswith("SO"):
+            g["so"].append(src_id)
+        elif up.startswith("PROD"):
+            g["prod"].append(src_id)
 
     prod_so: Dict[str, str] = {}
-    for sides in by_entry.values():
-        prod = sides.get(RES_SRC_PROD_ORDER_LINE)
-        so = sides.get(RES_SRC_SALES_LINE)
-        if prod and so:
-            prod_so[prod] = so
+    for g in by_entry.values():
+        if g["so"] and g["prod"]:
+            so = g["so"][0]
+            for prod in g["prod"]:
+                prod_so[prod] = so
     return prod_so
 
 
@@ -300,9 +306,10 @@ class BCProductionService:
         Returns {} until the ReservationEntries web service is published (404),
         so callers degrade to production orders standing on their own.
         """
+        types = (RES_SRC_SALES_LINE, RES_SRC_PROD_ORDER_LINE, RES_SRC_PROD_ORDER_COMPONENT)
         entries = self._make_odata_request_all(
             ODATA_ENDPOINTS["reservations"],
-            query_params={"$filter": f"Source_Type eq {RES_SRC_PROD_ORDER_LINE} or Source_Type eq {RES_SRC_SALES_LINE}"},
+            query_params={"$filter": " or ".join(f"Source_Type eq {t}" for t in types)},
         )
         if not entries:
             return {}
