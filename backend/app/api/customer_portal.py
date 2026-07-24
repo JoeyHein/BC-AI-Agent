@@ -1920,6 +1920,19 @@ def _edit_bc_quote_lines(
     if not bc_quote_id:
         raise HTTPException(400, "Quote has no BC reference to edit")
 
+    # Keep External Document No. in sync with the customer's PO. The PO is only
+    # stamped at quote-creation time, so a PO typed (or corrected) after the BC
+    # quote already exists would otherwise stay as the PORTAL-<id> fallback all
+    # the way through to the sales order. Non-fatal: never fail an edit over it.
+    new_po = (new_config_data or {}).get("poNumber")
+    old_po = (config.config_data or {}).get("poNumber")
+    if new_po and new_po != old_po:
+        try:
+            bc_client.update_sales_quote(bc_quote_id, {"externalDocumentNumber": new_po})
+            logger.info(f"Updated External Document No. on {bc_quote_number} to '{new_po}'")
+        except Exception as po_err:
+            logger.warning(f"Could not update External Document No. on {bc_quote_number}: {po_err}")
+
     old_doors = (config.config_data or {}).get("doors", [])
     new_doors = _validate_doors_config(new_config_data)
 

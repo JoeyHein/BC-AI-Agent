@@ -71,6 +71,7 @@ function QuoteBuilder() {
       setQuoteName(existingQuote.name || '')
       setQuoteDescription(existingQuote.description || '')
       setDeliveryType(existingQuote.config_data?.deliveryType || '')
+      setPoNumber(existingQuote.config_data?.poNumber || '')
       if (existingQuote.config_data?.doors) {
         // Backfill door_uid on legacy doors that pre-date identity-based diffing.
         // Once saved, these uids stick — so subsequent edits get the cheap path.
@@ -288,11 +289,15 @@ function QuoteBuilder() {
     try {
       // Save the quote first if not yet saved
       let quoteId = savedQuoteId
+      // config_data is written whole here — poNumber MUST be included or the
+      // customer's PO is wiped before /get-pricing reads it, and BC gets the
+      // PORTAL-<id> fallback in External Document No. instead.
+      const configData = { doors, deliveryType, poNumber: poNumber || undefined }
       if (!quoteId) {
         const saveResponse = await savedQuotesApi.create({
           name: quoteName.trim(),
           description: quoteDescription.trim(),
-          config_data: { doors, deliveryType },
+          config_data: configData,
         })
         quoteId = saveResponse.data.id
         setSavedQuoteId(quoteId)
@@ -301,7 +306,7 @@ function QuoteBuilder() {
         await savedQuotesApi.update(quoteId, {
           name: quoteName.trim(),
           description: quoteDescription.trim(),
-          config_data: { doors, deliveryType },
+          config_data: configData,
         })
       }
 
