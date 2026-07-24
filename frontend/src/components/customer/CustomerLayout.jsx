@@ -1,6 +1,7 @@
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
 import { useCart } from '../../contexts/CartContext'
+import { CUSTOMER_PARTS_FEATURES_ENABLED } from '../../config/featureFlags'
 
 function CustomerLayout() {
   const { user, logout, isBCLinked, isDealer, isHomeBuilder } = useCustomerAuth()
@@ -23,15 +24,17 @@ function CustomerLayout() {
   const allNavItems = [
     { path: '', label: 'Dashboard', icon: HomeIcon },
     { path: 'saved-quotes', label: 'My Quotes', icon: DocumentIcon },
-    { path: 'catalog', label: 'Catalog', icon: CatalogIcon, dealerOnly: true },
-    { path: 'spring-builder', label: 'Spring Builder', icon: SpringIcon, dealerOnly: true },
-    { path: 'cart', label: 'Cart', icon: ShoppingBagIcon, badge: true, dealerOnly: true },
+    { path: 'catalog', label: 'Catalog', icon: CatalogIcon, dealerOnly: true, wip: true },
+    { path: 'spring-builder', label: 'Spring Builder', icon: SpringIcon, dealerOnly: true, wip: true },
+    { path: 'cart', label: 'Cart', icon: ShoppingBagIcon, badge: true, dealerOnly: true, wip: true },
     { path: 'projects', label: 'Projects', icon: ProjectIcon, homeBuilderOnly: true },
     { path: 'orders', label: 'Orders', icon: ShoppingCartIcon },
     { path: 'account', label: 'Account', icon: UserIcon },
   ]
 
   const navItems = allNavItems.filter(item => {
+    // Not-yet-released parts experience (Catalog / Spring Builder / Cart).
+    if (item.wip && !CUSTOMER_PARTS_FEATURES_ENABLED) return false
     if (item.dealerOnly && !isDealer) return false
     if (item.homeBuilderOnly && !isHomeBuilder) return false
     return true
