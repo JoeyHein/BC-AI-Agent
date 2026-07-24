@@ -300,6 +300,24 @@ class BCProductionService:
             skip += page_size
         return rows
 
+    def get_replenishment_map(self) -> Dict[str, str]:
+        """{item_no: 'Purchase' | 'Prod. Order'} from the ODataV4 Items page.
+
+        Tells a purchased item (needs a PO) from a manufactured one (needs a
+        production order) — a hard short means very different things for each.
+        Cached 1h; {} (graceful) if the Items page is unavailable.
+        """
+        import time
+        hit = getattr(self, "_replen_cache", None)
+        if hit and hit[0] > time.time():
+            return hit[1]
+        rows = self._make_odata_request_all(
+            "Items", query_params={"$select": "No,Replenishment_System"}
+        )
+        m = {r.get("No"): r.get("Replenishment_System") for r in rows if r.get("No")}
+        self._replen_cache = (time.time() + 3600, m)
+        return m
+
     def get_prod_so_map(self) -> Dict[str, str]:
         """{prod_order_no: sales_order_no} from BC reservation entries.
 

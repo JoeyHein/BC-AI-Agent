@@ -171,18 +171,33 @@ function WorkOrderCard({ wo, busy, rejecting, reason, setReason, onApprove, onSt
         <div className="px-4 py-2 bg-red-50 border-t text-sm">
           <div className="text-red-700 font-medium mb-1">
             Order still blocked by {wo.blockers.length} other item{wo.blockers.length === 1 ? '' : 's'} — cutting this won't ship it on its own:
-          </div>
-          <div className="text-xs text-red-600 flex flex-col gap-y-0.5">
-            {wo.blockers.map((b, i) => (
-              <span key={i}>
-                {b.net_need}× {b.item_no}
-                {b.workaround && (
-                  <span className="ml-2 text-emerald-700 bg-emerald-50 rounded px-1.5 py-0.5">
-                    workaround: {b.workaround.detail}
-                  </span>
-                )}
+            {wo.blocker_summary && (
+              <span className="ml-2 font-normal text-xs text-gray-600">
+                ({wo.blocker_summary.needs_po} need PO · {wo.blocker_summary.needs_production} need production
+                {wo.blocker_summary.on_order > 0 && <> · {wo.blocker_summary.on_order} partly on order</>})
               </span>
-            ))}
+            )}
+          </div>
+          <div className="text-xs flex flex-col gap-y-0.5">
+            {wo.blockers.map((b, i) => {
+              const tag = b.fulfillment === 'needs_production'
+                ? { label: 'PRODUCTION', cls: 'bg-indigo-50 text-indigo-700' }
+                : b.fulfillment === 'cuttable'
+                ? { label: 'CUT', cls: 'bg-blue-50 text-blue-700' }
+                : { label: 'PO', cls: 'bg-orange-50 text-orange-700' };
+              return (
+                <span key={i} className="text-gray-700">
+                  <span className={`rounded px-1.5 py-0.5 mr-1 ${tag.cls}`}>{tag.label}</span>
+                  {b.net_need}× {b.item_no}
+                  {b.on_order > 0 && <span className="ml-1 text-emerald-600">({b.on_order} on order)</span>}
+                  {b.workaround && (
+                    <span className="ml-2 text-emerald-700 bg-emerald-50 rounded px-1.5 py-0.5">
+                      workaround: {b.workaround.detail}
+                    </span>
+                  )}
+                </span>
+              );
+            })}
           </div>
         </div>
       )}
