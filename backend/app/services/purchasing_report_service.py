@@ -39,7 +39,7 @@ class PurchasingReportService:
             f"Purchasing — {summary['shortfall_items']} item(s) to buy "
             f"across {summary['vendor_count']} vendor(s) (~${summary['estimated_cost']:,.0f})"
         )
-        html = self.build_digest_html(result)
+        html = self.build_digest_html(result, db=db)
 
         try:
             graph_client.send_mail(sender, recipients, subject, html)
@@ -53,9 +53,21 @@ class PurchasingReportService:
         raw = settings.ADMIN_NOTIFICATION_EMAILS or "joey@opendc.ca"
         return [e.strip() for e in raw.split(",") if e.strip()]
 
-    def build_digest_html(self, result: dict) -> str:
+    def build_digest_html(self, result: dict, db: Optional[Session] = None) -> str:
         s = result["summary"]
         when = datetime.utcnow().strftime("%A, %B %d, %Y")
+
+        # The narrative brief leads; the tables below are the backup detail.
+        # Best-effort — a digest without a brief is still a useful digest.
+        brief_html = ""
+        if db is not None:
+            try:
+                from app.services.purchasing_brief_service import purchasing_brief_service
+                brief_html = purchasing_brief_service.render_html(
+                    purchasing_brief_service.get_or_generate(db, req=result)
+                )
+            except Exception as e:
+                logger.error(f"[PurchasingReport] brief unavailable: {e}")
 
         prod_note = "" if result.get("production_included") else (
             "<p style='color:#92400e;background:#fef3c7;padding:8px 12px;border-radius:6px;"
@@ -67,6 +79,7 @@ class PurchasingReportService:
             f"""<div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;max-width:760px;margin:0 auto;color:#111827">
             <h2 style="margin:0 0 4px">OPENDC Daily Purchasing Report</h2>
             <p style="color:#6b7280;margin:0 0 12px;font-size:13px">{when}</p>
+            {brief_html}
             <div style="display:flex;gap:16px;margin:12px 0">
               <div style="flex:1;background:#f3f4f6;border-radius:8px;padding:12px">
                 <div style="font-size:22px;font-weight:700">{s['shortfall_items']}</div>

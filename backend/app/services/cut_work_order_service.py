@@ -144,13 +144,18 @@ class CutWorkOrderService:
             suppressed_pairs=sup_pairs, suppressed_families=sup_families,
         )
 
-        # PROD->SO reservation map (empty until the BC web service is published).
+        # PROD->SO reservation map + purchase-vs-manufacture map.
         from app.services.bc_production_service import bc_production_service
         try:
             prod_so_map = bc_production_service.get_prod_so_map()
         except Exception as e:
             logger.warning(f"prod->SO map unavailable: {e}")
             prod_so_map = {}
+        try:
+            replen_map = bc_production_service.get_replenishment_map()
+        except Exception as e:
+            logger.warning(f"replenishment map unavailable: {e}")
+            replen_map = {}
 
         so_filter = [so_number] if so_number else None
         proposals = self.build_proposed(recs, catalog, so_numbers=so_filter, prod_so_map=prod_so_map)
@@ -171,7 +176,7 @@ class CutWorkOrderService:
         for wo in proposals:
             wo["cuts"] = fb.annotate_recommendations(db, wo["cuts"])
 
-        self._assess_completeness(proposals, req, prod_so_map)
+        self._assess_completeness(proposals, req, prod_so_map, replen_map)
         self._annotate_blocker_workarounds(proposals, get_bc_mapper(), inv_lookup)
         self._annotate_velocity(proposals)
 
@@ -226,7 +231,8 @@ class CutWorkOrderService:
                     b["workaround"] = wa
 
     def _assess_completeness(self, proposals: List[dict], req: dict,
-                             prod_so_map: Optional[Dict[str, str]] = None) -> None:
+                             prod_so_map: Optional[Dict[str, str]] = None,
+                             replen_map: Optional[Dict[str, str]] = None) -> None:
         """Decide whether each cut ACTUALLY makes its sales order shippable.
 
         A cut only earns "invoiceable now" if it clears the LAST thing standing
@@ -236,14 +242,23 @@ class CutWorkOrderService:
         flags whatever still blocks the order. makes_invoiceable is true only
         when nothing is left blocking.
 
+        Each blocker is classified by its FULFILLMENT PATH — a PO and a
+        production order are completely different: an item is "needs_production"
+        if BC replenishes it by Prod. Order, "cuttable" if we can cut it from
+        stock, otherwise "needs_po". on_order (product already arriving on a PO)
+        is carried too, so a blocker shows whether it's partly covered.
+
         Shortfalls tagged to a production order roll up to its sales order via
         prod_so_map, matching how the work orders are grouped.
         """
         prod_so_map = prod_so_map or {}
-        # Every SO's still-short items, straight from the demand engine (net_need
-        # is already netted against stock + open POs, so >0 means genuinely short).
+        replen_map = replen_map or {}
+        # Per-item snapshot (net_need + on_order) and which SOs need it. net_need
+        # is already netted against stock + open POs, so >0 means genuinely short.
+        item_snap: Dict[str, dict] = {}
         so_short: Dict[str, Dict[str, float]] = {}
         for item in req.get("items", []):
+            item_snap[item["item_no"]] = item
             nn = item.get("net_need") or 0
             if nn <= 0:
                 continue
@@ -251,18 +266,51 @@ class CutWorkOrderService:
                 key = prod_so_map.get(job, job)
                 so_short.setdefault(key, {})[item["item_no"]] = nn
 
+        def _fulfillment(itm: str) -> str:
+            # Replenishment wins over geometry: a finished SEC/DEC panel parses
+            # as cuttable but is MANUFACTURED (Prod. Order) — it's made, not cut.
+            # Only purchased bulk (Purchase + cuttable) is genuinely cuttable.
+            #
+            # No replenishment answer for this item (the BC Items page timed out,
+            # or the item isn't on it) means we genuinely CANNOT tell a PO from a
+            # production order — say "unknown" rather than defaulting to
+            # needs_po, which reads as a confident answer we don't have.
+            replen = replen_map.get(itm)
+            if not replen:
+                return "unknown"
+            if str(replen).startswith("Prod"):
+                return "needs_production"
+            geo = sku_geometry.parse(itm)
+            if geo and geo.cuttable:
+                return "cuttable"
+            return "needs_po"
+
         for wo in proposals:
             so = wo["so_number"]
             covered = {c["target_sku"] for c in wo["cuts"]}
             shortfall = so_short.get(so, {})
-            blockers = [
-                {"item_no": itm, "net_need": nn}
-                for itm, nn in sorted(shortfall.items())
-                if itm not in covered
-            ]
+            blockers = []
+            for itm, nn in sorted(shortfall.items()):
+                if itm in covered:
+                    continue
+                snap = item_snap.get(itm, {})
+                blockers.append({
+                    "item_no": itm,
+                    "net_need": nn,
+                    "on_order": round(snap.get("on_order") or 0, 2),
+                    "fulfillment": _fulfillment(itm),
+                })
             wo["blockers"] = blockers
             wo["makes_invoiceable"] = len(blockers) == 0
             wo["so_short_item_count"] = len(shortfall)
+            # Headline split for the card / report.
+            wo["blocker_summary"] = {
+                "needs_po": sum(1 for b in blockers if b["fulfillment"] == "needs_po"),
+                "needs_production": sum(1 for b in blockers if b["fulfillment"] == "needs_production"),
+                "cuttable": sum(1 for b in blockers if b["fulfillment"] == "cuttable"),
+                "unknown": sum(1 for b in blockers if b["fulfillment"] == "unknown"),
+                "on_order": sum(1 for b in blockers if b["on_order"] > 0),
+            }
 
     def _annotate_velocity(self, proposals: List[dict]) -> None:
         """Tag each donor with how fast it moves and float slow-stock-clearing

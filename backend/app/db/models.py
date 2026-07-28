@@ -2158,3 +2158,38 @@ class ExternalCallLog(Base):
 
     def __repr__(self):
         return f"<ExternalCallLog({self.method} {self.path} -> {self.status_code} {self.latency_ms}ms)>"
+
+
+class PurchasingBrief(Base):
+    """The morning narrative brief — one AI-written readout of the day's numbers.
+
+    The buy list, the RAG board, and the cut queue each answer one question
+    well; nobody reads three of them before 7am. This row is the joined-up
+    version: an LLM reads a compact FACTS snapshot of all three plus a
+    day-over-day diff, and writes what to buy today, what's at risk, what
+    changed, and what needs a decision.
+
+    ``facts_json`` is the deterministic input the model saw (kept so a brief is
+    reproducible and so tomorrow's run can diff against it — the diff is
+    computed in Python, never by the model). ``brief_json`` is the narrative it
+    wrote. One row per generation; the digest email and the planning workbook
+    both read the most recent, so they tell the same story.
+    """
+
+    __tablename__ = "purchasing_brief"
+
+    id = Column(Integer, primary_key=True, index=True)
+    as_of = Column(Date, nullable=False, index=True)
+    generated_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    facts_json = Column(JSON, nullable=True)    # deterministic snapshot fed to the model
+    diff_json = Column(JSON, nullable=True)     # computed change vs the previous brief
+    brief_json = Column(JSON, nullable=True)    # the narrative the model wrote
+
+    model = Column(String(60), nullable=True)
+    input_tokens = Column(Integer, nullable=True)
+    output_tokens = Column(Integer, nullable=True)
+    error = Column(Text, nullable=True)         # set when generation failed (facts still stored)
+
+    def __repr__(self):
+        return f"<PurchasingBrief(as_of={self.as_of}, model={self.model})>"

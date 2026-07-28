@@ -273,9 +273,23 @@ class PlanningWorkbookService:
         per_so = build_per_so_needs(req, data["sales_orders"])
         history = self._recent_snapshots(db)
 
+        # The AI morning brief — reused by the 07:00 purchasing digest, so both
+        # tell the same story off one generation. Best-effort: a workbook
+        # without a brief is the workbook we always had.
+        brief = None
+        if db is not None:
+            try:
+                from app.services.purchasing_brief_service import purchasing_brief_service
+                brief = purchasing_brief_service.get_or_generate(
+                    db, req=req, so_rows=so_rows, today=today
+                )
+            except Exception as e:
+                logger.error(f"[PlanningWorkbook] morning brief unavailable: {e}")
+
         wb = Workbook()
         wb.remove(wb.active)  # drop default sheet; we add named tabs
-        self._tab_summary(wb, req, so_rows, today)
+        self._tab_brief(wb, brief)
+        self._tab_summary(wb, req, so_rows, today, brief=brief)
         self._tab_sales_orders(wb, so_rows)
         self._tab_per_so_needs(wb, per_so)
         self._tab_buy_list(wb, req)
@@ -458,11 +472,47 @@ class PlanningWorkbookService:
         for col, w in widths.items():
             ws.column_dimensions[get_column_letter(col)].width = w
 
-    def _tab_summary(self, wb, req, so_rows, today):
+    def _tab_brief(self, wb, brief):
+        """The AI morning brief as the first tab — the read-this-first page.
+
+        Kept off the Summary grid so the narrative has room to wrap; Summary
+        still carries the headline. No brief (API down, first run) means no tab
+        rather than an empty one.
+        """
+        if brief is None:
+            return
+        from app.services.purchasing_brief_service import purchasing_brief_service
+
+        lines = purchasing_brief_service.summary_lines(brief)
+        if not lines:
+            return
+
+        ws = wb.create_sheet("Morning Brief", 0)
+        ws["A1"] = "OPENDC — Morning Brief"
+        ws["A1"].font = _TITLE_FONT
+        stamp = brief.generated_at.strftime("%Y-%m-%d %H:%M UTC") if brief.generated_at else ""
+        ws["A2"] = f"Written {stamp} from the live buy list, order board, and cut queue"
+
+        row = 4
+        for heading, text in lines:
+            if heading:
+                hc = ws.cell(row=row, column=1, value=heading)
+                hc.font = Font(bold=True)
+                hc.alignment = Alignment(vertical="top")
+            tc = ws.cell(row=row, column=2, value=text)
+            tc.alignment = Alignment(wrap_text=True, vertical="top")
+            ws.row_dimensions[row].height = max(15, 14 * (1 + len(str(text)) // 95))
+            row += 1
+        self._autosize(ws, {1: 18, 2: 110})
+
+    def _tab_summary(self, wb, req, so_rows, today, brief=None):
         ws = wb.create_sheet("Summary")
         ws["A1"] = "OPENDC — Daily Operations Planning"
         ws["A1"].font = _TITLE_FONT
         ws["A2"] = f"Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')} · data as of {today.isoformat()}"
+        if brief is not None and (brief.brief_json or {}).get("headline"):
+            hl = ws.cell(row=3, column=1, value=brief.brief_json["headline"])
+            hl.font = Font(bold=True)
         rag_counts = {"red": 0, "amber": 0, "green": 0}
         for r in so_rows:
             rag_counts[r["rag"]] = rag_counts.get(r["rag"], 0) + 1
