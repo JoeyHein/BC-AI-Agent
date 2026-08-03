@@ -985,6 +985,7 @@ LINE_ORDER = [
     "window",            # 7. Windows / inserts (residential)
     "track",             # 8. Track
     "highlift_track",    # 8b. Highlift track (if applicable)
+    "perforated_angle",  # 8c. Perforated back-hang angle (home builders only)
     "hardware",          # 9. Hardware box
     "highlift_comment",  # 7b. High lift extension detail comment
     "spring_comment",    # 9b. Spring info comment (door weight, drum, turns)
@@ -1045,6 +1046,23 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
     return build_bc_quote_from_doors(request, db, source="admin")
 
 
+def _get_home_builder_user(customer_id: Optional[str], db: Session):
+    """Return the home-builder portal account linked to this BC customer, else None.
+
+    Drives the installation line (which needs the user id for builder rates),
+    freight suppression, and perforated back-hang angle. Kept in one place so
+    the quote builder and the parts-preview endpoint can't drift apart on who
+    counts as a builder.
+    """
+    if not customer_id:
+        return None
+    from app.db.models import User as _User
+    return db.query(_User).filter(
+        _User.bc_customer_id == customer_id,
+        _User.account_type == "home_builder",
+    ).first()
+
+
 def build_bc_quote_from_doors(
     request: QuoteGenerationRequest,
     db: Session,
@@ -1061,6 +1079,12 @@ def build_bc_quote_from_doors(
     try:
         # Load spring inventory from BC so quotes use stocked springs
         spring_inventory = get_bc_spring_inventory()
+
+        # Detect a home-builder customer up front — the per-door loop below
+        # needs it to decide on perforated back-hang angle, and the freight /
+        # installation steps further down reuse the same answer.
+        builder_user = _get_home_builder_user(request.customerId, db)
+        is_home_builder = builder_user is not None
 
         # Step 1: Get parts for all doors with proper ordering
         all_lines = []  # Ordered lines ready for BC
@@ -1161,6 +1185,7 @@ def build_bc_quote_from_doors(
                 "includeTopSeal": getattr(door, 'includeTopSeal', False),
                 "includePusherSprings": getattr(door, 'includePusherSprings', False),
                 "bumperSpring": getattr(door, 'bumperSpring', False),
+                "includePerforatedAngle": is_home_builder,
             }
 
             try:
@@ -1634,18 +1659,10 @@ def build_bc_quote_from_doors(
             except Exception as esc_err:
                 logger.warning(f"Escalating margin check failed: {esc_err}")
 
-        # Detect a home-builder customer via the portal account linked to this
-        # BC customer. Builders get an INSTALLATION line and NO freight — the
+        # is_home_builder was resolved before the door loop (perforated angle
+        # needs it too). Builders get an INSTALLATION line and NO freight — the
         # install total already bills per-km crew travel, so freight would
         # charge the same trip twice (mirrors the customer-portal behaviour).
-        from app.db.models import User as _User
-        builder_user = None
-        if request.customerId:
-            builder_user = db.query(_User).filter(
-                _User.bc_customer_id == request.customerId,
-                _User.account_type == "home_builder",
-            ).first()
-        is_home_builder = builder_user is not None
 
         # Step 5: Add freight line if delivery (skipped for home builders)
         freight_info = None
@@ -1992,6 +2009,9 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
     try:
         all_parts = []
         parts_by_door = []
+        # Same builder gate as the real quote builder, so this preview shows
+        # the perforated angle exactly when the committed quote would.
+        is_home_builder = _get_home_builder_user(request.customerId, db) is not None
 
         for i, door in enumerate(request.doors):
             # Calculate window count from windowPositions array
@@ -2031,6 +2051,7 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "includeTopSeal": getattr(door, 'includeTopSeal', False),
                 "includePusherSprings": getattr(door, 'includePusherSprings', False),
                 "bumperSpring": getattr(door, 'bumperSpring', False),
+                "includePerforatedAngle": is_home_builder,
             }
 
             spring_inv = get_bc_spring_inventory()

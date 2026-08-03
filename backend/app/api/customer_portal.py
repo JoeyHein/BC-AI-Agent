@@ -847,6 +847,11 @@ def _generate_bc_quote_with_items(
     # Load spring inventory so quotes use the same stocked springs as the specs tab
     spring_inventory = get_bc_spring_inventory()
 
+    # Builder accounts get perforated back-hang angle on every door, because we
+    # install those doors. Resolved once here — the freight and install steps
+    # further down ask the same question.
+    provides_install = _account_provides_install(customer_user_id, db)
+
     # Step 1: Build all ordered lines from door configs
     all_lines = []
     door_results = []
@@ -892,6 +897,7 @@ def _generate_bc_quote_with_items(
 
         # Get parts for this door configuration
         config_dict = {
+            "includePerforatedAngle": provides_install,
             "doorType": door.get("doorType", "residential"),
             "doorSeries": door.get("doorSeries"),
             "doorWidth": door.get("doorWidth"),
@@ -1844,10 +1850,14 @@ def _sweep_freight_lines(bc_quote_id: str, freight_item: str = "FREIGHT") -> int
     return 0
 
 
-def _build_door_config_dict(door: dict) -> dict:
+def _build_door_config_dict(door: dict, is_home_builder: bool = False) -> dict:
     """Build the config_dict passed to get_parts_for_door_config. Matches the shape
-    used in _generate_bc_quote_with_items step 1."""
+    used in _generate_bc_quote_with_items step 1.
+
+    is_home_builder comes from the account, not the door — it gates the
+    perforated back-hang angle the same way it gates install and freight."""
     return {
+        "includePerforatedAngle": is_home_builder,
         "doorType": door.get("doorType", "residential"),
         "doorSeries": door.get("doorSeries"),
         "doorWidth": door.get("doorWidth"),
@@ -1935,6 +1945,10 @@ def _edit_bc_quote_lines(
     indices_to_delete = sorted(set(diff["changed"] + diff["removed"]))
     moves = diff.get("moved") or []
 
+    # Same builder gate the create path uses, so an edit can't silently drop
+    # (or add) the perforated back-hang angle on regenerated doors.
+    provides_install = _account_provides_install(customer_user_id, db)
+
     # ── Step 1 (precompute): Build new line dicts BEFORE touching BC ────────
     # Doing precompute first means a failure here (bad part numbers, BC
     # spring-inventory fetch error, etc.) raises cleanly without leaving the
@@ -1987,7 +2001,7 @@ def _edit_bc_quote_lines(
                 "category": "COMMENT", "door_index": door_index, "is_note": True,
             })
 
-        config_dict = _build_door_config_dict(door)
+        config_dict = _build_door_config_dict(door, is_home_builder=provides_install)
         try:
             door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inventory)
             parts_list = door_parts.get("parts_list", [])

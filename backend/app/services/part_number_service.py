@@ -161,6 +161,10 @@ class DoorConfiguration:
     # Manual hand-chain hoist for motor-less commercial doors. One per door.
     # None/'none' = no hoist, 'shaft' = SP12-00084-00, 'wall' = FH12-00190-00.
     chain_hoist: Optional[str] = None
+    # Perforated back-hang angle. Home-builder accounts only — set by the quote
+    # builders from account_type, not by the customer. Size + stick count come
+    # off door weight (see PERFORATED_ANGLE_* constants above).
+    include_perforated_angle: bool = False
 
 
 # BC item codes for the optional extras above. Each flag maps to a LIST
@@ -197,6 +201,45 @@ OPTIONAL_EXTRA_PARTS = {
         ("FH11-00003-00", "EXHAUST PORT RINGS/COVER SET", 1),
     ],
 }
+
+
+# ============================================================================
+# PERFORATED (PUNCHED) BACK-HANG ANGLE
+# ============================================================================
+# Home-builder accounts only. We install those doors ourselves, so the
+# back-hang material rides on the quote; dealers supply their own. Gated by
+# DoorConfiguration.include_perforated_angle, which the quote builders set
+# from the same account_type check that drives the install/freight rules.
+#
+# Both SKUs are 10' sticks. Size and quantity are both driven off the
+# calculated door weight.
+
+# (item_code, description) for each size.
+PERFORATED_ANGLE_LIGHT = (
+    "TR13-00053-00",
+    'TRACK HARDWARE, PUNCHED ANGLE, 1 1/4 X 13GA X 10 PERFORATED',
+)
+PERFORATED_ANGLE_HEAVY = (
+    "TR13-00054-00",
+    'TRACK HARDWARE, PUNCHED ANGLE, 2 X 2 X 12GA X 10 PERFORATED',
+)
+
+# Door weight (lbs) at or above which the heavier 2x2 x 12GA angle is used.
+PERFORATED_ANGLE_HEAVY_THRESHOLD = 500.0
+
+# Sticks per door by door weight — heaviest break first, floor of 2.
+#   under 500 lb  -> 2    (also the only band on the lighter 1-1/4 angle)
+#   500-899 lb    -> 4
+#   900-1199 lb   -> 6
+#   1200-1499 lb  -> 8
+#   1500 lb +     -> 10
+PERFORATED_ANGLE_QTY_BREAKS = (
+    (1500.0, 10),
+    (1200.0, 8),
+    (900.0, 6),
+    (500.0, 4),
+    (0.0, 2),
+)
 
 
 # ============================================================================
@@ -790,6 +833,9 @@ class PartNumberService:
         # 7. HIGHLIFT/LOWHEADROOM (if applicable)
         highlift_parts = self._get_highlift_parts(config)
         parts.extend(highlift_parts)
+
+        # 7b. PERFORATED BACK-HANG ANGLE (home-builder accounts only)
+        parts.extend(self._get_perforated_angle_parts(config))
 
         # 8. HARDWARE
         if hardware.get("hardwareKits", True):
@@ -2560,6 +2606,42 @@ class PartNumberService:
             ),
         ]
 
+    def _get_perforated_angle_parts(self, config: DoorConfiguration) -> List[PartSelection]:
+        """Get perforated back-hang angle — home-builder accounts only.
+
+        Both SKUs are 10' sticks, quoted per door (the door-count multiplier is
+        applied once for all parts at the end of get_parts_for_configuration).
+
+        - Size steps up to 2" x 2" x 12GA at PERFORATED_ANGLE_HEAVY_THRESHOLD.
+        - Stick count steps through PERFORATED_ANGLE_QTY_BREAKS, floor of 2.
+        """
+        if not config.include_perforated_angle:
+            return []
+
+        door_weight = config.door_weight
+        if door_weight is None:
+            door_weight = self._calculate_door_weight(config)
+
+        part_number, description = (
+            PERFORATED_ANGLE_HEAVY
+            if door_weight >= PERFORATED_ANGLE_HEAVY_THRESHOLD
+            else PERFORATED_ANGLE_LIGHT
+        )
+        quantity = next(
+            qty for break_lbs, qty in PERFORATED_ANGLE_QTY_BREAKS
+            if door_weight >= break_lbs
+        )
+
+        return [
+            PartSelection(
+                part_number=part_number,
+                description=description,
+                quantity=quantity,
+                category="perforated_angle",
+                notes=f"Back-hang angle: {quantity} x 10' stick(s) @ {door_weight:.0f} lbs",
+            ),
+        ]
+
     def _consolidate_parts(self, parts: List[PartSelection]) -> List[PartSelection]:
         """Merge parts with the same part_number into a single line with summed quantity.
 
@@ -4016,6 +4098,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         include_track_guards=bool(config_dict.get("trackGuards", False)),
         include_exhaust_port=bool(config_dict.get("exhaustPort", False)),
         include_shaft_accessory=bool(config_dict.get("includeShaftAccessory", True)),
+        include_perforated_angle=bool(config_dict.get("includePerforatedAngle", False)),
     )
 
     parts = part_number_service.get_parts_for_configuration(config)
