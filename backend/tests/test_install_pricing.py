@@ -106,3 +106,43 @@ class TestTotalInstall:
         res = self._run(monkeypatch, doors, town="Regina", km=590)
         assert res["travel_rate_per_km"] == 1.00
         assert res["travel_price"] == 590.0  # 590 km * $1
+
+    # --- Per-diem 200 km gate -------------------------------------------------
+    def _big_doors(self):
+        # Two 24' x 16' doors = 768 sqft total (> 400 sqft, so per-diem qualifies on size)
+        return [{"doorWidth": 288, "doorHeight": 192, "doorCount": 2,
+                 "doorType": "commercial", "mountSurface": "wood"}]
+
+    def test_per_diem_charged_when_far(self, monkeypatch):
+        res = self._run(monkeypatch, self._big_doors(), town="Regina", km=590)
+        # 768 sqft -> 2 blocks; far (> 200 km) -> per diem applies
+        assert res["per_diem_applies"] is True
+        assert res["per_diem_qty"] == 2
+        assert res["per_diem_total"] == 400.0
+
+    def test_no_per_diem_within_200km(self, monkeypatch):
+        # Elkwater ~66 km from Medicine Hat — day trip, no per diem even at 768 sqft
+        res = self._run(monkeypatch, self._big_doors(), town="Elkwater", km=66)
+        assert res["per_diem_applies"] is False
+        assert res["per_diem_qty"] == 0
+        assert res["per_diem_total"] == 0.0
+
+    def test_no_per_diem_when_distance_unknown(self, monkeypatch):
+        # No town / unknown distance -> cannot confirm overnight -> no per diem
+        res = self._run(monkeypatch, self._big_doors())
+        assert res["per_diem_total"] == 0.0
+
+
+class TestInstallDescription:
+    def test_includes_per_door_sqft_and_lift(self):
+        ir = {"total_sqft": 768, "door_count_total": 2, "town": "Elkwater",
+              "per_door": [{"area_sqft": 384, "door_count": 2}], "lift_qty": 2}
+        desc = svc.build_install_description(ir)
+        assert desc == "Installation - Elkwater (2 doors @ 384 sqft, 768 total, incl. lift)"
+        assert len(desc) <= 100
+
+    def test_single_door_no_lift(self):
+        ir = {"total_sqft": 120, "door_count_total": 1, "town": None,
+              "per_door": [{"area_sqft": 120, "door_count": 1}], "lift_qty": 0}
+        desc = svc.build_install_description(ir)
+        assert desc == "Installation (1 door, 120 sqft)"
