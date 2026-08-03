@@ -52,7 +52,8 @@ BUILDER_RESIDENTIAL_SMALL_THRESHOLD = 90  # < 90 sqft -> small flat floor
 BUILDER_TRAVEL_RATE_PER_KM = 1.00         # $/km, one-way from Medicine Hat
 BUILDER_LIFT_BLOCK_SQFT = 400             # one charge per 400 sqft of qualifying door
 BUILDER_LIFT_BLOCK_PRICE = 400.00         # $/block (when any door > 12' tall)
-BUILDER_PER_DIEM_BLOCK_PRICE = 200.00     # $/block (when total > 400 sqft)
+BUILDER_PER_DIEM_BLOCK_PRICE = 200.00     # $/block (when total > 400 sqft AND far)
+BUILDER_PER_DIEM_MIN_KM = 200             # no per diem within 200 km of Medicine Hat
 BUILDER_LIFT_HEIGHT_INCHES = 144          # 12' = 144"
 BUILDER_OPERATOR_ADDON_PER_DOOR = 150.00  # flat $/door for any door with an operator
 
@@ -405,8 +406,9 @@ class InstallPricingService:
             ($500 / $600), everything else is sqft_rate * area_sqft.
           * Lift fee: if ANY door height > 12', charge $400 for every full
             400 sqft block of TOTAL installed area (ceil math).
-          * Per diem: if TOTAL installed area > 400 sqft, charge $200 for
-            every 400 sqft block (ceil math), same model as the lift fee.
+          * Per diem: if TOTAL installed area > 400 sqft AND the install town is
+            more than 200 km from Medicine Hat (overnight trip), charge $200 for
+            every 400 sqft block (ceil math). No per diem within 200 km.
           * Travel: $2/km one-way from Medicine Hat to the install town.
 
         Per-customer overrides on CustomerInstallPricing:
@@ -453,16 +455,9 @@ class InstallPricingService:
                 "line_total": line_total, "has_operator": has_operator,
             })
 
-        # Lift and per-diem are block-based on total sqft.
-        blocks = math.ceil(total_sqft / BUILDER_LIFT_BLOCK_SQFT) if total_sqft > 0 else 0
-        needs_lift = max_height_in > BUILDER_LIFT_HEIGHT_INCHES
-        lift_qty = blocks if needs_lift else 0
-        lift_total = round(lift_qty * BUILDER_LIFT_BLOCK_PRICE, 2)
-        per_diem_qty = blocks if total_sqft > BUILDER_LIFT_BLOCK_SQFT else 0
-        per_diem_total = round(per_diem_qty * BUILDER_PER_DIEM_BLOCK_PRICE, 2)
-
         # Travel — one-way from Medicine Hat. Tries the cached/static dict
         # first, then falls back to Google Distance Matrix so any town works.
+        # Resolved before per-diem because per-diem depends on the distance.
         travel_distance_km: Optional[float] = None
         travel_price = 0.0
         travel_source = "none"
@@ -472,6 +467,19 @@ class InstallPricingService:
             if km is not None:
                 travel_distance_km = km
                 travel_price = round(km * travel_rate, 2)
+
+        # Lift and per-diem are block-based on total sqft.
+        blocks = math.ceil(total_sqft / BUILDER_LIFT_BLOCK_SQFT) if total_sqft > 0 else 0
+        needs_lift = max_height_in > BUILDER_LIFT_HEIGHT_INCHES
+        lift_qty = blocks if needs_lift else 0
+        lift_total = round(lift_qty * BUILDER_LIFT_BLOCK_PRICE, 2)
+        # Per diem covers the crew staying overnight — only when the install is
+        # far enough to not be a day trip. Within 200 km of Medicine Hat there is
+        # no per diem, regardless of size. A per diem also needs > 400 sqft.
+        per_diem_far = (travel_distance_km is not None
+                        and travel_distance_km > BUILDER_PER_DIEM_MIN_KM)
+        per_diem_qty = blocks if (total_sqft > BUILDER_LIFT_BLOCK_SQFT and per_diem_far) else 0
+        per_diem_total = round(per_diem_qty * BUILDER_PER_DIEM_BLOCK_PRICE, 2)
 
         operator_addon_total = round(operator_doors * BUILDER_OPERATOR_ADDON_PER_DOOR, 2)
         grand_total = round(
@@ -494,6 +502,8 @@ class InstallPricingService:
             "per_diem_qty": per_diem_qty,
             "per_diem_unit_price": BUILDER_PER_DIEM_BLOCK_PRICE,
             "per_diem_total": per_diem_total,
+            "per_diem_min_km": BUILDER_PER_DIEM_MIN_KM,
+            "per_diem_applies": per_diem_far,
             "operator_addon_qty": operator_doors,
             "operator_addon_unit_price": BUILDER_OPERATOR_ADDON_PER_DOOR,
             "operator_addon_total": operator_addon_total,
@@ -503,6 +513,39 @@ class InstallPricingService:
             "travel_source": travel_source,
             "grand_total": grand_total,
         }
+
+    @staticmethod
+    def build_install_description(install_result: Dict[str, Any]) -> str:
+        """
+        Human-readable INSTALLATION line description for the BC quote.
+
+        Includes the door information (per-door square footage when the doors
+        are a single size, otherwise the total) and flags when the price
+        includes a lift. Kept short enough for BC's 100-char line limit.
+
+        e.g. "Installation - Elkwater (2 doors @ 384 sqft, 768 total, incl. lift)"
+        """
+        sqft = install_result.get("total_sqft") or 0
+        door_count = install_result.get("door_count_total") or 0
+        town = install_result.get("town")
+        per_door = install_result.get("per_door") or []
+
+        door_word = "door" if door_count == 1 else "doors"
+        # Single door size (one config, or all configs the same area) -> show per-door sqft
+        areas = {round(p.get("area_sqft") or 0) for p in per_door}
+        if len(areas) == 1 and door_count > 1:
+            each = areas.pop()
+            door_info = f"{door_count} {door_word} @ {each:.0f} sqft, {sqft:.0f} total"
+        elif door_count == 1:
+            door_info = f"1 door, {sqft:.0f} sqft"
+        else:
+            door_info = f"{door_count} {door_word}, {sqft:.0f} sqft total"
+
+        if install_result.get("lift_qty"):
+            door_info += ", incl. lift"
+
+        prefix = f"Installation - {town} " if town else "Installation "
+        return f"{prefix}({door_info})"
 
 
 # Module-level singleton
