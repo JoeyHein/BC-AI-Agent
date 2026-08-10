@@ -34,7 +34,10 @@ CREATE TABLE IF NOT EXISTS documents (
     text_chars      INTEGER DEFAULT 0,
     is_scanned      INTEGER DEFAULT 0,  -- 1 = image-only, needs OCR/vision
     cover_image     TEXT,               -- rel path under images/ to cover webp
-    ingested_at     TEXT
+    ingested_at     TEXT,
+    -- Hosting rights (§6 hybrid link-out decision):
+    -- NULL = link-out only (default); 'allowed' = may serve the PDF directly.
+    host_rights     TEXT DEFAULT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_documents_brand    ON documents(brand);

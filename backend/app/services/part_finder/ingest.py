@@ -118,12 +118,19 @@ def _render_cover(doc: "fitz.Document", out_path: Path, long_edge: int, quality:
 
 def _connect_and_init(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    fresh = not db_path.exists()
     conn = sqlite3.connect(str(db_path))
     schema = (Path(__file__).parent / "schema.sql").read_text(encoding="utf-8")
     conn.executescript(schema)
+    _migrate_schema(conn)
     conn.commit()
     return conn
+
+
+def _migrate_schema(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after the initial schema without requiring re-ingest."""
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(documents)")}
+    if "host_rights" not in existing:
+        conn.execute("ALTER TABLE documents ADD COLUMN host_rights TEXT DEFAULT NULL")
 
 
 def _reset_tables(conn: sqlite3.Connection) -> None:
@@ -276,6 +283,7 @@ def run_ingest(cfg: IngestConfig, fresh: bool = True, verbose: bool = True) -> d
                 "is_scanned": is_scanned,
                 "cover_image": cover_rel,
                 "ingested_at": _now_iso(),
+                "host_rights": meta.host_rights,
             }
             conn.execute(
                 """INSERT OR REPLACE INTO documents (
@@ -283,13 +291,13 @@ def run_ingest(cfg: IngestConfig, fresh: bool = True, verbose: bool = True) -> d
                     brand, doc_type, title, page_count, size_bytes, sha256, source_url,
                     manufacturer, parent_company, hq_country, hq_state, hq_city,
                     brand_status, website, product_lines, sub_category,
-                    text_chars, is_scanned, cover_image, ingested_at
+                    text_chars, is_scanned, cover_image, ingested_at, host_rights
                 ) VALUES (
                     :doc_id,:rel_path,:filename,:category,:category_label,:region,
                     :brand,:doc_type,:title,:page_count,:size_bytes,:sha256,:source_url,
                     :manufacturer,:parent_company,:hq_country,:hq_state,:hq_city,
                     :brand_status,:website,:product_lines,:sub_category,
-                    :text_chars,:is_scanned,:cover_image,:ingested_at
+                    :text_chars,:is_scanned,:cover_image,:ingested_at,:host_rights
                 )""",
                 doc_row,
             )

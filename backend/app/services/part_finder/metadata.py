@@ -201,6 +201,8 @@ class DocMeta:
     website: Optional[str] = None
     product_lines: Optional[str] = None
     sub_category: Optional[str] = None
+    # hosting rights: None = link-out only (default); 'allowed' = may serve directly
+    host_rights: Optional[str] = None
 
 
 # Doc-type is the trailing segment(s) of the filename after the brand/model.
@@ -265,6 +267,7 @@ def build_doc_meta(pdf_path: Path, library_root: Path, idx: MetadataIndex) -> Do
         sha256=(man.get("sha256") or "").strip() or None,
         source_url=(man.get("source_url") or "").strip() or None,
         size_bytes=size_bytes,
+        host_rights=(man.get("host_rights") or "").strip() or None,
     )
 
     if brand:

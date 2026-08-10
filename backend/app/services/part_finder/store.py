@@ -117,7 +117,7 @@ class PartFinderStore:
         "doc_id, rel_path, filename, category, category_label, region, brand, "
         "doc_type, title, page_count, size_bytes, source_url, manufacturer, "
         "parent_company, hq_country, hq_state, hq_city, brand_status, website, "
-        "product_lines, sub_category, is_scanned, cover_image"
+        "product_lines, sub_category, is_scanned, cover_image, host_rights"
     )
 
     def list_documents(self, category=None, region=None, brand=None, doc_type=None,

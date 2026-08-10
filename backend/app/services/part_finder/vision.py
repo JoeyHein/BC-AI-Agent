@@ -36,15 +36,44 @@ _SYSTEM = (
 )
 
 
-def _build_prompt(brand_block: str, category_label: Optional[str], note: Optional[str],
+def _build_system_blocks(brand_block: str) -> list[dict]:
+    """Two-block system prompt: static expert persona + cached brand catalog.
+
+    The brand-catalog block carries cache_control so the Anthropic API caches
+    everything up to and including it.  Cache key varies naturally by
+    brand_block content (i.e. by category scope), so scoped and unscoped
+    requests get separate cache entries without any extra bookkeeping.
+    """
+    return [
+        {"type": "text", "text": _SYSTEM},
+        {
+            "type": "text",
+            "text": (
+                "Brand catalog for this session "
+                "(use these names when a match is plausible; you may also name a "
+                "brand not listed if the evidence is strong):\n"
+                + brand_block
+            ),
+            "cache_control": {"type": "ephemeral"},
+        },
+    ]
+
+
+def _build_prompt(category_label: Optional[str], note: Optional[str],
                   scoped: bool, has_side: bool = False) -> str:
+    """Build the user-turn identification request.
+
+    The brand catalog has been moved to the system blocks for prompt caching;
+    this prompt contains only the per-request variable parts.
+    """
     if scoped and category_label:
         cat_line = (
             f"\nThe user selected the **{category_label}** category, and ONLY "
-            f"{category_label} brands are listed below. Identify the {category_label} "
-            f'product. If the photo is clearly NOT a {category_label}, set "category" '
-            f'to the correct type and explain the mismatch in "advice" — you may still '
-            f"name a likely brand even if it isn't in the list."
+            f"{category_label} brands are listed in the catalog above. Identify "
+            f"the {category_label} product. If the photo is clearly NOT a "
+            f"{category_label}, set \"category\" to the correct type and explain "
+            f"the mismatch in \"advice\" — you may still name a likely brand even "
+            f"if it isn't in the catalog."
         )
     elif category_label:
         cat_line = f"\nThe user believes this is in the category: {category_label}."
@@ -58,9 +87,6 @@ def _build_prompt(brand_block: str, category_label: Optional[str], note: Optiona
     )
     note_line = f"\nUser note: {note}" if note else ""
     return f"""Identify the product in the image(s).{cat_line}{side_line}{note_line}
-
-These are the brands available in our catalog (use these names when a match is plausible; you may also name a brand not listed if the evidence is strong):
-{brand_block}
 
 Respond with ONLY a JSON object, no prose, in exactly this shape:
 {{
@@ -152,7 +178,11 @@ def identify_image(
         store.brand_summaries(category=scope_code) if store.available
         else "(catalog index unavailable)"
     )
-    prompt = _build_prompt(brand_block, scope_label or hint_category, note, scoped, has_side)
+    # System is a two-block list; the brand-catalog block is marked for caching.
+    # Cache key varies by brand_block content so scoped vs. unscoped requests
+    # get separate cache slots automatically.
+    system_blocks = _build_system_blocks(brand_block)
+    prompt = _build_prompt(scope_label or hint_category, note, scoped, has_side)
 
     # Order images face-first, then the (more discriminating) side profile, each
     # labeled so the model knows which view it's reading.
@@ -171,12 +201,24 @@ def identify_image(
         resp = client.messages.create(
             model=VISION_MODEL,
             max_tokens=1024,
-            system=_SYSTEM,
+            system=system_blocks,
             messages=[{"role": "user", "content": content}],
         )
     except Exception as e:
         logger.exception("Vision API call failed")
         return {"error": "vision_call_failed", "detail": str(e)}
+
+    usage = resp.usage
+    cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+    logger.info(
+        "vision_usage model=%s input=%d output=%d cache_write=%d cache_read=%d",
+        VISION_MODEL,
+        getattr(usage, "input_tokens", 0),
+        getattr(usage, "output_tokens", 0),
+        cache_write,
+        cache_read,
+    )
 
     raw = "".join(block.text for block in resp.content if getattr(block, "type", "") == "text")
     try:
@@ -196,4 +238,10 @@ def identify_image(
 
     parsed["model"] = VISION_MODEL
     parsed["scoped_to"] = scope_label
+    parsed["usage"] = {
+        "input_tokens": getattr(usage, "input_tokens", 0),
+        "output_tokens": getattr(usage, "output_tokens", 0),
+        "cache_creation_input_tokens": cache_write,
+        "cache_read_input_tokens": cache_read,
+    }
     return parsed
