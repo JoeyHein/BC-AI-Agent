@@ -32,6 +32,19 @@ export const partFinder = {
   partNumber: (token) => get(`/part-number/${encodeURIComponent(token)}`),
   coverUrl: (id) => `${BASE}/cover/${id}`,
   pdfUrl: (id) => `${BASE}/pdf/${id}`,
+  openManual: (id) => get(`/open/${id}`),
+  history: (limit = 20) => get('/history', { limit }),
+  buyLinks: (token) => get(`/parts/${encodeURIComponent(token)}/buy-links`),
+
+  async feedback({ photo_hash, candidates_shown, was_correct, correct_brand }) {
+    const res = await fetch(BASE + '/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ photo_hash, candidates_shown, was_correct, correct_brand: correct_brand || null }),
+    });
+    if (!res.ok) throw new Error('Feedback submission failed');
+    return res.json();
+  },
 
   async identify({ file, sideFile, category, note }) {
     const fd = new FormData();

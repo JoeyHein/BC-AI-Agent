@@ -8,6 +8,37 @@ import './partfinder.css';
 const SignInContext = createContext('/login');
 const useSignInHref = () => useContext(SignInContext);
 
+/* ----------------------------------------------------------- offline queue */
+const FEEDBACK_QUEUE_KEY = 'pf-feedback-queue';
+
+function enqueueFeedback(payload) {
+  try {
+    const q = JSON.parse(localStorage.getItem(FEEDBACK_QUEUE_KEY) || '[]');
+    q.push(payload);
+    localStorage.setItem(FEEDBACK_QUEUE_KEY, JSON.stringify(q));
+  } catch {}
+}
+
+async function drainFeedbackQueue() {
+  try {
+    const q = JSON.parse(localStorage.getItem(FEEDBACK_QUEUE_KEY) || '[]');
+    if (!q.length) return;
+    const remaining = [];
+    for (const payload of q) {
+      try {
+        await partFinder.feedback(payload);
+      } catch {
+        remaining.push(payload);
+      }
+    }
+    if (remaining.length) {
+      localStorage.setItem(FEEDBACK_QUEUE_KEY, JSON.stringify(remaining));
+    } else {
+      localStorage.removeItem(FEEDBACK_QUEUE_KEY);
+    }
+  } catch {}
+}
+
 const CATEGORY_HINTS = [
   'Garage Door Panels',
   'Garage Door Operators',
@@ -17,11 +48,12 @@ const CATEGORY_HINTS = [
   'Dock Seals & Shelters',
 ];
 
-const MODES = [
+const ALL_MODES = [
   { id: 'photo', label: 'Identify by photo', sub: 'Upload a picture' },
   { id: 'narrow', label: 'Narrow it down', sub: 'Step by step' },
   { id: 'browse', label: 'Browse brands', sub: '76 manufacturers' },
   { id: 'search', label: 'Search', sub: 'Text or part #' },
+  { id: 'history', label: 'Recent lookups', sub: 'Your history', authOnly: true },
 ];
 
 export default function PartFinder({ signInHref = '/login' }) {
@@ -30,8 +62,16 @@ export default function PartFinder({ signInHref = '/login' }) {
   const [activeDoc, setActiveDoc] = useState(null);
   const authed = isAuthed();
 
+  const MODES = ALL_MODES.filter((m) => !m.authOnly || authed);
+
   useEffect(() => {
     partFinder.stats().then(setStats).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const onOnline = () => drainFeedbackQueue();
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
   }, []);
 
   return (
@@ -39,6 +79,7 @@ export default function PartFinder({ signInHref = '/login' }) {
     <div className="pf-root">
       <Backdrop />
       <TopBar stats={stats} authed={authed} />
+      <OfflineBanner />
 
       <header className="pf-hero">
         <div className="pf-hero-inner">
@@ -75,6 +116,7 @@ export default function PartFinder({ signInHref = '/login' }) {
         {mode === 'narrow' && <WizardMode onOpen={setActiveDoc} />}
         {mode === 'browse' && <BrowseMode onOpen={setActiveDoc} />}
         {mode === 'search' && <SearchMode onOpen={setActiveDoc} authed={authed} />}
+        {mode === 'history' && <HistoryMode onOpen={setActiveDoc} />}
       </main>
 
       <footer className="pf-footer">
@@ -92,6 +134,26 @@ export default function PartFinder({ signInHref = '/login' }) {
 /* ----------------------------------------------------------------- chrome */
 function Backdrop() {
   return <div className="pf-backdrop" aria-hidden="true" />;
+}
+
+function OfflineBanner() {
+  const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
+  if (online) return null;
+  return (
+    <div className="pf-offline-banner" role="alert">
+      No network — identification and search require connectivity. Cached pages load normally.
+    </div>
+  );
 }
 
 function TopBar({ stats, authed }) {
@@ -134,6 +196,9 @@ function PhotoMode({ onOpen, authed }) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  // The prominent one-hand camera button targets the face slot; the side slot
+  // is reached by tapping it directly.
+  const faceInputRef = useRef(null);
 
   // Panels are the category where the edge-on side profile (thickness + joint
   // profile) is the real discriminator, so we lead with it there.
@@ -157,7 +222,9 @@ function PhotoMode({ onOpen, authed }) {
       const r = await partFinder.identify({ file: face, sideFile: side, category: chosenCat?.category || '', note });
       setResult(r);
     } catch (e) {
-      setError(e.body?.detail?.detail || e.message);
+      setError(!navigator.onLine
+        ? "You're offline — connect to identify parts."
+        : (e.body?.detail?.detail || e.message));
     } finally {
       setLoading(false);
     }
@@ -180,7 +247,7 @@ function PhotoMode({ onOpen, authed }) {
         </div>
 
         <div className="pf-slots">
-          <DropSlot label="Face / front" hint="Straight-on view" preview={facePrev} onChoose={chooseFace} />
+          <DropSlot label="Face / front" hint="Straight-on view" preview={facePrev} onChoose={chooseFace} inputRef={faceInputRef} />
           <DropSlot
             label="Side profile"
             hint={isPanels ? 'Shows thickness & joint' : 'Optional · edge-on view'}
@@ -192,6 +259,16 @@ function PhotoMode({ onOpen, authed }) {
         {isPanels && !side && (
           <p className="pf-slot-tip">For panels, the side profile is the best way to tell thickness and joint type apart — add one if you can.</p>
         )}
+
+        <button
+          className="pf-cam-btn"
+          type="button"
+          onClick={() => faceInputRef.current?.click()}
+          aria-label={face ? 'Change face photo' : 'Take a face photo'}
+        >
+          <span aria-hidden="true">📷</span>
+          {face ? 'Change Face Photo' : 'Take Photo'}
+        </button>
 
         <label className="pf-field">
           <span>Anything you can read on it? (optional)</span>
@@ -225,9 +302,10 @@ function PhotoMode({ onOpen, authed }) {
   );
 }
 
-function DropSlot({ label, hint, preview, onChoose, emphasized }) {
+function DropSlot({ label, hint, preview, onChoose, emphasized, inputRef }) {
   const [drag, setDrag] = useState(false);
-  const inputRef = useRef(null);
+  const localRef = useRef(null);
+  const ref = inputRef || localRef;
   return (
     <div className="pf-slot">
       <div className="pf-slot-head">
@@ -239,7 +317,7 @@ function DropSlot({ label, hint, preview, onChoose, emphasized }) {
         onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
         onDragLeave={() => setDrag(false)}
         onDrop={(e) => { e.preventDefault(); setDrag(false); onChoose(e.dataTransfer.files[0]); }}
-        onClick={() => inputRef.current?.click()}
+        onClick={() => ref.current?.click()}
       >
         {preview ? (
           <img src={preview} alt={`${label} preview`} className="pf-preview" />
@@ -249,7 +327,7 @@ function DropSlot({ label, hint, preview, onChoose, emphasized }) {
             <p className="pf-drop-sub">{hint}</p>
           </>
         )}
-        <input ref={inputRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => onChoose(e.target.files[0])} />
+        <input ref={ref} type="file" accept="image/*" capture="environment" hidden onChange={(e) => onChoose(e.target.files[0])} />
       </div>
     </div>
   );
@@ -353,6 +431,104 @@ function IdentifyResult({ result, onOpen, authed, scopedLabel }) {
         </article>
       ))}
       {result.locked && !authed && <UpgradeBanner message={result.upgrade_message} />}
+      {result.photo_hash && <FeedbackWidget result={result} />}
+    </div>
+  );
+}
+
+function FeedbackWidget({ result }) {
+  const [state, setState] = useState('idle'); // idle | correcting | submitting | done | error
+  const [correctBrand, setCorrectBrand] = useState('');
+  const [customBrand, setCustomBrand] = useState('');
+
+  const cands = result.candidates || [];
+  const candidateNames = [...new Set(cands.map((c) => c.brand).filter(Boolean))];
+
+  const submit = async (wasCorrect, brand = null) => {
+    setState('submitting');
+    const payload = {
+      photo_hash: result.photo_hash,
+      candidates_shown: cands.map((c) => ({
+        brand: c.brand,
+        family_or_model: c.family_or_model || null,
+        confidence: c.confidence ?? null,
+      })),
+      was_correct: wasCorrect,
+      correct_brand: brand,
+    };
+    try {
+      await partFinder.feedback(payload);
+      setState('done');
+    } catch {
+      if (!navigator.onLine) {
+        enqueueFeedback(payload);
+        setState('done');
+      } else {
+        setState('error');
+      }
+    }
+  };
+
+  if (state === 'done') {
+    return <div className="pf-feedback pf-feedback-done">Thanks for the feedback!</div>;
+  }
+  if (state === 'error') {
+    return <div className="pf-feedback pf-feedback-done pf-feedback-error">Couldn't save — try again later.</div>;
+  }
+
+  if (state === 'correcting') {
+    const selectedBrand = correctBrand === '__other__' ? customBrand.trim() : correctBrand;
+    return (
+      <div className="pf-feedback pf-feedback-correct">
+        <span className="pf-feedback-label">Which brand is it?</span>
+        <select
+          className="pf-feedback-select"
+          value={correctBrand}
+          onChange={(e) => setCorrectBrand(e.target.value)}
+        >
+          <option value="">Select…</option>
+          {candidateNames.map((b) => (
+            <option key={b} value={b}>{b}</option>
+          ))}
+          <option value="__other__">Other brand</option>
+        </select>
+        {correctBrand === '__other__' && (
+          <input
+            className="pf-feedback-input"
+            placeholder="Brand name"
+            value={customBrand}
+            onChange={(e) => setCustomBrand(e.target.value)}
+          />
+        )}
+        <div className="pf-feedback-actions">
+          <button
+            className="pf-btn-primary pf-feedback-submit"
+            disabled={state === 'submitting' || !selectedBrand}
+            onClick={() => submit(false, selectedBrand)}
+          >
+            Submit
+          </button>
+          <button className="pf-feedback-cancel" onClick={() => setState('idle')}>Cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pf-feedback">
+      <span className="pf-feedback-label">Was this right?</span>
+      <button
+        className="pf-feedback-btn pf-feedback-yes"
+        disabled={state === 'submitting'}
+        onClick={() => submit(true, null)}
+        title="Yes, correct"
+      >✓</button>
+      <button
+        className="pf-feedback-btn pf-feedback-no"
+        disabled={state === 'submitting'}
+        onClick={() => setState('correcting')}
+        title="No, wrong"
+      >✗</button>
     </div>
   );
 }
@@ -591,6 +767,7 @@ function SearchMode({ onOpen, authed }) {
           <h3 className="pf-section-title">Part number <code className="pf-pn-token">{pn.token}</code> appears in</h3>
           <DocGrid docs={pn.results} onOpen={onOpen} compact />
           {pn.locked && !authed && <UpgradeBanner message={pn.upgrade_message} small />}
+          <BuyLinksBar token={pn.token} />
         </div>
       )}
 
@@ -657,6 +834,34 @@ function DocGrid({ docs, onOpen, title, subtitle, compact }) {
   );
 }
 
+/* ---------------------------------------------------------- buy-links bar */
+function BuyLinksBar({ token }) {
+  const [links, setLinks] = useState(null);
+  useEffect(() => {
+    partFinder.buyLinks(token).then(setLinks).catch(() => setLinks({ links: [] }));
+  }, [token]);
+  if (!links) return null;
+  if (!links.links?.length) return null;
+  return (
+    <div className="pf-buy-bar">
+      <span className="pf-kicker">Find this part at</span>
+      <div className="pf-buy-links">
+        {links.links.map((l) => (
+          <a
+            key={l.logo_key}
+            href={l.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="pf-buy-link"
+          >
+            {l.name}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DocDrawer({ docId, authed, onClose }) {
   const signInHref = useSignInHref();
   const [doc, setDoc] = useState(null);
@@ -667,14 +872,20 @@ function DocDrawer({ docId, authed, onClose }) {
     partFinder.document(docId).then(setDoc).catch((e) => setErr(e.message));
   }, [docId]);
 
-  const openPdf = () => {
+  const openPdf = async () => {
     if (!authed) return;
-    const t = localStorage.getItem('authToken');
-    // Stream via fetch to attach the auth header, then open as blob.
-    fetch(partFinder.pdfUrl(docId), { headers: { Authorization: `Bearer ${t}` } })
-      .then((r) => r.blob())
-      .then((b) => window.open(URL.createObjectURL(b), '_blank'))
-      .catch(() => {});
+    try {
+      const { url, mode } = await partFinder.openManual(docId);
+      if (mode === 'link-out') {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      } else {
+        // serve mode: fetch as blob with auth header
+        const t = localStorage.getItem('authToken');
+        const r = await fetch(partFinder.pdfUrl(docId), { headers: { Authorization: `Bearer ${t}` } });
+        const b = await r.blob();
+        window.open(URL.createObjectURL(b), '_blank');
+      }
+    } catch (_) {}
   };
 
   return (
@@ -757,6 +968,74 @@ function LockNote({ n, label = 'more matches' }) {
     <a href={signInHref} className="pf-locknote">
       <span className="pf-lock">🔒</span> +{n} {label} — sign in to view
     </a>
+  );
+}
+
+/* --------------------------------------------------------------- history */
+function HistoryMode({ onOpen }) {
+  const [items, setItems] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    partFinder.history(20)
+      .then((r) => setItems(r.items))
+      .catch((e) => { setError(e.message); setItems([]); });
+  }, []);
+
+  if (items === null) return <div className="pf-panel"><SkeletonCards n={3} /></div>;
+
+  if (items.length === 0 && !error) {
+    return (
+      <div className="pf-panel">
+        <div className="pf-empty">
+          <p className="pf-empty-big">No lookups yet</p>
+          <p>Your identification history will appear here after your first photo ID.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const fmt = (ts) => {
+    const d = new Date(ts);
+    return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  };
+
+  return (
+    <div className="pf-panel">
+      <h3 className="pf-section-title">
+        Recent lookups <span className="pf-count">{items.length}</span>
+      </h3>
+      {error && <p className="pf-error">{error}</p>}
+      <div className="pf-stack">
+        {items.map((item, i) => (
+          <div key={i} className="pf-card pf-history-row">
+            <div className="pf-history-meta">
+              <span className="pf-history-ts">{fmt(item.ts_utc)}</span>
+              {item.category_hint && (
+                <span className="pf-chip pf-chip-cat">{item.category_hint}</span>
+              )}
+            </div>
+            <div className="pf-history-result">
+              {item.top_brand ? (
+                <>
+                  <span className="pf-history-brand">{item.top_brand}</span>
+                  {item.top_confidence != null && (
+                    <span className="pf-history-conf">
+                      {Math.round(item.top_confidence * 100)}%
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span className="pf-muted">No match</span>
+              )}
+              {item.candidate_count > 1 && (
+                <span className="pf-history-more">+{item.candidate_count - 1} other</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

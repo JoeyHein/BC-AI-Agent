@@ -310,6 +310,10 @@
 .pf-search-big { font-size: 17px; padding: 18px 18px 18px 50px; margin: 0; }
 .pf-pn-block { margin-bottom: 30px; padding-bottom: 26px; border-bottom: 2px solid var(--line); }
 .pf-pn-token { font-size: 14px; }
+.pf-buy-bar { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.pf-buy-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.pf-buy-link { display: inline-block; font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 3px; padding: 5px 12px; text-decoration: none; transition: border-color .15s, background .15s; }
+.pf-buy-link:hover { border-color: var(--amber); background: #fffaf0; color: var(--ink); }
 .pf-search-row { text-align: left; cursor: pointer; display: block; width: 100%; animation: pf-rise .4s ease both; }
 .pf-search-row:hover { border-color: var(--amber); }
 .pf-search-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
@@ -389,4 +393,98 @@
 @keyframes pf-rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes pf-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes pf-slide { from { transform: translateX(40px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+/* ------------------------------------------------------------- feedback */
+.pf-feedback {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px;
+  background: var(--paper-2); border: 1px solid var(--line); border-radius: 6px;
+  font-size: 13px; animation: pf-fade 0.2s ease;
+}
+.pf-feedback-label { color: var(--muted); font-weight: 500; flex-shrink: 0; }
+.pf-feedback-btn {
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 2px solid var(--line); background: white; cursor: pointer;
+  font-size: 16px; display: flex; align-items: center; justify-content: center;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.pf-feedback-yes:hover:not(:disabled) { border-color: var(--good); background: #f0faf3; color: var(--good); }
+.pf-feedback-no:hover:not(:disabled)  { border-color: var(--rust); background: #fdf2ee; color: var(--rust); }
+.pf-feedback-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.pf-feedback-done { color: var(--good); font-weight: 500; }
+.pf-feedback-error { color: var(--rust); }
+.pf-feedback-correct { flex-direction: column; align-items: flex-start; gap: 8px; }
+.pf-feedback-select,
+.pf-feedback-input {
+  width: 100%; padding: 7px 10px;
+  border: 1px solid var(--line); border-radius: 4px;
+  font-size: 14px; font-family: var(--body); background: white;
+}
+.pf-feedback-actions { display: flex; gap: 8px; align-items: center; }
+.pf-btn-primary.pf-feedback-submit { padding: 7px 18px; font-size: 13px; min-width: 80px; }
+.pf-feedback-cancel { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 13px; }
+.pf-feedback-cancel:hover { color: var(--ink); }
 @keyframes pf-shimmer { to { background-position: -200% 0; } }
+
+/* -------------------------------------------------------------- history */
+.pf-history-row { cursor: default; }
+.pf-history-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.pf-history-ts { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.pf-history-result { display: flex; align-items: center; gap: 10px; }
+.pf-history-brand { font-weight: 600; font-size: 0.95rem; }
+.pf-history-conf { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.pf-history-more { font-size: 12px; color: var(--muted); }
+
+/* ------------------------------------------------------- offline banner */
+.pf-offline-banner {
+  background: var(--ink);
+  color: var(--amber);
+  border-bottom: 2px solid var(--amber);
+  padding: 10px 28px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  animation: pf-fade 0.2s ease;
+  position: relative;
+  z-index: 2;
+}
+
+/* ---------------------------------------------------------- pwa / mobile */
+/* Take Photo / Change Photo button — touch devices only */
+.pf-cam-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 56px;
+  padding: 14px 20px;
+  padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  background: var(--amber);
+  color: var(--ink);
+  border: none;
+  border-radius: 4px;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 16px;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: background 0.15s, transform 0.1s;
+}
+.pf-cam-btn:active { background: var(--amber-bright); transform: scale(0.98); }
+
+@media (pointer: coarse), (max-width: 640px) {
+  .pf-cam-btn { display: flex; }
+
+  /* Bigger tap targets on the category grid */
+  .pf-opt { min-height: 64px; padding: 20px 16px; }
+
+  /* Enlarge the identify button for thumb reach */
+  .pf-btn-primary { min-height: 52px; font-size: 16px; }
+
+  /* Safe-area insets for iPhone notch/home bar */
+  .pf-topbar { padding-top: max(14px, env(safe-area-inset-top, 14px)); }
+  .pf-footer { padding-bottom: max(28px, env(safe-area-inset-bottom, 28px)); }
+}
