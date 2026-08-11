@@ -556,6 +556,13 @@ TRACK_OPTIONS = {
         {"id": "high_lift", "name": "High Lift", "description": "Extra vertical track above door — specify inches of high lift"},
         {"id": "vertical", "name": "Vertical Lift", "description": "Full vertical track — door lifts straight up, no horizontal"},
     ],
+    # Torsion position for a low-headroom door. Shown only when liftType is
+    # low_headroom. Both options quote the same (front) hardware kit — BC has
+    # no rear-mount kit — so the choice rides on the door comment line.
+    "lhrMount": [
+        {"id": "front", "name": "Front Mount", "description": "Torsion shaft on the header, above the opening"},
+        {"id": "rear", "name": "Rear Mount", "description": "Torsion shaft at the back of the horizontal track"},
+    ],
     "thickness": [
         {"id": "2", "name": "2\" Track"},
         {"id": "3", "name": "3\" Track (Heavy Duty)"},
@@ -616,6 +623,7 @@ class DoorConfigRequest(BaseModel):
     mountSurface: str = "wood"  # 'wood', 'steel', or 'concrete' — install method; steel/concrete add a builder install premium + quote comment (door product price unaffected)
     liftType: str = "standard"  # 'standard', 'low_headroom', 'high_lift', 'vertical'
     highLiftInches: Optional[int] = None
+    lhrMount: str = "front"  # 'front' or 'rear' — torsion position, low_headroom only
     hardware: Dict[str, bool] = {}
     operator: Optional[str] = None
     operatorAccessories: Optional[List[str]] = None
@@ -856,10 +864,16 @@ async def calculate_struts(door_width: int, door_height: int = 84, window: str =
     }
 
 
-def _format_lift_label(raw, high_lift_inches=None) -> str:
+def _format_lift_label(raw, high_lift_inches=None, lhr_mount=None) -> str:
     r = (raw or 'standard').lower().replace('-', '_').replace(' ', '_')
     if r in ('low_headroom', 'lhr', 'low_head_room', 'lhr_front', 'lhr_rear'):
-        return 'LHR'
+        # Torsion position comes from lhr_mount; the legacy lhr_front/lhr_rear
+        # liftType spellings carry it in the lift value itself.
+        if r == 'lhr_rear':
+            return 'LHR REAR'
+        if r == 'lhr_front':
+            return 'LHR FRONT'
+        return 'LHR REAR' if str(lhr_mount or '').lower() == 'rear' else 'LHR FRONT'
     if r in ('high_lift', 'highlift'):
         try:
             n = int(high_lift_inches) if high_lift_inches else 0
@@ -931,7 +945,11 @@ def _format_door_description(door: DoorConfigRequest) -> str:
     height_str = f"{height_ft}'{height_in}\""
 
     track_display = _format_mount_label(getattr(door, 'trackMount', 'bracket'), door.trackThickness)
-    lift_type = _format_lift_label(getattr(door, 'liftType', 'standard'), getattr(door, 'highLiftInches', None))
+    lift_type = _format_lift_label(
+        getattr(door, 'liftType', 'standard'),
+        getattr(door, 'highLiftInches', None),
+        getattr(door, 'lhrMount', None),
+    )
 
     door_type = getattr(door, 'doorType', '') or ''
     design_display = _format_design_for_comment(
@@ -1176,6 +1194,7 @@ def build_bc_quote_from_doors(
                 "mountSurface": getattr(door, 'mountSurface', 'wood'),
                 "liftType": door.liftType,
                 "highLiftInches": door.highLiftInches,
+                "lhrMount": getattr(door, 'lhrMount', 'front'),
                 "hardware": door.hardware,
                 "operator": door.operator,
                 "operatorAccessories": door.operatorAccessories or [],
@@ -1973,6 +1992,7 @@ async def get_part_numbers(config: DoorConfigRequest, db: Session = Depends(get_
             "trackThickness": config.trackThickness,
             "liftType": config.liftType,
             "highLiftInches": config.highLiftInches,
+            "lhrMount": getattr(config, 'lhrMount', 'front'),
             "trackMount": config.trackMount,
             "mountSurface": getattr(config, 'mountSurface', 'wood'),
             "shaftType": config.shaftType,
@@ -2042,6 +2062,7 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "mountSurface": getattr(door, 'mountSurface', 'wood'),
                 "liftType": door.liftType,
                 "highLiftInches": door.highLiftInches,
+                "lhrMount": getattr(door, 'lhrMount', 'front'),
                 "hardware": door.hardware,
                 "operator": door.operator,
                 "operatorAccessories": door.operatorAccessories or [],
@@ -2438,6 +2459,7 @@ def get_shop_drawing_geometry(
     mountType: str = "bracket",
     frameType: str = "steel",
     doorType: str = "residential",
+    lhrMount: str = "front",
 ):
     """Calculate shop drawing geometry using Thermalex dimension formulas."""
     door_width = widthFeet * 12 + widthInches
@@ -2457,6 +2479,7 @@ def get_shop_drawing_geometry(
             mount_type=mountType,
             frame_type=frameType,
             door_type=doorType,
+            lhr_mount=lhrMount,
         )
         return geometry
     except Exception as e:

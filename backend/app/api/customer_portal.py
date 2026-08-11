@@ -651,7 +651,11 @@ def _format_door_description(door: dict) -> str:
     height_str = f"{height_ft}'{height_in}\""
 
     track_display = _format_mount_label(door.get("trackMount", "bracket"), door.get("trackThickness", "2"))
-    lift_type = _format_lift_label(door.get("liftType", "standard"), door.get("highLiftInches"))
+    lift_type = _format_lift_label(
+        door.get("liftType", "standard"),
+        door.get("highLiftInches"),
+        door.get("lhrMount"),
+    )
 
     door_type = door.get("doorType", "")
     design_display = _format_design_for_comment(
@@ -927,6 +931,7 @@ def _generate_bc_quote_with_items(
             "mountSurface": door.get("mountSurface", "wood"),
             "liftType": door.get("liftType", "standard"),
             "highLiftInches": door.get("highLiftInches"),
+            "lhrMount": door.get("lhrMount", "front"),
             "hardware": door.get("hardware", {}),
             "operator": door.get("operator"),
             "operatorAccessories": door.get("operatorAccessories", []),
@@ -1887,6 +1892,7 @@ def _build_door_config_dict(door: dict, is_home_builder: bool = False) -> dict:
         "mountSurface": door.get("mountSurface", "wood"),
         "liftType": door.get("liftType", "standard"),
         "highLiftInches": door.get("highLiftInches"),
+        "lhrMount": door.get("lhrMount", "front"),
         "hardware": door.get("hardware", {}),
         "operator": door.get("operator"),
         "operatorAccessories": door.get("operatorAccessories", []),
@@ -2385,6 +2391,7 @@ def _estimate_pricing_locally(
             "mountSurface": door.get("mountSurface", "wood"),
             "liftType": door.get("liftType", "standard"),
             "highLiftInches": door.get("highLiftInches"),
+            "lhrMount": door.get("lhrMount", "front"),
             "hardware": door.get("hardware", {}),
             "operator": door.get("operator"),
             "operatorAccessories": door.get("operatorAccessories", []),

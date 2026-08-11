@@ -100,6 +100,16 @@ class PartSelection:
     length_adjustment_ratio: Optional[float] = None
 
 
+def lhr_mount_label(lhr_mount: Optional[str]) -> str:
+    """Canonical '(FRONT MOUNT)' / '(REAR MOUNT)' suffix for a low-headroom door.
+
+    Front is the default: BC stocks only front-mount LHR hardware kits, so an
+    unset/unknown value must not silently read as rear. The shop distinguishes
+    the two off this label, not off the kit SKU.
+    """
+    return "(REAR MOUNT)" if str(lhr_mount or "").lower() == "rear" else "(FRONT MOUNT)"
+
+
 @dataclass
 class DoorConfiguration:
     """Input configuration for part number selection"""
@@ -133,6 +143,13 @@ class DoorConfiguration:
     track_mount: str = 'bracket'  # 'bracket' or 'angle'
     lift_type: str = 'standard'  # 'standard', 'low_headroom', 'high_lift', 'vertical'
     high_lift_inches: Optional[int] = None
+    # Low-headroom torsion position — 'front' (shaft on the header, above the
+    # opening) or 'rear' (shaft at the back of the horizontal track). Only
+    # meaningful when lift_type == 'low_headroom'; ignored otherwise.
+    # BC stocks FRONT kits only (every HK32/HK33 reads "LHR ... FRONT"), so
+    # both emit the same kit — rear is communicated to the shop via the
+    # door comment line, not a different SKU.
+    lhr_mount: str = 'front'  # 'front' or 'rear'
     end_cap_type: str = 'auto'  # 'auto', 'SEC', 'DEC'
     window_size: str = 'long'  # 'short' (GK15-10xxx) or 'long' (GK15-11xxx)
     glass_pockets_per_section: int = 1  # Number of glass pockets per V130G/V230G section
@@ -773,7 +790,7 @@ class PartNumberService:
             elif config.lift_type == 'vertical':
                 comment_desc += " | VERTICAL LIFT"
             elif config.lift_type == 'low_headroom':
-                comment_desc += " | LOW HEADROOM"
+                comment_desc += f" | LOW HEADROOM {lhr_mount_label(config.lhr_mount)}"
 
         parts.append(PartSelection(
             part_number="",  # Comment line has no part number
@@ -4076,6 +4093,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         track_mount=config_dict.get("trackMount", "bracket"),
         lift_type=config_dict.get("liftType", "standard"),
         high_lift_inches=config_dict.get("highLiftInches"),
+        lhr_mount=(config_dict.get("lhrMount") or "front"),
         end_cap_type=config_dict.get("endCapType", "auto"),
         hardware=config_dict.get("hardware", {}),
         operator=config_dict.get("operator"),

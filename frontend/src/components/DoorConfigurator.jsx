@@ -109,6 +109,7 @@ function DoorConfigurator() {
       trackRadius: '15',
       trackThickness: '2',
       liftType: 'standard',
+      lhrMount: 'front',
       hardware: {
         tracks: true,
         springs: true,
@@ -240,6 +241,7 @@ function DoorConfigurator() {
         trackThickness: door.trackThickness,
         liftType: door.liftType,
         highLiftInches: door.liftType === 'high_lift' ? door.highLiftInches : null,
+        lhrMount: door.liftType === 'low_headroom' ? (door.lhrMount || 'front') : undefined,
         hardware: door.hardware,
         operator: door.operator !== 'NONE' ? door.operator : null,
         operatorAccessories: (door.operatorAccessories || []).length > 0 ? door.operatorAccessories : undefined,
@@ -2355,6 +2357,35 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         </div>
       )}
 
+      {/* Front/Rear torsion mount - only shown for low_headroom */}
+      {isLowHeadroom && trackOptions.lhrMount && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Low Headroom Mount
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {trackOptions.lhrMount.map((option) => (
+              <button
+                key={option.id}
+                onClick={() => onChange({ lhrMount: option.id })}
+                className={`p-3 rounded-lg border-2 text-center transition-all ${
+                  (door.lhrMount || 'front') === option.id
+                    ? 'border-odc-500 bg-white'
+                    : 'border-gray-200 bg-white hover:border-gray-300'
+                }`}
+              >
+                <div className="text-sm font-medium">{option.name}</div>
+                <div className="text-xs text-gray-500 mt-1">{option.description}</div>
+              </button>
+            ))}
+          </div>
+          <div className="mt-2 text-sm text-blue-800">
+            Rear mount clears more header, but quotes the same hardware kit — the
+            shop reads the mount off the door comment on the quote.
+          </div>
+        </div>
+      )}
+
       {/* High Lift Inches - only shown for high_lift */}
       {door.liftType === 'high_lift' && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
@@ -2948,6 +2979,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
             trackThickness: door.trackThickness,
             liftType: door.liftType,
             highLiftInches: door.liftType === 'high_lift' ? door.highLiftInches : null,
+            lhrMount: door.liftType === 'low_headroom' ? (door.lhrMount || 'front') : undefined,
             endCapType: door.endCapType || 'auto',
             hardware: door.hardware,
             operator: door.operator !== 'NONE' ? door.operator : null,
@@ -3112,7 +3144,7 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
                 <span className="text-gray-500">Track:</span>
                 <span className="ml-2 text-gray-900">
                   {door.liftType === 'low_headroom'
-                    ? `${door.trackThickness || '2'}" Double Track Low Headroom`
+                    ? `${door.trackThickness || '2'}" Double Track Low Headroom (${(door.lhrMount || 'front') === 'rear' ? 'Rear' : 'Front'} Mount)`
                     : `${door.trackRadius}" radius / ${door.trackThickness}" track`}
                   {door.liftType === 'high_lift' && ' (High Lift)'}
                   {door.liftType === 'vertical' && ' (Vertical Lift)'}
