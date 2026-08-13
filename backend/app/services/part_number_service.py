@@ -151,7 +151,7 @@ class DoorConfiguration:
     # door comment line, not a different SKU.
     lhr_mount: str = 'front'  # 'front' or 'rear'
     end_cap_type: str = 'auto'  # 'auto', 'SEC', 'DEC'
-    window_size: str = 'long'  # 'short' (GK15-10xxx) or 'long' (GK15-11xxx)
+    window_size: str = 'long'  # 'short' (GK15-10xxx), 'long' (GK15-11xxx), or 'slim' (7"-tall row, weight-only — no GK15 generator support yet)
     glass_pockets_per_section: int = 1  # Number of glass pockets per V130G/V230G section
     spring_inventory: Optional[Dict[str, list]] = None  # stocked coil/wire combos from settings
     include_top_seal: Optional[bool] = None  # None=auto (apply rules), True=force include, False=exclude
@@ -175,6 +175,11 @@ class DoorConfiguration:
     # shaft-mounted operators is included by default; the portals expose an
     # opt-out (e.g. customer already owns the bar). False suppresses the auto-add.
     include_shaft_accessory: bool = True
+    # Spring finish upgrade: "oil_tempered" (default, SP11) or "galvanized"
+    # (SP10). Galvanized is emitted only where BC stocks the SP10 equivalent at
+    # the resolved wire/coil; otherwise the oil-tempered spring is kept and the
+    # gap is flagged (never silently changes the spring rate).
+    spring_finish: str = "oil_tempered"
     # Manual hand-chain hoist for motor-less commercial doors. One per door.
     # None/'none' = no hoist, 'shaft' = SP12-00084-00, 'wall' = FH12-00190-00.
     chain_hoist: Optional[str] = None
@@ -685,6 +690,59 @@ def get_resi_window_count(door_width_feet: int, panel_design: str, window_size: 
             table = RESI_WINDOW_COUNT["SH_LONG"]
 
     return table.get(door_width_feet, table.get(max(k for k in table if k <= door_width_feet), 2))
+
+
+# GK15 residential glass-kit encoding: {ss}{g}{cc} where ss=size code,
+# g=glass-type digit, cc=color code. Keep these sets in sync with the ss/g
+# selection logic in PartNumberService._get_window_parts() below — they
+# describe the same encoding rules and are used by
+# is_generatable_glass_kit_part() to detect glass-kit lines that could NOT
+# have come out of our generator (a strong signal of a hand-typed/out-of-band
+# BC edit — see the SO-001146 "SLIM WINDOW" incident: GK15-12605-50 has
+# ss="12", g="6", neither of which our code ever produces).
+GK15_VALID_SIZE_CODES = {
+    "KANATA": {"10", "11"},
+    "KANATA_EXECUTIVE": {"10", "11"},
+    "CRAFT": {"55"},
+}
+GK15_DEFAULT_SIZE_CODES = {"11"}  # series not in the map above default to KANATA LONG
+GK15_VALID_GLASS_DIGITS = {"1", "2", "4", "9"}
+
+
+def is_generatable_glass_kit_part(part_number: str, door_series: str) -> Tuple[bool, str]:
+    """
+    Check whether a GK15 glass-kit part number could have been produced by
+    PartNumberService._get_window_parts() for the given door series.
+
+    Returns (True, "") if the encoding is one our generator could build (or
+    a nearest-stock substitution of one — this only checks the encoding, not
+    live BC catalog membership). Returns (False, reason) if the size or
+    glass-type digits don't match anything we generate — meaning the line
+    was most likely hand-typed directly in BC, bypassing the app entirely,
+    so the door's weight/spring sizing may be stale relative to what's
+    actually on the quote.
+
+    Intended for audit/reconciliation tooling that reads back live BC quote
+    or order lines — the app itself has no visibility into edits made
+    directly in BC, so this can only run in a periodic sweep, not inline.
+    """
+    if not part_number or not part_number.upper().startswith("GK15-"):
+        return False, f"not a GK15 part number: {part_number!r}"
+
+    segments = part_number.strip().upper().split("-")
+    if len(segments) < 2 or len(segments[1]) < 3:
+        return False, f"can't parse size/glass digits from {part_number!r}"
+
+    core = segments[1]
+    ss, g = core[:2], core[2]
+
+    valid_sizes = GK15_VALID_SIZE_CODES.get((door_series or "").upper(), GK15_DEFAULT_SIZE_CODES)
+    if ss not in valid_sizes:
+        return False, f"size code {ss!r} not valid for {door_series} (expected one of {sorted(valid_sizes)})"
+    if g not in GK15_VALID_GLASS_DIGITS:
+        return False, f"glass digit {g!r} not a recognized glass type (expected one of {sorted(GK15_VALID_GLASS_DIGITS)})"
+
+    return True, ""
 
 
 class PartNumberService:
@@ -1273,8 +1331,16 @@ class PartNumberService:
         top_seal_weight = config.door_width * TOP_SEAL_LBS_PER_INCH if has_top_seal else 0
 
         # 9. Window weight (residential + commercial)
+        # "slim" = the 7"-tall Kanata slim window row (windowSpecifications.js
+        # SLIM_LONG/SLIM_MEDIUM/SLIM_SMALL) — not yet selectable via the live
+        # configurator UI, but reachable via window_size='slim' set directly
+        # (e.g. an office-entered override). Previously fell through to the
+        # "long" 14"-tall panel-window rate via the .get() default below,
+        # overcharging a slim window by ~25%. Estimated by scaling the "long"
+        # rate (7.0 lbs @ 40"x14"=560 sqin) by area to SLIM_LONG's 64"x7"=448
+        # sqin — not yet validated against a real scale weight.
         RESI_WINDOW_WEIGHTS = {
-            "KANATA": {"short": 4.0, "long": 7.0},
+            "KANATA": {"short": 4.0, "long": 7.0, "slim": 5.6},
             "CRAFT": {"short": 10.0, "long": 10.0},
         }
         COMM_WINDOW_WEIGHTS = {
@@ -1371,13 +1437,18 @@ class PartNumberService:
 
     def _calculate_aluminum_door_weight(self, config: DoorConfiguration) -> float:
         """
-        Calculate weight for aluminum full-view doors (AL976, Panorama, Solalite).
+        Calculate weight for aluminum full-view doors (AL976, AL976-SWD, Panorama, Solalite).
 
-        Based on OpenDC All Door Weight Calculator spreadsheet:
+        Based on OpenDC "New All Door Weight (except TX)" spreadsheet:
         - Panorama / Solalite: 1.5 lbs/ft² of total panel area
         - AL976: aluminum frame weight + glazing weight (varies by glass type)
           Frame: ~1.39 lbs/ft² of door area (derived from spreadsheet build-up)
           Glazing varies significantly by material type
+        - AL976-SWD ("Sectional Wood Door" style): lighter frame + smaller
+          glazed fraction than AL976. Calibrated against the spreadsheet's
+          10'1"x11'10" SWD example (frame 66.5 lbs / glaze 39.0 lbs @ Polycarb,
+          119.3 sqft door) — using AL976's frame rate here overweighted a
+          real SWD door 3.5x (531.6 lbs computed vs 149.9 lbs reference).
 
         All types add: hardware (~25 lbs) + strut weight + top seal
         """
@@ -1389,6 +1460,31 @@ class PartNumberService:
         if series in ("PANORAMA", "SOLALITE"):
             # Simple: 1.5 lbs/ft² of panel area
             panel_weight = door_area_sqft * 1.5
+        elif series in ("SWD", "AL976-SWD", "AL-SWD", "AL_SWD", "ALSWD"):
+            # AL976-SWD: lighter frame, smaller glazed fraction than full AL976.
+            # Frame: 0.557 lbs/ft² (66.5 lbs / 119.3 sqft, spreadsheet example)
+            SWD_FRAME_LBS_PER_SQFT = 0.557
+            frame_weight = door_area_sqft * SWD_FRAME_LBS_PER_SQFT
+
+            # Glazing rates scaled down from AL976's per-material rates by the
+            # ratio observed in the SWD example (0.327 lbs/sqft actual Polycarb
+            # density vs 0.459 lbs/sqft AL976 would predict for Polycarb over
+            # 85% area) — preserves AL976's relative material weights (Polycarb
+            # < Single < Insulated) since only Polycarb was directly calibrated.
+            glazing_type = (config.glazing_type or "glass").lower()
+            pane_type = (config.glass_pane_type or "INSULATED").upper()
+
+            if glazing_type == "polycarbonate":
+                glazing_lbs_per_sqft = 0.384  # 5/8" Polycarbonate
+            elif pane_type == "SINGLE":
+                glazing_lbs_per_sqft = 1.13  # 3mm Single Tempered
+            else:
+                glazing_lbs_per_sqft = 2.36  # Insulated / thermal glass (default)
+
+            glazing_area_sqft = door_area_sqft * 0.85
+            glazing_weight = glazing_area_sqft * glazing_lbs_per_sqft
+
+            panel_weight = frame_weight + glazing_weight
         else:
             # AL976: aluminum frame + glazing
             # Frame weight: ~1.39 lbs/ft² (from spreadsheet 18'x8' = 200 lbs / 144 sqft)
@@ -1679,6 +1775,17 @@ class PartNumberService:
 
         return parts
 
+    def _galvanized_stocked(self, mapper, wire_size: float, coil_id: float) -> bool:
+        """
+        True when BC stocks the galvanized (SP10) spring in BOTH winds at this
+        exact wire/coil. Springs are safety-critical, so the galvanized upgrade is
+        offered only where a true drop-in equivalent exists — never by substituting
+        a different rate. Only ~half of oil-tempered encodings have an SP10 twin.
+        """
+        galv = mapper.get_spring_part_number(wire_size, coil_id, "LH", SpringType.GALVANIZED)
+        base = galv.part_number.rsplit("-", 1)[0]  # SP10-{wire}{coil}
+        return f"{base}-01" in mapper.spring_items and f"{base}-02" in mapper.spring_items
+
     def _get_spring_parts(self, config: DoorConfiguration) -> Tuple[List[PartSelection], int, bool]:
         """
         Get spring part numbers using door_calculator for spring selection + BC part number mapper.
@@ -1907,6 +2014,28 @@ class PartNumberService:
                 notes="spring_not_in_inventory",
             ))
 
+        # Spring finish upgrade (galvanized SP10). Applied to the outer springs
+        # only where BC stocks the SP10 twin at the resolved wire/coil; otherwise
+        # keep oil-tempered (SP11) and flag the gap for the office — never swap in
+        # a different spring rate.
+        want_galvanized = (config.spring_finish or "oil_tempered").lower() == "galvanized"
+        galvanized_applied = False
+        if want_galvanized and spring_found_in_bc and self._galvanized_stocked(mapper, wire_size, coil_id):
+            spring_lh = mapper.get_spring_part_number(wire_size, coil_id, "LH", SpringType.GALVANIZED)
+            spring_rh = mapper.get_spring_part_number(wire_size, coil_id, "RH", SpringType.GALVANIZED)
+            galvanized_applied = True
+        elif want_galvanized:
+            parts.append(PartSelection(
+                part_number="",
+                description=(
+                    f"** GALVANIZED SPRING not stocked at {wire_size}\" x {coil_id}\" — "
+                    f"quoted oil-tempered; office to source galvanized upgrade. **"
+                ),
+                quantity=0,
+                category="spring_warning",
+                notes="galvanized_spring_unavailable",
+            ))
+
         # Spring detail comment: wire, ID, length, qty per hand
         if is_duplex and spring_result:
             inner_wire_c = spring_result.inner_wire_diameter
@@ -1945,6 +2074,8 @@ class PartNumberService:
                     spring_detail_desc = f"{base} | {lh_count} LH + {rh_count} RH ({spring_qty} total)"
                 else:
                     spring_detail_desc = f"{base} | {lh_count} LH ({spring_qty} total)"
+        if galvanized_applied:
+            spring_detail_desc += " | GALVANIZED"
         parts.append(PartSelection(
             part_number="",
             description=spring_detail_desc,
@@ -1995,6 +2126,11 @@ class PartNumberService:
 
             inner_lh = mapper.get_spring_part_number(inner_wire, inner_coil, "LH")
             inner_rh = mapper.get_spring_part_number(inner_wire, inner_coil, "RH")
+            # Match the outer finish on the inner spring when galvanized was applied
+            # and the SP10 twin is stocked at the inner wire/coil too.
+            if galvanized_applied and self._galvanized_stocked(mapper, inner_wire, inner_coil):
+                inner_lh = mapper.get_spring_part_number(inner_wire, inner_coil, "LH", SpringType.GALVANIZED)
+                inner_rh = mapper.get_spring_part_number(inner_wire, inner_coil, "RH", SpringType.GALVANIZED)
 
             parts.append(PartSelection(
                 part_number=inner_lh.part_number,
@@ -2977,12 +3113,12 @@ class PartNumberService:
             # Polycarbonate glazing kits
             glass_color = (config.glass_color or "CLEAR").upper()
             gk17_map = {
-                "CLEAR":        ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"),
-                "LIGHT_BRONZE": ("GK17-12600-00", "GLAZING KIT, ALUM, POLYCARBONATE, LIGHT BRONZE"),
-                "DARK_BRONZE":  ("GK17-12700-00", "GLAZING KIT, ALUM, POLYCARBONATE, DARK BRONZE"),
-                "WHITE_OPAL":   ("GK17-12800-00", "GLAZING KIT, ALUM, POLYCARBONATE, WHITE OPAL"),
+                "CLEAR":        ("GK17-25000-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"),
+                "LIGHT_BRONZE": ("GK17-25100-00", "GLAZING KIT, ALUM, POLYCARBONATE, LIGHT BRONZE"),
+                "DARK_BRONZE":  ("GK17-25200-00", "GLAZING KIT, ALUM, POLYCARBONATE, DARK BRONZE"),
+                "WHITE_OPAL":   ("GK17-25300-00", "GLAZING KIT, ALUM, POLYCARBONATE, WHITE OPAL"),
             }
-            poly_pn, poly_desc = gk17_map.get(glass_color, ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"))
+            poly_pn, poly_desc = gk17_map.get(glass_color, ("GK17-25000-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"))
 
             parts.append(PartSelection(
                 part_number=poly_pn,
@@ -2995,30 +3131,34 @@ class PartNumberService:
             # AL976 / SWD — GK17 aluminum glazing kits
             # Three independent axes: color × pane (insulated/single) × glass
             # type (annealed/tempered). Lookup is keyed (color, pane, glass).
+            # Verified against BC item master 2026-08-13 — the previous map
+            # used a numbering scheme (GK17-11xxx/12xxx/103xx) that doesn't
+            # exist in BC at all; every non-default combo was silently
+            # dropped to an unpriced comment line on the quote.
             glass_color = (config.glass_color or "CLEAR").upper()
             pane_type = (config.glass_pane_type or "INSULATED").upper()
             glass_treatment = (getattr(config, "glass_type", None) or "ANNEALED").upper()
 
             gk17_glass_map = {
                 # INSULATED + ANNEALED
-                ("CLEAR",      "INSULATED", "ANNEALED"): ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR"),
-                ("ETCHED",     "INSULATED", "ANNEALED"): ("GK17-11700-00", "GLAZING KIT, ALUM, THERM, ETCHED/CLEAR"),
-                ("SUPER_GREY", "INSULATED", "ANNEALED"): ("GK17-12400-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/CLEAR"),
+                ("CLEAR",      "INSULATED", "ANNEALED"): ("GK17-10000-00", "GLAZING KIT, ALUM, THERM, CLEAR/ CLEAR"),
+                ("ETCHED",     "INSULATED", "ANNEALED"): ("GK17-10100-00", "GLAZING KIT, ALUM, THERM, ETCHED/ CLEAR"),
+                ("SUPER_GREY", "INSULATED", "ANNEALED"): ("GK17-10500-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR"),
                 # INSULATED + TEMPERED
-                ("CLEAR",      "INSULATED", "TEMPERED"): ("GK17-11500-00", "GLAZING KIT, ALUM, THERM, TEMP/CLEAR"),
-                ("ETCHED",     "INSULATED", "TEMPERED"): ("GK17-13120-00", "GLAZING KIT, ALUM, THERM, TEMPERED/ETCHED"),
+                ("CLEAR",      "INSULATED", "TEMPERED"): ("GK17-11000-00", "GLAZING KIT, ALUM, THERM, TEMP/ CLEAR"),
+                ("ETCHED",     "INSULATED", "TEMPERED"): ("GK17-11010-00", "GLAZING KIT, ALUM, THERM, TEMPERED/ ETCHED"),
                 # SINGLE + ANNEALED
-                ("CLEAR",      "SINGLE",    "ANNEALED"): ("GK17-10100-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
-                ("ETCHED",     "SINGLE",    "ANNEALED"): ("GK17-10300-00", "GLAZING KIT, ALUM, SINGLE 3MM, ETCHED"),
+                ("CLEAR",      "SINGLE",    "ANNEALED"): ("GK17-03000-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
+                ("ETCHED",     "SINGLE",    "ANNEALED"): ("GK17-03010-00", "GLAZING KIT, ALUM, SINGLE (3MM), ETCHED"),
                 # SINGLE + TEMPERED
-                ("CLEAR",      "SINGLE",    "TEMPERED"): ("GK17-10200-00", "GLAZING KIT, ALUM, SINGLE (3MM), TEMP"),
+                ("CLEAR",      "SINGLE",    "TEMPERED"): ("GK17-03100-00", "GLAZING KIT, ALUM, SINGLE (3MM), TEMP"),
                 # Combinations not yet stocked in BC fall through to the
                 # default below — the warning surfaces on the quote so the
                 # office can swap to an in-stock SKU if needed.
             }
             glass_pn, glass_desc = gk17_glass_map.get(
                 (glass_color, pane_type, glass_treatment),
-                ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR"),
+                ("GK17-10000-00", "GLAZING KIT, ALUM, THERM, CLEAR/ CLEAR"),
             )
 
             parts.append(PartSelection(
@@ -3192,6 +3332,7 @@ class PartNumberService:
         gk15_pn = f"GK15-{ss}{g}{cc}-00"
 
         # Validate against BC items
+        window_substitution_note = None
         validated = mapper.get_glass_kit(gk15_pn, "residential")
         if validated:
             part_number = validated.part_number
@@ -3200,11 +3341,15 @@ class PartNumberService:
             # Constructed combo isn't a real BC SKU — substitute the nearest
             # existing GK15 so BC SalesPriceLists can resolve a real price.
             # Without this, BC silently prices the unknown PN at 0 / item-card
-            # default and the quote shows fabricated pricing.
+            # default and the quote shows fabricated pricing. Flagged via
+            # `notes` (not a customer-facing comment line — this substitution
+            # is routine for uncommon color/glass combos) so a reconciliation
+            # pass can still see it happened.
             substitute = mapper.find_closest_glass_kit(gk15_pn)
             if substitute:
                 part_number = substitute.part_number
                 description = substitute.description
+                window_substitution_note = f"requested {gk15_pn}, substituted nearest stocked SKU"
             else:
                 part_number = gk15_pn
                 glass_label = {"1": "SINGLE", "2": "THERM-CLEAR", "4": "THERM-ETCHED", "9": "SUPER GREY"}.get(g, "THERM-CLEAR")
@@ -3216,6 +3361,8 @@ class PartNumberService:
 
         # Build window placement note
         window_note = self._build_window_placement_note(config)
+        if window_substitution_note:
+            window_note = f"{window_note} | {window_substitution_note}" if window_note else window_substitution_note
 
         parts = [PartSelection(
             part_number=part_number,
@@ -3495,17 +3642,18 @@ class PartNumberService:
         glass_color = (config.glass_color or "CLEAR").upper()
         pane_type = (config.glass_pane_type or "INSULATED").upper()
 
+        # Verified against BC item master 2026-08-13 — see the matching note
+        # in _get_aluminum_section_parts's gk17_glass_map above.
         gk17_glass_map = {
-            ("CLEAR", "INSULATED"):      ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR"),
-            ("CLEAR", "SINGLE"):         ("GK17-10100-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
-            ("ETCHED", "INSULATED"):     ("GK17-11700-00", "GLAZING KIT, ALUM, THERM, ETCHED/CLEAR"),
-            ("ETCHED", "SINGLE"):        ("GK17-10300-00", "GLAZING KIT, ALUM, SINGLE 3MM, ETCHED"),
-            ("SUPER_GREY", "INSULATED"): ("GK17-12300-00", "GLAZING KIT, ALUM, THERM, TINTED GR/CLEAR"),
-            ("SUPER_GREY", "SINGLE"):    ("GK17-12300-00", "GLAZING KIT, ALUM, THERM, TINTED GR/CLEAR"),
+            ("CLEAR", "INSULATED"):      ("GK17-10000-00", "GLAZING KIT, ALUM, THERM, CLEAR/ CLEAR"),
+            ("CLEAR", "SINGLE"):         ("GK17-03000-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
+            ("ETCHED", "INSULATED"):     ("GK17-10100-00", "GLAZING KIT, ALUM, THERM, ETCHED/ CLEAR"),
+            ("ETCHED", "SINGLE"):        ("GK17-03010-00", "GLAZING KIT, ALUM, SINGLE (3MM), ETCHED"),
+            ("SUPER_GREY", "INSULATED"): ("GK17-10500-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR"),
         }
         glass_pn, glass_desc = gk17_glass_map.get(
             (glass_color, pane_type),
-            ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR")
+            ("GK17-10000-00", "GLAZING KIT, ALUM, THERM, CLEAR/ CLEAR")
         )
 
         # Calculate glass square footage per section using actual window opening dimensions
@@ -3586,12 +3734,12 @@ class PartNumberService:
         # Polycarbonate glazing (GK17)
         glass_color = (config.glass_color or "CLEAR").upper()
         gk17_map = {
-            "CLEAR":        ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"),
-            "LIGHT_BRONZE": ("GK17-12600-00", "GLAZING KIT, ALUM, POLYCARBONATE, LIGHT BRONZE"),
-            "DARK_BRONZE":  ("GK17-12700-00", "GLAZING KIT, ALUM, POLYCARBONATE, DARK BRONZE"),
-            "WHITE_OPAL":   ("GK17-12800-00", "GLAZING KIT, ALUM, POLYCARBONATE, WHITE OPAL"),
+            "CLEAR":        ("GK17-25000-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"),
+            "LIGHT_BRONZE": ("GK17-25100-00", "GLAZING KIT, ALUM, POLYCARBONATE, LIGHT BRONZE"),
+            "DARK_BRONZE":  ("GK17-25200-00", "GLAZING KIT, ALUM, POLYCARBONATE, DARK BRONZE"),
+            "WHITE_OPAL":   ("GK17-25300-00", "GLAZING KIT, ALUM, POLYCARBONATE, WHITE OPAL"),
         }
-        poly_pn, poly_desc = gk17_map.get(glass_color, ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"))
+        poly_pn, poly_desc = gk17_map.get(glass_color, ("GK17-25000-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"))
 
         panel_count = self._calculate_panel_count(config.door_height)
         glazing_sqft_per_section = self._calculate_al976_glass_sqft_per_section(
@@ -4116,6 +4264,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         include_track_guards=bool(config_dict.get("trackGuards", False)),
         include_exhaust_port=bool(config_dict.get("exhaustPort", False)),
         include_shaft_accessory=bool(config_dict.get("includeShaftAccessory", True)),
+        spring_finish=config_dict.get("springFinish", "oil_tempered"),
         include_perforated_angle=bool(config_dict.get("includePerforatedAngle", False)),
     )
 
