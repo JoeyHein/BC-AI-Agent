@@ -85,6 +85,15 @@ class Settings(BaseSettings):
     PLANNING_SHAREPOINT_FILE_PATH: str = "Planning/OPENDC_Planning.xlsx"  # path within the drive
     PLANNING_SHAREPOINT_WEB_URL: Optional[str] = None        # shown in the notification email
 
+    # Production schedule (nightly job) — same Graph app/drive as the planning
+    # workbook, different file. Shop-floor tracking sheet (Panels/Hardware/
+    # Tracks/Springs/Shafts/Weather Stripping/Operators per open SO), hand-edited
+    # directly in SharePoint/Excel Online between refreshes.
+    PRODSCHED_SHAREPOINT_ENABLED: bool = False
+    PRODSCHED_SHAREPOINT_DRIVE_ID: Optional[str] = None
+    PRODSCHED_SHAREPOINT_FILE_PATH: str = "Production Schedule/OPENDC_Production_Schedule.xlsx"
+    PRODSCHED_SHAREPOINT_WEB_URL: Optional[str] = None
+
     # Feature Flags
     ENABLE_EMAIL_MONITORING: bool = True
     ENABLE_AI_PARSING: bool = True
