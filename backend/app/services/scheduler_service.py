@@ -134,6 +134,19 @@ class SchedulerService:
         )
         logger.info("✓ Scheduled: Daily planning workbook 04:00 America/Edmonton")
 
+        # Daily production schedule refresh — 04:30 America/Edmonton, every day.
+        # Shop-floor tracking sheet (open SOs x Panels/Hardware/Tracks/Springs/
+        # Shafts/Weather Stripping/Operators), hand-edited live in SharePoint;
+        # this reads back existing edits before merging in new/changed BC orders.
+        self.scheduler.add_job(
+            func=self._production_schedule_job,
+            trigger=CronTrigger(hour=4, minute=30, timezone='America/Edmonton'),
+            id='production_schedule',
+            name='Daily Production Schedule - open SOs x component tracking',
+            replace_existing=True,
+        )
+        logger.info("✓ Scheduled: Daily production schedule refresh 04:30 America/Edmonton")
+
         # Start scheduler
         self.scheduler.start()
         self.is_running = True
@@ -318,6 +331,21 @@ class SchedulerService:
                     db.close()
                 except Exception:
                     pass
+
+    def _production_schedule_job(self):
+        """Refresh the SharePoint production schedule from open BC sales orders,
+        preserving hand-edited status (see production_schedule_service). No-op
+        if PRODSCHED_SHAREPOINT_ENABLED/DRIVE_ID aren't configured."""
+        try:
+            from app.config import settings
+            if not (settings.PRODSCHED_SHAREPOINT_ENABLED and settings.PRODSCHED_SHAREPOINT_DRIVE_ID):
+                logger.info("Production schedule SharePoint publish not configured, skipping")
+                return
+            from app.services.production_schedule_service import production_schedule_service
+            result = production_schedule_service.build_and_deliver()
+            logger.info(f"Production schedule refresh complete: {result}")
+        except Exception as e:
+            logger.error(f"Production schedule job failed: {e}", exc_info=True)
 
     def _email_send_queue_job(self):
         """Send any portal-scheduled weekly-email campaigns whose time has come.
