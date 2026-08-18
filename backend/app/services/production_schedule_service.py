@@ -13,9 +13,21 @@ Order/Ordered/Shipped by Vendor/In Stock/Received) AND Production status
 independently, so e.g. Panels can be "Shipped by Vendor" while Hardware is
 "In Stock" on the same order.
 
-Order Date is refreshed from BC every run. Everything else (PO Date, the 14
-per-component status columns, Shipping Status) is hand-edited directly in
-the live SharePoint copy between refreshes.
+Order Date is refreshed from BC every run. Of the remaining fields, 4 of the
+5 Purchasing states are auto-computable from BC (see AUTO-FILL below); PO
+Date, Production status, and Shipping Status are hand-edited directly in the
+live SharePoint copy between refreshes.
+
+AUTO-FILL: Purchasing Status is seeded from the purchasing demand engine
+(purchasing_demand_service — the same allocation-based on-hand/on-order/
+net-need netting the purchasing tool already uses) — Waiting to Order /
+Ordered / In Stock / Received are all derivable from BC's PO receipt data
+and inventory; "Shipped by Vendor" is NOT derivable (BC's Purchase Order
+comment lines aren't published as a web service in this tenant) and stays
+manual. To respect hand-edits, auto-fill only touches a component's
+Purchasing Status while it's still sitting at the untouched default
+("Waiting to Order") — the instant a person (or a prior auto-fill) sets it
+to anything else, later refreshes leave it alone permanently.
 
 Every rebuild reads back the current SharePoint file FIRST and carries edits
 forward keyed by SO number, then overwrites the file in place. Schedule/
@@ -31,6 +43,7 @@ Mirrors the read-back-before-overwrite pattern in planning_workbook_service.py.
 import io
 import logging
 import re
+from collections import defaultdict
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -55,6 +68,33 @@ TRACKING_COLUMNS = [
     "Weather Stripping",
     "Operators",
 ]
+
+# Item-number prefix -> production-schedule component, for auto-filling
+# Purchasing Status. Confirmed with Joey 2026-08-18: Weather Stripping is
+# PL10/PL11, Operators are OP19-OP21. Panels/Track/Springs/Shafts/Hardware
+# prefixes are read off part_number_service.py's part-number-family sections
+# and shipping_checklist_service.py's kit-BOM classification (SP10/SP11 =
+# spring wire, SP12 = spring-assembly hardware — bucketed with Springs since
+# it's the same physical system; FH1x = hinges/brackets/struts -> Hardware).
+COMPONENT_PREFIXES: List[Tuple[str, str]] = [
+    ("PN", "Panels"),
+    ("GK", "Panels"),       # glass kits, aluminum door glazing
+    ("TR", "Tracks"),
+    ("SP10", "Springs"),
+    ("SP11", "Springs"),
+    ("SP12", "Springs"),
+    ("SH11", "Shafts"),
+    ("HK", "Hardware"),
+    ("HW", "Hardware"),
+    ("FH", "Hardware"),
+    ("PL10", "Weather Stripping"),
+    ("PL11", "Weather Stripping"),
+    ("OP19", "Operators"),
+    ("OP20", "Operators"),
+    ("OP21", "Operators"),
+]
+# Longest prefix first so e.g. "SP12" matches before a hypothetical bare "SP".
+COMPONENT_PREFIXES.sort(key=lambda pair: -len(pair[0]))
 
 NOT_COMPLETE = "Not Complete"
 COMPLETE = "Complete"
@@ -125,6 +165,20 @@ def _normalize_tracking_status(value) -> str:
     return NOT_COMPLETE
 
 
+def _classify_item(item_no: str) -> Optional[str]:
+    """Map a BC item number to one of the 7 production-schedule components,
+    via COMPONENT_PREFIXES. Returns None for items that don't belong to any
+    tracked component (freight, install labor, misc non-BC items) — those
+    are simply excluded from auto-fill rather than forced into a bucket."""
+    if not item_no:
+        return None
+    item_no = item_no.upper()
+    for prefix, component in COMPONENT_PREFIXES:
+        if item_no.startswith(prefix):
+            return component
+    return None
+
+
 def _normalize_choice(value, choices: List[str], default: str) -> str:
     value = (str(value).strip() if value else "")
     return value if value in choices else default
@@ -179,7 +233,10 @@ class ProductionScheduleService:
     # ── BC data ─────────────────────────────────────────────────────────
 
     def fetch_open_orders(self) -> List[Dict[str, Any]]:
-        """All in-flight sales orders from BC.
+        """All in-flight sales orders from BC, WITH their lines expanded —
+        needed both for the header fields and to classify each order's items
+        into components for Purchasing Status auto-fill (see
+        _auto_purchasing_status).
 
         BC's salesOrders v2.0 entity only ever holds non-posted orders
         (posted = shipped/invoiced orders leave this entity entirely), so no
@@ -189,15 +246,63 @@ class ProductionScheduleService:
         that needs to be scheduled, so it must NOT be filtered out. Only an
         explicit Cancelled status is excluded.
         """
-        cid = bc_client.company_id
-        url = (
-            f"{bc_client.base_url}/companies({cid})/salesOrders"
-            f"?$select=id,number,customerName,externalDocumentNumber,status,orderDate"
-        )
-        orders = bc_client._paginate_v2(url, "in-flight sales orders (production schedule)")
+        orders = bc_client.get_open_sales_orders_with_lines()
         orders = [o for o in orders if "cancel" not in (o.get("status") or "").lower()]
         orders.sort(key=lambda o: _sort_key(o.get("number", "")))
         return orders
+
+    # ── Purchasing Status auto-fill ────────────────────────────────────
+
+    def _item_purchasing_status(self, info: dict) -> str:
+        """One item's Purchasing state from the demand engine's netting.
+        `on_order` is CURRENTLY outstanding (un-received) PO quantity, so
+        >0 always means "Ordered" regardless of net_need. Otherwise, if
+        aggregate demand for this item is covered (net_need <= 0), the
+        purchasing_intel last-receipt signal distinguishes "bought and
+        already arrived" (Received) from "never had to buy it" (In Stock)."""
+        if (info.get("on_order") or 0) > 0:
+            return "Ordered"
+        if (info.get("net_need") or 0) <= 0:
+            return "Received" if info.get("last_purchase_date") else "In Stock"
+        return "Waiting to Order"
+
+    def _aggregate_purchasing_status(self, infos: List[dict]) -> str:
+        """A component's status is its worst-off item — the component isn't
+        done purchasing until every item in it is."""
+        rank = {"Waiting to Order": 0, "Ordered": 1, "In Stock": 2, "Received": 3}
+        statuses = [self._item_purchasing_status(i) for i in infos]
+        return min(statuses, key=lambda s: rank[s]) if statuses else DEFAULT_PURCHASING_STATE
+
+    def _auto_purchasing_status(self, db, orders: List[Dict[str, Any]]) -> Dict[str, Dict[str, str]]:
+        """{so_number: {component: computed_status}} for every order/component
+        with at least one classifiable item. Built once per refresh off the
+        same allocation-based demand engine the purchasing tool already uses
+        — see purchasing_demand_service.compute_requirements."""
+        from app.services.purchasing_demand_service import purchasing_demand_service
+        from app.services.planning_workbook_service import _so_item_numbers
+
+        try:
+            req = purchasing_demand_service.compute_requirements(db, include_met=True, horizon_weeks=None)
+        except Exception as e:
+            logger.error(f"[ProductionSchedule] Purchasing auto-fill unavailable: {e}")
+            return {}
+        items_by_no = {r["item_no"]: r for r in req.get("items", [])}
+
+        result: Dict[str, Dict[str, str]] = {}
+        for order in orders:
+            so_number = order.get("number", "")
+            component_items: Dict[str, List[dict]] = defaultdict(list)
+            for item_no in _so_item_numbers(order):
+                component = _classify_item(item_no)
+                info = items_by_no.get(item_no)
+                if component and info is not None:
+                    component_items[component].append(info)
+            if component_items:
+                result[so_number] = {
+                    component: self._aggregate_purchasing_status(infos)
+                    for component, infos in component_items.items()
+                }
+        return result
 
     # ── read-back ───────────────────────────────────────────────────────
 
@@ -387,9 +492,13 @@ class ProductionScheduleService:
                     cell.fill = ARCHIVED_FILL
 
     def build_workbook_bytes(
-        self, orders: List[Dict[str, Any]], records: Dict[str, _SORecord]
+        self,
+        orders: List[Dict[str, Any]],
+        records: Dict[str, _SORecord],
+        auto_purchasing: Optional[Dict[str, Dict[str, str]]] = None,
     ) -> Tuple[bytes, int, int]:
         open_so_numbers = {o.get("number", "") for o in orders}
+        auto_purchasing = auto_purchasing or {}
 
         wb = Workbook()
         ws = wb.active
@@ -404,6 +513,11 @@ class ProductionScheduleService:
             rec.customer_name = order.get("customerName", "")
             rec.customer_tag = order.get("externalDocumentNumber", "")
             rec.order_date = _parse_date_value(order.get("orderDate")) or rec.order_date
+            # Purchasing Status auto-fill: only while still at the untouched
+            # default — see module docstring's AUTO-FILL note.
+            for component, computed in auto_purchasing.get(so_number, {}).items():
+                if rec.purchasing.get(component) == DEFAULT_PURCHASING_STATE:
+                    rec.purchasing[component] = computed
             ws.append(rec.to_row())
 
         self._style_sheet(ws)
@@ -443,7 +557,8 @@ class ProductionScheduleService:
             logger.error(f"[ProductionSchedule] SharePoint read-back failed: {e}")
 
         orders = self.fetch_open_orders()
-        xlsx, open_count, archived_count = self.build_workbook_bytes(orders, records)
+        auto_purchasing = self._compute_auto_purchasing(orders)
+        xlsx, open_count, archived_count = self.build_workbook_bytes(orders, records, auto_purchasing)
 
         sharepoint_url = graph_client.upload_drive_file(
             settings.PRODSCHED_SHAREPOINT_DRIVE_ID,
@@ -469,10 +584,25 @@ class ProductionScheduleService:
             records = self.parse_records_from_bytes(output_path.read_bytes())
 
         orders = self.fetch_open_orders()
-        xlsx, open_count, archived_count = self.build_workbook_bytes(orders, records)
+        auto_purchasing = self._compute_auto_purchasing(orders)
+        xlsx, open_count, archived_count = self.build_workbook_bytes(orders, records, auto_purchasing)
         output_path.write_bytes(xlsx)
 
         return {"open_orders": open_count, "archived_orders": archived_count, "path": str(output_path)}
+
+    def _compute_auto_purchasing(self, orders: List[Dict[str, Any]]) -> Dict[str, Dict[str, str]]:
+        """Opens its own short-lived DB session (only needed for vendor-map
+        resolution inside the demand engine) — best-effort, never blocks the
+        rest of the refresh if it fails."""
+        from app.db.database import SessionLocal
+        db = SessionLocal()
+        try:
+            return self._auto_purchasing_status(db, orders)
+        except Exception as e:
+            logger.error(f"[ProductionSchedule] Purchasing auto-fill failed: {e}")
+            return {}
+        finally:
+            db.close()
 
 
 production_schedule_service = ProductionScheduleService()
