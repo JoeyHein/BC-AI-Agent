@@ -2193,3 +2193,72 @@ class PurchasingBrief(Base):
 
     def __repr__(self):
         return f"<PurchasingBrief(as_of={self.as_of}, model={self.model})>"
+
+
+class IncomingInvoice(Base):
+    """One row per vendor invoice pulled from the monitored mailbox.
+
+    Tracks the whole pipeline for one attachment: Claude's extraction,
+    vendor/PO/GL matching, and the resulting BC purchase invoice (created as
+    Draft — this table never posts anything, it only tracks what was staged
+    and how confident the match was). `status='pending'` means a human needs
+    to resolve something (usually an unmatched vendor) before a BC invoice
+    can even be created, since the header requires a vendorId.
+
+    `match_type`: 'po' (line-matched to an open PO), 'gl' (coded to a GL
+    account via `gl_account_suggested`), 'unmatched' (no vendor/PO/GL signal
+    — needs a human), or null before matching runs.
+
+    (source_email_id, attachment_filename) is the idempotency key — the
+    intake job re-checks it before processing, so a re-run over the same
+    inbox window never double-creates.
+    """
+
+    __tablename__ = "incoming_invoices"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    source_email_id = Column(String(300), nullable=False, index=True)
+    source_email_received_at = Column(DateTime, nullable=True)
+    sender_email = Column(String(255), nullable=True)
+    attachment_filename = Column(String(255), nullable=False)
+
+    vendor_id = Column(String(100), nullable=True)       # BC vendor GUID, once matched
+    vendor_number = Column(String(40), nullable=True, index=True)
+    vendor_name_extracted = Column(String(255), nullable=True)  # what Claude read off the PDF
+    vendor_invoice_number = Column(String(100), nullable=True, index=True)
+    invoice_date = Column(Date, nullable=True)
+    due_date = Column(Date, nullable=True)
+    total_amount = Column(Numeric(14, 2), nullable=True)
+    currency_code = Column(String(10), nullable=True)
+
+    extracted_json = Column(JSON, nullable=True)   # full structured extraction from Claude
+
+    match_type = Column(String(20), nullable=True)          # po | gl | unmatched
+    matched_po_number = Column(String(40), nullable=True)
+    gl_account_suggested = Column(String(40), nullable=True)
+    gl_confidence = Column(String(20), nullable=True)        # high | low | none
+    review_flags = Column(JSON, nullable=True)  # e.g. ["vendor_unmatched","po_amount_mismatch"]
+
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    # pending | created | duplicate_skipped | error
+
+    bc_invoice_id = Column(String(100), nullable=True)
+    bc_invoice_number = Column(String(40), nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    reviewed_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("source_email_id", "attachment_filename", name="uq_incoming_invoice_source"),
+    )
+
+    def __repr__(self):
+        return (
+            f"<IncomingInvoice(id={self.id}, vendor='{self.vendor_number}', "
+            f"status='{self.status}', bc_invoice='{self.bc_invoice_number}')>"
+        )
