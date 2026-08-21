@@ -197,6 +197,169 @@ Analyze the following email and extract structured quote request information.
                 "confidence": 0.0
             }
 
+    def extract_invoice_from_pdf(self, pdf_bytes: bytes, filename: str) -> Dict[str, Any]:
+        """Extract structured data from a vendor invoice PDF (base64 document
+        content block — Claude reads PDFs natively, no separate OCR step).
+
+        Args:
+            pdf_bytes: Raw PDF file content
+            filename: Original filename, for logging/context only
+
+        Returns:
+            Dict with extracted data and confidence scores, same shape as
+            parse_email_for_quote (success/data/confidence/model/tokens).
+        """
+        if not self.client:
+            return {
+                "success": False,
+                "error": "AI client not initialized",
+                "confidence": 0.0
+            }
+
+        import base64
+        pdf_b64 = base64.standard_b64encode(pdf_bytes).decode("utf-8")
+
+        prompt = """You are an AI assistant helping a garage door manufacturer (Open Distribution Company) process incoming vendor invoices.
+
+Read the attached PDF and extract structured invoice data.
+
+**Extract:**
+
+1. **Vendor Information:**
+   - Vendor/supplier name (as printed on the invoice)
+   - Vendor address (if present)
+
+2. **Invoice Header:**
+   - Invoice number (the VENDOR's own invoice number, not any internal reference)
+   - Invoice date
+   - Due date
+   - Purchase order number referenced on the invoice, if any (customers/vendors often print "PO#" or "Order #" — extract exactly as printed)
+   - Currency (CAD/USD/etc.)
+
+3. **Line Items** (each line on the invoice):
+   - Description (as printed)
+   - Vendor's own part/item number, if printed
+   - Quantity
+   - Unit price
+   - Line total
+
+4. **Totals:**
+   - Subtotal (before tax)
+   - Tax amount
+   - Total amount due
+
+5. **Confidence Assessment:**
+   - Overall confidence (0.0 to 1.0)
+   - Per-field confidence for vendor name, invoice number, and total (these three matter most for matching)
+   - Anything ambiguous, handwritten, or hard to read (common on scanned paper invoices) — note it explicitly
+
+**Output Format:** JSON only, no additional text. Use this structure:
+
+```json
+{
+  "vendor": {
+    "name": "Vendor Name or null",
+    "address": "Address or null",
+    "confidence": 0.0-1.0
+  },
+  "invoice_number": "Vendor's invoice number or null",
+  "invoice_number_confidence": 0.0-1.0,
+  "invoice_date": "YYYY-MM-DD or null",
+  "due_date": "YYYY-MM-DD or null",
+  "po_number_referenced": "PO number printed on the invoice, or null",
+  "currency": "CAD or USD or null",
+  "line_items": [
+    {
+      "description": "Line description",
+      "vendor_item_number": "Vendor's part number or null",
+      "quantity": number or null,
+      "unit_price": number or null,
+      "line_total": number or null
+    }
+  ],
+  "subtotal": number or null,
+  "tax_amount": number or null,
+  "total_amount": number or null,
+  "total_confidence": 0.0-1.0,
+  "overall_confidence": 0.0-1.0,
+  "parsing_notes": "Any important observations, ambiguities, or scan-quality issues"
+}
+```
+
+**Important:**
+- Use null for fields you cannot find — never guess a number you cannot read clearly
+- Be conservative with confidence scores, especially on scanned/handwritten paper invoices
+- Extract numbers exactly as printed (don't round or reformat beyond standard decimal notation)
+"""
+
+        try:
+            response = self.client.messages.create(
+                model="claude-opus-5",
+                max_tokens=4000,
+                # Straightforward single-shot extraction — no need for the
+                # deeper (slower, pricier) reasoning Claude Opus 5 runs by
+                # default. Disabling thinking also means response.content[0]
+                # is reliably the text block, not a ThinkingBlock.
+                thinking={"type": "disabled"},
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "document",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "application/pdf",
+                                "data": pdf_b64,
+                            },
+                        },
+                        {"type": "text", "text": prompt},
+                    ],
+                }],
+            )
+
+            content = next(b.text for b in response.content if b.type == "text")
+
+            if "```json" in content:
+                json_start = content.find("```json") + 7
+                json_end = content.find("```", json_start)
+                content = content[json_start:json_end].strip()
+            elif "```" in content:
+                json_start = content.find("```") + 3
+                json_end = content.find("```", json_start)
+                content = content[json_start:json_end].strip()
+
+            parsed_data = json.loads(content)
+
+            result = {
+                "success": True,
+                "data": parsed_data,
+                "confidence": parsed_data.get("overall_confidence", 0.5),
+                "model": "claude-opus-5",
+                "tokens": {
+                    "input": response.usage.input_tokens,
+                    "output": response.usage.output_tokens
+                }
+            }
+
+            logger.info(f"Invoice PDF '{filename}' parsed. Confidence: {result['confidence']:.2f}")
+            return result
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse AI response as JSON for '{filename}': {e}")
+            return {
+                "success": False,
+                "error": f"JSON parsing error: {str(e)}",
+                "confidence": 0.0,
+                "raw_response": content if 'content' in locals() else None
+            }
+        except Exception as e:
+            logger.error(f"Invoice PDF extraction failed for '{filename}': {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "confidence": 0.0
+            }
+
     def map_email_to_configurator(
         self,
         parsed_data: Dict[str, Any],

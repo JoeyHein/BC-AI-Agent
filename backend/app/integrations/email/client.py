@@ -174,6 +174,19 @@ class GraphEmailClient:
             logger.error(f"Failed to create folder: {e}")
             return None
 
+    def get_message_attachments(self, user_email: str, message_id: str) -> List[Dict[str, Any]]:
+        """List an email's attachments, with content included for fileAttachments.
+
+        Graph inlines `contentBytes` (base64) directly on the attachment
+        resource for regular file attachments under its size cap — no second
+        fetch needed. Reference/item attachments (linked cloud files, another
+        message) come back without contentBytes and are skipped by callers
+        that need the actual bytes (e.g. invoice PDF extraction).
+        """
+        endpoint = f"users/{user_email}/messages/{message_id}/attachments"
+        result = self._make_request("GET", endpoint)
+        return result.get("value", [])
+
     def get_folders(self, user_email: str) -> List[Dict[str, Any]]:
         """Get all mail folders"""
         endpoint = f"users/{user_email}/mailFolders"

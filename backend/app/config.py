@@ -94,6 +94,15 @@ class Settings(BaseSettings):
     PRODSCHED_SHAREPOINT_FILE_PATH: str = "Production Schedule/OPENDC_Production_Schedule.xlsx"
     PRODSCHED_SHAREPOINT_WEB_URL: Optional[str] = None
 
+    # AI invoice intake — reads vendor invoice PDFs from a monitored mailbox,
+    # extracts + matches via Claude, and creates BC purchase invoices in
+    # Draft status only (never posts). Defaults to the same inbox as the
+    # existing email-quote monitor; point it at a dedicated invoices@ address
+    # via env if that's where they actually land.
+    INVOICE_INTAKE_ENABLED: bool = False
+    INVOICE_INTAKE_MAILBOX: Optional[str] = None  # falls back to EMAIL_INBOX_1 if unset
+    INVOICE_INTAKE_LOOKBACK_HOURS: int = 24
+
     # Feature Flags
     ENABLE_EMAIL_MONITORING: bool = True
     ENABLE_AI_PARSING: bool = True

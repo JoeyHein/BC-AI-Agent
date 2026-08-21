@@ -874,6 +874,90 @@ class BusinessCentralClient:
         )
         return self._paginate_v2(url, "open purchase orders")
 
+    # ==================== Purchase Invoices ====================
+    # Unlike salesOrders/purchaseOrders, this v2.0 entity is NOT restricted to
+    # non-posted documents — it also returns posted invoices (status Open/Paid),
+    # which is what makes get_purchase_invoices_with_lines useful as a GL-coding
+    # history source (see invoice_matching_service). Creating a new invoice
+    # here always lands in status 'Draft' — BC's own posting step is untouched,
+    # so this never bypasses "hold off on posting".
+
+    def create_purchase_invoice(self, invoice_data: Dict[str, Any],
+                                 company_id: Optional[str] = None) -> Dict[str, Any]:
+        """Create a new purchase invoice (lands in status 'Draft'). Requires
+        at minimum vendorId. vendorInvoiceNumber should be set for duplicate
+        detection against future invoices from the same vendor."""
+        cid = company_id or self.company_id
+        result = self._make_request(
+            "POST",
+            f"companies({cid})/purchaseInvoices",
+            json=invoice_data
+        )
+        logger.info(f"Created purchase invoice: {result.get('number', 'N/A')}")
+        return result
+
+    def add_purchase_invoice_line(self, invoice_id: str, line_data: Dict[str, Any],
+                                   company_id: Optional[str] = None) -> Dict[str, Any]:
+        """Add a line to a purchase invoice. line_data must set lineType to
+        'Item' (with lineObjectNumber = item no) or 'Account' (with
+        lineObjectNumber = GL account no)."""
+        cid = company_id or self.company_id
+        result = self._make_request(
+            "POST",
+            f"companies({cid})/purchaseInvoices({invoice_id})/purchaseInvoiceLines",
+            json=line_data
+        )
+        return result
+
+    def delete_purchase_invoice(self, invoice_id: str, company_id: Optional[str] = None) -> bool:
+        """Delete a draft purchase invoice (e.g. to retract a bad auto-create)."""
+        cid = company_id or self.company_id
+        self._make_request(
+            "DELETE",
+            f"companies({cid})/purchaseInvoices({invoice_id})",
+            headers={"If-Match": "*"},
+        )
+        return True
+
+    def find_purchase_invoice_by_vendor_invoice_number(
+        self, vendor_id: str, vendor_invoice_number: str, company_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Duplicate-detection safety net: does BC already have an invoice
+        from this vendor with this vendor invoice number (in any status)?
+        Local DB dedup (see IncomingInvoice) is the primary check; this
+        catches invoices entered by a human outside the AI pipeline."""
+        cid = company_id or self.company_id
+        safe_no = vendor_invoice_number.replace("'", "''")
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/purchaseInvoices"
+            f"?$filter=vendorId eq {vendor_id} and vendorInvoiceNumber eq '{safe_no}'"
+        )
+        rows = result.get("value", [])
+        return rows[0] if rows else None
+
+    def get_purchase_invoices_with_lines(self, company_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """ALL posted purchase invoices (Open/Paid) with lines expanded —
+        the source for GL-account history mining (invoice_matching_service
+        picks the per-vendor majority Account-line code).
+
+        Full pagination, not a capped $top: verified live (2026-08-21) that
+        a $top=1000 + $orderby=postingDate desc window silently excluded a
+        real vendor (UPAM, 40 consistent Account-line postings) simply
+        because they hadn't invoiced within that recent window — a capped
+        "recent" sample understates history for lower-frequency vendors.
+        Filtered to status Open/Paid (excludes Draft, which has no real
+        postingDate — BC's null-date sentinel — and isn't posted history
+        anyway). Result is cached by the caller (1h TTL); this is a heavy
+        pull, not meant to run per-invoice."""
+        cid = company_id or self.company_id
+        url = (
+            f"{self.base_url}/companies({cid})/purchaseInvoices"
+            f"?$filter=status eq 'Open' or status eq 'Paid'"
+            f"&$expand=purchaseInvoiceLines"
+        )
+        return self._paginate_v2(url, "posted purchase invoices (GL history)")
+
     # ==================== Sales Orders ====================
 
     def get_open_sales_orders_with_lines(self, company_id: Optional[str] = None,

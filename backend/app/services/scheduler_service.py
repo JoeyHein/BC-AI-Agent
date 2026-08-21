@@ -147,6 +147,19 @@ class SchedulerService:
         )
         logger.info("✓ Scheduled: Daily production schedule refresh 04:30 America/Edmonton")
 
+        # AI invoice intake — every 30 minutes. Vendor invoices should reach
+        # BC as Drafts promptly (purchasers work off them same-day), but the
+        # mailbox isn't otherwise time-sensitive enough to warrant per-minute
+        # polling like the weekly-email send queue.
+        self.scheduler.add_job(
+            func=self._invoice_intake_job,
+            trigger=IntervalTrigger(minutes=30),
+            id='invoice_intake',
+            name='AI Invoice Intake - extract, match, create BC drafts',
+            replace_existing=True,
+        )
+        logger.info("✓ Scheduled: Invoice intake every 30 minutes")
+
         # Start scheduler
         self.scheduler.start()
         self.is_running = True
@@ -346,6 +359,29 @@ class SchedulerService:
             logger.info(f"Production schedule refresh complete: {result}")
         except Exception as e:
             logger.error(f"Production schedule job failed: {e}", exc_info=True)
+
+    def _invoice_intake_job(self):
+        """Poll the monitored mailbox for new vendor invoice attachments and
+        run each through AI extraction + matching + BC Draft invoice creation
+        (see invoice_intake_service). No-op if INVOICE_INTAKE_ENABLED is off."""
+        db = None
+        try:
+            from app.config import settings
+            if not settings.INVOICE_INTAKE_ENABLED:
+                logger.info("Invoice intake disabled, skipping")
+                return
+            db = SessionLocal()
+            from app.services.invoice_intake_service import invoice_intake_service
+            result = invoice_intake_service.process_new_invoices(db)
+            logger.info(f"Invoice intake complete: {result}")
+        except Exception as e:
+            logger.error(f"Invoice intake job failed: {e}", exc_info=True)
+        finally:
+            if db is not None:
+                try:
+                    db.close()
+                except Exception:
+                    pass
 
     def _email_send_queue_job(self):
         """Send any portal-scheduled weekly-email campaigns whose time has come.
