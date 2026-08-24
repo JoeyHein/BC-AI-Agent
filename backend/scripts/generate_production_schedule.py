@@ -48,6 +48,7 @@ def main():
         result = production_schedule_service.build_and_deliver()
         print(f"  Open SOs: {result['open_orders']}")
         print(f"  Archived: {result['archived_orders']}")
+        print(f"  Production orders: {result['production_orders']} ({result['assigned']} assigned)")
         print(f"  SharePoint: {result['sharepoint']}")
     else:
         output_path = Path(positional[0]) if positional else DEFAULT_LOCAL_PATH
@@ -55,6 +56,7 @@ def main():
         result = production_schedule_service.generate_local(output_path)
         print(f"  Open SOs: {result['open_orders']}")
         print(f"  Archived: {result['archived_orders']}")
+        print(f"  Production orders: {result['production_orders']} ({result['assigned']} assigned)")
         print(f"  Saved: {result['path']}")
 
 
