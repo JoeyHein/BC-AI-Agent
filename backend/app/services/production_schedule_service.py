@@ -44,13 +44,24 @@ BC production orders (the raw manufacturing work orders, one per door/batch —
 not sales orders). Unlike Schedule, it is NOT a full listing — a row exists
 on this sheet only because Joey put it there. Columns: Priority (hand-typed
 integer — sheet sorts by it), Prod Order #, Item/Description/Qty/Status/Due
-Date/Related SO (refreshed from BC when a live match exists, else frozen at
-last known values), Assigned To (free text), Complete By (date). To add an
-order: type its Prod Order # (+ Priority/Assigned To/Complete By) — next
-refresh fills in its real BC details by matching that number. To drop one:
-delete the row. Same read-back-before-overwrite loop as the Schedule sheet,
-keyed by production order number instead of SO number. See
-parse_assignments_from_bytes / _write_assignments_sheet.
+Date/Related SO (refreshed from BC when a live match exists), Assigned To
+(free text), Complete By (date). To add an order: type its Prod Order # (+
+Priority/Assigned To/Complete By) — next refresh fills in its real BC details
+by matching that number, using the third sheet below as a lookup. It CLOSES
+ITSELF OUT once BC no longer reports that order open (finished/invoiced) —
+no manual "done" step. A number that never matched a real BC order (typo, or
+never was open) stays on the sheet flagged "NOT FOUND" instead of vanishing.
+
+A third sheet, "Open Production Orders", is a read-only reference list of
+every currently open (Released) BC production order — number, item,
+description, qty, status, due date, related SO, customer — for Joey to copy
+a Prod Order # from onto Assignments. Rebuilt fresh every refresh; nothing
+here is hand-edited.
+
+Same read-back-before-overwrite loop as the Schedule sheet, keyed by
+production order number instead of SO number. See
+parse_assignments_from_bytes / _write_assignments_sheet /
+_write_open_production_orders_sheet.
 """
 
 import io
@@ -151,10 +162,12 @@ DATA_START_ROW_LEGACY = 2  # one header row (older schema versions)
 # file, but the merge direction differs from Schedule: Priority/Assigned To/
 # Complete By are ALWAYS hand-typed (never auto-derived), while Item/
 # Description/Qty/Status/Due Date/Related SO refresh from BC when a live
-# match exists. If a typed Prod Order # no longer appears in BC's open set
-# (finished, or a typo), those descriptive fields freeze at their last known
-# values rather than going blank — that itself is the signal something needs
-# checking.
+# match exists. AUTO-CLOSE: a row that previously matched a live BC order but
+# no longer does is treated as finished/invoiced and dropped from the sheet
+# automatically — BC's Released-orders feed simply stops returning it once
+# it's no longer open. A row that NEVER matched (a typo, or a number not
+# actually open in BC) is kept and flagged "NOT FOUND" instead, since that
+# case needs a person to look at it.
 ASSIGN_SHEET_NAME = "Assignments"
 COL_A_PRIORITY = 1
 COL_A_PO_NUMBER = 2
@@ -169,6 +182,12 @@ COL_A_COMPLETE_BY = 10
 ASSIGN_HEADERS = ["Priority", "Prod Order #", "Item", "Description", "Qty", "Status",
                    "Due Date", "Related SO", "Assigned To", "Complete By"]
 ASSIGN_TOTAL_COLUMNS = COL_A_COMPLETE_BY
+
+# Read-only reference list Joey copies Prod Order #s from onto Assignments —
+# rebuilt fresh every refresh, nothing hand-edited here.
+OPEN_PO_SHEET_NAME = "Open Production Orders"
+OPEN_PO_HEADERS = ["Prod Order #", "Item", "Description", "Qty", "Status",
+                    "Due Date", "Related SO", "Customer"]
 
 RED_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 RED_FONT = Font(color="9C0006")
@@ -521,9 +540,16 @@ class ProductionScheduleService:
         """Add/replace the Assignments sheet: ONLY the production orders in
         `prior` (i.e. rows Joey has actually put here — see module docstring),
         sorted by Priority. Item/Description/Qty/Status/Due Date/Related SO
-        refresh from `prod_orders` when a live BC match exists; if a typed
-        Prod Order # has no match (finished, or a typo), those fields freeze
-        at their last known values instead of going blank."""
+        refresh from `prod_orders` when a live BC match exists.
+
+        Auto-close: a row that PREVIOUSLY had a confirmed BC match (item/
+        status populated) but no longer does is treated as finished/invoiced
+        — BC's Released-orders feed simply stops returning it once it's no
+        longer open — and is dropped from the rebuilt sheet entirely, the
+        same "it just clears" behavior as the Schedule sheet's own SO
+        archiving. A row that NEVER matched (freshly typed, or a typo) is
+        kept and flagged "NOT FOUND" instead of silently vanishing, since
+        that case still needs Joey's attention."""
         prod_so_map = prod_so_map or {}
         fresh_by_no = {po.get("No"): po for po in prod_orders if po.get("No")}
         if ASSIGN_SHEET_NAME in wb.sheetnames:
@@ -539,6 +565,9 @@ class ProductionScheduleService:
         rows = []
         for po_no, rec in prior.items():
             fresh = fresh_by_no.get(po_no)
+            had_confirmed_match = bool(rec.get("item")) or bool(rec.get("status"))
+            if not fresh and had_confirmed_match:
+                continue  # finished/invoiced — auto-close, don't re-render
             if fresh:
                 item = fresh.get("Source_No") or ""
                 description = fresh.get("Description") or ""
@@ -547,12 +576,12 @@ class ProductionScheduleService:
                 due_date = _parse_date_value(fresh.get("Due_Date"))
                 related_so = prod_so_map.get(po_no, "")
             else:
-                # No longer in BC's open set (finished, or a typo) — freeze
-                # at the last known values rather than blanking them out.
+                # Never had a confirmed match — a typo, or a brand-new entry
+                # that isn't actually open in BC. Keep it visible, flagged.
                 item = rec.get("item") or ""
                 description = rec.get("description") or ""
                 qty = rec.get("qty") or 0
-                status = "NOT IN OPEN ORDERS"
+                status = "NOT FOUND"
                 due_date = rec.get("due_date")
                 related_so = rec.get("related_so") or ""
             rows.append({
@@ -573,7 +602,7 @@ class ProductionScheduleService:
         rows.sort(key=lambda r: (r["priority"] is None, r["priority"] if r["priority"] is not None else 0, r["po_no"]))
 
         unassigned_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
-        not_open_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+        not_found_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
         for i, r in enumerate(rows, start=2):
             ws.cell(row=i, column=COL_A_PRIORITY, value=r["priority"])
             ws.cell(row=i, column=COL_A_PO_NUMBER, value=r["po_no"])
@@ -587,13 +616,69 @@ class ProductionScheduleService:
             assigned_cell = ws.cell(row=i, column=COL_A_ASSIGNED_TO, value=r["assigned_to"])
             cb = ws.cell(row=i, column=COL_A_COMPLETE_BY, value=r["complete_by"])
             cb.number_format = DATE_FORMAT
-            if r["status"] == "NOT IN OPEN ORDERS":
+            if r["status"] == "NOT FOUND":
                 for col in range(1, len(ASSIGN_HEADERS) + 1):
-                    ws.cell(row=i, column=col).fill = not_open_fill
+                    ws.cell(row=i, column=col).fill = not_found_fill
             elif not r["assigned_to"]:
                 assigned_cell.fill = unassigned_fill
 
         widths = [9, 16, 18, 34, 8, 18, 13, 14, 20, 14]
+        for col_idx, w in enumerate(widths, start=1):
+            ws.column_dimensions[get_column_letter(col_idx)].width = w
+
+    def _write_open_production_orders_sheet(
+        self,
+        wb: Workbook,
+        prod_orders: List[Dict[str, Any]],
+        prod_so_map: Optional[Dict[str, str]] = None,
+        so_customer_map: Optional[Dict[str, str]] = None,
+    ) -> None:
+        """Add/replace the read-only "Open Production Orders" reference
+        sheet — every currently open (Released) production order, sorted by
+        Due Date, for Joey to copy a Prod Order # from onto Assignments.
+        Rebuilt from scratch every refresh; nothing here is hand-edited."""
+        prod_so_map = prod_so_map or {}
+        so_customer_map = so_customer_map or {}
+        if OPEN_PO_SHEET_NAME in wb.sheetnames:
+            del wb[OPEN_PO_SHEET_NAME]
+        ws = wb.create_sheet(OPEN_PO_SHEET_NAME)
+
+        for c, title in enumerate(OPEN_PO_HEADERS, start=1):
+            cell = ws.cell(row=1, column=c, value=title)
+            cell.font = HEADER_FONT
+            cell.fill = HEADER_FILL
+        ws.freeze_panes = "A2"
+
+        rows = []
+        for po in prod_orders:
+            po_no = po.get("No") or ""
+            if not po_no:
+                continue
+            related_so = prod_so_map.get(po_no, "")
+            rows.append({
+                "po_no": po_no,
+                "item": po.get("Source_No") or "",
+                "description": po.get("Description") or "",
+                "qty": float(po.get("Quantity") or 0),
+                "status": po.get("Status") or "",
+                "due_date": _parse_date_value(po.get("Due_Date")),
+                "related_so": related_so,
+                "customer": so_customer_map.get(related_so, ""),
+            })
+        rows.sort(key=lambda r: (r["due_date"] is None, r["due_date"] or date.max, r["po_no"]))
+
+        for i, r in enumerate(rows, start=2):
+            ws.cell(row=i, column=1, value=r["po_no"])
+            ws.cell(row=i, column=2, value=r["item"])
+            ws.cell(row=i, column=3, value=r["description"])
+            ws.cell(row=i, column=4, value=r["qty"])
+            ws.cell(row=i, column=5, value=r["status"])
+            dd = ws.cell(row=i, column=6, value=r["due_date"])
+            dd.number_format = DATE_FORMAT
+            ws.cell(row=i, column=7, value=r["related_so"])
+            ws.cell(row=i, column=8, value=r["customer"])
+
+        widths = [16, 18, 34, 8, 14, 13, 14, 24]
         for col_idx, w in enumerate(widths, start=1):
             ws.column_dimensions[get_column_letter(col_idx)].width = w
 
@@ -734,6 +819,8 @@ class ProductionScheduleService:
 
         if prod_orders is not None:
             self._write_assignments_sheet(wb, prod_orders, assignment_records or {}, prod_so_map)
+            so_customer_map = {o.get("number"): o.get("customerName", "") for o in orders if o.get("number")}
+            self._write_open_production_orders_sheet(wb, prod_orders, prod_so_map, so_customer_map)
 
         buf = io.BytesIO()
         wb.save(buf)
