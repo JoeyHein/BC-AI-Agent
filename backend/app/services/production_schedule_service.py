@@ -39,13 +39,17 @@ parse_records_from_bytes. SOs that drop out of BC's open set move to an
 
 Mirrors the read-back-before-overwrite pattern in planning_workbook_service.py.
 
-A second sheet, "Assignments", lists every open BC production order (the raw
-manufacturing work orders, one per door/batch — not sales orders) with three
-hand-edited columns: Include (Y/blank), Assigned To (free text), Complete By
-(date). Included rows sort to the top and highlight green — that's Joey's
-curated "what I actually want visible" set — everything else stays below as
-the pick-from list for next time. Same read-back-before-overwrite loop as the
-Schedule sheet, keyed by production order number instead of SO number. See
+A second sheet, "Assignments", is Joey's curated, prioritized week queue of
+BC production orders (the raw manufacturing work orders, one per door/batch —
+not sales orders). Unlike Schedule, it is NOT a full listing — a row exists
+on this sheet only because Joey put it there. Columns: Priority (hand-typed
+integer — sheet sorts by it), Prod Order #, Item/Description/Qty/Status/Due
+Date/Related SO (refreshed from BC when a live match exists, else frozen at
+last known values), Assigned To (free text), Complete By (date). To add an
+order: type its Prod Order # (+ Priority/Assigned To/Complete By) — next
+refresh fills in its real BC details by matching that number. To drop one:
+delete the row. Same read-back-before-overwrite loop as the Schedule sheet,
+keyed by production order number instead of SO number. See
 parse_assignments_from_bytes / _write_assignments_sheet.
 """
 
@@ -136,14 +140,23 @@ TOTAL_COLUMNS = COL_SHIPPING_STATUS
 DATA_START_ROW_V3 = 3   # two header rows
 DATA_START_ROW_LEGACY = 2  # one header row (older schema versions)
 
-# ── Assignments sheet (Joey's curated shop-floor picker) ───────────────────
-# Every open BC production order is listed each refresh; Include/Assigned
-# To/Complete By are hand-edited and read back before the next overwrite,
-# same loop as the Schedule sheet's per-SO status columns. Rows with
-# Include="Y" sort to the top and are highlighted — that's the "visible"
-# set — everything else stays below as the pick-from list for next time.
+# ── Assignments sheet (Joey's curated, prioritized week queue) ─────────────
+# UNLIKE the Schedule sheet, this is NOT a full listing of every open
+# production order — it holds ONLY the rows Joey has put here. A row exists
+# on this sheet == it's on the schedule. To add one, type its Prod Order #
+# (+ Priority/Assigned To/Complete By); to drop one, delete the row. Priority
+# is a hand-typed integer — the sheet is sorted by it, so 1 runs before 2.
+#
+# Read-back is keyed by Prod Order # like every other hand-edit loop in this
+# file, but the merge direction differs from Schedule: Priority/Assigned To/
+# Complete By are ALWAYS hand-typed (never auto-derived), while Item/
+# Description/Qty/Status/Due Date/Related SO refresh from BC when a live
+# match exists. If a typed Prod Order # no longer appears in BC's open set
+# (finished, or a typo), those descriptive fields freeze at their last known
+# values rather than going blank — that itself is the signal something needs
+# checking.
 ASSIGN_SHEET_NAME = "Assignments"
-COL_A_INCLUDE = 1
+COL_A_PRIORITY = 1
 COL_A_PO_NUMBER = 2
 COL_A_ITEM = 3
 COL_A_DESCRIPTION = 4
@@ -153,7 +166,7 @@ COL_A_DUE_DATE = 7
 COL_A_RELATED_SO = 8
 COL_A_ASSIGNED_TO = 9
 COL_A_COMPLETE_BY = 10
-ASSIGN_HEADERS = ["Include", "Prod Order #", "Item", "Description", "Qty", "Status",
+ASSIGN_HEADERS = ["Priority", "Prod Order #", "Item", "Description", "Qty", "Status",
                    "Due Date", "Related SO", "Assigned To", "Complete By"]
 ASSIGN_TOTAL_COLUMNS = COL_A_COMPLETE_BY
 
@@ -451,8 +464,13 @@ class ProductionScheduleService:
             return {}
 
     def parse_assignments_from_bytes(self, content: bytes) -> Dict[str, dict]:
-        """Return {prod_order_no: {include, assigned_to, complete_by}} read
-        from an existing workbook's Assignments sheet, if present."""
+        """Return {prod_order_no: {priority, assigned_to, complete_by, item,
+        description, qty, status, due_date, related_so}} read from an
+        existing workbook's Assignments sheet, if present. The descriptive
+        fields are captured too (not just the hand-typed ones) so a row whose
+        production order has dropped out of BC's open set can still render
+        with its last-known values instead of going blank — see
+        _write_assignments_sheet."""
         records: Dict[str, dict] = {}
         if not content:
             return records
@@ -469,12 +487,22 @@ class ProductionScheduleService:
             if not row or len(row) < ASSIGN_TOTAL_COLUMNS or not row[COL_A_PO_NUMBER - 1]:
                 continue
             po_no = str(row[COL_A_PO_NUMBER - 1]).strip()
-            include_raw = row[COL_A_INCLUDE - 1]
+            priority_raw = row[COL_A_PRIORITY - 1]
             assigned_to = row[COL_A_ASSIGNED_TO - 1]
+            try:
+                priority = int(priority_raw) if priority_raw not in (None, "") else None
+            except (TypeError, ValueError):
+                priority = None
             records[po_no] = {
-                "include": bool(include_raw) and str(include_raw).strip().upper() in ("Y", "YES", "TRUE", "1"),
+                "priority": priority,
                 "assigned_to": str(assigned_to).strip() if assigned_to else "",
                 "complete_by": _parse_date_value(row[COL_A_COMPLETE_BY - 1]),
+                "item": row[COL_A_ITEM - 1] or "",
+                "description": row[COL_A_DESCRIPTION - 1] or "",
+                "qty": row[COL_A_QTY - 1],
+                "status": row[COL_A_STATUS - 1] or "",
+                "due_date": _parse_date_value(row[COL_A_DUE_DATE - 1]),
+                "related_so": row[COL_A_RELATED_SO - 1] or "",
             }
         return records
 
@@ -485,11 +513,14 @@ class ProductionScheduleService:
         prior: Dict[str, dict],
         prod_so_map: Optional[Dict[str, str]] = None,
     ) -> None:
-        """Add/replace the Assignments sheet: every open production order,
-        with Include/Assigned To/Complete By carried forward from `prior`.
-        Included rows sort to the top and are highlighted green — that's
-        the curated "visible" set; everything else is the pick-from list."""
+        """Add/replace the Assignments sheet: ONLY the production orders in
+        `prior` (i.e. rows Joey has actually put here — see module docstring),
+        sorted by Priority. Item/Description/Qty/Status/Due Date/Related SO
+        refresh from `prod_orders` when a live BC match exists; if a typed
+        Prod Order # has no match (finished, or a typo), those fields freeze
+        at their last known values instead of going blank."""
         prod_so_map = prod_so_map or {}
+        fresh_by_no = {po.get("No"): po for po in prod_orders if po.get("No")}
         if ASSIGN_SHEET_NAME in wb.sheetnames:
             del wb[ASSIGN_SHEET_NAME]
         ws = wb.create_sheet(ASSIGN_SHEET_NAME)
@@ -501,58 +532,63 @@ class ProductionScheduleService:
         ws.freeze_panes = "A2"
 
         rows = []
-        for po in prod_orders:
-            po_no = po.get("No") or ""
-            if not po_no:
-                continue
-            rec = prior.get(po_no, {})
+        for po_no, rec in prior.items():
+            fresh = fresh_by_no.get(po_no)
+            if fresh:
+                item = fresh.get("Source_No") or ""
+                description = fresh.get("Description") or ""
+                qty = float(fresh.get("Quantity") or 0)
+                status = fresh.get("Status") or ""
+                due_date = _parse_date_value(fresh.get("Due_Date"))
+                related_so = prod_so_map.get(po_no, "")
+            else:
+                # No longer in BC's open set (finished, or a typo) — freeze
+                # at the last known values rather than blanking them out.
+                item = rec.get("item") or ""
+                description = rec.get("description") or ""
+                qty = rec.get("qty") or 0
+                status = "NOT IN OPEN ORDERS"
+                due_date = rec.get("due_date")
+                related_so = rec.get("related_so") or ""
             rows.append({
                 "po_no": po_no,
-                "item": po.get("Source_No") or "",
-                "description": po.get("Description") or "",
-                "qty": float(po.get("Quantity") or 0),
-                "status": po.get("Status") or "",
-                "due_date": _parse_date_value(po.get("Due_Date")),
-                "related_so": prod_so_map.get(po_no, ""),
-                "include": rec.get("include", False),
+                "priority": rec.get("priority"),
+                "item": item,
+                "description": description,
+                "qty": qty,
+                "status": status,
+                "due_date": due_date,
+                "related_so": related_so,
                 "assigned_to": rec.get("assigned_to", ""),
                 "complete_by": rec.get("complete_by"),
             })
 
-        # Included rows first (soonest Complete By first, blanks last), then
-        # the rest of the pick-from list (soonest Due Date first).
-        included = sorted(
-            (r for r in rows if r["include"]),
-            key=lambda r: (r["complete_by"] is None, r["complete_by"] or date.max),
-        )
-        other = sorted(
-            (r for r in rows if not r["include"]),
-            key=lambda r: (r["due_date"] is None, r["due_date"] or date.max),
-        )
+        # Priority order — blank priority sinks to the bottom rather than
+        # disappearing, so an unprioritized addition is still visible.
+        rows.sort(key=lambda r: (r["priority"] is None, r["priority"] if r["priority"] is not None else 0, r["po_no"]))
 
-        for i, r in enumerate(included + other, start=2):
-            ws.cell(row=i, column=COL_A_INCLUDE, value="Y" if r["include"] else "")
+        unassigned_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
+        not_open_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+        for i, r in enumerate(rows, start=2):
+            ws.cell(row=i, column=COL_A_PRIORITY, value=r["priority"])
             ws.cell(row=i, column=COL_A_PO_NUMBER, value=r["po_no"])
             ws.cell(row=i, column=COL_A_ITEM, value=r["item"])
             ws.cell(row=i, column=COL_A_DESCRIPTION, value=r["description"])
             ws.cell(row=i, column=COL_A_QTY, value=r["qty"])
-            ws.cell(row=i, column=COL_A_STATUS, value=r["status"])
+            status_cell = ws.cell(row=i, column=COL_A_STATUS, value=r["status"])
             dd = ws.cell(row=i, column=COL_A_DUE_DATE, value=r["due_date"])
             dd.number_format = DATE_FORMAT
             ws.cell(row=i, column=COL_A_RELATED_SO, value=r["related_so"])
-            ws.cell(row=i, column=COL_A_ASSIGNED_TO, value=r["assigned_to"])
+            assigned_cell = ws.cell(row=i, column=COL_A_ASSIGNED_TO, value=r["assigned_to"])
             cb = ws.cell(row=i, column=COL_A_COMPLETE_BY, value=r["complete_by"])
             cb.number_format = DATE_FORMAT
-            if r["include"]:
+            if r["status"] == "NOT IN OPEN ORDERS":
                 for col in range(1, len(ASSIGN_HEADERS) + 1):
-                    ws.cell(row=i, column=col).fill = GREEN_FILL
+                    ws.cell(row=i, column=col).fill = not_open_fill
+            elif not r["assigned_to"]:
+                assigned_cell.fill = unassigned_fill
 
-        max_row = max(ws.max_row, 2)
-        include_dv = DataValidation(type="list", formula1='"Y,"', allow_blank=True)
-        ws.add_data_validation(include_dv)
-        include_dv.add(f"{get_column_letter(COL_A_INCLUDE)}2:{get_column_letter(COL_A_INCLUDE)}{max_row}")
-
-        widths = [10, 16, 18, 34, 8, 16, 13, 14, 20, 14]
+        widths = [9, 16, 18, 34, 8, 18, 13, 14, 20, 14]
         for col_idx, w in enumerate(widths, start=1):
             ws.column_dimensions[get_column_letter(col_idx)].width = w
 
@@ -741,7 +777,7 @@ class ProductionScheduleService:
             "open_orders": open_count,
             "archived_orders": archived_count,
             "production_orders": len(prod_orders),
-            "assigned": sum(1 for r in assignment_records.values() if r.get("include")),
+            "assigned": len(assignment_records),
             "sharepoint": sharepoint_url or settings.PRODSCHED_SHAREPOINT_WEB_URL or "uploaded",
         }
         logger.info(f"[ProductionSchedule] Refreshed: {result}")
@@ -774,7 +810,7 @@ class ProductionScheduleService:
             "open_orders": open_count,
             "archived_orders": archived_count,
             "production_orders": len(prod_orders),
-            "assigned": sum(1 for r in assignment_records.values() if r.get("include")),
+            "assigned": len(assignment_records),
             "path": str(output_path),
         }
 
