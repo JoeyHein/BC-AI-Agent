@@ -96,10 +96,10 @@ def test_blank_priority_sinks_to_bottom_but_still_shows():
     assert po_numbers == ["PRD-B", "PRD-A"]
 
 
-def test_order_no_longer_open_freezes_at_last_known_values():
-    """PRD-999 was typed onto the sheet previously but is no longer in BC's
-    open (Released) set — the row must stay, with frozen descriptive fields,
-    not disappear or blank out."""
+def test_finished_order_auto_closes_and_disappears():
+    """PRD-999 previously had a confirmed BC match (item/status populated)
+    but is no longer in the fresh Released set — treat it as finished/
+    invoiced and drop the row entirely, no manual "done" step needed."""
     prior = {
         "PRD-999": {
             "priority": 1, "assigned_to": "Dave", "complete_by": date(2026, 9, 5),
@@ -111,9 +111,25 @@ def test_order_no_longer_open_freezes_at_last_known_values():
     data = _build_bytes(prod_orders=[], prior=prior)
     parsed = svc.parse_assignments_from_bytes(data)
 
-    rec = parsed["PRD-999"]
-    assert rec["item"] == "PN10-24101-0802"
-    assert rec["status"] == "NOT IN OPEN ORDERS"
+    assert "PRD-999" not in parsed
+
+
+def test_never_matched_order_stays_flagged_not_found():
+    """A Prod Order # that never had a confirmed BC match (typo, or never
+    actually open) must NOT be silently dropped like a finished order —
+    it needs a person to notice and fix it."""
+    prior = {
+        "PRD-000": {
+            "priority": 1, "assigned_to": "Dave", "complete_by": None,
+            "item": "", "description": "", "qty": None,
+            "status": "", "due_date": None, "related_so": "",
+        }
+    }
+
+    data = _build_bytes(prod_orders=[], prior=prior)
+    parsed = svc.parse_assignments_from_bytes(data)
+
+    assert parsed["PRD-000"]["status"] == "NOT FOUND"
 
 
 def test_new_workbook_has_no_prior_assignments():
@@ -125,6 +141,22 @@ def test_new_workbook_has_no_prior_assignments():
     wb.save(buf)
 
     assert svc.parse_assignments_from_bytes(buf.getvalue()) == {}
+
+
+def test_open_production_orders_sheet_lists_every_open_order_with_customer():
+    prod_orders = [_prod_order("PRD-001", due="2026-09-10"), _prod_order("PRD-002", due="2026-09-01")]
+    prod_so_map = {"PRD-001": "SO-100", "PRD-002": "SO-200"}
+    so_customer_map = {"SO-100": "Acme Doors", "SO-200": "Beta Garage"}
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    svc._write_open_production_orders_sheet(wb, prod_orders, prod_so_map, so_customer_map)
+    ws = wb["Open Production Orders"]
+
+    data_rows = list(ws.iter_rows(min_row=2, values_only=True))
+    assert [row[0] for row in data_rows] == ["PRD-002", "PRD-001"]  # sorted by due date
+    assert data_rows[0][6] == "SO-200"
+    assert data_rows[0][7] == "Beta Garage"
 
 
 def test_empty_bytes_returns_empty_dict():
