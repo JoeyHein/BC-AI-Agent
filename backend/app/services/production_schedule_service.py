@@ -69,7 +69,7 @@ from openpyxl.utils import get_column_letter
 from app.config import settings
 from app.integrations.bc.client import bc_client
 from app.integrations.email.client import graph_client
-from app.services.bc_production_service import bc_production_service
+from app.services.bc_production_service import bc_production_service, ODATA_ENDPOINTS
 
 logger = logging.getLogger(__name__)
 
@@ -445,10 +445,15 @@ class ProductionScheduleService:
 
     def fetch_open_production_orders(self) -> List[Dict[str, Any]]:
         """Released BC production orders — the raw manufacturing work orders
-        (one per door/batch), not sales orders. Best-effort: BC failure
-        degrades to an empty list rather than sinking the whole refresh."""
+        (one per door/batch), not sales orders. Same raw call
+        planning_workbook_service uses (no dedicated helper exists on
+        bc_production_service for this). Best-effort: BC failure degrades to
+        an empty list rather than sinking the whole refresh."""
         try:
-            return bc_production_service.get_released_production_orders()
+            return bc_production_service._make_odata_request_all(
+                ODATA_ENDPOINTS["production_orders"],
+                query_params={"$filter": "Status eq 'Released'"},
+            ) or []
         except Exception as e:
             logger.error(f"[ProductionSchedule] Released production orders fetch failed: {e}")
             return []
