@@ -38,6 +38,15 @@ parse_records_from_bytes. SOs that drop out of BC's open set move to an
 "Archived" sheet (full row snapshot) instead of being deleted.
 
 Mirrors the read-back-before-overwrite pattern in planning_workbook_service.py.
+
+A second sheet, "Assignments", lists every open BC production order (the raw
+manufacturing work orders, one per door/batch — not sales orders) with three
+hand-edited columns: Include (Y/blank), Assigned To (free text), Complete By
+(date). Included rows sort to the top and highlight green — that's Joey's
+curated "what I actually want visible" set — everything else stays below as
+the pick-from list for next time. Same read-back-before-overwrite loop as the
+Schedule sheet, keyed by production order number instead of SO number. See
+parse_assignments_from_bytes / _write_assignments_sheet.
 """
 
 import io
@@ -56,6 +65,7 @@ from openpyxl.utils import get_column_letter
 from app.config import settings
 from app.integrations.bc.client import bc_client
 from app.integrations.email.client import graph_client
+from app.services.bc_production_service import bc_production_service
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +135,27 @@ TOTAL_COLUMNS = COL_SHIPPING_STATUS
 
 DATA_START_ROW_V3 = 3   # two header rows
 DATA_START_ROW_LEGACY = 2  # one header row (older schema versions)
+
+# ── Assignments sheet (Joey's curated shop-floor picker) ───────────────────
+# Every open BC production order is listed each refresh; Include/Assigned
+# To/Complete By are hand-edited and read back before the next overwrite,
+# same loop as the Schedule sheet's per-SO status columns. Rows with
+# Include="Y" sort to the top and are highlighted — that's the "visible"
+# set — everything else stays below as the pick-from list for next time.
+ASSIGN_SHEET_NAME = "Assignments"
+COL_A_INCLUDE = 1
+COL_A_PO_NUMBER = 2
+COL_A_ITEM = 3
+COL_A_DESCRIPTION = 4
+COL_A_QTY = 5
+COL_A_STATUS = 6
+COL_A_DUE_DATE = 7
+COL_A_RELATED_SO = 8
+COL_A_ASSIGNED_TO = 9
+COL_A_COMPLETE_BY = 10
+ASSIGN_HEADERS = ["Include", "Prod Order #", "Item", "Description", "Qty", "Status",
+                   "Due Date", "Related SO", "Assigned To", "Complete By"]
+ASSIGN_TOTAL_COLUMNS = COL_A_COMPLETE_BY
 
 RED_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 RED_FONT = Font(color="9C0006")
@@ -397,6 +428,134 @@ class ProductionScheduleService:
             )
             records[so_number] = rec
 
+    # ── Assignments sheet: fetch + read-back ──────────────────────────────
+
+    def fetch_open_production_orders(self) -> List[Dict[str, Any]]:
+        """Released BC production orders — the raw manufacturing work orders
+        (one per door/batch), not sales orders. Best-effort: BC failure
+        degrades to an empty list rather than sinking the whole refresh."""
+        try:
+            return bc_production_service.get_released_production_orders()
+        except Exception as e:
+            logger.error(f"[ProductionSchedule] Released production orders fetch failed: {e}")
+            return []
+
+    def fetch_prod_so_map(self) -> Dict[str, str]:
+        """{prod_order_no: sales_order_no}, best-effort — see
+        bc_production_service.get_prod_so_map (degrades to {} if BC's
+        ReservationEntries web service isn't available)."""
+        try:
+            return bc_production_service.get_prod_so_map()
+        except Exception as e:
+            logger.warning(f"[ProductionSchedule] Prod-order/SO map unavailable: {e}")
+            return {}
+
+    def parse_assignments_from_bytes(self, content: bytes) -> Dict[str, dict]:
+        """Return {prod_order_no: {include, assigned_to, complete_by}} read
+        from an existing workbook's Assignments sheet, if present."""
+        records: Dict[str, dict] = {}
+        if not content:
+            return records
+        try:
+            wb = load_workbook(io.BytesIO(content))
+        except Exception as e:
+            logger.warning(f"[ProductionSchedule] Assignments read-back: could not open workbook ({e})")
+            return records
+        if ASSIGN_SHEET_NAME not in wb.sheetnames:
+            return records
+
+        ws = wb[ASSIGN_SHEET_NAME]
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if not row or len(row) < ASSIGN_TOTAL_COLUMNS or not row[COL_A_PO_NUMBER - 1]:
+                continue
+            po_no = str(row[COL_A_PO_NUMBER - 1]).strip()
+            include_raw = row[COL_A_INCLUDE - 1]
+            assigned_to = row[COL_A_ASSIGNED_TO - 1]
+            records[po_no] = {
+                "include": bool(include_raw) and str(include_raw).strip().upper() in ("Y", "YES", "TRUE", "1"),
+                "assigned_to": str(assigned_to).strip() if assigned_to else "",
+                "complete_by": _parse_date_value(row[COL_A_COMPLETE_BY - 1]),
+            }
+        return records
+
+    def _write_assignments_sheet(
+        self,
+        wb: Workbook,
+        prod_orders: List[Dict[str, Any]],
+        prior: Dict[str, dict],
+        prod_so_map: Optional[Dict[str, str]] = None,
+    ) -> None:
+        """Add/replace the Assignments sheet: every open production order,
+        with Include/Assigned To/Complete By carried forward from `prior`.
+        Included rows sort to the top and are highlighted green — that's
+        the curated "visible" set; everything else is the pick-from list."""
+        prod_so_map = prod_so_map or {}
+        if ASSIGN_SHEET_NAME in wb.sheetnames:
+            del wb[ASSIGN_SHEET_NAME]
+        ws = wb.create_sheet(ASSIGN_SHEET_NAME)
+
+        for c, title in enumerate(ASSIGN_HEADERS, start=1):
+            cell = ws.cell(row=1, column=c, value=title)
+            cell.font = HEADER_FONT
+            cell.fill = HEADER_FILL
+        ws.freeze_panes = "A2"
+
+        rows = []
+        for po in prod_orders:
+            po_no = po.get("No") or ""
+            if not po_no:
+                continue
+            rec = prior.get(po_no, {})
+            rows.append({
+                "po_no": po_no,
+                "item": po.get("Source_No") or "",
+                "description": po.get("Description") or "",
+                "qty": float(po.get("Quantity") or 0),
+                "status": po.get("Status") or "",
+                "due_date": _parse_date_value(po.get("Due_Date")),
+                "related_so": prod_so_map.get(po_no, ""),
+                "include": rec.get("include", False),
+                "assigned_to": rec.get("assigned_to", ""),
+                "complete_by": rec.get("complete_by"),
+            })
+
+        # Included rows first (soonest Complete By first, blanks last), then
+        # the rest of the pick-from list (soonest Due Date first).
+        included = sorted(
+            (r for r in rows if r["include"]),
+            key=lambda r: (r["complete_by"] is None, r["complete_by"] or date.max),
+        )
+        other = sorted(
+            (r for r in rows if not r["include"]),
+            key=lambda r: (r["due_date"] is None, r["due_date"] or date.max),
+        )
+
+        for i, r in enumerate(included + other, start=2):
+            ws.cell(row=i, column=COL_A_INCLUDE, value="Y" if r["include"] else "")
+            ws.cell(row=i, column=COL_A_PO_NUMBER, value=r["po_no"])
+            ws.cell(row=i, column=COL_A_ITEM, value=r["item"])
+            ws.cell(row=i, column=COL_A_DESCRIPTION, value=r["description"])
+            ws.cell(row=i, column=COL_A_QTY, value=r["qty"])
+            ws.cell(row=i, column=COL_A_STATUS, value=r["status"])
+            dd = ws.cell(row=i, column=COL_A_DUE_DATE, value=r["due_date"])
+            dd.number_format = DATE_FORMAT
+            ws.cell(row=i, column=COL_A_RELATED_SO, value=r["related_so"])
+            ws.cell(row=i, column=COL_A_ASSIGNED_TO, value=r["assigned_to"])
+            cb = ws.cell(row=i, column=COL_A_COMPLETE_BY, value=r["complete_by"])
+            cb.number_format = DATE_FORMAT
+            if r["include"]:
+                for col in range(1, len(ASSIGN_HEADERS) + 1):
+                    ws.cell(row=i, column=col).fill = GREEN_FILL
+
+        max_row = max(ws.max_row, 2)
+        include_dv = DataValidation(type="list", formula1='"Y,"', allow_blank=True)
+        ws.add_data_validation(include_dv)
+        include_dv.add(f"{get_column_letter(COL_A_INCLUDE)}2:{get_column_letter(COL_A_INCLUDE)}{max_row}")
+
+        widths = [10, 16, 18, 34, 8, 16, 13, 14, 20, 14]
+        for col_idx, w in enumerate(widths, start=1):
+            ws.column_dimensions[get_column_letter(col_idx)].width = w
+
     # ── build ───────────────────────────────────────────────────────────
 
     def _write_header(self, ws):
@@ -496,6 +655,9 @@ class ProductionScheduleService:
         orders: List[Dict[str, Any]],
         records: Dict[str, _SORecord],
         auto_purchasing: Optional[Dict[str, Dict[str, str]]] = None,
+        prod_orders: Optional[List[Dict[str, Any]]] = None,
+        assignment_records: Optional[Dict[str, dict]] = None,
+        prod_so_map: Optional[Dict[str, str]] = None,
     ) -> Tuple[bytes, int, int]:
         open_so_numbers = {o.get("number", "") for o in orders}
         auto_purchasing = auto_purchasing or {}
@@ -529,6 +691,9 @@ class ProductionScheduleService:
             ws_archived.append(records[so_number].to_row())
         self._style_sheet(ws_archived, archived=True)
 
+        if prod_orders is not None:
+            self._write_assignments_sheet(wb, prod_orders, assignment_records or {}, prod_so_map)
+
         buf = io.BytesIO()
         wb.save(buf)
         return buf.getvalue(), len(orders), len(archived_so)
@@ -546,6 +711,7 @@ class ProductionScheduleService:
             raise RuntimeError("PRODSCHED_SHAREPOINT_ENABLED/DRIVE_ID not configured")
 
         records: Dict[str, _SORecord] = {}
+        assignment_records: Dict[str, dict] = {}
         try:
             current = graph_client.download_drive_file(
                 settings.PRODSCHED_SHAREPOINT_DRIVE_ID,
@@ -553,12 +719,18 @@ class ProductionScheduleService:
             )
             if current:
                 records = self.parse_records_from_bytes(current)
+                assignment_records = self.parse_assignments_from_bytes(current)
         except Exception as e:
             logger.error(f"[ProductionSchedule] SharePoint read-back failed: {e}")
 
         orders = self.fetch_open_orders()
         auto_purchasing = self._compute_auto_purchasing(orders)
-        xlsx, open_count, archived_count = self.build_workbook_bytes(orders, records, auto_purchasing)
+        prod_orders = self.fetch_open_production_orders()
+        prod_so_map = self.fetch_prod_so_map()
+        xlsx, open_count, archived_count = self.build_workbook_bytes(
+            orders, records, auto_purchasing,
+            prod_orders=prod_orders, assignment_records=assignment_records, prod_so_map=prod_so_map,
+        )
 
         sharepoint_url = graph_client.upload_drive_file(
             settings.PRODSCHED_SHAREPOINT_DRIVE_ID,
@@ -568,6 +740,8 @@ class ProductionScheduleService:
         result = {
             "open_orders": open_count,
             "archived_orders": archived_count,
+            "production_orders": len(prod_orders),
+            "assigned": sum(1 for r in assignment_records.values() if r.get("include")),
             "sharepoint": sharepoint_url or settings.PRODSCHED_SHAREPOINT_WEB_URL or "uploaded",
         }
         logger.info(f"[ProductionSchedule] Refreshed: {result}")
@@ -580,15 +754,29 @@ class ProductionScheduleService:
         output_path = Path(output_path)
 
         records: Dict[str, _SORecord] = {}
+        assignment_records: Dict[str, dict] = {}
         if output_path.exists():
-            records = self.parse_records_from_bytes(output_path.read_bytes())
+            existing = output_path.read_bytes()
+            records = self.parse_records_from_bytes(existing)
+            assignment_records = self.parse_assignments_from_bytes(existing)
 
         orders = self.fetch_open_orders()
         auto_purchasing = self._compute_auto_purchasing(orders)
-        xlsx, open_count, archived_count = self.build_workbook_bytes(orders, records, auto_purchasing)
+        prod_orders = self.fetch_open_production_orders()
+        prod_so_map = self.fetch_prod_so_map()
+        xlsx, open_count, archived_count = self.build_workbook_bytes(
+            orders, records, auto_purchasing,
+            prod_orders=prod_orders, assignment_records=assignment_records, prod_so_map=prod_so_map,
+        )
         output_path.write_bytes(xlsx)
 
-        return {"open_orders": open_count, "archived_orders": archived_count, "path": str(output_path)}
+        return {
+            "open_orders": open_count,
+            "archived_orders": archived_count,
+            "production_orders": len(prod_orders),
+            "assigned": sum(1 for r in assignment_records.values() if r.get("include")),
+            "path": str(output_path),
+        }
 
     def _compute_auto_purchasing(self, orders: List[Dict[str, Any]]) -> Dict[str, Dict[str, str]]:
         """Opens its own short-lived DB session (only needed for vendor-map
