@@ -213,7 +213,8 @@ DOOR_SERIES = {
             "specs": {
                 "thickness": "1 3/4\" (44.5mm)",
                 "material": "Extruded 6063-T6 Aluminum",
-                "maxWidth": 240,  # 20' in inches
+                "maxWidth": 290,  # 24'2" in inches — stocked panels jump 22'0" -> 30'2" above 22'0", see snapWarningWidth
+                "snapWarningWidth": 264,  # 22'0" — widths above this snap up to the 30'2" AL976 panel (PN97-*-3002)
                 "finishWarranty": "5 Year Limited",
                 "workmanshipWarranty": "1 Year Limited"
             }
@@ -786,6 +787,14 @@ async def validate_door_config(config: DoorConfigRequest):
 
         if "availableWidths" in specs and config.doorWidth not in specs["availableWidths"]:
             warnings.append(f"Non-standard width. Available widths: {specs['availableWidths']}")
+
+        snap_warn = specs.get("snapWarningWidth")
+        if snap_warn and config.doorWidth > snap_warn:
+            warnings.append(
+                f"No {series['name']} panel is stocked between {snap_warn}\" and 362\" wide — "
+                f"this door will be built on the 30'2\" panel (PN97-*-3002), oversized for the requested opening. "
+                f"Confirm this is intended before quoting."
+            )
 
     # Validate track radius for low headroom
     if config.trackRadius == "12":
@@ -1874,7 +1883,7 @@ async def get_dimension_constraints(series_id: str):
         },
         "AL976": {
             "minWidth": 60,
-            "maxWidth": 288,
+            "maxWidth": 290,  # 24'2" — matches the series catalog spec
             "minHeight": 72,
             "maxHeight": 192,
         },

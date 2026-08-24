@@ -651,6 +651,8 @@ function DimensionsStep({ door, onChange, series }) {
   const maxHeight = specs.maxHeight || 384
   const widthExceeded = door.doorWidth > maxWidth
   const heightExceeded = door.doorHeight > maxHeight
+  const snapWarningWidth = specs.snapWarningWidth
+  const widthInSnapGap = snapWarningWidth && door.doorWidth > snapWarningWidth && !widthExceeded
 
   // Common door sizes
   const commonSizes = [
@@ -881,6 +883,15 @@ function DimensionsStep({ door, onChange, series }) {
           <p className="text-sm text-red-700 font-medium">
             {widthExceeded && `Width exceeds ${series?.name || 'series'} maximum of ${Math.floor(maxWidth / 12)}'. `}
             {heightExceeded && `Height exceeds ${series?.name || 'series'} maximum of ${Math.floor(maxHeight / 12)}'.`}
+          </p>
+        </div>
+      )}
+      {widthInSnapGap && (
+        <div className="bg-amber-50 border border-amber-300 rounded-lg p-3">
+          <p className="text-sm text-amber-800 font-medium">
+            No {series?.name || 'AL976'} panel is stocked between {Math.floor(snapWarningWidth / 12)}'0" and 30'2" wide —
+            this door will be built on the 30'2" panel, oversized for the requested opening. Confirm this is intended
+            before quoting.
           </p>
         </div>
       )}
