@@ -1018,6 +1018,15 @@ function DimensionsStep({ door, onChange, series }) {
           </p>
         </div>
       )}
+      {specs.snapWarningWidth && door.doorWidth > specs.snapWarningWidth && door.doorWidth <= specs.maxWidth && (
+        <div className="bg-amber-50 border border-amber-300 rounded-lg p-3">
+          <p className="text-sm text-amber-800 font-medium">
+            No {series?.name || 'AL976'} panel is stocked between {Math.floor(specs.snapWarningWidth / 12)}'0" and 30'2" wide —
+            this door will be built on the 30'2" panel, oversized for the requested opening. Confirm this is intended
+            before quoting.
+          </p>
+        </div>
+      )}
     </div>
   )
 }
