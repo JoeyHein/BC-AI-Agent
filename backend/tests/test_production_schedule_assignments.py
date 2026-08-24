@@ -70,10 +70,10 @@ def test_production_orders_list_as_sub_lines_under_their_sales_order():
     # columns (Prod Order # onward) blank on the main line.
     assert rows[0][1] == "SO-100"
     assert rows[0][2] == "Acme Doors"
-    assert rows[0][5] is None  # Prod Order # column blank on main line
+    assert rows[0][6] is None  # Prod Order # column blank on main line
 
     # Sub-lines follow: SO Number blank, Prod Order # populated.
-    sub_po_numbers = {rows[1][5], rows[2][5]}
+    sub_po_numbers = {rows[1][6], rows[2][6]}
     assert sub_po_numbers == {"PRD-001", "PRD-002"}
     assert rows[1][1] is None and rows[2][1] is None
 
@@ -169,7 +169,31 @@ def test_finished_production_order_quietly_drops_from_still_open_so():
     rows = list(ws.iter_rows(min_row=2, values_only=True))
 
     assert len(rows) == 2  # main line + one surviving sub-line
-    assert rows[1][5] == "PRD-001"
+    assert rows[1][6] == "PRD-001"
+
+
+def test_picking_remaining_shown_on_main_line_when_present():
+    prior = {"SO-100": {"priority": 1, "assigned_to": "Dave", "complete_by": None}}
+    so_customer_map = {"SO-100": "Acme"}
+    picking_remaining = {"SO-100": {"lines_remaining": 3, "qty_remaining": 12.0}}
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    svc._write_assignments_sheet(wb, [], prior, {}, so_customer_map, picking_remaining)
+    ws = wb["Assignments"]
+    rows = list(ws.iter_rows(min_row=2, values_only=True))
+
+    assert rows[0][5] == "3 items / 12 units"
+
+
+def test_picking_remaining_blank_when_not_provided():
+    prior = {"SO-100": {"priority": 1, "assigned_to": "Dave", "complete_by": None}}
+    so_customer_map = {"SO-100": "Acme"}
+
+    ws = _build_ws([], prior, so_customer_map=so_customer_map)
+    rows = list(ws.iter_rows(min_row=2, values_only=True))
+
+    assert rows[0][5] == ""
 
 
 def test_new_workbook_has_no_prior_assignments():
