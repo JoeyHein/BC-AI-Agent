@@ -1648,6 +1648,25 @@ class BusinessCentralClient:
             "pickingQueue", order_by="pickingDate,customerNo", company_id=company_id
         )
 
+    def get_picking_entries(
+        self, sales_order_no: Optional[str] = None, company_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """LIVE per-line picking checklist — what's still outstanding to pick,
+        right now, for one or all open sales orders. Backed by page 70141
+        (pickingEntries), NOT the same as get_picking_queue()'s order-level
+        pickingQueue — this carries item-level detail (outstandingQuantity,
+        qtyPicked) that pickingQueue does not. Rows are deleted on post, same
+        transience as pickingQueue — this is never history, use
+        get_posted_picking_sessions()/postedPickingLines for that.
+        """
+        odata_filter = f"salesOrderNo eq '{sales_order_no}'" if sales_order_no else None
+        return self._picking_api(
+            "pickingEntries",
+            odata_filter=odata_filter,
+            order_by="salesOrderNo,salesLineNo",
+            company_id=company_id,
+        )
+
     def get_picker_sessions(
         self, active_only: bool = True, company_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:

@@ -53,6 +53,13 @@ order also just quietly drops out of its still-open SO's sub-lines the same
 way. An SO # that never matched a real BC sales order (typo, or never was
 open) stays on the sheet flagged "NOT FOUND" instead of vanishing.
 
+A main line also shows a read-only "Picking Remaining" summary ("3 items /
+12 units") — items still outstanding to pick per SO, live, sourced from
+picking_activity_service.get_remaining_to_pick() (the Upwardor picking
+extension's pickingEntries API, page 70141). Blank when there's nothing
+outstanding OR when that extension isn't deployed yet — see
+bc-extension/picking-api/README.md.
+
 A third sheet, "Open Production Orders", is a read-only reference list of
 every currently open (Released) BC production order — number, item,
 description, qty, status, due date, related SO, customer — useful context
@@ -178,14 +185,16 @@ COL_A_SO_NUMBER = 2
 COL_A_CUSTOMER = 3
 COL_A_ASSIGNED_TO = 4
 COL_A_COMPLETE_BY = 5
-COL_A_PO_NUMBER = 6
-COL_A_ITEM = 7
-COL_A_DESCRIPTION = 8
-COL_A_QTY = 9
-COL_A_STATUS = 10
-COL_A_DUE_DATE = 11
+COL_A_PICKING_REMAINING = 6
+COL_A_PO_NUMBER = 7
+COL_A_ITEM = 8
+COL_A_DESCRIPTION = 9
+COL_A_QTY = 10
+COL_A_STATUS = 11
+COL_A_DUE_DATE = 12
 ASSIGN_HEADERS = ["Priority", "SO Number", "Customer", "Assigned To", "Complete By",
-                   "Prod Order #", "Item", "Description", "Qty", "Status", "Due Date"]
+                   "Picking Remaining", "Prod Order #", "Item", "Description", "Qty",
+                   "Status", "Due Date"]
 ASSIGN_TOTAL_COLUMNS = COL_A_DUE_DATE
 
 # Read-only reference list Joey copies Prod Order #s from onto Assignments —
@@ -492,6 +501,17 @@ class ProductionScheduleService:
             logger.warning(f"[ProductionSchedule] Prod-order/SO map unavailable: {e}")
             return {}
 
+    def fetch_picking_remaining(self, so_numbers: Optional[List[str]] = None) -> Dict[str, dict]:
+        """Live remaining-to-pick summary per SO, best-effort — see
+        picking_activity_service.get_remaining_to_pick. Degrades to {} until
+        the Upwardor picking extension is deployed (page 70141)."""
+        try:
+            from app.services.picking_activity_service import picking_activity_service
+            return picking_activity_service.get_remaining_to_pick(so_numbers=so_numbers)
+        except Exception as e:
+            logger.warning(f"[ProductionSchedule] Picking-remaining unavailable: {e}")
+            return {}
+
     def parse_assignments_from_bytes(self, content: bytes) -> Dict[str, dict]:
         """Return {so_number: {priority, assigned_to, complete_by, customer}}
         read from the Assignments sheet's MAIN (SO) lines only — a row with a
@@ -535,6 +555,7 @@ class ProductionScheduleService:
         prior: Dict[str, dict],
         prod_so_map: Optional[Dict[str, str]] = None,
         so_customer_map: Optional[Dict[str, str]] = None,
+        picking_remaining: Optional[Dict[str, dict]] = None,
     ) -> None:
         """Add/replace the Assignments sheet: ONLY the sales orders in
         `prior` (i.e. jobs Joey has actually put here — see module
@@ -551,9 +572,18 @@ class ProductionScheduleService:
         already uses to move an SO to Archived. An SO Number that NEVER
         matched (freshly typed, or a typo) is kept and flagged "NOT FOUND"
         instead of silently vanishing, since that case still needs Joey's
-        attention."""
+        attention.
+
+        Picking Remaining (main line only, read-only) is a live "X items /
+        Y units still outstanding to pick" summary sourced from
+        picking_activity_service.get_remaining_to_pick() — blank when
+        nothing is outstanding OR when the picking extension isn't deployed
+        (the two look identical from here by design; the caller building
+        `picking_remaining` is responsible for checking
+        bc_client.picking_api_available() if that distinction matters)."""
         prod_so_map = prod_so_map or {}
         so_customer_map = so_customer_map or {}
+        picking_remaining = picking_remaining or {}
         fresh_by_po = {po.get("No"): po for po in prod_orders if po.get("No")}
         so_to_pos: Dict[str, List[str]] = defaultdict(list)
         for po_no, so_no in prod_so_map.items():
@@ -596,6 +626,12 @@ class ProductionScheduleService:
                 })
             sub_rows.sort(key=lambda r: (r["due_date"] is None, r["due_date"] or date.max, r["po_no"]))
 
+            pick = picking_remaining.get(so_no)
+            if pick:
+                picking_display = f"{pick['lines_remaining']} items / {pick['qty_remaining']:g} units"
+            else:
+                picking_display = ""
+
             groups.append({
                 "so_no": so_no,
                 "priority": rec.get("priority"),
@@ -603,6 +639,7 @@ class ProductionScheduleService:
                 "not_found": not_found,
                 "assigned_to": rec.get("assigned_to", ""),
                 "complete_by": rec.get("complete_by"),
+                "picking_display": picking_display,
                 "sub_rows": sub_rows,
             })
 
@@ -622,6 +659,7 @@ class ProductionScheduleService:
             assigned_cell = ws.cell(row=row_i, column=COL_A_ASSIGNED_TO, value=g["assigned_to"])
             cb = ws.cell(row=row_i, column=COL_A_COMPLETE_BY, value=g["complete_by"])
             cb.number_format = DATE_FORMAT
+            ws.cell(row=row_i, column=COL_A_PICKING_REMAINING, value=g["picking_display"])
             for col in range(1, len(ASSIGN_HEADERS) + 1):
                 ws.cell(row=row_i, column=col).font = main_font
             if g["not_found"]:
@@ -642,7 +680,7 @@ class ProductionScheduleService:
                 ws.row_dimensions[row_i].outlineLevel = 1
                 row_i += 1
 
-        widths = [9, 14, 22, 18, 13, 16, 18, 30, 8, 14, 13]
+        widths = [9, 14, 22, 18, 13, 20, 16, 18, 30, 8, 14, 13]
         for col_idx, w in enumerate(widths, start=1):
             ws.column_dimensions[get_column_letter(col_idx)].width = w
 
@@ -804,6 +842,7 @@ class ProductionScheduleService:
         prod_orders: Optional[List[Dict[str, Any]]] = None,
         assignment_records: Optional[Dict[str, dict]] = None,
         prod_so_map: Optional[Dict[str, str]] = None,
+        picking_remaining: Optional[Dict[str, dict]] = None,
     ) -> Tuple[bytes, int, int]:
         open_so_numbers = {o.get("number", "") for o in orders}
         auto_purchasing = auto_purchasing or {}
@@ -839,7 +878,9 @@ class ProductionScheduleService:
 
         if prod_orders is not None:
             so_customer_map = {o.get("number"): o.get("customerName", "") for o in orders if o.get("number")}
-            self._write_assignments_sheet(wb, prod_orders, assignment_records or {}, prod_so_map, so_customer_map)
+            self._write_assignments_sheet(
+                wb, prod_orders, assignment_records or {}, prod_so_map, so_customer_map, picking_remaining,
+            )
             self._write_open_production_orders_sheet(wb, prod_orders, prod_so_map, so_customer_map)
 
         buf = io.BytesIO()
@@ -875,9 +916,11 @@ class ProductionScheduleService:
         auto_purchasing = self._compute_auto_purchasing(orders)
         prod_orders = self.fetch_open_production_orders()
         prod_so_map = self.fetch_prod_so_map()
+        picking_remaining = self.fetch_picking_remaining(so_numbers=list(assignment_records.keys()))
         xlsx, open_count, archived_count = self.build_workbook_bytes(
             orders, records, auto_purchasing,
             prod_orders=prod_orders, assignment_records=assignment_records, prod_so_map=prod_so_map,
+            picking_remaining=picking_remaining,
         )
 
         sharepoint_url = graph_client.upload_drive_file(
@@ -912,9 +955,11 @@ class ProductionScheduleService:
         auto_purchasing = self._compute_auto_purchasing(orders)
         prod_orders = self.fetch_open_production_orders()
         prod_so_map = self.fetch_prod_so_map()
+        picking_remaining = self.fetch_picking_remaining(so_numbers=list(assignment_records.keys()))
         xlsx, open_count, archived_count = self.build_workbook_bytes(
             orders, records, auto_purchasing,
             prod_orders=prod_orders, assignment_records=assignment_records, prod_so_map=prod_so_map,
+            picking_remaining=picking_remaining,
         )
         output_path.write_bytes(xlsx)
 

@@ -24,6 +24,11 @@ KNOWN LIMITS OF THE UNDERLYING DATA - read before building on this:
   * Employee identity in the posted archive is a free-text NAME string, not
     employeeNo, so archive-to-employee joins are string matches. Only the
     activity log carries a real employeeNo.
+
+The one exception to the "not attributable to an order" limits above:
+pickingEntries (page 70141, backed by table "Picking Entry") IS keyed by
+Sales Order No. + Sales Line No. — it's the live, line-by-line "what's still
+outstanding to pick" checklist, not a time log. See get_remaining_to_pick().
 """
 
 import logging
@@ -392,6 +397,49 @@ class PickingActivityService:
 
         state.open_pauses.sort(key=lambda x: x["ageMinutes"], reverse=True)
         return state.to_dict()
+
+    def get_remaining_to_pick(
+        self, so_numbers: Optional[List[str]] = None
+    ) -> Dict[str, Dict[str, Any]]:
+        """Live remaining-to-pick summary per sales order, from pickingEntries
+        (page 70141) — the only picking-extension table attributed to a real
+        sales order/line (see module docstring: activity TIME logs are NOT
+        order-attributable, this is a different table).
+
+        remaining = outstandingQuantity ("Order Qty", despite the field name)
+        minus qtyPicked. Comment lines and fully-picked lines are excluded.
+
+        Returns {} both when nothing is outstanding AND when the extension
+        isn't deployed — callers that need to tell those apart should check
+        bc_client.picking_api_available() themselves after calling this.
+        """
+        entries = bc_client.get_picking_entries()
+        if not entries:
+            return {}
+
+        by_so: Dict[str, Dict[str, Any]] = {}
+        for e in entries:
+            so_no = e.get("salesOrderNo")
+            if not so_no or (so_numbers is not None and so_no not in so_numbers):
+                continue
+            if e.get("isCommentLine"):
+                continue
+            remaining = (e.get("outstandingQuantity") or 0) - (e.get("qtyPicked") or 0)
+            if remaining <= 0:
+                continue
+            bucket = by_so.setdefault(so_no, {"lines_remaining": 0, "qty_remaining": 0.0, "items": []})
+            bucket["lines_remaining"] += 1
+            bucket["qty_remaining"] += remaining
+            bucket["items"].append({
+                "itemNo": e.get("itemNo"),
+                "description": e.get("description"),
+                "remaining": remaining,
+                "unitOfMeasureCode": e.get("unitOfMeasureCode"),
+            })
+
+        for bucket in by_so.values():
+            bucket["qty_remaining"] = round(bucket["qty_remaining"], 2)
+        return by_so
 
     def get_weekly_summary(self, weeks_back: int = 4) -> Dict[str, Any]:
         """Labour and throughput for the trailing N weeks.

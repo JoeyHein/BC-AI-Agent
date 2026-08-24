@@ -208,3 +208,52 @@ class TestFloorState:
         # Sorted oldest first, severity escalates past 90 minutes.
         assert state["openPauses"][0]["severity"] == "critical"
         assert state["openPauses"][1]["severity"] == "warning"
+
+
+def _entry(so_no, item, outstanding, picked, line_no=1, comment=False):
+    return {
+        "salesOrderNo": so_no, "salesLineNo": line_no, "itemNo": item,
+        "description": f"desc {item}", "outstandingQuantity": outstanding,
+        "qtyPicked": picked, "unitOfMeasureCode": "EA", "isCommentLine": comment,
+    }
+
+
+class TestRemainingToPick:
+    def test_sums_remaining_qty_and_line_count_per_so(self, svc):
+        entries = [
+            _entry("SO-100", "PN10", outstanding=10, picked=4, line_no=1),
+            _entry("SO-100", "HK02", outstanding=1, picked=0, line_no=2),
+            _entry("SO-200", "PN10", outstanding=5, picked=5, line_no=1),  # fully picked
+        ]
+        with patch("app.services.picking_activity_service.bc_client") as bc:
+            bc.get_picking_entries.return_value = entries
+            result = svc.get_remaining_to_pick()
+
+        assert result["SO-100"]["lines_remaining"] == 2
+        assert result["SO-100"]["qty_remaining"] == 7.0  # 6 + 1
+        # SO-200's only line is fully picked -> excluded entirely.
+        assert "SO-200" not in result
+
+    def test_excludes_comment_lines(self, svc):
+        entries = [_entry("SO-100", "", outstanding=0, picked=0, comment=True)]
+        with patch("app.services.picking_activity_service.bc_client") as bc:
+            bc.get_picking_entries.return_value = entries
+            result = svc.get_remaining_to_pick()
+
+        assert result == {}
+
+    def test_filters_to_requested_so_numbers(self, svc):
+        entries = [
+            _entry("SO-100", "PN10", outstanding=10, picked=0),
+            _entry("SO-200", "PN10", outstanding=10, picked=0),
+        ]
+        with patch("app.services.picking_activity_service.bc_client") as bc:
+            bc.get_picking_entries.return_value = entries
+            result = svc.get_remaining_to_pick(so_numbers=["SO-100"])
+
+        assert list(result.keys()) == ["SO-100"]
+
+    def test_no_entries_returns_empty_dict(self, svc):
+        with patch("app.services.picking_activity_service.bc_client") as bc:
+            bc.get_picking_entries.return_value = []
+            assert svc.get_remaining_to_pick() == {}

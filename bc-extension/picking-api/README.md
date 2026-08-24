@@ -24,26 +24,36 @@ BC web client.
 |---|---|---|
 | page 70134 | `activityTimeLogs` | Labour minutes per employee, pause-adjusted |
 | page 70135 | `activityPauseLogs` | Downtime with reason codes |
-| page 70136 | `pickingQueue` | Live queue state |
+| page 70136 | `pickingQueue` | Live order-level queue state (no item detail) |
 | page 70137 | `pickerSessions` | Who is signed in now |
 | page 70138 | `postedPickingSessions` | Durable throughput history |
 | page 70139 | `postedPickingHeaders` | Per-order archive |
-| page 70140 | `postedPickingLines` | Per-line picker/loader attribution |
+| page 70140 | `postedPickingLines` | Per-line picker/loader attribution (posted/historical) |
+| page 70141 | `pickingEntries` | **Live per-line checklist** — item, order qty, qty picked, per SO |
 | permissionset 70102 | `Picking API Read` | R/X only, for the integration account |
 
 All pages are read-only (`Editable/Insert/Modify/Delete = false`,
-`DataAccessIntent = ReadOnly`). Object IDs 70134–70140 were free at time of
-writing (70109–70133 were in use); **re-check before merging** in case the
-extension has moved on.
+`DataAccessIntent = ReadOnly`).
 
-Base URL: `.../api/upwardor/picking/v1.0` — note this is *not* `api/v2.0`.
+**Verified against `github.com/Upwardor/Upwardor_BC_Repos` (commit as of
+2026-08-24, pushed 2026-08-12) — field-for-field match, no drift.** Object
+IDs 70134–70141 are free (highest ID in use there is 70133); confirmed by
+enumerating every object declaration in the repo, not just the page range.
+`pickingEntries` (70141) is new — added because none of the originally
+staged pages exposed `Picking Entry` (table 70100), the only table that
+carries the actual line-by-line "what's left to pick" checklist
+(`Sales Order No.`, `Item No.`, `Outstanding Quantity`, `Qty. Picked`) — see
+"Consumer gotchas" below for why `pickingQueue` doesn't cover this.
 
 ## Not yet verified
 
 **The AL has not been compiled.** No AL toolchain was available where it was
 written, and it has not been built against the Probiztech base extension
 (`businesscentral-repos_Upwardor`). Treat it as a reviewed draft, not
-production-ready — it needs a build before merge.
+production-ready — it needs a build before merge. Field names have now been
+checked against the real source (see above), which substantially de-risks
+this, but "compiles" and "field names match" are not the same guarantee —
+AL has type/property rules a text diff can't catch.
 
 ## Deliberate omissions
 
@@ -65,7 +75,16 @@ production-ready — it needs a build before merge.
   Two pickers × 30 min reads as 60. This is the easiest thing here to get wrong.
 - `sourceNo` / `sourceLineNo` are exposed but the AL call sites currently write
   `''` / `0`, so timing attributes to a **customer batch**, not a sales order or
-  line. Per-order cycle time is not derivable today.
+  line. Per-order cycle time is not derivable today. **Re-verified 2026-08-24
+  against the real, current call sites** (`DigitalPickingList.Page.al`
+  `StartActivity`/`StartActivityWithEmployee` calls) — still `SourceType=0,
+  SourceNo='', SourceLineNo=0` even though the table's `Source Type` option
+  now includes "Production Order" as a value. The column exists; nothing
+  populates it. Don't expect this to change without an AL fix on Upwardor's
+  side — it's not a deployment gap, it's how the write path is coded today.
+  **For per-SO detail, use `pickingEntries` (page 70141) instead** — that
+  table IS properly attributed (`Sales Order No.`, `Sales Line No.`) and is
+  the right source for "what's still outstanding to pick per order".
 - Managers and admins **log no time at all** — activities only start when
   `SessionEntryNo <> 0`, and manager sign-ins get `0`. Labour totals exclude
   supervisors by design.
