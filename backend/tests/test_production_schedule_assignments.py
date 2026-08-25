@@ -223,5 +223,28 @@ def test_open_production_orders_sheet_lists_every_open_order_with_customer():
     assert data_rows[0][7] == "Beta Garage"
 
 
+def test_parses_rows_written_under_an_older_narrower_schema():
+    """Regression: a sheet written before a new trailing column (e.g.
+    Picking Remaining) was added is narrower than ASSIGN_TOTAL_COLUMNS.
+    2026-08-25: the parser rejected every row on Joey's live sheet because
+    it checked row width against the CURRENT total column count instead of
+    the last column it actually reads (COL_A_COMPLETE_BY), wiping his
+    hand-typed priorities on the next scheduled refresh."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Assignments"
+    ws.append(["Priority", "SO Number", "Customer", "Assigned To", "Complete By",
+               "Prod Order #", "Item", "Description", "Qty", "Status", "Due Date"])
+    ws.append([1, "SO-100", "Acme Doors", None, None, None, None, None, None, None, None])
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    parsed = svc.parse_assignments_from_bytes(buf.getvalue())
+
+    assert "SO-100" in parsed
+    assert parsed["SO-100"]["priority"] == 1
+    assert parsed["SO-100"]["customer"] == "Acme Doors"
+
+
 def test_empty_bytes_returns_empty_dict():
     assert svc.parse_assignments_from_bytes(b"") == {}
