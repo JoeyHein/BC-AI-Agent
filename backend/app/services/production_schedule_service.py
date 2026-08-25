@@ -531,7 +531,13 @@ class ProductionScheduleService:
 
         ws = wb[ASSIGN_SHEET_NAME]
         for row in ws.iter_rows(min_row=2, values_only=True):
-            if not row or len(row) < ASSIGN_TOTAL_COLUMNS or not row[COL_A_SO_NUMBER - 1]:
+            # Only columns up to COL_A_COMPLETE_BY are read here — checking
+            # against ASSIGN_TOTAL_COLUMNS instead would reject every row
+            # whenever a sheet still on an older (narrower) schema gets
+            # read back, silently wiping all hand-typed data. Bit us once
+            # (2026-08-25) when the Picking Remaining column widened the
+            # sheet from 11 to 12 columns.
+            if not row or len(row) < COL_A_COMPLETE_BY or not row[COL_A_SO_NUMBER - 1]:
                 continue  # blank SO Number == a sub-line, not a main line
             so_no = str(row[COL_A_SO_NUMBER - 1]).strip()
             priority_raw = row[COL_A_PRIORITY - 1]
