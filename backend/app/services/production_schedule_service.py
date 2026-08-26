@@ -203,6 +203,14 @@ OPEN_PO_SHEET_NAME = "Open Production Orders"
 OPEN_PO_HEADERS = ["Prod Order #", "Item", "Description", "Qty", "Status",
                     "Due Date", "Related SO", "Customer"]
 
+# Read-only, fully regenerated every refresh — never hand-edited, so it
+# carries none of the read-back-schema-width risk the Assignments sheet
+# has (see so_master_crosscheck_service module docstring for what this
+# compares). Disagreements sorted to the top.
+CROSSCHECK_SHEET_NAME = "BC Cross-Check"
+CROSSCHECK_HEADERS = ["SO Number", "Customer", "Our Status", "Urgency",
+                       "BC Ready", "BC Unscheduled Lines", "BC Unscheduled Parts", "Agrees"]
+
 RED_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 RED_FONT = Font(color="9C0006")
 GREEN_FILL = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
@@ -746,6 +754,43 @@ class ProductionScheduleService:
         for col_idx, w in enumerate(widths, start=1):
             ws.column_dimensions[get_column_letter(col_idx)].width = w
 
+    def _write_crosscheck_sheet(self, wb: Workbook, crosscheck: Optional[dict]) -> None:
+        """Add/replace the "BC Cross-Check" reference sheet — our purchasing
+        coverage vs BC's native SalesOrderMaster per-line production status,
+        one row per open SO. Rebuilt from scratch every refresh; nothing
+        here is hand-edited, so there's no read-back to get wrong. See
+        so_master_crosscheck_service for what "Agrees" means."""
+        if CROSSCHECK_SHEET_NAME in wb.sheetnames:
+            del wb[CROSSCHECK_SHEET_NAME]
+        ws = wb.create_sheet(CROSSCHECK_SHEET_NAME)
+
+        for c, title in enumerate(CROSSCHECK_HEADERS, start=1):
+            cell = ws.cell(row=1, column=c, value=title)
+            cell.font = HEADER_FONT
+            cell.fill = HEADER_FILL
+        ws.freeze_panes = "A2"
+
+        rows = list((crosscheck or {}).get("rows") or [])
+        # Disagreements first — that's the actionable subset.
+        rows.sort(key=lambda r: (r["agrees"], r["so_number"]))
+
+        for i, r in enumerate(rows, start=2):
+            ws.cell(row=i, column=1, value=r["so_number"])
+            ws.cell(row=i, column=2, value=r["customer"])
+            ws.cell(row=i, column=3, value=r["our_status"])
+            ws.cell(row=i, column=4, value=r["urgency"])
+            ws.cell(row=i, column=5, value="Yes" if r["bc_ready"] else "No")
+            ws.cell(row=i, column=6, value=r["bc_unscheduled_count"])
+            ws.cell(row=i, column=7, value=", ".join(r.get("bc_unscheduled_parts") or []))
+            agrees_cell = ws.cell(row=i, column=8, value="Yes" if r["agrees"] else "No")
+            if not r["agrees"]:
+                agrees_cell.fill = AMBER_FILL
+                agrees_cell.font = AMBER_FONT
+
+        widths = [14, 24, 14, 12, 10, 18, 40, 10]
+        for col_idx, w in enumerate(widths, start=1):
+            ws.column_dimensions[get_column_letter(col_idx)].width = w
+
     # ── build ───────────────────────────────────────────────────────────
 
     def _write_header(self, ws):
@@ -849,6 +894,7 @@ class ProductionScheduleService:
         assignment_records: Optional[Dict[str, dict]] = None,
         prod_so_map: Optional[Dict[str, str]] = None,
         picking_remaining: Optional[Dict[str, dict]] = None,
+        crosscheck: Optional[dict] = None,
     ) -> Tuple[bytes, int, int]:
         open_so_numbers = {o.get("number", "") for o in orders}
         auto_purchasing = auto_purchasing or {}
@@ -889,6 +935,8 @@ class ProductionScheduleService:
             )
             self._write_open_production_orders_sheet(wb, prod_orders, prod_so_map, so_customer_map)
 
+        self._write_crosscheck_sheet(wb, crosscheck)
+
         buf = io.BytesIO()
         wb.save(buf)
         return buf.getvalue(), len(orders), len(archived_so)
@@ -923,10 +971,11 @@ class ProductionScheduleService:
         prod_orders = self.fetch_open_production_orders()
         prod_so_map = self.fetch_prod_so_map()
         picking_remaining = self.fetch_picking_remaining(so_numbers=list(assignment_records.keys()))
+        crosscheck = self._fetch_crosscheck()
         xlsx, open_count, archived_count = self.build_workbook_bytes(
             orders, records, auto_purchasing,
             prod_orders=prod_orders, assignment_records=assignment_records, prod_so_map=prod_so_map,
-            picking_remaining=picking_remaining,
+            picking_remaining=picking_remaining, crosscheck=crosscheck,
         )
 
         sharepoint_url = graph_client.upload_drive_file(
@@ -939,6 +988,7 @@ class ProductionScheduleService:
             "archived_orders": archived_count,
             "production_orders": len(prod_orders),
             "assigned": len(assignment_records),
+            "crosscheck_disagreements": crosscheck.get("disagree_count", 0),
             "sharepoint": sharepoint_url or settings.PRODSCHED_SHAREPOINT_WEB_URL or "uploaded",
         }
         logger.info(f"[ProductionSchedule] Refreshed: {result}")
@@ -962,10 +1012,11 @@ class ProductionScheduleService:
         prod_orders = self.fetch_open_production_orders()
         prod_so_map = self.fetch_prod_so_map()
         picking_remaining = self.fetch_picking_remaining(so_numbers=list(assignment_records.keys()))
+        crosscheck = self._fetch_crosscheck()
         xlsx, open_count, archived_count = self.build_workbook_bytes(
             orders, records, auto_purchasing,
             prod_orders=prod_orders, assignment_records=assignment_records, prod_so_map=prod_so_map,
-            picking_remaining=picking_remaining,
+            picking_remaining=picking_remaining, crosscheck=crosscheck,
         )
         output_path.write_bytes(xlsx)
 
@@ -974,6 +1025,7 @@ class ProductionScheduleService:
             "archived_orders": archived_count,
             "production_orders": len(prod_orders),
             "assigned": len(assignment_records),
+            "crosscheck_disagreements": crosscheck.get("disagree_count", 0),
             "path": str(output_path),
         }
 
@@ -987,6 +1039,21 @@ class ProductionScheduleService:
             return self._auto_purchasing_status(db, orders)
         except Exception as e:
             logger.error(f"[ProductionSchedule] Purchasing auto-fill failed: {e}")
+            return {}
+        finally:
+            db.close()
+
+    def _fetch_crosscheck(self) -> dict:
+        """Opens its own short-lived DB session, same pattern as
+        _compute_auto_purchasing — best-effort, degrades to an empty sheet
+        rather than blocking the rest of the refresh."""
+        from app.db.database import SessionLocal
+        from app.services.so_master_crosscheck_service import so_master_crosscheck_service
+        db = SessionLocal()
+        try:
+            return so_master_crosscheck_service.build(db)
+        except Exception as e:
+            logger.error(f"[ProductionSchedule] BC cross-check failed: {e}")
             return {}
         finally:
             db.close()
