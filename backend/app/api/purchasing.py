@@ -21,6 +21,12 @@ from app.services.vendor_map_service import vendor_map_service
 from app.services.purchasing_report_service import purchasing_report_service
 from app.services.purchasing_po_service import purchasing_po_service
 from app.services.planning_workbook_service import planning_workbook_service, XLSX_MIME
+from app.services.so_coverage_service import (
+    so_coverage_service,
+    BUY_WINDOW_DAYS_DEFAULT as SO_BUY_WINDOW_DEFAULT,
+    ATTENTION_WINDOW_DAYS_DEFAULT as SO_ATTENTION_WINDOW_DEFAULT,
+)
+from app.services.so_master_crosscheck_service import so_master_crosscheck_service
 from app.integrations.bc.client import bc_client
 
 router = APIRouter(prefix="/api/admin/purchasing", tags=["purchasing"])
@@ -90,6 +96,49 @@ async def get_requirements(
     return purchasing_demand_service.compute_requirements(
         db, include_met=include_met,
         horizon_weeks=horizon_weeks if horizon_weeks else None,
+    )
+
+
+@router.get("/so-coverage")
+async def get_so_coverage(
+    buy_window_days: int = Query(
+        SO_BUY_WINDOW_DEFAULT,
+        ge=0, le=180,
+        description="Items bought this close to delivery are deliberate just-in-time buys; "
+                    "anything still uncovered inside this window is a genuine miss",
+    ),
+    attention_window_days: int = Query(
+        SO_ATTENTION_WINDOW_DEFAULT,
+        ge=0, le=365,
+        description="How far out an order still counts as needing attention now",
+    ),
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Per-sales-order purchasing coverage — what has nothing bought for it yet,
+    and what has had items missed."""
+    return so_coverage_service.build(
+        db,
+        buy_window_days=buy_window_days,
+        attention_window_days=attention_window_days,
+    )
+
+
+@router.get("/so-master-crosscheck")
+async def get_so_master_crosscheck(
+    buy_window_days: int = Query(SO_BUY_WINDOW_DEFAULT, ge=0, le=180),
+    attention_window_days: int = Query(SO_ATTENTION_WINDOW_DEFAULT, ge=0, le=365),
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Cross-check our SO coverage (raw-material purchasing) against BC's
+    native SalesOrderMaster per-line production status. Surfaces orders
+    where the two signals disagree — see so_master_crosscheck_service for
+    what that means in each direction."""
+    return so_master_crosscheck_service.build(
+        db,
+        buy_window_days=buy_window_days,
+        attention_window_days=attention_window_days,
     )
 
 

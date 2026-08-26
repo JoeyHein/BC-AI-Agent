@@ -35,6 +35,7 @@ ODATA_ENDPOINTS = {
     "work_centers": "WorkCenters",
     "bom_lines": "ProductionBomLines",
     "reservations": "ReservationEntries",   # published by Joey to link PROD->SO
+    "sales_order_master": "SalesOrderMaster",  # custom ODC page, refreshed nightly in BC
 }
 
 # BC reservation Source_Type codes. Sales Line reserves against BOTH the prod
@@ -298,6 +299,29 @@ class BCProductionService:
             if len(page) < page_size:
                 break
             skip += page_size
+        return rows
+
+    def get_sales_order_master(self) -> List[Dict[str, Any]]:
+        """Raw rows from the custom `SalesOrderMaster` BC page (id 50023) —
+        one row per open sales-order line, refreshed nightly by a BC-side
+        job (not by us). Cached 6h since BC only updates it once a day.
+
+        GOTCHA (confirmed live 2026-08-26): server-side $filter is silently
+        ignored on this endpoint — filtering by Status returned the same
+        unfiltered first page regardless of the value. Always pull
+        everything via $skip paging and filter/group in Python.
+
+        Returns [] on error so callers degrade gracefully (BC master data
+        unavailable shouldn't break anything that also has its own signal).
+        """
+        import time
+        hit = getattr(self, "_sales_order_master_cache", None)
+        if hit and hit[0] > time.time():
+            return hit[1]
+
+        rows = self._make_odata_request_all(ODATA_ENDPOINTS["sales_order_master"])
+        if rows:
+            self._sales_order_master_cache = (time.time() + 6 * 3600, rows)
         return rows
 
     def get_replenishment_map(self) -> Dict[str, str]:
