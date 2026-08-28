@@ -986,6 +986,7 @@ LINE_ORDER = [
     "aluminum_section",  # 2d. Aluminum sections (AL976/Panorama/Solalite)
     "aluminum_glazing",  # 2e. Aluminum polycarbonate glazing
     "aluminum_glass",    # 2e. Aluminum glass glazing
+    "glazing_comment",   # 2e-note. Glazing substitution note (unstocked combo)
     "commercial_window", # 2f. Commercial thermopane windows
     "retainer",          # 3. Retainer (top/bottom)
     "astragal",          # 4. Astragal (bottom rubber)
@@ -1214,8 +1215,8 @@ def build_bc_quote_from_doors(
                 # already emits the canonical header for this door.
                 if part.get("category") == "comment":
                     continue
-                # Spring info comment → BC Comment line (not an item)
-                if part.get("category") in ("spring_comment", "highlift_comment"):
+                # Info/warning comments → BC Comment line (not an item)
+                if part.get("category") in ("spring_comment", "highlift_comment", "glazing_comment"):
                     part["lineType"] = "Comment"
                     part["is_note"] = True
 

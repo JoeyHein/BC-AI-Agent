@@ -606,3 +606,75 @@ class TestStaleWindowConfigGuard:
         assert self._panel_qty(parts) == 3
         assert len(_by_category(parts, "v130g_section")) == 1
         assert len(_by_category(parts, "v130g_glass")) == 1
+
+
+# ── GK17 aluminum glazing (SKU validity + unstocked-combo handling) ─────────
+
+class TestGK17Glazing:
+    """Every GK17 SKU the generator can emit must exist + be active in BC, and
+    a (color, pane, treatment) combo BC doesn't stock must resolve to the
+    nearest real kit AND drop a glazing_comment note (never a silent wrong
+    SKU, never an unpriced comment line for the whole glazing)."""
+
+    import json as _json
+    import os as _os
+    _cache_path = _os.path.join(_os.path.dirname(__file__), "..", "data", "bc_analysis", "bc_items.json")
+    _raw = _json.load(open(_cache_path, encoding="utf-8"))
+    _items = _raw if isinstance(_raw, dict) else {i.get("number"): i for i in _raw}
+
+    def _active(self, sku):
+        v = self._items.get(sku)
+        return bool(v) and not v.get("blocked")
+
+    def _al976(self, **over):
+        base = {
+            "doorType": "aluminium", "doorSeries": "AL976",
+            "doorWidth": 192, "doorHeight": 96,
+            "panelColor": "CLEAR_ANODIZED", "panelDesign": "FLUSH",
+            "glazingType": "glass",
+        }
+        base.update(over)
+        return get_parts_for_door_config(base).get("parts_list", [])
+
+    def test_all_constant_skus_exist_and_active(self):
+        from app.services.part_number_service import (
+            GK17_POLYCARBONATE, GK17_ALUM_GLASS_EXACT, GK17_ALUM_GLASS_SUBSTITUTE,
+        )
+        skus = (
+            [v[0] for v in GK17_POLYCARBONATE.values()]
+            + [v[0] for v in GK17_ALUM_GLASS_EXACT.values()]
+            + [v[0] for v in GK17_ALUM_GLASS_SUBSTITUTE.values()]
+        )
+        bad = [s for s in skus if not self._active(s)]
+        assert not bad, f"GK17 SKUs missing/blocked in BC: {bad}"
+
+    def test_every_ui_combo_resolves_to_active_sku(self):
+        from app.services.part_number_service import resolve_gk17_alum_glass
+        for color in ("CLEAR", "ETCHED", "SUPER_GREY"):
+            for pane in ("INSULATED", "SINGLE"):
+                for treat in ("ANNEALED", "TEMPERED"):
+                    pn, _desc, _note = resolve_gk17_alum_glass(color, pane, treat)
+                    assert self._active(pn), f"{color}/{pane}/{treat} -> {pn} not active in BC"
+
+    def test_exact_combo_has_no_substitution_note(self):
+        parts = self._al976(glassColor="SUPER_GREY", glassPaneType="INSULATED", glassType="ANNEALED")
+        assert [p for p in parts if p["category"] == "aluminum_glass"]
+        assert not [p for p in parts if p["category"] == "glazing_comment"]
+
+    def test_unstocked_combo_substitutes_and_flags(self):
+        # BC has no single-pane / tempered super grey — nearest is the super
+        # grey thermopane kit, and the quote must carry a glazing_comment.
+        parts = self._al976(glassColor="SUPER_GREY", glassPaneType="SINGLE", glassType="TEMPERED")
+        glass = [p for p in parts if p["category"] == "aluminum_glass"]
+        note = [p for p in parts if p["category"] == "glazing_comment"]
+        assert glass and glass[0]["part_number"] == "GK17-12400-00"
+        assert note and "SUBSTITUTION" in note[0]["description"]
+
+    def test_polycarbonate_colors_resolve(self):
+        from app.services.part_number_service import resolve_gk17_polycarbonate
+        for color, sku in [
+            ("CLEAR", "GK17-12500-00"), ("LIGHT_BRONZE", "GK17-12600-00"),
+            ("DARK_BRONZE", "GK17-12700-00"), ("WHITE_OPAL", "GK17-12800-00"),
+        ]:
+            pn, _ = resolve_gk17_polycarbonate(color)
+            assert pn == sku and self._active(pn)

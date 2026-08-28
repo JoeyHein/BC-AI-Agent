@@ -612,7 +612,7 @@ def duplicate_saved_quote(
 # Standard line item ordering for BC quotes (same as door_configurator.py)
 LINE_ORDER = [
     "comment", "panel", "v130g_section", "v130g_glass",
-    "aluminum_section", "aluminum_glazing", "aluminum_glass", "commercial_window",
+    "aluminum_section", "aluminum_glazing", "aluminum_glass", "glazing_comment", "commercial_window",
     "retainer", "astragal", "top_seal", "strut", "window",
     "track", "highlift_comment", "highlift_track", "hardware", "spring_comment", "spring", "spring_accessory",
     "shaft", "weather_stripping", "accessory", "operator",
@@ -965,7 +965,7 @@ def _generate_bc_quote_with_items(
                 # _format_door_description header; skip the duplicate.
                 if part.get("category") == "comment":
                     continue
-                if part.get("category") in ("spring_comment", "highlift_comment"):
+                if part.get("category") in ("spring_comment", "highlift_comment", "glazing_comment"):
                     part["lineType"] = "Comment"
                     part["is_note"] = True
 
@@ -2023,7 +2023,7 @@ def _edit_bc_quote_lines(
                 # _format_door_description header; skip the duplicate.
                 if part.get("category") == "comment":
                     continue
-                if part.get("category") in ("spring_comment", "highlift_comment"):
+                if part.get("category") in ("spring_comment", "highlift_comment", "glazing_comment"):
                     part["lineType"] = "Comment"
                     part["is_note"] = True
                 all_new_lines.append(part)
@@ -2428,7 +2428,7 @@ def _estimate_pricing_locally(
                 # _format_door_description header; skip the duplicate.
                 if part.get("category") == "comment":
                     continue
-                if part.get("category") in ("spring_comment", "highlift_comment"):
+                if part.get("category") in ("spring_comment", "highlift_comment", "glazing_comment"):
                     part["lineType"] = "Comment"
                     part["is_note"] = True
 
