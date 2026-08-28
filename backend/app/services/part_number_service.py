@@ -398,6 +398,82 @@ SEAL_RULES = {
     },
 }
 
+# ---------------------------------------------------------------------------
+# GK17 aluminum glazing kits (AL976 / SWD / Panorama / Solalite / V130G glass)
+#
+# Every SKU below is verified present + active in the BC item master
+# (backend/data/bc_analysis/bc_items.json). Do NOT "correct" these to another
+# numbering scheme without checking the cache first — a past edit swapped the
+# whole set to invented GK17-25xxx / GK17-10000 codes that don't exist in BC,
+# which turned every aluminum glazing line into an unpriced comment.
+# ---------------------------------------------------------------------------
+
+GK17_POLYCARBONATE = {
+    "CLEAR":        ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"),
+    "LIGHT_BRONZE": ("GK17-12600-00", "GLAZING KIT, ALUM, POLYCARBONATE, LIGHT BRONZE"),
+    "DARK_BRONZE":  ("GK17-12700-00", "GLAZING KIT, ALUM, POLYCARBONATE, DARK BRONZE"),
+    "WHITE_OPAL":   ("GK17-12800-00", "GLAZING KIT, ALUM, POLYCARBONATE, WHITE OPAL"),
+}
+GK17_POLYCARBONATE_DEFAULT = GK17_POLYCARBONATE["CLEAR"]
+
+# Aluminum glass — keyed (color, pane, treatment). EXACT = BC stocks that
+# precise combo.
+GK17_ALUM_GLASS_EXACT = {
+    ("CLEAR",      "INSULATED", "ANNEALED"): ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/ CLEAR"),
+    ("ETCHED",     "INSULATED", "ANNEALED"): ("GK17-11700-00", "GLAZING KIT, ALUM, THERM, ETCHED/ CLEAR"),
+    ("SUPER_GREY", "INSULATED", "ANNEALED"): ("GK17-12400-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR"),
+    ("CLEAR",      "INSULATED", "TEMPERED"): ("GK17-11500-00", "GLAZING KIT, ALUM, THERM, TEMP/ CLEAR"),
+    ("ETCHED",     "INSULATED", "TEMPERED"): ("GK17-13120-00", "GLAZING KIT, ALUM, THERM, TEMPERED/ ETCHED"),
+    ("CLEAR",      "SINGLE",    "ANNEALED"): ("GK17-10100-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
+    ("ETCHED",     "SINGLE",    "ANNEALED"): ("GK17-10300-00", "GLAZING KIT, ALUM, SINGLE (3MM), ETCHED"),
+    ("CLEAR",      "SINGLE",    "TEMPERED"): ("GK17-10200-00", "GLAZING KIT, ALUM, SINGLE (3MM), TEMP"),
+}
+# BC has no exact kit — nearest stocked kit + what differs from the request.
+# The generator emits a glazing_comment line whenever one of these is used so
+# the office confirms the substitution with the customer.
+GK17_ALUM_GLASS_SUBSTITUTE = {
+    ("SUPER_GREY", "INSULATED", "TEMPERED"): ("GK17-12400-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR", "annealed instead of tempered"),
+    ("SUPER_GREY", "SINGLE",    "ANNEALED"): ("GK17-12400-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR", "insulated thermopane instead of single pane"),
+    ("SUPER_GREY", "SINGLE",    "TEMPERED"): ("GK17-12400-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR", "insulated thermopane, annealed instead of single-pane tempered"),
+    ("ETCHED",     "SINGLE",    "TEMPERED"): ("GK17-10300-00", "GLAZING KIT, ALUM, SINGLE (3MM), ETCHED", "annealed instead of tempered"),
+}
+GK17_ALUM_GLASS_DEFAULT = GK17_ALUM_GLASS_EXACT[("CLEAR", "INSULATED", "ANNEALED")]
+
+
+def resolve_gk17_polycarbonate(glass_color: Optional[str]) -> tuple:
+    """(part_number, description) for a polycarbonate glazing color."""
+    return GK17_POLYCARBONATE.get(
+        (glass_color or "CLEAR").upper(), GK17_POLYCARBONATE_DEFAULT
+    )
+
+
+def resolve_gk17_alum_glass(color: Optional[str], pane: Optional[str], treatment: Optional[str]) -> tuple:
+    """Resolve an aluminum glass kit.
+
+    Returns (part_number, description, substitution_note_or_None). The note is
+    non-None whenever BC doesn't stock the exact (color, pane, treatment) combo
+    and a nearest-match kit was quoted instead — callers surface it as a
+    glazing_comment line so the office can confirm with the customer.
+    """
+    key = ((color or "CLEAR").upper(), (pane or "INSULATED").upper(),
+           (treatment or "ANNEALED").upper())
+    if key in GK17_ALUM_GLASS_EXACT:
+        pn, desc = GK17_ALUM_GLASS_EXACT[key]
+        return pn, desc, None
+
+    pretty = f"{key[0].replace('_', ' ').title()} / {key[1].lower()} / {key[2].lower()}"
+    if key in GK17_ALUM_GLASS_SUBSTITUTE:
+        pn, desc, diff = GK17_ALUM_GLASS_SUBSTITUTE[key]
+        note = (f"GLAZING SUBSTITUTION: {pretty} aluminum glazing is not stocked — "
+                f"quoted {pn} ({diff}). Confirm with customer / office.")
+        return pn, desc, note
+
+    pn, desc = GK17_ALUM_GLASS_DEFAULT
+    note = (f"GLAZING SUBSTITUTION: {pretty} aluminum glazing has no mapping — "
+            f"defaulted to {pn} ({desc}). Verify before quoting.")
+    return pn, desc, note
+
+
 # Operator part numbers now come from operator_service (CSV catalog with real BC part numbers)
 
 
@@ -2903,16 +2979,7 @@ class PartNumberService:
         is_polycarbonate = glazing_type == "polycarbonate" or series in ("PANORAMA", "SOLALITE")
 
         if is_polycarbonate:
-            # Polycarbonate glazing kits
-            glass_color = (config.glass_color or "CLEAR").upper()
-            gk17_map = {
-                "CLEAR":        ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"),
-                "LIGHT_BRONZE": ("GK17-12600-00", "GLAZING KIT, ALUM, POLYCARBONATE, LIGHT BRONZE"),
-                "DARK_BRONZE":  ("GK17-12700-00", "GLAZING KIT, ALUM, POLYCARBONATE, DARK BRONZE"),
-                "WHITE_OPAL":   ("GK17-12800-00", "GLAZING KIT, ALUM, POLYCARBONATE, WHITE OPAL"),
-            }
-            poly_pn, poly_desc = gk17_map.get(glass_color, ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"))
-
+            poly_pn, poly_desc = resolve_gk17_polycarbonate(config.glass_color)
             parts.append(PartSelection(
                 part_number=poly_pn,
                 description=poly_desc,
@@ -2921,35 +2988,14 @@ class PartNumberService:
                 notes=f"Polycarbonate for {panel_count} sections ({glazing_sqft_per_section:.2f} sqft each)"
             ))
         else:
-            # AL976 / SWD — GK17 aluminum glazing kits
-            # Three independent axes: color × pane (insulated/single) × glass
-            # type (annealed/tempered). Lookup is keyed (color, pane, glass).
-            glass_color = (config.glass_color or "CLEAR").upper()
-            pane_type = (config.glass_pane_type or "INSULATED").upper()
-            glass_treatment = (getattr(config, "glass_type", None) or "ANNEALED").upper()
-
-            gk17_glass_map = {
-                # INSULATED + ANNEALED
-                ("CLEAR",      "INSULATED", "ANNEALED"): ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR"),
-                ("ETCHED",     "INSULATED", "ANNEALED"): ("GK17-11700-00", "GLAZING KIT, ALUM, THERM, ETCHED/CLEAR"),
-                ("SUPER_GREY", "INSULATED", "ANNEALED"): ("GK17-12400-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/CLEAR"),
-                # INSULATED + TEMPERED
-                ("CLEAR",      "INSULATED", "TEMPERED"): ("GK17-11500-00", "GLAZING KIT, ALUM, THERM, TEMP/CLEAR"),
-                ("ETCHED",     "INSULATED", "TEMPERED"): ("GK17-13120-00", "GLAZING KIT, ALUM, THERM, TEMPERED/ETCHED"),
-                # SINGLE + ANNEALED
-                ("CLEAR",      "SINGLE",    "ANNEALED"): ("GK17-10100-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
-                ("ETCHED",     "SINGLE",    "ANNEALED"): ("GK17-10300-00", "GLAZING KIT, ALUM, SINGLE 3MM, ETCHED"),
-                # SINGLE + TEMPERED
-                ("CLEAR",      "SINGLE",    "TEMPERED"): ("GK17-10200-00", "GLAZING KIT, ALUM, SINGLE (3MM), TEMP"),
-                # Combinations not yet stocked in BC fall through to the
-                # default below — the warning surfaces on the quote so the
-                # office can swap to an in-stock SKU if needed.
-            }
-            glass_pn, glass_desc = gk17_glass_map.get(
-                (glass_color, pane_type, glass_treatment),
-                ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR"),
+            # AL976 / SWD — GK17 aluminum glass kits, keyed
+            # (color, pane, treatment). Unstocked combos resolve to the nearest
+            # kit and emit a glazing_comment so the office confirms the swap.
+            glass_pn, glass_desc, sub_note = resolve_gk17_alum_glass(
+                config.glass_color,
+                config.glass_pane_type,
+                getattr(config, "glass_type", None),
             )
-
             parts.append(PartSelection(
                 part_number=glass_pn,
                 description=glass_desc,
@@ -2957,6 +3003,14 @@ class PartNumberService:
                 category="aluminum_glass",
                 notes=f"Glass for {panel_count} sections ({glazing_sqft_per_section:.2f} sqft each)"
             ))
+            if sub_note:
+                parts.append(PartSelection(
+                    part_number="",
+                    description=f"** {sub_note} **",
+                    quantity=0,
+                    category="glazing_comment",
+                    notes="glazing_substitution",
+                ))
 
         return self._consolidate_parts(parts)
 
@@ -3513,14 +3567,7 @@ class PartNumberService:
             ))
 
         # Polycarbonate glazing (GK17)
-        glass_color = (config.glass_color or "CLEAR").upper()
-        gk17_map = {
-            "CLEAR":        ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"),
-            "LIGHT_BRONZE": ("GK17-12600-00", "GLAZING KIT, ALUM, POLYCARBONATE, LIGHT BRONZE"),
-            "DARK_BRONZE":  ("GK17-12700-00", "GLAZING KIT, ALUM, POLYCARBONATE, DARK BRONZE"),
-            "WHITE_OPAL":   ("GK17-12800-00", "GLAZING KIT, ALUM, POLYCARBONATE, WHITE OPAL"),
-        }
-        poly_pn, poly_desc = gk17_map.get(glass_color, ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"))
+        poly_pn, poly_desc = resolve_gk17_polycarbonate(config.glass_color)
 
         panel_count = self._calculate_panel_count(config.door_height)
         glazing_sqft_per_section = self._calculate_al976_glass_sqft_per_section(
