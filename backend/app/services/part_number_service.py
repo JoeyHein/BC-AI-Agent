@@ -666,6 +666,34 @@ class PartNumberService:
         parts = []
         hardware = config.hardware or {}
 
+        # 0. WINDOW FIELDS CONSISTENCY GUARD
+        # Panel-credit (_get_panel_parts), weight (_calculate_weight), and
+        # window-part generation (below) each decide independently whether the
+        # door has windows. The panel-credit and weight paths trust
+        # config.window_panels on its own, but window-part generation only
+        # fires when window_insert / window_count is set. Several callers gate
+        # window_insert on their own "has windows" flag while leaking a stale
+        # window_panels / window_qty (SQ-003018: a door had windows turned off
+        # but an orphaned Panorama windowPanels entry — a steel section was
+        # credited out of the panel count with no PN80 section or GK17
+        # polycarbonate ever added, so the customer was under-billed a full
+        # Panorama section). If there is no active insert and no window count /
+        # positions, treat any residual per-panel config as stale.
+        _insert_active = bool(config.window_insert) and str(config.window_insert).upper() != "NONE"
+        _has_window_intent = (
+            _insert_active
+            or (config.window_count or 0) > 0
+            or bool(config.window_positions)
+        )
+        if not _has_window_intent and (config.window_panels or config.window_qty):
+            logger.info(
+                "Dropping stale window config (no active insert/count): "
+                "window_panels=%r window_qty=%r",
+                config.window_panels, config.window_qty,
+            )
+            config.window_panels = None
+            config.window_qty = 0
+
         # 0. ALUMINUM AUTO-UPGRADE: 2" → 3" track if door weight > 750 lbs
         if config.door_type == "aluminium" and config.track_thickness == '2':
             al_weight = self._calculate_aluminum_door_weight(config)
@@ -884,7 +912,11 @@ class PartNumberService:
 
         # 12. WINDOWS (non-aluminum doors only — aluminum sections already added above)
         if config.door_type != "aluminium":
-            has_windows = (config.window_count > 0) or (config.window_insert and config.window_insert not in (None, "NONE"))
+            has_windows = (
+                (config.window_count > 0)
+                or (config.window_insert and config.window_insert not in (None, "NONE"))
+                or bool(config.window_panels)  # per-panel config with an active insert (guarded above)
+            )
             if has_windows:
                 window_parts = self._get_window_parts(config)
                 parts.extend(window_parts)

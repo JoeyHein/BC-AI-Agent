@@ -387,7 +387,7 @@ function DoorConfigurator() {
           <DoorTypeStep
             doorTypes={config.doorTypes}
             selected={currentDoor.doorType}
-            onSelect={(type) => updateCurrentDoor({ doorType: type, doorSeries: '', panelColor: '', panelDesign: '', hasWindows: false, windowInsert: null, windowPositions: [], windowQty: 0, glassPaneType: null, glassColor: null, trackMount: 'bracket', mountSurface: 'wood' })}
+            onSelect={(type) => updateCurrentDoor({ doorType: type, doorSeries: '', panelColor: '', panelDesign: '', hasWindows: false, windowInsert: null, windowPositions: [], windowQty: 0, windowPanels: undefined, windowSection: 1, glassPaneType: null, glassColor: null, trackMount: 'bracket', mountSurface: 'wood' })}
           />
         )}
 
@@ -409,6 +409,8 @@ function DoorConfigurator() {
                 windowInsert: null,
                 windowPositions: [],
                 windowQty: 0,
+                windowPanels: undefined,
+                windowSection: 1,
                 glassPaneType: null,
                 glassColor: null,
                 ...(isCommercialSeries ? { trackThickness: '3' } : {}),
@@ -464,6 +466,9 @@ function DoorConfigurator() {
                   hasWindows: false,
                   windowInsert: null,
                   windowPositions: [],
+                  windowPanels: undefined,
+                  windowQty: 0,
+                  windowSection: 1,
                 })
               } else {
                 updateCurrentDoor(updates)
@@ -1226,7 +1231,13 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
     else if (widthFeet <= 19) longCols = 5
     else longCols = 6
     if (isCraft) return longCols
-    if (!['SH', 'BC'].includes(panelDesign)) return longCols
+    const hasFixedStamp = ['SH', 'BC'].includes(panelDesign)
+    // Panels without their own physical stamp shape (FLUSH, TRAFALGAR, SHXL,
+    // BCXL) must follow the door's windowSize choice directly, same as
+    // DoorPreview's overlay grid — otherwise switching to Short Window here
+    // never changes the grid (matches the SH/BC branch's own short-stamp
+    // column counts below).
+    if (!hasFixedStamp && (door.windowSize || 'long') !== 'short') return longCols
     // Standard (short) stamps — exact counts matching DoorPreview
     if (panelDesign === 'BC') {
       if (widthFeet <= 10) return 4
@@ -1337,6 +1348,13 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
               glassColor: e.target.checked ? 'CLEAR' : null,
               windowInsert: 'NONE',
               hasInserts: false,
+              // Clear per-panel window config too — otherwise a stale
+              // windowPanels (e.g. Panorama) survives the toggle, silently
+              // credits a steel section out of the panel count on the backend,
+              // and adds no glass/section line (SQ-003018).
+              windowPanels: undefined,
+              windowQty: 0,
+              windowSection: 1,
               ...(isCommercial && e.target.checked ? { windowFrameColor: 'BLACK' } : {}),
             })}
             className="h-4 w-4 text-odc-600 focus:ring-odc-500 border-gray-300 rounded"
@@ -2950,8 +2968,10 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
               ? (door.windowInsert || null)
               : (door.hasInserts && door.windowInsert !== 'NONE' ? door.windowInsert : null),
             windowSection: door.windowSection,
-            windowQty: door.windowQty || 0,
-            windowPanels: door.windowPanels || undefined,
+            // Gate per-panel window config on hasWindows so a stale windowPanels
+            // can't credit a section out of the panel count with no glass line.
+            windowQty: door.hasWindows ? (door.windowQty || 0) : 0,
+            windowPanels: door.hasWindows ? (door.windowPanels || undefined) : undefined,
             windowFrameColor: door.windowFrameColor || (door.doorType === 'commercial' ? 'BLACK' : 'MATCH'),
             glazingType: door.glazingType !== 'NONE' ? door.glazingType : null,
             glassPocketsPerSection: door.glassPocketsPerSection || null,
