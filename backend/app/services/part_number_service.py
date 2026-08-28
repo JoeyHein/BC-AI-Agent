@@ -788,6 +788,34 @@ class PartNumberService:
         parts = []
         hardware = config.hardware or {}
 
+        # 0. WINDOW FIELDS CONSISTENCY GUARD
+        # Panel-credit (_get_panel_parts), weight (_calculate_weight), and
+        # window-part generation (below) each decide independently whether the
+        # door has windows. The panel-credit and weight paths trust
+        # config.window_panels on its own, but window-part generation only
+        # fires when window_insert / window_count is set. Several callers gate
+        # window_insert on their own "has windows" flag while leaking a stale
+        # window_panels / window_qty (SQ-003018: a door had windows turned off
+        # but an orphaned Panorama windowPanels entry — a steel section was
+        # credited out of the panel count with no PN80 section or GK17
+        # polycarbonate ever added, so the customer was under-billed a full
+        # Panorama section). If there is no active insert and no window count /
+        # positions, treat any residual per-panel config as stale.
+        _insert_active = bool(config.window_insert) and str(config.window_insert).upper() != "NONE"
+        _has_window_intent = (
+            _insert_active
+            or (config.window_count or 0) > 0
+            or bool(config.window_positions)
+        )
+        if not _has_window_intent and (config.window_panels or config.window_qty):
+            logger.info(
+                "Dropping stale window config (no active insert/count): "
+                "window_panels=%r window_qty=%r",
+                config.window_panels, config.window_qty,
+            )
+            config.window_panels = None
+            config.window_qty = 0
+
         # 0. ALUMINUM AUTO-UPGRADE: 2" → 3" track if door weight > 750 lbs
         if config.door_type == "aluminium" and config.track_thickness == '2':
             al_weight = self._calculate_aluminum_door_weight(config)
@@ -1009,7 +1037,11 @@ class PartNumberService:
 
         # 12. WINDOWS (non-aluminum doors only — aluminum sections already added above)
         if config.door_type != "aluminium":
-            has_windows = (config.window_count > 0) or (config.window_insert and config.window_insert not in (None, "NONE"))
+            has_windows = (
+                (config.window_count > 0)
+                or (config.window_insert and config.window_insert not in (None, "NONE"))
+                or bool(config.window_panels)  # per-panel config with an active insert (guarded above)
+            )
             if has_windows:
                 window_parts = self._get_window_parts(config)
                 parts.extend(window_parts)
@@ -3113,12 +3145,12 @@ class PartNumberService:
             # Polycarbonate glazing kits
             glass_color = (config.glass_color or "CLEAR").upper()
             gk17_map = {
-                "CLEAR":        ("GK17-25000-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"),
-                "LIGHT_BRONZE": ("GK17-25100-00", "GLAZING KIT, ALUM, POLYCARBONATE, LIGHT BRONZE"),
-                "DARK_BRONZE":  ("GK17-25200-00", "GLAZING KIT, ALUM, POLYCARBONATE, DARK BRONZE"),
-                "WHITE_OPAL":   ("GK17-25300-00", "GLAZING KIT, ALUM, POLYCARBONATE, WHITE OPAL"),
+                "CLEAR":        ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"),
+                "LIGHT_BRONZE": ("GK17-12600-00", "GLAZING KIT, ALUM, POLYCARBONATE, LIGHT BRONZE"),
+                "DARK_BRONZE":  ("GK17-12700-00", "GLAZING KIT, ALUM, POLYCARBONATE, DARK BRONZE"),
+                "WHITE_OPAL":   ("GK17-12800-00", "GLAZING KIT, ALUM, POLYCARBONATE, WHITE OPAL"),
             }
-            poly_pn, poly_desc = gk17_map.get(glass_color, ("GK17-25000-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"))
+            poly_pn, poly_desc = gk17_map.get(glass_color, ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"))
 
             parts.append(PartSelection(
                 part_number=poly_pn,
@@ -3131,34 +3163,34 @@ class PartNumberService:
             # AL976 / SWD — GK17 aluminum glazing kits
             # Three independent axes: color × pane (insulated/single) × glass
             # type (annealed/tempered). Lookup is keyed (color, pane, glass).
-            # Verified against BC item master 2026-08-13 — the previous map
-            # used a numbering scheme (GK17-11xxx/12xxx/103xx) that doesn't
-            # exist in BC at all; every non-default combo was silently
-            # dropped to an unpriced comment line on the quote.
+            # Every SKU here is verified present + active in the BC item cache.
+            # Do NOT swap these for a GK17-25xxx / GK17-10000 / GK17-03000
+            # scheme — those codes do not exist in BC and turn the glazing
+            # line into an unpriced comment. (main PR #3 moves this to a shared
+            # GK17_ALUM_GLASS constant + fills the 4 unstocked combos.)
             glass_color = (config.glass_color or "CLEAR").upper()
             pane_type = (config.glass_pane_type or "INSULATED").upper()
             glass_treatment = (getattr(config, "glass_type", None) or "ANNEALED").upper()
 
             gk17_glass_map = {
                 # INSULATED + ANNEALED
-                ("CLEAR",      "INSULATED", "ANNEALED"): ("GK17-10000-00", "GLAZING KIT, ALUM, THERM, CLEAR/ CLEAR"),
-                ("ETCHED",     "INSULATED", "ANNEALED"): ("GK17-10100-00", "GLAZING KIT, ALUM, THERM, ETCHED/ CLEAR"),
-                ("SUPER_GREY", "INSULATED", "ANNEALED"): ("GK17-10500-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR"),
+                ("CLEAR",      "INSULATED", "ANNEALED"): ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/ CLEAR"),
+                ("ETCHED",     "INSULATED", "ANNEALED"): ("GK17-11700-00", "GLAZING KIT, ALUM, THERM, ETCHED/ CLEAR"),
+                ("SUPER_GREY", "INSULATED", "ANNEALED"): ("GK17-12400-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR"),
                 # INSULATED + TEMPERED
-                ("CLEAR",      "INSULATED", "TEMPERED"): ("GK17-11000-00", "GLAZING KIT, ALUM, THERM, TEMP/ CLEAR"),
-                ("ETCHED",     "INSULATED", "TEMPERED"): ("GK17-11010-00", "GLAZING KIT, ALUM, THERM, TEMPERED/ ETCHED"),
+                ("CLEAR",      "INSULATED", "TEMPERED"): ("GK17-11500-00", "GLAZING KIT, ALUM, THERM, TEMP/ CLEAR"),
+                ("ETCHED",     "INSULATED", "TEMPERED"): ("GK17-13120-00", "GLAZING KIT, ALUM, THERM, TEMPERED/ ETCHED"),
                 # SINGLE + ANNEALED
-                ("CLEAR",      "SINGLE",    "ANNEALED"): ("GK17-03000-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
-                ("ETCHED",     "SINGLE",    "ANNEALED"): ("GK17-03010-00", "GLAZING KIT, ALUM, SINGLE (3MM), ETCHED"),
+                ("CLEAR",      "SINGLE",    "ANNEALED"): ("GK17-10100-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
+                ("ETCHED",     "SINGLE",    "ANNEALED"): ("GK17-10300-00", "GLAZING KIT, ALUM, SINGLE (3MM), ETCHED"),
                 # SINGLE + TEMPERED
-                ("CLEAR",      "SINGLE",    "TEMPERED"): ("GK17-03100-00", "GLAZING KIT, ALUM, SINGLE (3MM), TEMP"),
+                ("CLEAR",      "SINGLE",    "TEMPERED"): ("GK17-10200-00", "GLAZING KIT, ALUM, SINGLE (3MM), TEMP"),
                 # Combinations not yet stocked in BC fall through to the
-                # default below — the warning surfaces on the quote so the
-                # office can swap to an in-stock SKU if needed.
+                # default below.
             }
             glass_pn, glass_desc = gk17_glass_map.get(
                 (glass_color, pane_type, glass_treatment),
-                ("GK17-10000-00", "GLAZING KIT, ALUM, THERM, CLEAR/ CLEAR"),
+                ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/ CLEAR"),
             )
 
             parts.append(PartSelection(
@@ -3642,18 +3674,19 @@ class PartNumberService:
         glass_color = (config.glass_color or "CLEAR").upper()
         pane_type = (config.glass_pane_type or "INSULATED").upper()
 
-        # Verified against BC item master 2026-08-13 — see the matching note
-        # in _get_aluminum_section_parts's gk17_glass_map above.
+        # Every SKU verified present + active in the BC item cache. Do NOT swap
+        # for a GK17-10000 / GK17-03000 scheme — those don't exist in BC.
         gk17_glass_map = {
-            ("CLEAR", "INSULATED"):      ("GK17-10000-00", "GLAZING KIT, ALUM, THERM, CLEAR/ CLEAR"),
-            ("CLEAR", "SINGLE"):         ("GK17-03000-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
-            ("ETCHED", "INSULATED"):     ("GK17-10100-00", "GLAZING KIT, ALUM, THERM, ETCHED/ CLEAR"),
-            ("ETCHED", "SINGLE"):        ("GK17-03010-00", "GLAZING KIT, ALUM, SINGLE (3MM), ETCHED"),
-            ("SUPER_GREY", "INSULATED"): ("GK17-10500-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR"),
+            ("CLEAR", "INSULATED"):      ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/ CLEAR"),
+            ("CLEAR", "SINGLE"):         ("GK17-10100-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
+            ("ETCHED", "INSULATED"):     ("GK17-11700-00", "GLAZING KIT, ALUM, THERM, ETCHED/ CLEAR"),
+            ("ETCHED", "SINGLE"):        ("GK17-10300-00", "GLAZING KIT, ALUM, SINGLE (3MM), ETCHED"),
+            ("SUPER_GREY", "INSULATED"): ("GK17-12300-00", "GLAZING KIT, ALUM, THERM, TINTED GR/ CLEAR"),
+            ("SUPER_GREY", "SINGLE"):    ("GK17-12300-00", "GLAZING KIT, ALUM, THERM, TINTED GR/ CLEAR"),
         }
         glass_pn, glass_desc = gk17_glass_map.get(
             (glass_color, pane_type),
-            ("GK17-10000-00", "GLAZING KIT, ALUM, THERM, CLEAR/ CLEAR")
+            ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/ CLEAR")
         )
 
         # Calculate glass square footage per section using actual window opening dimensions
@@ -3734,12 +3767,12 @@ class PartNumberService:
         # Polycarbonate glazing (GK17)
         glass_color = (config.glass_color or "CLEAR").upper()
         gk17_map = {
-            "CLEAR":        ("GK17-25000-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"),
-            "LIGHT_BRONZE": ("GK17-25100-00", "GLAZING KIT, ALUM, POLYCARBONATE, LIGHT BRONZE"),
-            "DARK_BRONZE":  ("GK17-25200-00", "GLAZING KIT, ALUM, POLYCARBONATE, DARK BRONZE"),
-            "WHITE_OPAL":   ("GK17-25300-00", "GLAZING KIT, ALUM, POLYCARBONATE, WHITE OPAL"),
+            "CLEAR":        ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"),
+            "LIGHT_BRONZE": ("GK17-12600-00", "GLAZING KIT, ALUM, POLYCARBONATE, LIGHT BRONZE"),
+            "DARK_BRONZE":  ("GK17-12700-00", "GLAZING KIT, ALUM, POLYCARBONATE, DARK BRONZE"),
+            "WHITE_OPAL":   ("GK17-12800-00", "GLAZING KIT, ALUM, POLYCARBONATE, WHITE OPAL"),
         }
-        poly_pn, poly_desc = gk17_map.get(glass_color, ("GK17-25000-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"))
+        poly_pn, poly_desc = gk17_map.get(glass_color, ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"))
 
         panel_count = self._calculate_panel_count(config.door_height)
         glazing_sqft_per_section = self._calculate_al976_glass_sqft_per_section(
