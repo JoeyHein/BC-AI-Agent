@@ -902,14 +902,14 @@ def _generate_bc_quote_with_items(
             "windowInsert": door.get("windowInsert") if door.get("hasWindows") else None,
             "windowSize": door.get("windowSize", "long"),
             "windowPositions": door.get("windowPositions", []),
-            "windowCount": door.get("windowCount") or (
+            "windowCount": (door.get("windowCount") or (
                 len(door.get("windowPositions", [])) if door.get("windowPositions")
                 else (door.get("windowQty", 0) if door.get("windowQty")
                       else (1 if (door.get("hasWindows") and door.get("windowSection")) else 0))
-            ),
+            )) if door.get("hasWindows") else 0,
             "windowSection": door.get("windowSection"),
-            "windowQty": door.get("windowQty", 0),
-            "windowPanels": door.get("windowPanels"),
+            "windowQty": door.get("windowQty", 0) if door.get("hasWindows") else 0,
+            "windowPanels": door.get("windowPanels") if door.get("hasWindows") else None,
             "windowFrameColor": door.get("windowFrameColor", "BLACK"),
             "glazingType": door.get("glazingType"),
             "glassPaneType": door.get("glassPaneType"),
@@ -1858,14 +1858,14 @@ def _build_door_config_dict(door: dict) -> dict:
         "windowInsert": door.get("windowInsert") if door.get("hasWindows") else None,
         "windowSize": door.get("windowSize", "long"),
         "windowPositions": door.get("windowPositions", []),
-        "windowCount": door.get("windowCount") or (
+        "windowCount": (door.get("windowCount") or (
             len(door.get("windowPositions", [])) if door.get("windowPositions")
             else (door.get("windowQty", 0) if door.get("windowQty")
                   else (1 if (door.get("hasWindows") and door.get("windowSection")) else 0))
-        ),
+        )) if door.get("hasWindows") else 0,
         "windowSection": door.get("windowSection"),
-        "windowQty": door.get("windowQty", 0),
-        "windowPanels": door.get("windowPanels"),
+        "windowQty": door.get("windowQty", 0) if door.get("hasWindows") else 0,
+        "windowPanels": door.get("windowPanels") if door.get("hasWindows") else None,
         "windowFrameColor": door.get("windowFrameColor", "BLACK"),
         "glazingType": door.get("glazingType"),
         "glassPaneType": door.get("glassPaneType"),
@@ -2365,14 +2365,14 @@ def _estimate_pricing_locally(
             "windowInsert": door.get("windowInsert") if door.get("hasWindows") else None,
             "windowSize": door.get("windowSize", "long"),
             "windowPositions": door.get("windowPositions", []),
-            "windowCount": door.get("windowCount") or (
+            "windowCount": (door.get("windowCount") or (
                 len(door.get("windowPositions", [])) if door.get("windowPositions")
                 else (door.get("windowQty", 0) if door.get("windowQty")
                       else (1 if (door.get("hasWindows") and door.get("windowSection")) else 0))
-            ),
+            )) if door.get("hasWindows") else 0,
             "windowSection": door.get("windowSection"),
-            "windowQty": door.get("windowQty", 0),
-            "windowPanels": door.get("windowPanels"),
+            "windowQty": door.get("windowQty", 0) if door.get("hasWindows") else 0,
+            "windowPanels": door.get("windowPanels") if door.get("hasWindows") else None,
             "windowFrameColor": door.get("windowFrameColor", "BLACK"),
             "glazingType": door.get("glazingType"),
             "glassPaneType": door.get("glassPaneType"),

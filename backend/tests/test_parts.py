@@ -544,3 +544,65 @@ class TestJackshaftAccessories:
                                     "operator": "OP19-01082-00"}))
         assert not (pns & {"OP20-02001-00", "OP20-02002-00",
                            "OP19-02126-00", "OP19-02127-00"})
+
+
+# ── Stale window config guard (SQ-003018) ──────────────────────────────────
+
+class TestStaleWindowConfigGuard:
+    """A door with windows turned OFF must not carry an orphaned windowPanels
+    (e.g. a Panorama entry left over from an earlier selection). The bug:
+    _get_panel_parts / _calculate_weight credited a steel section out of the
+    panel count off windowPanels alone, while window-part generation stayed
+    gated on windowInsert/windowCount — so the PN80 Panorama section and GK17
+    polycarbonate were never added and the customer was under-billed a full
+    section (SQ-003018)."""
+
+    _COMMERCIAL = {
+        "doorType": "commercial", "doorSeries": "TX450",
+        "doorWidth": 216, "doorHeight": 96, "panelColor": "",
+        "panelDesign": "UDC", "endCapType": "DEC", "trackThickness": "3",
+        "glazingType": "polycarbonate", "glassColor": "CLEAR",
+    }
+
+    def _panel_qty(self, parts):
+        return sum(p["quantity"] for p in _by_category(parts, "panel"))
+
+    def test_orphaned_panorama_windowpanels_is_ignored_when_windows_off(self):
+        parts = _get_parts({
+            **self._COMMERCIAL,
+            "hasWindows": False, "windowInsert": None, "windowQty": 0,
+            "windowPanels": {"1": {"type": "PANORAMA", "qty": 1}},
+        })
+        # 96" door = 4x24" sections — no credit, no Panorama lines
+        assert self._panel_qty(parts) == 4
+        assert not _by_category(parts, "v130g_section")
+        assert not _by_category(parts, "v130g_glass")
+
+    def test_orphaned_windowpanels_plus_stale_qty_still_ignored(self):
+        parts = _get_parts({
+            **self._COMMERCIAL,
+            "hasWindows": False, "windowInsert": None, "windowQty": 1,
+            "windowPanels": {"1": {"type": "PANORAMA", "qty": 1}},
+        })
+        assert self._panel_qty(parts) == 4
+        assert not _by_category(parts, "v130g_section")
+
+    def test_legit_panorama_still_generates_section_and_glazing(self):
+        parts = _get_parts({
+            **self._COMMERCIAL,
+            "hasWindows": True, "windowInsert": "PANORAMA", "windowQty": 1,
+            "windowPanels": {"1": {"type": "PANORAMA", "qty": 1}},
+        })
+        assert self._panel_qty(parts) == 3            # one section credited out
+        assert len(_by_category(parts, "v130g_section")) == 1
+        assert len(_by_category(parts, "v130g_glass")) == 1
+
+    def test_legit_panorama_door_level_only(self):
+        parts = _get_parts({
+            **self._COMMERCIAL,
+            "hasWindows": True, "windowInsert": "PANORAMA", "windowQty": 1,
+            "windowPanels": None,
+        })
+        assert self._panel_qty(parts) == 3
+        assert len(_by_category(parts, "v130g_section")) == 1
+        assert len(_by_category(parts, "v130g_glass")) == 1
