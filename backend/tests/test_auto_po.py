@@ -261,6 +261,30 @@ def test_seed_snapshot_makes_first_run_quiet(monkeypatch):
     assert result2["drafts"][0]["lines"][0]["quantity"] == 3
 
 
+def test_only_vendors_restricts_and_leaves_the_rest(monkeypatch):
+    db = _db()
+    bc = FakeBC([_so("SO-20", [("A", 2, 0), ("B", 3, 0)])])
+    monkeypatch.setattr("app.services.auto_po_service.bc_client", bc)
+    svc = AutoPoService()
+    _wire(monkeypatch, svc,
+          requirements=_req([
+              {"item_no": "A", "net_need": 2, "description": "a", "unit_cost": 1, "last_purchase_cost": 1},
+              {"item_no": "B", "net_need": 3, "description": "b", "unit_cost": 1, "last_purchase_cost": 1},
+          ]),
+          vendor_map={
+              "A": {"vendor_no": "ELT", "vendor_name": "ELTON"},
+              "B": {"vendor_no": "UPW", "vendor_name": "UPWARDOR"},
+          })
+
+    result = svc.run(db, dry_run=False, only_vendors={"ELT"})
+    assert result["drafted_po_count"] == 1
+    assert bc.created[0]["vendorNumber"] == "ELT"
+    assert result["skipped_counts"].get("vendor_not_in_scope") == 1
+    # the UPW line's watermark was NOT advanced — a later full run still drafts it
+    upw_line = db.query(AutoPoSnapshot).filter_by(item_no="B").one()
+    assert upw_line.covered_qty == 0.0
+
+
 def test_prior_draft_allocation_prevents_redraft_after_snapshot_loss(monkeypatch):
     db = _db()
     # a PO we drafted yesterday, snapshot since wiped
