@@ -667,14 +667,36 @@ class TestGK17Glazing:
         parts = self._al976(glassColor="SUPER_GREY", glassPaneType="SINGLE", glassType="TEMPERED")
         glass = [p for p in parts if p["category"] == "aluminum_glass"]
         note = [p for p in parts if p["category"] == "glazing_comment"]
-        assert glass and glass[0]["part_number"] == "GK17-12400-00"
+        assert glass and glass[0]["part_number"] == "GK17-10500-00"
         assert note and "SUBSTITUTION" in note[0]["description"]
 
     def test_polycarbonate_colors_resolve(self):
         from app.services.part_number_service import resolve_gk17_polycarbonate
         for color, sku in [
-            ("CLEAR", "GK17-12500-00"), ("LIGHT_BRONZE", "GK17-12600-00"),
-            ("DARK_BRONZE", "GK17-12700-00"), ("WHITE_OPAL", "GK17-12800-00"),
+            ("CLEAR", "GK17-25000-00"), ("LIGHT_BRONZE", "GK17-25100-00"),
+            ("DARK_BRONZE", "GK17-25200-00"), ("WHITE_OPAL", "GK17-25300-00"),
         ]:
             pn, _ = resolve_gk17_polycarbonate(color)
             assert pn == sku and self._active(pn)
+
+    def test_clear_insulated_is_current_therm_sku(self):
+        # BC renumbered GK17 in 2026-08: clear thermopane is GK17-10000-00,
+        # not the retired GK17-11400-00 (SQ-003035).
+        from app.services.part_number_service import resolve_gk17_alum_glass
+        pn, _desc, note = resolve_gk17_alum_glass("CLEAR", "INSULATED", "ANNEALED")
+        assert pn == "GK17-10000-00" and note is None and self._active(pn)
+
+    def test_v130g_glass_resolves_to_active_priced_sku(self):
+        # V130G full-view section glass must be a real BC item, never a dead
+        # SKU that lands as an unpriced comment line (SQ-003035).
+        parts = get_parts_for_door_config({
+            "doorType": "commercial", "doorSeries": "TX450",
+            "doorWidth": 288, "doorHeight": 108, "panelColor": "BLACK",
+            "panelDesign": "UDC", "endCapType": "DEC", "trackThickness": "3",
+            "hasWindows": True, "windowInsert": "V130G", "windowQty": 1,
+            "glassColor": "CLEAR", "glassPaneType": "INSULATED",
+        }).get("parts_list", [])
+        glass = [p for p in parts if p["category"] == "v130g_glass"]
+        assert glass, "V130G door produced no glass line"
+        assert glass[0]["part_number"] == "GK17-10000-00"
+        assert self._active(glass[0]["part_number"])

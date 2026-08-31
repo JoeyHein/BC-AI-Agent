@@ -324,7 +324,7 @@ class TestCuttingStockService:
 
     def test_non_length_skus_are_ignored_entirely(self):
         rows = [_row("HK02-00001-00", demand=5, net_need=5),
-                _row("GK17-11600-00", on_hand=50)]
+                _row("GK17-13000-00", on_hand=50)]
         assert self.svc.analyze(rows) == []
 
     def test_donor_seeding_finds_stock_nothing_demands(self):
