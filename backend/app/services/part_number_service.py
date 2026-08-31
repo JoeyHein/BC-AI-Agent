@@ -401,41 +401,50 @@ SEAL_RULES = {
 # ---------------------------------------------------------------------------
 # GK17 aluminum glazing kits (AL976 / SWD / Panorama / Solalite / V130G glass)
 #
-# Every SKU below is verified present + active in the BC item master
-# (backend/data/bc_analysis/bc_items.json). Do NOT "correct" these to another
-# numbering scheme without checking the cache first — a past edit swapped the
-# whole set to invented GK17-25xxx / GK17-10000 codes that don't exist in BC,
-# which turned every aluminum glazing line into an unpriced comment.
+# Every SKU below is verified present + active in the live BC item master (see
+# `verify GK17` below). BC RENUMBERED THE ENTIRE GK17 GLAZING SET in 2026-08:
+# the old GK17-11xxx / GK17-12xxx thermopane + GK17-108xx single-pane +
+# GK17-125xx polycarbonate numbers were retired and re-issued as GK17-03xxx
+# (single pane), GK17-10xxx / GK17-110xx / GK17-130xx (thermopane),
+# GK17-25xxx (polycarbonate), GK17-35xxx (stucco), GK17-43000 (plexi). The old
+# numbers still sit in stale caches, so quoting one lands as an unpriced
+# comment line (SQ-003035). Do NOT revert these; re-verify against BC before
+# changing:
+#   python -c "from app.integrations.bc.client import bc_client; import json; \
+#     print(json.dumps(bc_client._make_request('GET', \
+#     f\"companies({bc_client.company_id})/items?\$filter=startswith(number,'GK17')\
+# &\$select=number,displayName,blocked\"), indent=2))"
+# NB: GK17-10100-00 was REUSED — it is now THERM ETCHED/CLEAR, not SINGLE CLEAR.
 # ---------------------------------------------------------------------------
 
 GK17_POLYCARBONATE = {
-    "CLEAR":        ("GK17-12500-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"),
-    "LIGHT_BRONZE": ("GK17-12600-00", "GLAZING KIT, ALUM, POLYCARBONATE, LIGHT BRONZE"),
-    "DARK_BRONZE":  ("GK17-12700-00", "GLAZING KIT, ALUM, POLYCARBONATE, DARK BRONZE"),
-    "WHITE_OPAL":   ("GK17-12800-00", "GLAZING KIT, ALUM, POLYCARBONATE, WHITE OPAL"),
+    "CLEAR":        ("GK17-25000-00", "GLAZING KIT, ALUM, POLYCARBONATE, CLEAR"),
+    "LIGHT_BRONZE": ("GK17-25100-00", "GLAZING KIT, ALUM, POLYCARBONATE, LIGHT BRONZE"),
+    "DARK_BRONZE":  ("GK17-25200-00", "GLAZING KIT, ALUM, POLYCARBONATE, DARK BRONZE"),
+    "WHITE_OPAL":   ("GK17-25300-00", "GLAZING KIT, ALUM, POLYCARBONATE, WHITE OPAL"),
 }
 GK17_POLYCARBONATE_DEFAULT = GK17_POLYCARBONATE["CLEAR"]
 
 # Aluminum glass — keyed (color, pane, treatment). EXACT = BC stocks that
 # precise combo.
 GK17_ALUM_GLASS_EXACT = {
-    ("CLEAR",      "INSULATED", "ANNEALED"): ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/ CLEAR"),
-    ("ETCHED",     "INSULATED", "ANNEALED"): ("GK17-11700-00", "GLAZING KIT, ALUM, THERM, ETCHED/ CLEAR"),
-    ("SUPER_GREY", "INSULATED", "ANNEALED"): ("GK17-12400-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR"),
-    ("CLEAR",      "INSULATED", "TEMPERED"): ("GK17-11500-00", "GLAZING KIT, ALUM, THERM, TEMP/ CLEAR"),
-    ("ETCHED",     "INSULATED", "TEMPERED"): ("GK17-13120-00", "GLAZING KIT, ALUM, THERM, TEMPERED/ ETCHED"),
-    ("CLEAR",      "SINGLE",    "ANNEALED"): ("GK17-10100-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
-    ("ETCHED",     "SINGLE",    "ANNEALED"): ("GK17-10300-00", "GLAZING KIT, ALUM, SINGLE (3MM), ETCHED"),
-    ("CLEAR",      "SINGLE",    "TEMPERED"): ("GK17-10200-00", "GLAZING KIT, ALUM, SINGLE (3MM), TEMP"),
+    ("CLEAR",      "INSULATED", "ANNEALED"): ("GK17-10000-00", "GLAZING KIT, ALUM, THERM, CLEAR/ CLEAR"),
+    ("ETCHED",     "INSULATED", "ANNEALED"): ("GK17-10100-00", "GLAZING KIT, ALUM, THERM, ETCHED/ CLEAR"),
+    ("SUPER_GREY", "INSULATED", "ANNEALED"): ("GK17-10500-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR"),
+    ("CLEAR",      "INSULATED", "TEMPERED"): ("GK17-11000-00", "GLAZING KIT, ALUM, THERM, TEMP/ CLEAR"),
+    ("ETCHED",     "INSULATED", "TEMPERED"): ("GK17-11010-00", "GLAZING KIT, ALUM, THERM, TEMPERED/ ETCHED"),
+    ("CLEAR",      "SINGLE",    "ANNEALED"): ("GK17-03000-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
+    ("ETCHED",     "SINGLE",    "ANNEALED"): ("GK17-03010-00", "GLAZING KIT, ALUM, SINGLE (3MM), ETCHED"),
+    ("CLEAR",      "SINGLE",    "TEMPERED"): ("GK17-03100-00", "GLAZING KIT, ALUM, SINGLE (3MM), TEMP"),
 }
 # BC has no exact kit — nearest stocked kit + what differs from the request.
 # The generator emits a glazing_comment line whenever one of these is used so
 # the office confirms the substitution with the customer.
 GK17_ALUM_GLASS_SUBSTITUTE = {
-    ("SUPER_GREY", "INSULATED", "TEMPERED"): ("GK17-12400-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR", "annealed instead of tempered"),
-    ("SUPER_GREY", "SINGLE",    "ANNEALED"): ("GK17-12400-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR", "insulated thermopane instead of single pane"),
-    ("SUPER_GREY", "SINGLE",    "TEMPERED"): ("GK17-12400-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR", "insulated thermopane, annealed instead of single-pane tempered"),
-    ("ETCHED",     "SINGLE",    "TEMPERED"): ("GK17-10300-00", "GLAZING KIT, ALUM, SINGLE (3MM), ETCHED", "annealed instead of tempered"),
+    ("SUPER_GREY", "INSULATED", "TEMPERED"): ("GK17-10500-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR", "annealed instead of tempered"),
+    ("SUPER_GREY", "SINGLE",    "ANNEALED"): ("GK17-10500-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR", "insulated thermopane instead of single pane"),
+    ("SUPER_GREY", "SINGLE",    "TEMPERED"): ("GK17-10500-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR", "insulated thermopane, annealed instead of single-pane tempered"),
+    ("ETCHED",     "SINGLE",    "TEMPERED"): ("GK17-03010-00", "GLAZING KIT, ALUM, SINGLE (3MM), ETCHED", "annealed instead of tempered"),
 }
 GK17_ALUM_GLASS_DEFAULT = GK17_ALUM_GLASS_EXACT[("CLEAR", "INSULATED", "ANNEALED")]
 
@@ -3474,21 +3483,13 @@ class PartNumberService:
                 notes=note
             ))
 
-        # V130G Glass (GK17 aluminum glazing kits, separate from section frame)
-        glass_color = (config.glass_color or "CLEAR").upper()
-        pane_type = (config.glass_pane_type or "INSULATED").upper()
-
-        gk17_glass_map = {
-            ("CLEAR", "INSULATED"):      ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR"),
-            ("CLEAR", "SINGLE"):         ("GK17-10100-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
-            ("ETCHED", "INSULATED"):     ("GK17-11700-00", "GLAZING KIT, ALUM, THERM, ETCHED/CLEAR"),
-            ("ETCHED", "SINGLE"):        ("GK17-10300-00", "GLAZING KIT, ALUM, SINGLE 3MM, ETCHED"),
-            ("SUPER_GREY", "INSULATED"): ("GK17-12300-00", "GLAZING KIT, ALUM, THERM, TINTED GR/CLEAR"),
-            ("SUPER_GREY", "SINGLE"):    ("GK17-12300-00", "GLAZING KIT, ALUM, THERM, TINTED GR/CLEAR"),
-        }
-        glass_pn, glass_desc = gk17_glass_map.get(
-            (glass_color, pane_type),
-            ("GK17-11400-00", "GLAZING KIT, ALUM, THERM, CLEAR/CLEAR")
+        # V130G Glass — same GK17 aluminum glass kits as AL976 / SWD. Resolve
+        # through the shared helper so the V130G path never drifts from the
+        # centralized (color, pane, treatment) map again.
+        glass_pn, glass_desc, glass_sub_note = resolve_gk17_alum_glass(
+            config.glass_color,
+            config.glass_pane_type,
+            getattr(config, "glass_type", None),
         )
 
         # Calculate glass square footage per section using actual window opening dimensions
@@ -3503,8 +3504,16 @@ class PartNumberService:
             description=glass_desc,
             quantity=total_glass_sqft,
             category="v130g_glass",
-            notes=f"Thermopane glass for {v130g_qty} {model_name} section(s), {config.glass_pockets_per_section} pockets per section ({glass_sqft_per_section:.2f} sqft each)"
+            notes=f"Glass for {v130g_qty} {model_name} section(s), {config.glass_pockets_per_section} pockets per section ({glass_sqft_per_section:.2f} sqft each)"
         ))
+        if glass_sub_note:
+            parts.append(PartSelection(
+                part_number="",
+                description=f"** {glass_sub_note} **",
+                quantity=0,
+                category="glazing_comment",
+                notes=glass_sub_note,
+            ))
 
         return self._consolidate_parts(parts)
 
