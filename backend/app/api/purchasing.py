@@ -254,6 +254,94 @@ async def generate_po(
         raise HTTPException(status_code=502, detail=f"PO generation failed: {e}")
 
 
+# ==================== Nightly auto-PO ====================
+
+@router.get("/auto-po/status")
+async def auto_po_status(
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Whether the nightly auto-PO job is enabled, plus the most recent runs."""
+    from app.db.models import AppSettings, POAgentLog
+    setting = db.query(AppSettings).filter(
+        AppSettings.setting_key == "auto_po_enabled"
+    ).first()
+    recent = (
+        db.query(POAgentLog)
+        .filter(POAgentLog.is_auto.is_(True))
+        .order_by(POAgentLog.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    return {
+        "enabled": bool(setting.setting_value) if setting else False,
+        "schedule": "05:00 America/Edmonton, Mon-Fri",
+        "recent_pos": [
+            {
+                "id": r.id,
+                "bc_po_number": r.bc_po_number,
+                "vendor_name": r.vendor_name,
+                "status": r.bc_status or r.status,
+                "total_amount": float(r.total_amount or 0),
+                "sales_orders": list((r.so_allocations or {}).keys()),
+                "po_run_id": r.po_run_id,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in recent
+        ],
+    }
+
+
+@router.post("/auto-po/run")
+async def auto_po_run(
+    dry_run: bool = Query(True, description="Preview only — don't create POs in BC or advance the watermark"),
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Run the nightly auto-PO logic now. Defaults to dry-run; pass
+    dry_run=false to actually draft the POs in BC (Draft status, no email)."""
+    from app.services.auto_po_service import auto_po_service
+    if not dry_run:
+        vendor_map_service.refresh(db)
+        db.commit()
+    try:
+        result = auto_po_service.run(db, dry_run=dry_run, created_by=admin.id)
+        db.commit()
+        return result
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Auto-PO run failed: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Auto-PO run failed: {e}")
+
+
+@router.post("/auto-po/seed")
+async def auto_po_seed(
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Mark all currently-open SO demand as already covered (no POs drafted).
+    Run once before turning the nightly job on so its first run only acts on
+    orders that arrive afterwards."""
+    from app.services.auto_po_service import auto_po_service
+    try:
+        result = auto_po_service.seed_snapshot(db)
+        db.commit()
+        return result
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=502, detail=f"Auto-PO seed failed: {e}")
+
+
+@router.get("/so-po-links")
+async def so_po_links(
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Per-sales-order purchase-order linkage (tool-created POs only)."""
+    from app.services.po_so_link_service import po_so_link_service
+    return {"links": po_so_link_service.links_by_so(db)}
+
+
 # ==================== Cut work orders (yay/nay approval) ====================
 
 class CutDecisionRequest(BaseModel):
