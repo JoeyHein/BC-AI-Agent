@@ -29,6 +29,7 @@ function DoorConfigurator() {
   const [doors, setDoors] = useState([createEmptyDoor()])
   const [currentDoorIndex, setCurrentDoorIndex] = useState(0)
   const [quoteResult, setQuoteResult] = useState(null)
+  const [generateError, setGenerateError] = useState(null)
   const [selectedCustomer, setSelectedCustomer] = useState(null) // { bc_customer_id, company_name }
   const [poNumber, setPoNumber] = useState('')
   const [deliveryType, setDeliveryType] = useState('delivery')
@@ -38,6 +39,7 @@ function DoorConfigurator() {
   // is created for the new customer instead of editing the previous one's.
   useEffect(() => {
     setQuoteResult(null)
+    setGenerateError(null)
   }, [selectedCustomer?.bc_customer_id])
 
   // Manual reset: drop the held BC quote id, clear all configured doors,
@@ -48,6 +50,7 @@ function DoorConfigurator() {
       return
     }
     setQuoteResult(null)
+    setGenerateError(null)
     setDoors([createEmptyDoor()])
     setCurrentDoorIndex(0)
     setPoNumber('')
@@ -67,10 +70,13 @@ function DoorConfigurator() {
     mutationFn: (request) => doorConfigApi.generateQuote(request),
     onSuccess: (response) => {
       setQuoteResult(response.data)
+      setGenerateError(null)
       alert('Quote generated successfully!')
     },
     onError: (error) => {
-      alert(`Error generating quote: ${error.response?.data?.detail || error.message}`)
+      const detail = error.response?.data?.detail || error.message
+      setGenerateError(detail)
+      alert(`Error generating quote: ${detail}`)
     }
   })
 
@@ -204,8 +210,9 @@ function DoorConfigurator() {
     }
   }
 
-  async function handleGenerateQuote() {
+  async function handleGenerateQuote(force = false) {
     const request = {
+      forceGenerate: force === true,
       doors: doors.map(door => ({
         doorType: door.doorType,
         doorSeries: door.doorSeries,
@@ -522,7 +529,9 @@ function DoorConfigurator() {
           <ReviewStep
             doors={doors}
             config={config}
-            onGenerateQuote={handleGenerateQuote}
+            onGenerateQuote={() => handleGenerateQuote(false)}
+            onForceGenerate={() => handleGenerateQuote(true)}
+            generateError={generateError}
             isGenerating={generateQuoteMutation.isPending}
             quoteResult={quoteResult}
             selectedCustomer={selectedCustomer}
@@ -2921,7 +2930,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
   )
 }
 
-function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult, selectedCustomer, poNumber, onPoNumberChange, onAddDoor, deliveryType, onDeliveryTypeChange, installTown, onInstallTownChange, onStartNewQuote }) {
+function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateError, isGenerating, quoteResult, selectedCustomer, poNumber, onPoNumberChange, onAddDoor, deliveryType, onDeliveryTypeChange, installTown, onInstallTownChange, onStartNewQuote }) {
   const [partsData, setPartsData] = useState(null)
   const [loadingParts, setLoadingParts] = useState(false)
   const [showParts, setShowParts] = useState(false)
@@ -3651,6 +3660,30 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
         )}
       </button>
 
+      {/* Generation failed — offer "Generate anyway" */}
+      {generateError && !isGenerating && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-3">
+          <div className="flex items-start">
+            <svg className="h-5 w-5 text-red-400 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+            </svg>
+            <p className="text-sm text-red-800">{generateError}</p>
+          </div>
+          <button
+            onClick={onForceGenerate}
+            className="w-full inline-flex justify-center items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-800 bg-white hover:bg-red-100"
+          >
+            Generate anyway — flag unresolved parts as comments in BC
+          </button>
+          <p className="text-xs text-red-600">
+            A section/panel that can't be matched to a stocked BC part will be added as a
+            <span className="font-medium"> MANUAL ENTRY REQUIRED</span> comment line for the office to
+            finish by hand. Every other line is quoted and priced normally. This does not override
+            unstocked colour/stamp combos.
+          </p>
+        </div>
+      )}
+
       {/* Quote Result */}
       {quoteResult && quoteResult.success && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4">
@@ -3698,13 +3731,33 @@ function ReviewStep({ doors, config, onGenerateQuote, isGenerating, quoteResult,
                   <span className="font-medium">Note:</span> {quoteResult.data.lines_failed.length} items could not be added (not in BC inventory)
                 </div>
               )}
-              {quoteResult.data.part_warnings && quoteResult.data.part_warnings.length > 0 && (
-                <div className="mt-2 bg-amber-50 border border-amber-200 rounded p-3">
-                  <p className="text-sm font-medium text-amber-800 mb-2">
-                    ⚠ {quoteResult.data.part_warnings.length} part(s) substituted — review in BC
+              {quoteResult.data.manual_entry_required && quoteResult.data.manual_entry_required.length > 0 && (
+                <div className="mt-2 bg-red-50 border border-red-300 rounded p-3">
+                  <p className="text-sm font-bold text-red-800 mb-2">
+                    ⛔ {quoteResult.data.manual_entry_required.length} line(s) need MANUAL ENTRY in BC
                   </p>
                   <div className="space-y-1">
-                    {quoteResult.data.part_warnings.map((w, i) => (
+                    {quoteResult.data.manual_entry_required.map((w, i) => (
+                      <div key={i} className="text-xs text-red-700">
+                        <span className="font-mono">{w.original}</span>
+                        {w.description ? <span> — {w.description}</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-red-600 mt-2">
+                    These were added as comment lines. Open the BC quote and add the correct
+                    section/panel line by hand at each marked position.
+                  </p>
+                </div>
+              )}
+              {quoteResult.data.part_warnings
+                && quoteResult.data.part_warnings.filter(w => !w.manual_entry_required).length > 0 && (
+                <div className="mt-2 bg-amber-50 border border-amber-200 rounded p-3">
+                  <p className="text-sm font-medium text-amber-800 mb-2">
+                    ⚠ {quoteResult.data.part_warnings.filter(w => !w.manual_entry_required).length} part(s) substituted — review in BC
+                  </p>
+                  <div className="space-y-1">
+                    {quoteResult.data.part_warnings.filter(w => !w.manual_entry_required).map((w, i) => (
                       <div key={i} className="text-xs text-amber-700">
                         <span className="font-mono">{w.original}</span>
                         {w.substituted ? (

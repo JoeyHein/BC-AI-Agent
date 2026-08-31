@@ -641,6 +641,11 @@ class QuoteGenerationRequest(BaseModel):
     # configurator so successive "Generate Quote" presses (e.g. after the
     # user adds another door) keep the same BC quote number.
     bcQuoteId: Optional[str] = None
+    # "Generate anyway" — when a section/panel can't be resolved to a stocked BC
+    # SKU (and no larger size exists), add it as a MANUAL ENTRY comment line
+    # instead of aborting the whole quote. Does NOT bypass validate_panel_combo
+    # (unstocked color/stamp/series stays a hard block).
+    forceGenerate: bool = False
 
 
 class DoorCalculationRequest(BaseModel):
@@ -1028,6 +1033,34 @@ def _sort_parts_by_category(parts: List[dict]) -> List[dict]:
     return sorted(parts, key=sort_key)
 
 
+def _flag_unresolved_line_as_comment(line: dict, pn: str, reason: str) -> dict:
+    """Convert an item line we couldn't resolve to a real BC SKU into a
+    MANUAL ENTRY comment line (mutated in place). Returns the part_warnings entry.
+
+    Used by the configurator "Generate anyway" path so a single unstocked
+    section/panel doesn't sink the whole quote — the office finishes that one
+    line by hand in BC.
+    """
+    door = line.get("door_index", "?")
+    desc = (line.get("description") or "").strip()
+    qty = line.get("quantity", 1)
+    line["lineType"] = "Comment"
+    line["is_note"] = True
+    line["_unresolved"] = True
+    line["description"] = (
+        f"** MANUAL ENTRY REQUIRED - Door {door}: {desc} - part {pn} (Qty {qty}) "
+        f"could not be added automatically: {reason}. "
+        f"Office to add the correct section/panel line in BC. **"
+    )
+    return {
+        "original": pn,
+        "substituted": None,
+        "description": desc,
+        "message": f"{pn}: {reason} - added as MANUAL ENTRY comment (force generate)",
+        "manual_entry_required": True,
+    }
+
+
 @router.post("/generate-quote")
 async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Depends(get_db)):
     """
@@ -1052,13 +1085,17 @@ async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Dep
     10. Weather seal
     11. Accessories
     """
-    return build_bc_quote_from_doors(request, db, source="admin")
+    return build_bc_quote_from_doors(
+        request, db, source="admin",
+        allow_unresolved_parts=request.forceGenerate,
+    )
 
 
 def build_bc_quote_from_doors(
     request: QuoteGenerationRequest,
     db: Session,
     source: str = "admin",
+    allow_unresolved_parts: bool = False,
 ):
     """Canonical BC quote builder shared by the configurator HTTP route and the
     email auto-quote flow, so both paths produce identical parts, line
@@ -1368,6 +1405,17 @@ def build_bc_quote_from_doors(
                 continue
 
             if is_panel_like:
+                reason = "not stocked in BC and no larger size available"
+                # "Generate anyway": drop the unresolved section/panel in as a
+                # MANUAL ENTRY comment so the rest of the quote still goes out.
+                if allow_unresolved_parts:
+                    logger.warning(
+                        f"FORCE: {pn} — {reason}; flagging as comment on {bc_quote_number}"
+                    )
+                    part_warnings.append(
+                        _flag_unresolved_line_as_comment(line, pn, reason)
+                    )
+                    continue
                 # No bigger size in BC for a panel/section — abort the
                 # quote rather than ship a wrong-size SKU.
                 logger.error(f"{line.get('category','panel').upper()} {pn} not in BC and no larger size found — aborting quote {bc_quote_number}")
@@ -1831,6 +1879,9 @@ def build_bc_quote_from_doors(
         except Exception as snap_err:
             logger.warning(f"Could not save quote snapshot: {snap_err}")
 
+        manual_entry_required = [
+            w for w in part_warnings if w.get("manual_entry_required")
+        ]
         return {
             "success": True,
             "data": {
@@ -1848,10 +1899,15 @@ def build_bc_quote_from_doors(
                 "line_pricing": line_pricing if line_pricing else None,
                 "freight": freight_info,
                 "part_warnings": part_warnings if part_warnings else None,
+                "manual_entry_required": manual_entry_required if manual_entry_required else None,
                 "escalating_margin": escalating_result,
             },
             "message": f"BC Quote {bc_quote_number} created with {lines_added} line items" + (
-                f" ({len(part_warnings)} part(s) substituted — review in BC)" if part_warnings else ""
+                f" ({len(part_warnings) - len(manual_entry_required)} part(s) substituted — review in BC)"
+                if len(part_warnings) - len(manual_entry_required) > 0 else ""
+            ) + (
+                f" | {len(manual_entry_required)} line(s) need MANUAL ENTRY in BC — see quote comments"
+                if manual_entry_required else ""
             ) + (
                 f" | Volume pricing: {escalating_result['target_gm']:.1f}% GM ({escalating_result['discount_pct']:.1f}% discount)"
                 if escalating_result else ""
