@@ -147,6 +147,20 @@ class SchedulerService:
         )
         logger.info("✓ Scheduled: Daily production schedule refresh 04:30 America/Edmonton")
 
+        # Nightly auto-PO — 05:00 America/Edmonton, Mon-Fri. Runs after the 4:00
+        # planning workbook / 4:30 production schedule and before the 7:00
+        # purchasing digest, so the digest reports what was drafted overnight.
+        # Default OFF — only runs when AppSettings 'auto_po_enabled' is true,
+        # because it writes Draft POs into BC.
+        self.scheduler.add_job(
+            func=self._auto_po_job,
+            trigger=CronTrigger(day_of_week='mon-fri', hour=5, minute=0, timezone='America/Edmonton'),
+            id='auto_po',
+            name='Nightly Auto-PO - draft POs for new preferred-vendor demand',
+            replace_existing=True,
+        )
+        logger.info("✓ Scheduled: Nightly auto-PO 05:00 America/Edmonton (Mon-Fri) [default OFF]")
+
         # AI invoice intake — every 30 minutes. Vendor invoices should reach
         # BC as Drafts promptly (purchasers work off them same-day), but the
         # mailbox isn't otherwise time-sensitive enough to warrant per-minute
@@ -286,6 +300,42 @@ class SchedulerService:
                 db.close()
             except Exception:
                 pass
+
+    def _auto_po_job(self):
+        """Draft POs in BC for new preferred-vendor demand (Draft status, no
+        vendor email). Default OFF — runs only when AppSettings
+        'auto_po_enabled' is explicitly true, since it writes to BC."""
+        db = None
+        try:
+            db = SessionLocal()
+            from app.db.models import AppSettings
+            setting = db.query(AppSettings).filter(
+                AppSettings.setting_key == "auto_po_enabled"
+            ).first()
+            if setting is None or not setting.setting_value:
+                logger.info("Auto-PO disabled (AppSettings 'auto_po_enabled' not true), skipping")
+                return
+
+            from app.services.vendor_map_service import vendor_map_service
+            from app.services.auto_po_service import auto_po_service
+            vendor_map_service.refresh(db)
+            db.commit()
+            result = auto_po_service.run(db)
+            db.commit()
+            logger.info(
+                f"Auto-PO complete: {result['drafted_po_count']} PO(s), "
+                f"~${result['drafted_est_cost']:,.0f}, skipped {result['skipped_counts']}"
+            )
+        except Exception as e:
+            logger.error(f"Auto-PO job failed: {e}", exc_info=True)
+            if db is not None:
+                db.rollback()
+        finally:
+            if db is not None:
+                try:
+                    db.close()
+                except Exception:
+                    pass
 
     def _purchasing_report_job(self):
         """Refresh vendor mapping and email the daily purchasing digest.

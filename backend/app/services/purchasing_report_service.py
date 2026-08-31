@@ -53,6 +53,45 @@ class PurchasingReportService:
         raw = settings.ADMIN_NOTIFICATION_EMAILS or "joey@opendc.ca"
         return [e.strip() for e in raw.split(",") if e.strip()]
 
+    def _auto_po_section_html(self, db: Session) -> str:
+        """POs the nightly auto-PO job drafted in BC in the last ~26h — the
+        digest goes out at 07:00, the job runs at 05:00. Draft only; a human
+        still reviews and releases each one in BC."""
+        from datetime import timedelta
+        from app.db.models import POAgentLog
+
+        since = datetime.utcnow() - timedelta(hours=26)
+        rows = (
+            db.query(POAgentLog)
+            .filter(POAgentLog.is_auto.is_(True), POAgentLog.created_at >= since)
+            .order_by(POAgentLog.created_at.desc())
+            .all()
+        )
+        if not rows:
+            return ""
+        total = sum(float(r.total_amount or 0) for r in rows)
+        body = [
+            f"""<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 14px;margin:12px 0">
+            <div style="font-weight:700;color:#1e40af;margin-bottom:6px">
+            Auto-drafted overnight — {len(rows)} PO(s), ~${total:,.0f} · review + release in BC</div>
+            <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <tr style="text-align:left;color:#6b7280">
+              <th style="padding:3px 6px">PO</th><th style="padding:3px 6px">Vendor</th>
+              <th style="padding:3px 6px;text-align:right">Amount</th>
+              <th style="padding:3px 6px">Sales orders</th></tr>"""
+        ]
+        for r in rows:
+            sos = ", ".join((r.so_allocations or {}).keys())
+            body.append(
+                f"""<tr style="border-top:1px solid #dbeafe">
+                <td style="padding:3px 6px;font-family:monospace">{r.bc_po_number or '(pending)'}</td>
+                <td style="padding:3px 6px">{r.vendor_name}</td>
+                <td style="padding:3px 6px;text-align:right">${float(r.total_amount or 0):,.2f}</td>
+                <td style="padding:3px 6px;color:#6b7280">{sos}</td></tr>"""
+            )
+        body.append("</table></div>")
+        return "".join(body)
+
     def build_digest_html(self, result: dict, db: Optional[Session] = None) -> str:
         s = result["summary"]
         when = datetime.utcnow().strftime("%A, %B %d, %Y")
@@ -69,6 +108,13 @@ class PurchasingReportService:
             except Exception as e:
                 logger.error(f"[PurchasingReport] brief unavailable: {e}")
 
+        auto_html = ""
+        if db is not None:
+            try:
+                auto_html = self._auto_po_section_html(db)
+            except Exception as e:
+                logger.error(f"[PurchasingReport] auto-PO section unavailable: {e}")
+
         prod_note = "" if result.get("production_included") else (
             "<p style='color:#92400e;background:#fef3c7;padding:8px 12px;border-radius:6px;"
             "font-size:13px;margin:8px 0'>Production-order demand not included "
@@ -80,6 +126,7 @@ class PurchasingReportService:
             <h2 style="margin:0 0 4px">OPENDC Daily Purchasing Report</h2>
             <p style="color:#6b7280;margin:0 0 12px;font-size:13px">{when}</p>
             {brief_html}
+            {auto_html}
             <div style="display:flex;gap:16px;margin:12px 0">
               <div style="flex:1;background:#f3f4f6;border-radius:8px;padding:12px">
                 <div style="font-size:22px;font-weight:700">{s['shortfall_items']}</div>

@@ -103,6 +103,12 @@ class Settings(BaseSettings):
     INVOICE_INTAKE_MAILBOX: Optional[str] = None  # falls back to EMAIL_INBOX_1 if unset
     INVOICE_INTAKE_LOOKBACK_HOURS: int = 24
 
+    # Nightly auto-PO — drafts POs straight into BC (Draft, never emailed) for
+    # new preferred-vendor demand. The runtime on/off switch is the AppSettings
+    # key 'auto_po_enabled' (default OFF); this only tunes the demand horizon,
+    # matching the purchasing engine's default.
+    AUTO_PO_HORIZON_WEEKS: int = 5
+
     # Feature Flags
     ENABLE_EMAIL_MONITORING: bool = True
     ENABLE_AI_PARSING: bool = True
