@@ -325,13 +325,18 @@ class AutoPoService:
 
     @staticmethod
     def _unit_cost(row: dict) -> float:
-        """Price a line the way a buyer does: last price actually paid, then
-        the item-card cost."""
-        for key in ("last_purchase_cost", "unit_cost"):
-            v = row.get(key)
-            if v:
-                return float(v)
-        return 0.0
+        """Cost per the item's BASE unit of measure — the same unit the demand
+        quantity is in.
+
+        We deliberately do NOT use last-paid-from-receipts here: buyers enter
+        POs in a transaction UoM (e.g. BU / bundle) while the sales-order demand
+        and the item card are in the base UoM (e.g. IN), and BC doesn't expose
+        the conversion factor over the API. Mixing them inflates a line by the
+        bundle size. `unit_cost` on the demand row is v2.0 items.unitCost, which
+        is always per base UoM.
+        """
+        v = row.get("unit_cost")
+        return float(v) if v else 0.0
 
     def _create_bc_draft_po(
         self, db: Session, plan: dict, run_id: str, created_by: Optional[int]
