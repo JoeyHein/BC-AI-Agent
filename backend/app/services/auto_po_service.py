@@ -60,6 +60,7 @@ SKIP_EXPEDITE = "expedite_vendor"       # DEK / UPAM — never auto-ordered
 SKIP_NON_PREFERRED = "non_preferred_vendor"
 SKIP_COVERED = "already_covered"        # stock / existing PO already covers it
 SKIP_NO_COST = "no_unit_cost"           # can't price the line
+SKIP_OUT_OF_SCOPE = "vendor_not_in_scope"  # only_vendors given and this isn't one
 
 
 class AutoPoService:
@@ -70,12 +71,18 @@ class AutoPoService:
         dry_run: bool = False,
         created_by: Optional[int] = None,
         horizon_weeks: Optional[int] = None,
+        only_vendors: Optional[set] = None,
     ) -> dict:
         """Draft POs for new preferred-vendor demand. Returns a summary dict.
 
         dry_run=True computes everything and touches neither BC nor the
         snapshot — used by the preview endpoint and tests.
+
+        only_vendors: if given, a set of BC vendor numbers — draft (and advance
+        the watermark for) only those; everything else is left for a later run.
+        Used to release one vendor at a time when first turning this on.
         """
+        only_vendors = {v.upper() for v in only_vendors} if only_vendors else None
         run_id = f"AUTO-{datetime.utcnow():%Y%m%dT%H%M%S}"
         horizon_weeks = horizon_weeks or settings.AUTO_PO_HORIZON_WEEKS
 
@@ -151,6 +158,11 @@ class AutoPoService:
             if not is_preferred(vno):
                 skips[SKIP_NON_PREFERRED].append({"item_no": item_no, "description": desc,
                                                   "new_demand": total_new, "vendor_no": vno})
+                continue
+
+            if only_vendors is not None and vno not in only_vendors:
+                skips[SKIP_OUT_OF_SCOPE].append({"item_no": item_no, "description": desc,
+                                                 "new_demand": total_new, "vendor_no": vno})
                 continue
 
             unit_cost = self._unit_cost(meta_row)
@@ -342,10 +354,9 @@ class AutoPoService:
         self, db: Session, plan: dict, run_id: str, created_by: Optional[int]
     ) -> dict:
         today = date.today().isoformat()
-        bc_po = bc_client.create_purchase_order({
-            "vendorNumber": plan["vendor_no"],
-            "vendorName": plan["vendor_name"],
-        })
+        # api/v2.0 purchaseOrders: set vendorNumber only — vendorName is a
+        # read-only computed field and BC 400s if it's in the POST body.
+        bc_po = bc_client.create_purchase_order({"vendorNumber": plan["vendor_no"]})
         bc_po_id = bc_po.get("id")
         bc_po_number = bc_po.get("number")
         bc_status = bc_po.get("status") or "Draft"

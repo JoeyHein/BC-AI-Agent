@@ -16,6 +16,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--commit", action="store_true", help="actually draft POs in BC")
     ap.add_argument("--seed", action="store_true", help="seed the snapshot first (mark backlog covered)")
+    ap.add_argument("--vendor", action="append", help="restrict to these BC vendor no(s), e.g. --vendor ELT")
     args = ap.parse_args()
 
     for t in (ItemVendorMap, POAgentLog, AutoPoSnapshot):
@@ -39,8 +40,9 @@ def main():
         db.commit()
 
     dry = not args.commit
-    print(f">>> running auto_po_service.run(dry_run={dry}) ...")
-    result = auto_po_service.run(db, dry_run=dry)
+    only = set(args.vendor) if args.vendor else None
+    print(f">>> running auto_po_service.run(dry_run={dry}, only_vendors={only}) ...")
+    result = auto_po_service.run(db, dry_run=dry, only_vendors=only)
     db.commit()
 
     # readable summary
