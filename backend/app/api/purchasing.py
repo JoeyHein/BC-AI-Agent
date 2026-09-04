@@ -20,6 +20,7 @@ from app.services.purchasing_demand_service import purchasing_demand_service
 from app.services.vendor_map_service import vendor_map_service
 from app.services.purchasing_report_service import purchasing_report_service
 from app.services.purchasing_po_service import purchasing_po_service
+from app.services.purchasing_brief_service import purchasing_brief_service
 from app.services.planning_workbook_service import planning_workbook_service, XLSX_MIME
 from app.services.so_coverage_service import (
     so_coverage_service,
@@ -196,6 +197,42 @@ async def send_report(
     recipients = body.recipients if body else None
     result = purchasing_report_service.send_daily_report(db, recipients=recipients)
     return result
+
+
+def _brief_payload(row) -> dict:
+    if row is None:
+        return {"brief": None}
+    return {
+        "brief": row.brief_json,
+        "as_of": row.as_of.isoformat() if row.as_of else None,
+        "generated_at": row.generated_at.isoformat() if row.generated_at else None,
+        "facts": row.facts_json,
+        "diff": row.diff_json,
+        "model": row.model,
+        "error": row.error,
+    }
+
+
+@router.get("/brief")
+async def get_brief(
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """The most recent morning brief (the same one the digest and workbook use)."""
+    return _brief_payload(purchasing_brief_service.latest(db))
+
+
+@router.post("/brief/run")
+async def run_brief(
+    include_cuts: bool = Query(True, description="Include the cut work-order queue (slower)"),
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Generate a fresh brief now against live numbers."""
+    row = purchasing_brief_service.generate(db, include_cuts=include_cuts)
+    if row.error:
+        raise HTTPException(status_code=502, detail=f"Brief generation failed: {row.error}")
+    return _brief_payload(row)
 
 
 @router.post("/planning-workbook/run")

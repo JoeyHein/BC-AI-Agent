@@ -37,6 +37,43 @@ def _by_category(parts, category):
     return [p for p in parts if p.get("category") == category]
 
 
+# ── Galvanized spring upgrade (SP10) ────────────────────────────────────────
+
+class TestGalvanizedSprings:
+    """springFinish='galvanized' swaps SP11 (oil-tempered) → SP10 (galvanized)
+    only where BC stocks the SP10 twin at the resolved wire/coil; otherwise the
+    oil-tempered spring is kept and the gap is flagged (never a rate change)."""
+
+    def _springs(self, **overrides):
+        return [p["part_number"] for p in _by_category(_get_parts(overrides), "spring")]
+
+    def _warnings(self, **overrides):
+        return [p["notes"] for p in _by_category(_get_parts(overrides), "spring_warning")]
+
+    def test_default_is_oil_tempered(self):
+        # No springFinish → SP11 (144x120 KANATA resolves to a twinned encoding).
+        pns = self._springs(doorWidth=144, doorHeight=120)
+        assert pns and all(p.startswith("SP11-") for p in pns)
+
+    def test_galvanized_swaps_when_stocked(self):
+        # 144x120 → SP11-26220, which HAS an SP10-26220 twin → swaps to galvanized.
+        pns = self._springs(doorWidth=144, doorHeight=120, springFinish="galvanized")
+        assert pns and all(p.startswith("SP10-") for p in pns), pns
+        # And the detail comment is marked galvanized.
+        comments = [p["description"] for p in _by_category(
+            _get_parts({"doorWidth": 144, "doorHeight": 120, "springFinish": "galvanized"}),
+            "spring_comment")]
+        assert any("GALVANIZED" in c for c in comments)
+
+    def test_galvanized_kept_oil_tempered_when_no_twin(self):
+        # 120x96 → SP11-21820, which has NO SP10-21820 twin → stays oil-tempered
+        # and flags the unavailable upgrade rather than substituting a rate.
+        pns = self._springs(doorWidth=120, doorHeight=96, springFinish="galvanized")
+        assert pns and all(p.startswith("SP11-") for p in pns), pns
+        assert "galvanized_spring_unavailable" in self._warnings(
+            doorWidth=120, doorHeight=96, springFinish="galvanized")
+
+
 # ── Struts ────────────────────────────────────────────────────────────────
 
 class TestStruts:
@@ -111,10 +148,12 @@ class TestCommentScope:
 class TestV130GFallback:
     """TX450 doors with V130G full-view inserts.
 
-    BC does not stock V130G (PN10) sections in black (fff=008) — only AL976
-    (PN97) is carried in black. PN10 and PN97 share an identical body+width
-    encoding, so an unavailable V130G section falls back to the AL976 equivalent,
-    and an unavailable size steps up to the next stocked size.
+    As of 2026-07 BC now stocks V130G (PN10) sections in black (fff=008), so black
+    resolves to the real PN10 part like any other stocked finish. The AL976 (PN97)
+    fallback REMAINS as a safety net: PN10/PN12 and PN97 share an identical
+    body+width encoding, so any finish/size BC does NOT carry as V130G still falls
+    back to the AL976 equivalent (and an unavailable size steps up to the next
+    stocked size). See test_resolver_falls_back_to_al976_when_v130g_missing.
     """
 
     def _v130g_door(self, **overrides):
@@ -131,15 +170,32 @@ class TestV130GFallback:
     def _sections(self, parts):
         return _by_category(parts, "v130g_section")
 
-    def test_black_v130g_falls_back_to_al976(self):
-        """Black V130G is not stocked → sections emit AL976 (PN97) part numbers."""
+    def test_black_v130g_now_stocked_uses_pn10(self):
+        """Black V130G is stocked in BC as of 2026-07 → real PN10 parts, no AL976
+        substitution (the catalog refresh pulled in the black PN10 sections)."""
         sections = self._sections(self._v130g_door(panelColor="BLACK"))
         assert sections, "expected V130G full-view sections"
         for s in sections:
-            assert s["part_number"].startswith("PN97-"), (
-                f"black V130G should substitute AL976, got {s['part_number']}"
+            assert s["part_number"].startswith("PN10-"), (
+                f"black V130G is now stocked and should stay PN10, got {s['part_number']}"
             )
-            assert "AL976" in s["description"]
+
+    def test_resolver_falls_back_to_al976_when_v130g_missing(self):
+        """Safety net: when the requested V130G part is NOT stocked but the AL976
+        equivalent is, the resolver substitutes PN97. Uses a stub catalog so the
+        test is independent of what BC currently stocks."""
+        from app.services.part_number_service import PartNumberService
+
+        class _StubMapper:
+            bc_items = {"PN97-24200810-0802"}  # only the AL976 equivalent is stocked
+
+        svc = PartNumberService()
+        resolved, used_al976, size_bumped = svc._resolve_full_view_section_pn(
+            _StubMapper(), "PN10", "24", "2", "008", "10", "0802"
+        )
+        assert resolved == "PN97-24200810-0802"
+        assert used_al976 is True
+        assert size_bumped is False
 
     def test_white_v130g_stays_v130g(self):
         """White V130G is stocked → keep the PN10 V130G part numbers (no substitution)."""
@@ -467,9 +523,15 @@ class TestChainHoist:
 
 
 class TestJackshaftAccessories:
-    """Commercial jackshaft operators auto-include a spreader bar; the LiftMaster
-    JHDC additionally gets a chain tensioner. Both follow the torsion shaft bore
-    (1-1/4" only on >2000 lb doors, else 1"). One of each per door."""
+    """Commercial SHAFT-mounted operators (hoist / jackshaft / direct-drive, per
+    the catalog Mount column) auto-include a shaft accessory: the LiftMaster JHDC
+    gets a chain TENSIONER, every other shaft-mounted operator gets a SPREADER BAR
+    (mutually exclusive). Trolley/rail operators get neither. The accessory bore
+    follows the torsion shaft bore (1-1/4" only on >2000 lb doors, else 1"). One
+    per door."""
+
+    _SPREADERS = {"OP20-02001-00", "OP20-02002-00"}
+    _TENSIONERS = {"OP19-02126-00", "OP19-02127-00"}
 
     _COMMERCIAL = {
         "doorType": "commercial", "doorSeries": "TX450",
@@ -480,22 +542,29 @@ class TestJackshaftAccessories:
     def _ops(self, parts):
         return {p.get("part_number") for p in parts if p.get("category") == "operator"}
 
-    def test_jhdc_emits_spreader_and_tensioner_1in(self):
-        parts = _get_parts({**self._COMMERCIAL, "operator": "OP19-01107-00"})
-        pns = self._ops(parts)
-        assert "OP20-02001-00" in pns, "JHDC should get the 1\" spreader bar"
+    def test_jhdc_emits_tensioner_not_spreader(self):
+        # JHDC jackshaft: tensioner replaces the spreader bar.
+        pns = self._ops(_get_parts({**self._COMMERCIAL, "operator": "OP19-01107-00"}))
         assert "OP19-02126-00" in pns, "JHDC should get the 1\" tensioner"
+        assert not (pns & self._SPREADERS), "JHDC should NOT get a spreader bar"
 
-    def test_spreader_and_tensioner_are_one_each(self):
-        parts = _get_parts({**self._COMMERCIAL, "operator": "OP19-01106-00"})
-        spreaders = [p for p in parts if (p.get("part_number") or "").startswith("OP20-0200")]
-        tensioners = [p for p in parts if (p.get("part_number") or "").startswith("OP19-0212")]
-        assert len(spreaders) == 1 and spreaders[0]["quantity"] == 1
-        assert len(tensioners) == 1 and tensioners[0]["quantity"] == 1
-        assert spreaders[0]["category"] == "operator"  # Output=True on the quote
+    def test_micanan_hoist_gets_spreader(self):
+        # Micanan hoists carry no 'hoist' keyword in the name — they qualify via
+        # the catalog Mount=shaft column. This is the SQ-002847 gap.
+        for op in ("OP20-01056-00", "OP20-01001-00", "OP20-01011-00"):
+            pns = self._ops(_get_parts({**self._COMMERCIAL, "operator": op}))
+            assert pns & self._SPREADERS, f"{op} (shaft hoist) should get a spreader bar"
+            assert not (pns & self._TENSIONERS), f"{op} should NOT get a tensioner"
 
-    def test_heavy_door_uses_1_25in_bore(self):
-        # >2000 lb door runs a 1-1/4" shaft, so both accessories step up. Weight
+    def test_accessory_is_one_each(self):
+        # Exactly one shaft accessory, qty 1, category 'operator' (Output=True).
+        parts = _get_parts({**self._COMMERCIAL, "operator": "OP20-01056-00"})
+        accs = [p for p in parts if (p.get("part_number") or "") in self._SPREADERS | self._TENSIONERS]
+        assert len(accs) == 1 and accs[0]["quantity"] == 1
+        assert accs[0]["category"] == "operator"
+
+    def test_heavy_jhdc_uses_1_25in_tensioner(self):
+        # >2000 lb door runs a 1-1/4" shaft, so the accessory steps up. Weight
         # isn't injectable through the quote dict (always computed), so exercise
         # the bore branch directly on a heavy DoorConfiguration.
         from app.services.part_number_service import PartNumberService, DoorConfiguration
@@ -508,42 +577,51 @@ class TestJackshaftAccessories:
         )
         assert svc._torsion_shaft_bore(cfg) == "1-1/4"
         pns = {p.part_number for p in svc._get_operator_parts(cfg)}
-        assert "OP20-02002-00" in pns and "OP19-02127-00" in pns
-        assert "OP20-02001-00" not in pns and "OP19-02126-00" not in pns
+        assert "OP19-02127-00" in pns          # 1-1/4" tensioner (JHDC)
+        assert not (pns & self._SPREADERS)      # tensioner replaces spreader
 
     def test_accessory_bore_matches_shaft_bore(self):
-        # The invariant: whatever bore the shaft gets, the spreader/tensioner match.
-        # Both read config.door_weight or _calculate_door_weight with the same
-        # >2000 threshold, so they can't diverge.
+        # The invariant: whatever bore the shaft gets, the accessory matches.
         from app.services.part_number_service import PartNumberService, DoorConfiguration
 
         svc = PartNumberService()
-        for weight, expect in ((800, "1"), (2500, "1-1/4")):
-            cfg = DoorConfiguration(
-                door_type="commercial", door_series="TX450", door_width=200, door_height=180,
-                door_count=1, panel_color="WHITE", panel_design="FLUSH",
-                operator="OP19-01107-00", door_weight=weight,
-            )
-            bore = svc._torsion_shaft_bore(cfg)
-            assert bore == expect
-            spreader = svc.JACKSHAFT_SPREADER_BARS[bore][0]
-            tensioner = svc.JHDC_TENSIONERS[bore][0]
-            pns = {p.part_number for p in svc._get_operator_parts(cfg)}
-            assert spreader in pns and tensioner in pns
+        # JHDC -> tensioner bore; Micanan hoist -> spreader bore
+        cases = [
+            ("OP19-01107-00", svc.JHDC_TENSIONERS),          # jackshaft
+            ("OP20-01056-00", svc.JACKSHAFT_SPREADER_BARS),  # hoist
+        ]
+        for op, table in cases:
+            for weight, expect in ((800, "1"), (2500, "1-1/4")):
+                cfg = DoorConfiguration(
+                    door_type="commercial", door_series="TX450", door_width=200, door_height=180,
+                    door_count=1, panel_color="WHITE", panel_design="FLUSH",
+                    operator=op, door_weight=weight,
+                )
+                bore = svc._torsion_shaft_bore(cfg)
+                assert bore == expect
+                pns = {p.part_number for p in svc._get_operator_parts(cfg)}
+                assert table[bore][0] in pns, f"{op} @ {weight}lb should get {table[bore][0]}"
 
-    def test_non_jackshaft_commercial_gets_neither(self):
-        # Micanan hoist and LiftMaster trolley are commercial but not jackshaft.
-        for op in ("OP20-01001-00", "OP19-01057-00"):
+    def test_trolley_commercial_gets_neither(self):
+        # LiftMaster T501L5 and Micanan PRO-TE are rail-mounted trolley ops.
+        for op in ("OP19-01057-00", "OP20-01025-00"):
             pns = self._ops(_get_parts({**self._COMMERCIAL, "operator": op}))
-            assert not (pns & {"OP20-02001-00", "OP20-02002-00",
-                               "OP19-02126-00", "OP19-02127-00"}), f"{op} should add neither"
+            assert not (pns & (self._SPREADERS | self._TENSIONERS)), f"{op} (trolley) should add neither"
 
-    def test_residential_jackshaft_gets_neither(self):
+    def test_residential_shaft_op_gets_neither(self):
         # Residential jackshaft (LJ8900W) on a residential door — commercial gate.
         pns = self._ops(_get_parts({"doorType": "residential", "doorSeries": "KANATA",
                                     "operator": "OP19-01082-00"}))
         assert not (pns & {"OP20-02001-00", "OP20-02002-00",
                            "OP19-02126-00", "OP19-02127-00"})
+
+    def test_opt_out_suppresses_auto_accessory(self):
+        # includeShaftAccessory=False lets the portal opt out (e.g. customer owns
+        # the bar). Default (omitted) still auto-adds.
+        base = {**self._COMMERCIAL, "operator": "OP20-01056-00"}
+        assert self._ops(_get_parts(base)) & self._SPREADERS, "default should auto-add"
+        opted_out = self._ops(_get_parts({**base, "includeShaftAccessory": False}))
+        assert not (opted_out & (self._SPREADERS | self._TENSIONERS)), "opt-out should suppress it"
 
 
 # ── Stale window config guard (SQ-003018) ──────────────────────────────────

@@ -41,6 +41,10 @@ def _load_catalog() -> List[Dict[str, Any]]:
                     "replacement": row.get("Replacement", "").strip(),
                     "notes": row.get("Notes", "").strip(),
                     "include": row.get("Include", "").strip().upper() == "Y",
+                    # "shaft" (hoist/jackshaft/direct-drive -> uses a spreader bar
+                    # or, for JHDC, a chain tensioner) or "trolley" (rail-mounted,
+                    # no shaft accessory). Blank on residential/accessory rows.
+                    "mount": row.get("Mount", "").strip().lower(),
                 })
     except FileNotFoundError:
         logger.error(f"Operator catalog not found at {path}")
@@ -132,6 +136,19 @@ def find_operator_by_part_number(part_number: str) -> Optional[str]:
     return item["partNumber"] if item else None
 
 
+def get_operator_mount(operator_id: str) -> str:
+    """
+    Return the mount class for an operator: "shaft" (hoist / jackshaft /
+    direct-drive — takes a spreader bar or, for JHDC, a chain tensioner),
+    "trolley" (rail-mounted, no shaft accessory), or "" if unknown.
+    """
+    if not operator_id or operator_id == "NONE":
+        return ""
+    catalog = _load_catalog()
+    item = next((i for i in catalog if i["partNumber"] == operator_id), None)
+    return item["mount"] if item else ""
+
+
 def get_operator_display_name(operator_id: str) -> str:
     """Get display name for an operator part number."""
     if not operator_id or operator_id == "NONE":
@@ -153,6 +170,9 @@ def _format_operator(item: Dict) -> Dict:
         "partNumber": item["partNumber"],
         "unitCost": item["unitCost"],
         "notes": item["notes"],
+        # "shaft" (auto-adds a spreader bar / JHDC tensioner) or "trolley"
+        # (no shaft accessory). Lets the UI show the opt-out toggle only when relevant.
+        "mount": item.get("mount", ""),
     }
 
 

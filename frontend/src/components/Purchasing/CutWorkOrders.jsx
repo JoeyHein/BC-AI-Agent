@@ -174,6 +174,7 @@ function WorkOrderCard({ wo, busy, rejecting, reason, setReason, onApprove, onSt
             {wo.blocker_summary && (
               <span className="ml-2 font-normal text-xs text-gray-600">
                 ({wo.blocker_summary.needs_po} need PO · {wo.blocker_summary.needs_production} need production
+                {wo.blocker_summary.unknown > 0 && <> · {wo.blocker_summary.unknown} unclassified</>}
                 {wo.blocker_summary.on_order > 0 && <> · {wo.blocker_summary.on_order} partly on order</>})
               </span>
             )}
@@ -184,6 +185,9 @@ function WorkOrderCard({ wo, busy, rejecting, reason, setReason, onApprove, onSt
                 ? { label: 'PRODUCTION', cls: 'bg-indigo-50 text-indigo-700' }
                 : b.fulfillment === 'cuttable'
                 ? { label: 'CUT', cls: 'bg-blue-50 text-blue-700' }
+                : b.fulfillment === 'unknown'
+                // BC didn't tell us how this item is replenished — don't guess "PO".
+                ? { label: '?', cls: 'bg-gray-100 text-gray-600' }
                 : { label: 'PO', cls: 'bg-orange-50 text-orange-700' };
               return (
                 <span key={i} className="text-gray-700">

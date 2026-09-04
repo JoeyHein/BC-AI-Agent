@@ -5,6 +5,7 @@ const UNASSIGNED = 'Unassigned';
 
 export default function PurchasingDashboard() {
   const [data, setData] = useState(null);
+  const [brief, setBrief] = useState(null);      // morning brief (same one the digest sends)
   const [vendors, setVendors] = useState([]);
   const [sel, setSel] = useState({});            // item_no -> { selected, qty }
   const [expanded, setExpanded] = useState({});  // vendor_name -> bool
@@ -32,6 +33,8 @@ export default function PurchasingDashboard() {
       // Expand the first real vendor group by default.
       const firstReal = (reqRes.data.vendors || []).find((g) => g.vendor_name !== UNASSIGNED);
       setExpanded(firstReal ? { [firstReal.vendor_name]: true } : {});
+      // Brief is a nice-to-have on this page — never let it block the buy list.
+      purchasingApi.getBrief().then((r) => setBrief(r.data)).catch(() => setBrief(null));
     } catch (e) {
       setMessage({ type: 'error', text: `Failed to load: ${e.response?.data?.detail || e.message}` });
     }
@@ -54,6 +57,18 @@ export default function PurchasingDashboard() {
       await load();
     } catch (e) {
       setMessage({ type: 'error', text: `Refresh failed: ${e.response?.data?.detail || e.message}` });
+    }
+    setBusy(null);
+  }
+
+  async function refreshBrief() {
+    setBusy('brief');
+    setMessage(null);
+    try {
+      const res = await purchasingApi.runBrief();
+      setBrief(res.data);
+    } catch (e) {
+      setMessage({ type: 'error', text: `Brief failed: ${e.response?.data?.detail || e.message}` });
     }
     setBusy(null);
   }
@@ -157,6 +172,8 @@ export default function PurchasingDashboard() {
       </div>
 
       {message && <div className={`p-3 rounded-lg ${msgClass[message.type]}`}>{message.text}</div>}
+
+      <MorningBrief data={brief} busy={busy === 'brief'} onRefresh={refreshBrief} />
 
       {!data?.production_included && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-lg text-sm">
@@ -286,6 +303,75 @@ export default function PurchasingDashboard() {
 
       {(data?.vendors || []).length === 0 && (
         <div className="text-center py-12 text-gray-500">No purchasing shortfalls right now. 🎉</div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The morning brief — the same narrative that leads the digest email and the
+ * planning workbook, so the portal, the inbox, and the spreadsheet all say the
+ * same thing. Reads the stored brief; "Rewrite" regenerates against live
+ * numbers (slow — it re-runs the demand engine and the cut queue).
+ */
+function MorningBrief({ data, busy, onRefresh }) {
+  const b = data?.brief;
+  const when = data?.generated_at
+    ? new Date(data.generated_at + 'Z').toLocaleString(undefined, {
+        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+      })
+    : null;
+
+  const Section = ({ title, items, color }) =>
+    (items || []).length ? (
+      <div className="mt-3">
+        <div className={`text-xs font-bold uppercase tracking-wide ${color}`}>{title}</div>
+        <ul className="mt-1 space-y-1 text-sm text-gray-800 list-disc pl-5">
+          {items.map((t, i) => <li key={i}>{t}</li>)}
+        </ul>
+      </div>
+    ) : null;
+
+  return (
+    <div className="bg-white rounded-lg border border-l-4 border-l-blue-600 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs uppercase tracking-wide text-gray-500">
+            Morning brief{when ? ` · ${when}` : ''}
+          </div>
+          <div className="text-base font-semibold text-gray-900 mt-1">
+            {b?.headline || 'No brief yet — write one to get today’s read on the numbers.'}
+          </div>
+        </div>
+        <button onClick={onRefresh} disabled={busy}
+          className="shrink-0 px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm disabled:opacity-50">
+          {busy ? 'Writing…' : b ? 'Rewrite' : 'Write brief'}
+        </button>
+      </div>
+
+      {busy && (
+        <div className="mt-2 text-sm text-gray-500">
+          Reading the buy list, the order board, and the cut queue — about a minute.
+        </div>
+      )}
+
+      {b && (
+        <>
+          <Section title="Buy today" items={b.buy_today} color="text-red-700" />
+          <Section title="At risk" items={b.at_risk} color="text-amber-700" />
+          <Section title="Changed since last brief" items={b.changed} color="text-gray-700" />
+          {(b.decisions || []).length > 0 && (
+            <div className="mt-3">
+              <div className="text-xs font-bold uppercase tracking-wide text-amber-700">Needs your call</div>
+              <ul className="mt-1 space-y-1 text-sm text-gray-800 list-disc pl-5">
+                {b.decisions.map((d, i) => (
+                  <li key={i}><span className="font-semibold">{d.question}</span>{d.context ? ` — ${d.context}` : ''}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <Section title="Watch" items={b.watch} color="text-gray-500" />
+        </>
       )}
     </div>
   );

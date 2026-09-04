@@ -60,6 +60,18 @@ class TestCompleteness:
         s = proposals[0]["blocker_summary"]
         assert s["needs_po"] == 2 and s["needs_production"] == 1 and s["on_order"] == 1
 
+    def test_unclassifiable_blocker_says_unknown_rather_than_guessing_po(self):
+        """No replenishment answer means we can't tell a PO from a production
+        order. Defaulting to needs_po reads as a confident answer we don't have —
+        and BC's Items page times out often enough for that to mislead."""
+        proposals = [_wo("SO-8", [])]
+        req = {"items": [{"item_no": "MI24-00000-02", "net_need": 1, "on_order": 0,
+                          "jobs": ["SO-8"]}]}
+        wos._assess_completeness(proposals, req, replen_map={})  # BC unavailable
+        assert proposals[0]["blockers"][0]["fulfillment"] == "unknown"
+        assert proposals[0]["blocker_summary"]["unknown"] == 1
+        assert proposals[0]["blocker_summary"]["needs_po"] == 0
+
     def test_cuttable_shortfall_not_labelled_po_or_production(self):
         proposals = [_wo("SO-7", [])]  # no cuts in the WO, but the item IS cuttable
         req = {"items": [{"item_no": "SH11-10906-00", "net_need": 2, "on_order": 0, "jobs": ["SO-7"]}]}
