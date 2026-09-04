@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import logging
+import re
 
 from app.services.part_number_service import get_parts_for_door_config, part_number_service, DoorConfiguration
 from app.services.door_calculator_service import door_calculator, calculate_door_from_config
@@ -17,6 +18,7 @@ from app.services.spring_data_service import get_bc_spring_inventory
 from app.services.pricing_service import calculate_selling_price, warm_bc_cost_cache
 from app.services.quote_review_service import save_quote_snapshot
 from app.services.freight_service import calculate_freight, get_freight_config
+from app.services.operator_service import find_operator_by_part_number
 from app.integrations.bc.client import bc_client
 from app.db.database import get_db
 from app.db.models import BCCustomer
@@ -322,6 +324,14 @@ DOOR_SERIES = {
             }
         },
     ],
+}
+
+# Reverse lookup: door series id -> door type. Used to resolve doorType when
+# reconstructing a DoorConfigRequest from a BC quote's series id alone.
+SERIES_TO_DOOR_TYPE: Dict[str, str] = {
+    series["id"]: door_type
+    for door_type, series_list in DOOR_SERIES.items()
+    for series in series_list
 }
 
 COLORS = {
@@ -1076,6 +1086,204 @@ def _flag_unresolved_line_as_comment(line: dict, pn: str, reason: str) -> dict:
         "description": desc,
         "message": f"{pn}: {reason} - added as MANUAL ENTRY comment (force generate)",
         "manual_entry_required": True,
+    }
+
+
+# ============================================================================
+# LOAD EXISTING QUOTE — reverse-parse a live BC quote back into the
+# configurator so staff can pull up an existing quote, edit it, and hit
+# Generate Quote again (which already knows how to reuse a BC quote id and
+# clear+rewrite its lines — see bcQuoteId handling below).
+#
+# The door header comment (_format_door_description) is fully deterministic,
+# so it round-trips reliably for geometry/series/color/design/track/lift.
+# Everything else (windows, operator, optional extras) is best-effort: we
+# flag anything we can't confidently recover in `_warnings` rather than
+# guess, because a wrong guess here silently disappears on regenerate
+# (full clear + rewrite, not a surgical per-door patch).
+# ============================================================================
+
+_HEADER_RE = re.compile(
+    r'^\((\d+)\)\s+(\d+)\'(\d+)"\s*x\s*(\d+)\'(\d+)"\s+(\S+)\s*,\s*(.*)$'
+)
+_LIFT_LABEL_RE = re.compile(r'^(STD LIFT|HIGH LIFT(?:\s+\d+")?|LHR (?:FRONT|REAR)|VERTICAL)$')
+_TRACK_LABEL_RE = re.compile(r'^(\d+)"\s+(ANGLE|BRACKET) MOUNT$')
+_SCOPE_LABELS = {"DOOR FACE ONLY", "PANELS ONLY", "NO DOOR FACE"}
+_WINDOW_PART_PREFIXES = ("GK15-", "GK17-", "GK19-", "GL19-")
+
+
+def _parse_door_header(comment: str) -> Optional[Dict[str, Any]]:
+    """Inverse of _format_door_description(). Returns None if the comment
+    doesn't look like a door header at all (e.g. a stray note or '-')."""
+    m = _HEADER_RE.match((comment or "").strip())
+    if not m:
+        return None
+    qty, w_ft, w_in, h_ft, h_in, series, rest = m.groups()
+    warnings: List[str] = []
+
+    segments = [s.strip() for s in rest.split(", ") if s.strip()]
+
+    scope_label = None
+    if segments and segments[-1] in _SCOPE_LABELS:
+        scope_label = segments.pop()
+
+    lift_type, high_lift_inches, lhr_mount = "standard", None, "front"
+    track_thickness, track_mount = "2", "bracket"
+
+    if scope_label:
+        # Face/panels-only doors never emit a track+lift segment — nothing
+        # to recover here, and nothing to warn about either.
+        pass
+    elif segments and _LIFT_LABEL_RE.match(segments[-1]):
+        lift_label = segments.pop()
+        if lift_label.startswith("HIGH LIFT"):
+            lift_type = "high_lift"
+            hl = re.search(r'(\d+)"$', lift_label)
+            high_lift_inches = int(hl.group(1)) if hl else None
+        elif lift_label.startswith("LHR"):
+            lift_type = "low_headroom"
+            lhr_mount = "rear" if "REAR" in lift_label else "front"
+        elif lift_label == "VERTICAL":
+            lift_type = "vertical"
+        # else STD LIFT -> defaults already set
+
+        if segments and _TRACK_LABEL_RE.match(segments[-1]):
+            tm = _TRACK_LABEL_RE.match(segments.pop())
+            track_thickness = tm.group(1)
+            track_mount = "angle" if tm.group(2) == "ANGLE" else "bracket"
+        else:
+            warnings.append("Track mount/thickness not recognized — defaulted, please verify.")
+    else:
+        warnings.append(
+            "Lift type not recognized in header — defaulted to STANDARD lift. "
+            "Verify lift/track before regenerating."
+        )
+
+    color = segments.pop(0) if segments else ""
+    design = segments.pop(0) if segments else ""
+    if segments:
+        warnings.append(f"Unrecognized header detail (not restored): {', '.join(segments)}")
+
+    door_series = series
+    door_type = SERIES_TO_DOOR_TYPE.get(door_series.upper()) or SERIES_TO_DOOR_TYPE.get(door_series)
+    if not door_type:
+        warnings.append(f"Unknown door series '{door_series}' — select door type/series manually.")
+
+    return {
+        "doorCount": int(qty),
+        "doorWidth": int(w_ft) * 12 + int(w_in),
+        "doorHeight": int(h_ft) * 12 + int(h_in),
+        "doorSeries": door_series,
+        "doorType": door_type or "",
+        "panelColor": color,
+        "panelDesign": design,
+        "trackThickness": track_thickness,
+        "trackMount": track_mount,
+        "liftType": lift_type,
+        "highLiftInches": high_lift_inches,
+        "lhrMount": lhr_mount,
+        "hardware": {},
+        "targetCycles": 10000,
+        "_warnings": warnings,
+    }
+
+
+def _group_quote_lines_into_doors(lines: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Split a flat BC quote line list into per-door blocks at each header
+    comment. Non-door lines before the first header (shouldn't normally
+    happen) and the trailing FREIGHT line are dropped from the door blocks."""
+    doors: List[Dict[str, Any]] = []
+    current: Optional[Dict[str, Any]] = None
+    for ql in lines:
+        pn = ql.get("lineObjectNumber", "")
+        if pn == "FREIGHT":
+            continue
+        if ql.get("lineType") == "Comment":
+            header = _parse_door_header(ql.get("description", ""))
+            if header:
+                current = {**header, "_lines": []}
+                doors.append(current)
+                continue
+        if current is not None:
+            current["_lines"].append(ql)
+    return doors
+
+
+@router.get("/load-quote/{quote_number}")
+async def load_existing_quote(quote_number: str):
+    """Pull a live BC sales quote back into the configurator.
+
+    Reconstructs a best-effort List[DoorConfigRequest] from the quote's
+    header comments (deterministic round-trip) plus a per-door warnings
+    list for anything that couldn't be confidently recovered (windows,
+    operator selection beyond a bare part-number match, optional extras).
+    The frontend should surface those warnings before the user hits
+    Generate Quote, since regenerating clears and rewrites ALL lines on
+    the quote — nothing flagged as unrecovered will be preserved.
+    """
+    if quote_number.upper().startswith("SQ-"):
+        number = quote_number.upper()
+    else:
+        try:
+            number = f"SQ-{int(quote_number):06d}"
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid quote number '{quote_number}'")
+    quote = bc_client.get_sales_quote_by_number(number)
+    if not quote:
+        raise HTTPException(status_code=404, detail=f"Quote {number} not found in BC")
+
+    bc_quote_id = quote.get("id")
+    lines = bc_client.get_quote_lines(bc_quote_id)
+    door_blocks = _group_quote_lines_into_doors(lines)
+
+    if not door_blocks:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Quote {number} has no recognizable door header comments — "
+                   f"can't be reloaded into the configurator.",
+        )
+
+    doors = []
+    for block in door_blocks:
+        raw_lines = block.pop("_lines")
+        warnings = block.pop("_warnings")
+
+        # Operator: id IS the BC part number, so this is an exact match, not a guess.
+        for ql in raw_lines:
+            pn = ql.get("lineObjectNumber", "")
+            if pn and find_operator_by_part_number(pn):
+                block["operator"] = pn
+                break
+
+        if any(
+            (ql.get("lineObjectNumber", "") or "").startswith(_WINDOW_PART_PREFIXES)
+            for ql in raw_lines
+        ):
+            warnings.append(
+                "Window/glazing line(s) detected on this door — window configuration "
+                "was NOT reverse-parsed. Verify window settings before regenerating."
+            )
+
+        block["_parseWarnings"] = warnings
+        block["_rawLineCount"] = len(raw_lines)
+        doors.append(block)
+
+    customer_number = quote.get("customerNumber")
+
+    return {
+        "success": True,
+        "data": {
+            "bcQuoteId": bc_quote_id,
+            "bcQuoteNumber": quote.get("number"),
+            "customerNumber": customer_number,
+            "customerName": quote.get("customerName"),
+            "poNumber": quote.get("externalDocumentNumber"),
+            "status": quote.get("status"),
+            "doors": doors,
+            "warnings": [] if customer_number else [
+                "No BC customer on this quote — select a customer manually before generating."
+            ],
+        },
     }
 
 

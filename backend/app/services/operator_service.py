@@ -115,6 +115,23 @@ def get_operator_part_number(operator_id: str) -> Optional[str]:
     return operator_id
 
 
+def find_operator_by_part_number(part_number: str) -> Optional[str]:
+    """Strict reverse lookup: True only if part_number is an exact, active
+    operator-unit catalog entry (Residential/Commercial type — excludes
+    Accessory rows and anything not in the catalog). Unlike
+    get_operator_part_number(), this does NOT fall back to echoing the
+    input back for unknown part numbers — used when the caller needs to
+    tell "this line IS an operator" from "this line just isn't one"."""
+    if not part_number:
+        return None
+    catalog = _load_catalog()
+    item = next((
+        i for i in catalog
+        if i["partNumber"] == part_number and i["include"] and i["type"] in ("Residential", "Commercial")
+    ), None)
+    return item["partNumber"] if item else None
+
+
 def get_operator_display_name(operator_id: str) -> str:
     """Get display name for an operator part number."""
     if not operator_id or operator_id == "NONE":

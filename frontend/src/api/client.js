@@ -179,6 +179,10 @@ export const doorConfigApi = {
   generateQuote: (request) =>
     apiClient.post('/api/door-config/generate-quote', request),
 
+  // Pull an existing BC quote back into the configurator for editing
+  loadQuote: (quoteNumber) =>
+    apiClient.get(`/api/door-config/load-quote/${encodeURIComponent(quoteNumber)}`),
+
   // Get part numbers for a single door configuration
   getPartNumbers: (config) =>
     apiClient.post('/api/door-config/get-part-numbers', config),
