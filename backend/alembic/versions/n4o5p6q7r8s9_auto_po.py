@@ -1,7 +1,7 @@
 """nightly auto-PO: snapshot table + POAgentLog allocation columns
 
 Revision ID: n4o5p6q7r8s9
-Revises: m3h4i5j6k7l8
+Revises: l2g3h4i5j6k7
 Create Date: 2026-08-31
 
 Adds:
@@ -20,7 +20,7 @@ import sqlalchemy as sa
 
 
 revision = "n4o5p6q7r8s9"
-down_revision = "m3h4i5j6k7l8"
+down_revision = "l2g3h4i5j6k7"
 branch_labels = None
 depends_on = None
 
