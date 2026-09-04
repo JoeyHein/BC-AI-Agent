@@ -211,6 +211,14 @@ CROSSCHECK_SHEET_NAME = "BC Cross-Check"
 CROSSCHECK_HEADERS = ["SO Number", "Customer", "Our Status", "Urgency",
                        "BC Ready", "BC Unscheduled Lines", "BC Unscheduled Parts", "Agrees"]
 
+# Read-only, fully regenerated every refresh. One row per (sales order, PO)
+# from po_so_link_service — tool-created POs only (BC-keyed-by-hand POs don't
+# carry the SO allocation). Lets the shop see at a glance that a job's
+# material has been ordered and on which PO.
+PO_LINKS_SHEET_NAME = "Purchase Orders"
+PO_LINKS_HEADERS = ["SO Number", "Customer", "PO Number", "Vendor", "PO Status",
+                     "Auto", "Items", "Ordered Qty", "Created"]
+
 RED_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 RED_FONT = Font(color="9C0006")
 GREEN_FILL = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
@@ -791,6 +799,59 @@ class ProductionScheduleService:
         for col_idx, w in enumerate(widths, start=1):
             ws.column_dimensions[get_column_letter(col_idx)].width = w
 
+    def _write_po_links_sheet(
+        self,
+        wb: Workbook,
+        po_links: Optional[Dict[str, List[dict]]],
+        so_customer_map: Optional[Dict[str, str]] = None,
+    ) -> None:
+        """Add/replace the read-only "Purchase Orders" sheet — one row per
+        (open SO, purchase order) pairing from po_so_link_service. Rebuilt
+        from scratch every refresh; nothing here is hand-edited."""
+        po_links = po_links or {}
+        so_customer_map = so_customer_map or {}
+        if PO_LINKS_SHEET_NAME in wb.sheetnames:
+            del wb[PO_LINKS_SHEET_NAME]
+        ws = wb.create_sheet(PO_LINKS_SHEET_NAME)
+
+        for c, title in enumerate(PO_LINKS_HEADERS, start=1):
+            cell = ws.cell(row=1, column=c, value=title)
+            cell.font = HEADER_FONT
+            cell.fill = HEADER_FILL
+        ws.freeze_panes = "A2"
+
+        rows = []
+        for so_no, links in po_links.items():
+            for link in links:
+                items = link.get("items") or []
+                rows.append({
+                    "so_number": so_no,
+                    "customer": so_customer_map.get(so_no, ""),
+                    "po_number": link.get("po_number") or "(pending)",
+                    "vendor": link.get("vendor_name") or "",
+                    "status": link.get("status") or "",
+                    "auto": "Yes" if link.get("is_auto") else "",
+                    "items": ", ".join(str(i.get("item_no")) for i in items),
+                    "qty": sum(float(i.get("qty") or 0) for i in items),
+                    "created": (link.get("created_at") or "")[:10],
+                })
+        rows.sort(key=lambda r: (r["so_number"], r["po_number"]))
+
+        for i, r in enumerate(rows, start=2):
+            ws.cell(row=i, column=1, value=r["so_number"])
+            ws.cell(row=i, column=2, value=r["customer"])
+            ws.cell(row=i, column=3, value=r["po_number"])
+            ws.cell(row=i, column=4, value=r["vendor"])
+            ws.cell(row=i, column=5, value=r["status"])
+            ws.cell(row=i, column=6, value=r["auto"])
+            ws.cell(row=i, column=7, value=r["items"])
+            ws.cell(row=i, column=8, value=round(r["qty"], 2))
+            ws.cell(row=i, column=9, value=r["created"])
+
+        widths = [14, 24, 16, 20, 12, 6, 40, 12, 12]
+        for col_idx, w in enumerate(widths, start=1):
+            ws.column_dimensions[get_column_letter(col_idx)].width = w
+
     # ── build ───────────────────────────────────────────────────────────
 
     def _write_header(self, ws):
@@ -895,6 +956,7 @@ class ProductionScheduleService:
         prod_so_map: Optional[Dict[str, str]] = None,
         picking_remaining: Optional[Dict[str, dict]] = None,
         crosscheck: Optional[dict] = None,
+        po_links: Optional[Dict[str, List[dict]]] = None,
     ) -> Tuple[bytes, int, int]:
         open_so_numbers = {o.get("number", "") for o in orders}
         auto_purchasing = auto_purchasing or {}
@@ -928,14 +990,15 @@ class ProductionScheduleService:
             ws_archived.append(records[so_number].to_row())
         self._style_sheet(ws_archived, archived=True)
 
+        so_customer_map = {o.get("number"): o.get("customerName", "") for o in orders if o.get("number")}
         if prod_orders is not None:
-            so_customer_map = {o.get("number"): o.get("customerName", "") for o in orders if o.get("number")}
             self._write_assignments_sheet(
                 wb, prod_orders, assignment_records or {}, prod_so_map, so_customer_map, picking_remaining,
             )
             self._write_open_production_orders_sheet(wb, prod_orders, prod_so_map, so_customer_map)
 
         self._write_crosscheck_sheet(wb, crosscheck)
+        self._write_po_links_sheet(wb, po_links, so_customer_map)
 
         buf = io.BytesIO()
         wb.save(buf)
@@ -972,10 +1035,11 @@ class ProductionScheduleService:
         prod_so_map = self.fetch_prod_so_map()
         picking_remaining = self.fetch_picking_remaining(so_numbers=list(assignment_records.keys()))
         crosscheck = self._fetch_crosscheck()
+        po_links = self._fetch_po_links()
         xlsx, open_count, archived_count = self.build_workbook_bytes(
             orders, records, auto_purchasing,
             prod_orders=prod_orders, assignment_records=assignment_records, prod_so_map=prod_so_map,
-            picking_remaining=picking_remaining, crosscheck=crosscheck,
+            picking_remaining=picking_remaining, crosscheck=crosscheck, po_links=po_links,
         )
 
         sharepoint_url = graph_client.upload_drive_file(
@@ -1013,10 +1077,11 @@ class ProductionScheduleService:
         prod_so_map = self.fetch_prod_so_map()
         picking_remaining = self.fetch_picking_remaining(so_numbers=list(assignment_records.keys()))
         crosscheck = self._fetch_crosscheck()
+        po_links = self._fetch_po_links()
         xlsx, open_count, archived_count = self.build_workbook_bytes(
             orders, records, auto_purchasing,
             prod_orders=prod_orders, assignment_records=assignment_records, prod_so_map=prod_so_map,
-            picking_remaining=picking_remaining, crosscheck=crosscheck,
+            picking_remaining=picking_remaining, crosscheck=crosscheck, po_links=po_links,
         )
         output_path.write_bytes(xlsx)
 
@@ -1054,6 +1119,21 @@ class ProductionScheduleService:
             return so_master_crosscheck_service.build(db)
         except Exception as e:
             logger.error(f"[ProductionSchedule] BC cross-check failed: {e}")
+            return {}
+        finally:
+            db.close()
+
+    def _fetch_po_links(self) -> Dict[str, List[dict]]:
+        """SO -> [PO] linkage from po_so_link_service (tool-created POs).
+        Best-effort, own short-lived session — an empty sheet beats blocking
+        the refresh."""
+        from app.db.database import SessionLocal
+        from app.services.po_so_link_service import po_so_link_service
+        db = SessionLocal()
+        try:
+            return po_so_link_service.links_by_so(db)
+        except Exception as e:
+            logger.error(f"[ProductionSchedule] PO links fetch failed: {e}")
             return {}
         finally:
             db.close()

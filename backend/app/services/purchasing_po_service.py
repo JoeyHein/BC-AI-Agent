@@ -46,11 +46,9 @@ class PurchasingPOService:
         if not clean:
             raise ValueError("No lines with positive quantity to order")
 
-        # 1. Create PO header in BC.
-        bc_po = bc_client.create_purchase_order({
-            "vendorNumber": vendor_no or "",
-            "vendorName": vendor_name,
-        })
+        # 1. Create PO header in BC. vendorName is read-only in api/v2.0 (BC
+        # 400s if it's in the body) — set vendorNumber only.
+        bc_po = bc_client.create_purchase_order({"vendorNumber": vendor_no or ""})
         bc_po_id = bc_po.get("id")
         bc_po_number = bc_po.get("number")
         if not bc_po_id:

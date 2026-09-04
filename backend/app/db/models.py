@@ -1734,6 +1734,16 @@ class POAgentLog(Base):
     # Pipeline tracking
     po_run_id = Column(String(50), nullable=True, index=True)
 
+    # Nightly auto-PO (see auto_po_service). is_auto marks a PO the nightly job
+    # drafted straight in BC (Draft status, never emailed). so_allocations records
+    # which sales orders each line was bought for — {so_number: [{item_no, qty}]} —
+    # both for the human-readable comment lines on the PO and for the production
+    # schedule's SO->PO linkage (po_so_link_service). bc_status caches the BC-side
+    # document status at creation ("Draft") so downstream views don't re-fetch.
+    is_auto = Column(Boolean, nullable=False, default=False, server_default="0")
+    so_allocations = Column(JSON, nullable=True)
+    bc_status = Column(String(20), nullable=True)
+
     # Vendor email delivery (purchasing tool)
     emailed_to = Column(String(255), nullable=True)
     emailed_at = Column(DateTime, nullable=True)
@@ -1749,6 +1759,39 @@ class POAgentLog(Base):
 
     def __repr__(self):
         return f"<POAgentLog(id={self.id}, vendor={self.vendor_name}, status={self.status})>"
+
+
+class AutoPoSnapshot(Base):
+    """Per-sales-order-line watermark for the nightly auto-PO job.
+
+    The nightly run only acts on *new* committed demand, so it needs to
+    remember what each open sales-order line looked like last time. One row
+    per (so_number, sequence):
+
+      outstanding_seen — the line's outstanding qty (quantity - shippedQuantity)
+                         at the last run; used to notice increases.
+      covered_qty      — how much of this line the job has already drafted POs
+                         for. Next run drafts at most (outstanding - covered_qty),
+                         so a line is never ordered twice even across snapshot
+                         loss (the demand engine's open-PO netting is the second
+                         independent guard).
+
+    Rows for lines that no longer appear on any open SO are pruned each run.
+    """
+    __tablename__ = "auto_po_snapshot"
+
+    so_number = Column(String(50), primary_key=True)
+    sequence = Column(Integer, primary_key=True)
+    item_no = Column(String(50), nullable=False, index=True)
+    outstanding_seen = Column(Float, nullable=False, default=0.0)
+    covered_qty = Column(Float, nullable=False, default=0.0)
+    first_seen_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_run_id = Column(String(50), nullable=True)
+
+    def __repr__(self):
+        return (f"<AutoPoSnapshot({self.so_number}/{self.sequence} {self.item_no} "
+                f"seen={self.outstanding_seen} covered={self.covered_qty})>")
 
 
 class ItemVendorMap(Base):
