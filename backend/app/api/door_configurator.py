@@ -1577,6 +1577,20 @@ def build_bc_quote_from_doors(
                 existing = bc_client.get_sales_quote(request.bcQuoteId)
                 bc_quote_id = existing.get("id") or request.bcQuoteId
                 bc_quote_number = existing.get("number")
+                # Reuse only ever regenerated LINES — header fields edited via
+                # Load Existing Quote (e.g. PO number) were silently dropped
+                # since nothing patched the quote itself. Fine for the original
+                # "add another door mid-session" use case (PO never changes
+                # there), but a real bug once loading + editing an existing
+                # quote's PO became a supported flow.
+                try:
+                    bc_client.update_sales_quote(
+                        bc_quote_id,
+                        {"externalDocumentNumber": po_number},
+                        etag=existing.get("@odata.etag", "*"),
+                    )
+                except Exception as header_err:
+                    logger.warning(f"Could not update externalDocumentNumber on quote {bc_quote_number}: {header_err}")
                 existing_lines = bc_client.get_quote_lines(bc_quote_id)
                 for ql in existing_lines:
                     line_id = ql.get("id")
