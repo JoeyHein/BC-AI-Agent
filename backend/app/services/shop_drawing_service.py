@@ -23,6 +23,7 @@ def calculate_shop_drawing_geometry(
     mount_type: str = "bracket",  # bracket or angle
     frame_type: str = "steel",    # steel or wood
     door_type: str = "residential",
+    lhr_mount: str = "front",     # front or rear — torsion position, low_headroom only
 ) -> dict:
     """
     Calculate all shop drawing geometry from the Thermalex dimension tables.
@@ -33,9 +34,11 @@ def calculate_shop_drawing_geometry(
     W = door_width
     HL = high_lift_inches or 0
 
-    # Normalize lift_type aliases
+    # Normalize lift_type aliases. Front/rear is an explicit selection now —
+    # this used to hardcode rear, which silently drew rear-mount geometry for
+    # every low-headroom door even though front is what BC stocks.
     if lift_type == "low_headroom":
-        lift_type = "lhr_rear"  # default LHR is rear mount
+        lift_type = "lhr_rear" if str(lhr_mount or "front").lower() == "rear" else "lhr_front"
 
     # ---- Look up dimensions from Thermalex tables ----
     if track_size == 2:

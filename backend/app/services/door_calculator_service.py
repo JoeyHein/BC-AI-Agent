@@ -231,7 +231,9 @@ WINDOW_WEIGHTS = {
     "TX500": {"18x8": 5.5, "24x12": 8.375, "34x16": 15.5},
     "TX500-20": {"18x8": 5.5, "24x12": 8.375, "34x16": 15.5},
     # Residential — net weights (no cutout subtraction needed)
-    "KANATA": {"short": 4.0, "long": 7.0},
+    # "slim" = 7"-tall Kanata slim window row — see matching comment in
+    # part_number_service.RESI_WINDOW_WEIGHTS for the area-scaled estimate.
+    "KANATA": {"short": 4.0, "long": 7.0, "slim": 5.6},
     "CRAFT": {"short": 10.0, "long": 10.0},
 }
 
@@ -243,7 +245,7 @@ WINDOW_CUTOUT_WEIGHTS = {
     "TX500": {"18x8": 3.0, "24x12": 3.375, "34x16": 6.5},
     "TX500-20": {"18x8": 3.2, "24x12": 3.5, "34x16": 6.5},
     # Residential weights above are already net — zero cutout
-    "KANATA": {"short": 0, "long": 0},
+    "KANATA": {"short": 0, "long": 0, "slim": 0},
     "CRAFT": {"short": 0, "long": 0},
 }
 
@@ -953,6 +955,21 @@ class DoorCalculatorService:
 
             if series in ("PANORAMA", "SOLALITE"):
                 weight.aluminum_weight = door_area_sqft * 1.5
+            elif series in ("SWD", "AL976-SWD", "AL-SWD", "AL_SWD", "ALSWD"):
+                # AL976-SWD: lighter frame + smaller glazed fraction than AL976.
+                # See part_number_service._calculate_aluminum_door_weight for
+                # the spreadsheet calibration (frame 0.557 lbs/ft²; glazing
+                # rates scaled from AL976's per-material rates).
+                frame_weight = door_area_sqft * 0.557
+                if glazing_type == "polycarbonate":
+                    glazing_lbs_per_sqft = 0.384
+                elif glass_pane_type == "SINGLE":
+                    glazing_lbs_per_sqft = 1.13
+                else:
+                    glazing_lbs_per_sqft = 2.36
+                glazing_area = door_area_sqft * 0.85
+                weight.aluminum_weight = frame_weight
+                weight.glazing_weight = glazing_area * glazing_lbs_per_sqft
             else:
                 # AL976: frame + glazing
                 frame_weight = door_area_sqft * 1.39

@@ -21,9 +21,10 @@ requests==2.31.0
 httpx==0.26.0
 
 # AI/ML
-anthropic==0.18.1
-langchain==0.1.4
-langchain-anthropic==0.1.4
+# 0.18.1 can't deserialize `thinking` content blocks, which current models
+# return by default — the daily purchasing brief needs a modern SDK.
+# langchain / langchain-anthropic were unused and pinned anthropic<0.19.
+anthropic==0.75.0
 
 # Database
 psycopg2-binary==2.9.9

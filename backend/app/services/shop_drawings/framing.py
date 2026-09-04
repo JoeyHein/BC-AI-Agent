@@ -85,6 +85,7 @@ class DrawingContext:
     panel_color: str = "WHITE"
     lift_type: str = "standard"   # standard, high_lift, full_vertical, low_headroom
     high_lift_inches: Optional[float] = None
+    lhr_mount: str = "front"      # "front" or "rear" — torsion position, low_headroom only
     track_radius_in: float = 15.0 # "15" (15") or "12" (low-headroom)
     track_thickness_ga: str = "14"  # nominal track size: "2" (2") / "3" (3")
     track_mount: str = "bracket"  # "bracket" or "angle" (continuous angle)
@@ -450,12 +451,27 @@ def _draw_sheet_border(msp: Modelspace) -> None:
 
 
 # ── Track type → label mapping ──────────────────────────────────────────────
+# low_headroom resolves through _lift_type_label() instead, since its label
+# depends on the front/rear torsion selection.
 LIFT_TYPE_LABELS = {
     "standard": "STANDARD LIFT TRACKS",
     "high_lift": "HIGH LIFT TRACKS",
     "full_vertical": "FULL VERTICAL LIFT TRACKS",
     "low_headroom": "LOW HEADROOM FRONT MOUNT",
 }
+
+
+def _lhr_is_rear(ctx) -> bool:
+    """True when this door's low-headroom torsion sits at the rear of the track."""
+    return str(getattr(ctx, "lhr_mount", "front") or "front").lower() == "rear"
+
+
+def _lift_type_label(ctx) -> str:
+    """Track-type label for the drawing, front/rear-aware for low headroom."""
+    lift = getattr(ctx, "lift_type", "standard")
+    if lift == "low_headroom":
+        return "LOW HEADROOM REAR MOUNT" if _lhr_is_rear(ctx) else "LOW HEADROOM FRONT MOUNT"
+    return LIFT_TYPE_LABELS.get(lift, LIFT_TYPE_LABELS["standard"])
 
 
 def _stamp_columns(width_inches: float, stamp_type: str, is_craft: bool,
@@ -804,7 +820,7 @@ def _draw_front_elevation(msp: Modelspace, ctx: DrawingContext,
 
     # Track type label above the tracks
     track_lbl = msp.add_text(
-        LIFT_TYPE_LABELS.get(ctx.lift_type, "STANDARD LIFT TRACKS"),
+        _lift_type_label(ctx),
         dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_SMALL, "style": "Standard"},
     )
     track_lbl.set_placement(
@@ -1285,7 +1301,7 @@ def _draw_side_elevation(msp: Modelspace, ctx: DrawingContext,
 
     # ── Title — "20"R STANDARD LIFT TRACKS" (from reference Craft) ──
     radius_int = int(round(radius))
-    lift_name = LIFT_TYPE_LABELS.get(lift, "STANDARD LIFT TRACKS")
+    lift_name = _lift_type_label(ctx)
     lift_label = lift_name.replace(" TRACKS", "")
     t = msp.add_text(
         f'{radius_int}"R {lift_label} TRACKS',
@@ -1594,7 +1610,7 @@ def _draw_callout_panel(msp: Modelspace, ctx: DrawingContext,
     ]
 
     track_jamb_lines = [
-        f"TRACK: {LIFT_TYPE_LABELS.get(ctx.lift_type, 'STANDARD LIFT')}",
+        f"TRACK: {_lift_type_label(ctx)}",
         f"RADIUS: {fmt_length_imperial(ctx.track_radius_in)}",
         f"JAMB: {ctx.jamb_type.upper()} APPLICATION",
         "DOOR FACE: INSIDE LOOKING OUT",
@@ -2539,8 +2555,11 @@ def _draw_optional_extras(msp: Modelspace, ctx: DrawingContext,
         # later if needed).
         "HD 10 BALL ROLLERS":          True,  # standard-issue on every door
         "OPERATOR BRACKET":            operator not in ("NONE", "MANUAL"),
-        "LHR FRONT":                   lift == "low_headroom" and ctx.track_mount == "bracket",
-        "LHR REAR":                    lift == "low_headroom" and ctx.track_mount == "angle",
+        # Torsion position is its own selection — it is NOT implied by
+        # track_mount (bracket/angle describes how the vertical track fastens
+        # to the jamb, which is independent of where the shaft sits).
+        "LHR FRONT":                   lift == "low_headroom" and _lhr_is_rear(ctx) is False,
+        "LHR REAR":                    lift == "low_headroom" and _lhr_is_rear(ctx) is True,
         "DECORATIVE FACE HARDWARE":    False,  # TODO: wire to a configurator field
         "EXHAUST PORT":                ctx.exhaust_port,
         # Final line: door colour choice spelled out (matches reference layout)
@@ -2911,6 +2930,7 @@ def build_context_from_config(
         panel_color=door.get("panelColor") or "WHITE",
         lift_type=door.get("liftType") or "standard",
         high_lift_inches=(float(door["highLiftInches"]) if door.get("highLiftInches") else None),
+        lhr_mount=str(door.get("lhrMount") or "front"),
         track_radius_in=float(door.get("trackRadius") or 15),
         track_thickness_ga=str(door.get("trackThickness") or "2"),
         track_mount=str(door.get("trackMount") or "bracket"),

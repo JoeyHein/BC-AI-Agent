@@ -270,7 +270,15 @@ class CutWorkOrderService:
             # Replenishment wins over geometry: a finished SEC/DEC panel parses
             # as cuttable but is MANUFACTURED (Prod. Order) — it's made, not cut.
             # Only purchased bulk (Purchase + cuttable) is genuinely cuttable.
-            if (replen_map.get(itm) or "").startswith("Prod"):
+            #
+            # No replenishment answer for this item (the BC Items page timed out,
+            # or the item isn't on it) means we genuinely CANNOT tell a PO from a
+            # production order — say "unknown" rather than defaulting to
+            # needs_po, which reads as a confident answer we don't have.
+            replen = replen_map.get(itm)
+            if not replen:
+                return "unknown"
+            if str(replen).startswith("Prod"):
                 return "needs_production"
             geo = sku_geometry.parse(itm)
             if geo and geo.cuttable:
@@ -300,6 +308,7 @@ class CutWorkOrderService:
                 "needs_po": sum(1 for b in blockers if b["fulfillment"] == "needs_po"),
                 "needs_production": sum(1 for b in blockers if b["fulfillment"] == "needs_production"),
                 "cuttable": sum(1 for b in blockers if b["fulfillment"] == "cuttable"),
+                "unknown": sum(1 for b in blockers if b["fulfillment"] == "unknown"),
                 "on_order": sum(1 for b in blockers if b["on_order"] > 0),
             }
 
