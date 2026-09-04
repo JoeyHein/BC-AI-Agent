@@ -1493,7 +1493,10 @@ def build_bc_quote_from_doors(
         # actual price on every line comes from BC SalesPriceLists.
         pricing_tier = "retail"
         if request.customerId:
-            quote_data["customerId"] = request.customerId
+            # BC's salesQuotes "customerId" field is a real Edm.Guid — request.customerId
+            # is actually the BC customer NUMBER (e.g. "BAKK"), so it has to go in
+            # "customerNumber" instead (same field the CASH fallback below uses).
+            quote_data["customerNumber"] = request.customerId
             bc_customer = db.query(BCCustomer).filter(
                 BCCustomer.bc_customer_id == request.customerId
             ).first()
