@@ -611,6 +611,17 @@ class BusinessCentralClient:
         result = self._make_request("GET", f"companies({cid})/salesQuotes({quote_id})")
         return result
 
+    def get_sales_quote_by_number(self, quote_number: str, company_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Get sales quote by document number (e.g. 'SQ-003058')"""
+        cid = company_id or self.company_id
+        safe = quote_number.replace("'", "''")
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/salesQuotes?$filter=number eq '{safe}'"
+        )
+        quotes = result.get("value", [])
+        return quotes[0] if quotes else None
+
     def create_sales_quote(self, quote_data: Dict[str, Any], company_id: Optional[str] = None) -> Dict[str, Any]:
         """Create new sales quote (draft)"""
         cid = company_id or self.company_id

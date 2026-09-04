@@ -34,6 +34,10 @@ function DoorConfigurator() {
   const [poNumber, setPoNumber] = useState('')
   const [deliveryType, setDeliveryType] = useState('delivery')
   const [installTown, setInstallTown] = useState('')
+  const [loadQuoteNumber, setLoadQuoteNumber] = useState('')
+  const [loadQuoteLoading, setLoadQuoteLoading] = useState(false)
+  const [loadQuoteError, setLoadQuoteError] = useState(null)
+  const [loadedQuoteWarnings, setLoadedQuoteWarnings] = useState([]) // [{ doorLabel, warnings }]
 
   // Clear the held BC quote id when the customer changes so a fresh quote
   // is created for the new customer instead of editing the previous one's.
@@ -55,6 +59,60 @@ function DoorConfigurator() {
     setCurrentDoorIndex(0)
     setPoNumber('')
     setCurrentStep(0)
+  }
+
+  // Pull an existing BC quote into the configurator. Regenerating afterward
+  // clears and rewrites ALL lines on this quote (same as successive
+  // "Generate Quote" presses), so anything flagged in the per-door warnings
+  // (windows/glazing, optional extras) must be re-confirmed in the UI
+  // before hitting Generate — it will NOT be preserved automatically.
+  const handleLoadQuote = async () => {
+    const trimmed = loadQuoteNumber.trim()
+    if (!trimmed) return
+    if (quoteResult && !window.confirm('Loading a quote replaces the current unsaved configuration. Continue?')) {
+      return
+    }
+    setLoadQuoteLoading(true)
+    setLoadQuoteError(null)
+    setLoadedQuoteWarnings([])
+    try {
+      const response = await doorConfigApi.loadQuote(trimmed)
+      const data = response.data.data
+
+      const loadedDoors = data.doors.map((d) => {
+        const { _parseWarnings, _rawLineCount, ...doorFields } = d
+        return {
+          ...createEmptyDoor(),
+          ...doorFields,
+          hardware: { ...createEmptyDoor().hardware, ...(doorFields.hardware || {}) },
+        }
+      })
+      setDoors(loadedDoors)
+      setCurrentDoorIndex(0)
+      setCurrentStep(0)
+      setPoNumber(data.poNumber || '')
+      if (data.customerNumber) {
+        setSelectedCustomer({ bc_customer_id: data.customerNumber, company_name: data.customerName })
+      } else {
+        setSelectedCustomer(null)
+      }
+      // Hold the BC quote id/number so the next "Generate Quote" press
+      // reuses this quote instead of creating a new one.
+      setQuoteResult({ data: { bc_quote_id: data.bcQuoteId, bc_quote_number: data.bcQuoteNumber } })
+      setGenerateError(null)
+
+      const warnings = [
+        ...((data.warnings || []).length ? [{ doorLabel: 'General', warnings: data.warnings }] : []),
+        ...data.doors
+          .map((d, i) => ({ doorLabel: `Door ${i + 1} (${d.doorSeries || '?'})`, warnings: d._parseWarnings || [] }))
+          .filter((w) => w.warnings.length > 0),
+      ]
+      setLoadedQuoteWarnings(warnings)
+    } catch (err) {
+      setLoadQuoteError(err.response?.data?.detail || err.message || 'Failed to load quote')
+    } finally {
+      setLoadQuoteLoading(false)
+    }
   }
 
   // Fetch full configuration on mount
@@ -297,6 +355,47 @@ function DoorConfigurator() {
             onCustomerChange={setSelectedCustomer}
           />
         </div>
+
+        <div className="mt-4 pt-4 border-t flex flex-col sm:flex-row sm:items-center gap-2">
+          <label className="text-sm text-gray-600 whitespace-nowrap">Load existing quote:</label>
+          <div className="flex gap-2 flex-1">
+            <input
+              type="text"
+              value={loadQuoteNumber}
+              onChange={(e) => setLoadQuoteNumber(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleLoadQuote()}
+              placeholder="e.g. 3058 or SQ-003058"
+              className="border rounded-lg px-3 py-1.5 text-sm w-48"
+              disabled={loadQuoteLoading}
+            />
+            <button
+              onClick={handleLoadQuote}
+              disabled={loadQuoteLoading || !loadQuoteNumber.trim()}
+              className="px-3 py-1.5 text-sm font-medium rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 whitespace-nowrap"
+            >
+              {loadQuoteLoading ? 'Loading...' : 'Load'}
+            </button>
+          </div>
+          {loadQuoteError && (
+            <span className="text-sm text-red-600">{loadQuoteError}</span>
+          )}
+        </div>
+
+        {loadedQuoteWarnings.length > 0 && (
+          <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+            <p className="font-medium mb-1">
+              Loaded {quoteResult?.data?.bc_quote_number} — verify before regenerating (full clear + rewrite, nothing below is preserved automatically):
+            </p>
+            <ul className="list-disc list-inside space-y-0.5">
+              {loadedQuoteWarnings.map((w, i) => (
+                <li key={i}>
+                  {w.doorLabel !== 'General' && <strong>{w.doorLabel}: </strong>}
+                  {w.warnings.join(' ')}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       {/* Door Tabs */}
