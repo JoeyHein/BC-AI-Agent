@@ -41,7 +41,17 @@ function DoorConfigurator() {
 
   // Clear the held BC quote id when the customer changes so a fresh quote
   // is created for the new customer instead of editing the previous one's.
+  // Skipped once right after handleLoadQuote sets both the customer AND the
+  // quote id together — otherwise this effect fires after that render and
+  // wipes the just-loaded bcQuoteId, so "Generate Quote" has nothing to
+  // reuse and silently creates a brand-new quote instead of editing the
+  // one that was loaded.
+  const skipCustomerResetRef = useRef(false)
   useEffect(() => {
+    if (skipCustomerResetRef.current) {
+      skipCustomerResetRef.current = false
+      return
+    }
     setQuoteResult(null)
     setGenerateError(null)
   }, [selectedCustomer?.bc_customer_id])
@@ -91,6 +101,7 @@ function DoorConfigurator() {
       setCurrentDoorIndex(0)
       setCurrentStep(0)
       setPoNumber(data.poNumber || '')
+      skipCustomerResetRef.current = true
       if (data.customerNumber) {
         setSelectedCustomer({ bc_customer_id: data.customerNumber, company_name: data.customerName })
       } else {
