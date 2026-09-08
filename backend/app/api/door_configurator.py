@@ -27,6 +27,25 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/door-config", tags=["door-configurator"])
 
+_GUID_RE = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+
+
+def _quote_customer_field(customer_ref: str) -> Dict[str, str]:
+    """Map the request's customer reference onto the right BC salesQuotes field.
+
+    The customer picker sends the BC customer GUID (BCCustomer.bc_customer_id,
+    set from BC customer .id during sync); the "load existing quote" path
+    carries forward a bare customer number like "BAKK". BC's salesQuotes entity
+    takes the GUID as the Edm.Guid "customerId" — putting it in "customerNumber"
+    (capped at 20 chars) 400s with Application_StringExceededLength.
+    """
+    ref = str(customer_ref).strip()
+    if _GUID_RE.fullmatch(ref):
+        return {"customerId": ref}
+    return {"customerNumber": ref}
+
 
 def _next_bigger_width_skus(part_number: str, bc_items: Dict[str, Any]) -> Optional[str]:
     """
@@ -1537,10 +1556,7 @@ def build_bc_quote_from_doors(
         # actual price on every line comes from BC SalesPriceLists.
         pricing_tier = "retail"
         if request.customerId:
-            # BC's salesQuotes "customerId" field is a real Edm.Guid — request.customerId
-            # is actually the BC customer NUMBER (e.g. "BAKK"), so it has to go in
-            # "customerNumber" instead (same field the CASH fallback below uses).
-            quote_data["customerNumber"] = request.customerId
+            quote_data.update(_quote_customer_field(request.customerId))
             bc_customer = db.query(BCCustomer).filter(
                 BCCustomer.bc_customer_id == request.customerId
             ).first()
