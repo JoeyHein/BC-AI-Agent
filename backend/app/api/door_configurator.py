@@ -485,11 +485,19 @@ def validate_panel_combo(series: str, color: Optional[str], design: Optional[str
     s = (series or "").upper()
     if s not in _VALIDATED_SERIES:
         return
-    if color:
-        allowed = COLORS.get(SERIES_COLOR_KEY.get(s, ""), [])
-        if allowed and color.upper() not in {c["id"] for c in allowed}:
-            names = ", ".join(c["name"] for c in allowed)
-            raise ValueError(f"{s} doors are not available in '{color}'. Available colors: {names}.")
+    allowed = COLORS.get(SERIES_COLOR_KEY.get(s, ""), [])
+    if not color:
+        # A blank color used to sail through here (bare `if color:` skipped
+        # the check entirely) and then silently default to WHITE ("00") in
+        # the part-number encoder — that's how SO-001299 got a white PN46
+        # DEC panel on an order whose header says "BLACK PANORAMA". Missing
+        # color on a validated commercial series is now a hard error instead
+        # of a silent white default.
+        names = ", ".join(c["name"] for c in allowed)
+        raise ValueError(f"{s} doors require a color to be selected. Available colors: {names}.")
+    if allowed and color.upper() not in {c["id"] for c in allowed}:
+        names = ", ".join(c["name"] for c in allowed)
+        raise ValueError(f"{s} doors are not available in '{color}'. Available colors: {names}.")
     if design:
         allowed = PANEL_DESIGNS.get(SERIES_DESIGN_KEY.get(s, ""), [])
         if allowed and design.upper() not in {d["id"] for d in allowed}:

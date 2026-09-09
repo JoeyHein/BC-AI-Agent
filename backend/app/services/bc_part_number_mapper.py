@@ -1066,8 +1066,18 @@ class BCPartNumberMapper:
         else:
             stamp_code = COMMERCIAL_STAMP_CODES.get(stamp_upper, "0")
 
-        # Color code
-        color_code = self.COLOR_CODES.get(color.upper(), "00")
+        # Color code. Fail loudly on a blank/unrecognized color instead of
+        # silently defaulting to "00" (WHITE) — that default is exactly what
+        # put a white PN46 on a black order (SO-001299, 2026-09): the color
+        # field came in empty and the panel silently priced/labeled as white.
+        color_upper = (color or "").upper()
+        if color_upper not in self.COLOR_CODES:
+            raise ValueError(
+                f"Unrecognized or missing panel color {color!r} for {prefix} "
+                f"({model.value}) — cannot build a part number without a valid "
+                f"color. Known colors: {', '.join(sorted(self.COLOR_CODES))}."
+            )
+        color_code = self.COLOR_CODES[color_upper]
 
         # Width code: FFII format (feet + inches)
         # E.g., 9' = 0900, 16' = 1600, 9'6" = 0906
