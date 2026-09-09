@@ -338,29 +338,12 @@ def _group_by_door(door_labels: Dict[int, str], included: List[dict],
     return by_door, shared
 
 
-def build_upwardor_po(so_number: str, vendor_no: str = "UPW", vendor_name: str = "UPWARDOR",
-                       dry_run: bool = True) -> dict:
-    """Preview (dry_run=True) or create (dry_run=False) a Draft Upwardor PO
-    for one sales order, netted per compute_netted_po_lines. Never emails —
-    matches the existing "Draft in BC, human reviews" pattern.
+def _write_plan_lines(po_id: str, plan: dict, so_number: str) -> int:
+    """Write one netted plan's lines onto a PO that already exists and has
+    NO lines on it yet (a fresh PO, or one just cleared by the caller).
+    Returns the count of Item lines written. Shared by build_upwardor_po
+    (brand-new PO) and rewrite_po_lines (an existing PO being corrected).
     """
-    plan = compute_netted_po_lines(so_number)
-    result = {**plan, "vendor_no": vendor_no, "vendor_name": vendor_name, "dry_run": dry_run}
-
-    po_lines = list(plan["included"])
-    component_lines = plan["component_shortfall"]
-    if not po_lines and not component_lines:
-        result["bc_po_number"] = None
-        result["note"] = "Nothing to order — fully covered by stock/other open POs, or all items manufactured in-house."
-        return result
-
-    if dry_run:
-        result["bc_po_number"] = None
-        return result
-
-    bc_po = bc_client.create_purchase_order({"vendorNumber": vendor_no})
-    po_id, po_number = bc_po["id"], bc_po["number"]
-
     bc_client.add_purchase_order_line(po_id, {
         "sequence": 10000, "lineType": "Comment",
         "description": plan["customer_name"],
@@ -370,9 +353,10 @@ def build_upwardor_po(so_number: str, vendor_no: str = "UPW", vendor_name: str =
         "description": f"Built from {so_number} - {date.today().isoformat()} - opendc purchasing (netted vs stock)",
     })
     seq = 30000
+    item_count = 0
 
     def _add_item(row: dict) -> None:
-        nonlocal seq
+        nonlocal seq, item_count
         bc_client.add_purchase_order_line(po_id, {
             "sequence": seq, "lineType": "Item",
             "lineObjectNumber": row["item_no"], "quantity": row["quantity"],
@@ -380,6 +364,7 @@ def build_upwardor_po(so_number: str, vendor_no: str = "UPW", vendor_name: str =
             "description": row["description"],
         })
         seq += 10000
+        item_count += 1
 
     def _add_comment(text: str) -> None:
         nonlocal seq
@@ -409,13 +394,86 @@ def build_upwardor_po(so_number: str, vendor_no: str = "UPW", vendor_name: str =
     else:
         # No door-header structure on this SO (e.g. not built through the
         # configurator) — flat layout, unchanged from before.
-        for row in po_lines:
+        for row in plan["included"]:
             _add_item(row)
-        if component_lines:
+        if plan["component_shortfall"]:
             _add_comment("Raw materials for in-house manufactured items (BOM-exploded, netted vs stock)")
-            for row in component_lines:
+            for row in plan["component_shortfall"]:
                 _add_item(row)
+
+    return item_count
+
+
+def build_upwardor_po(so_number: str, vendor_no: str = "UPW", vendor_name: str = "UPWARDOR",
+                       dry_run: bool = True) -> dict:
+    """Preview (dry_run=True) or create (dry_run=False) a Draft Upwardor PO
+    for one sales order, netted per compute_netted_po_lines. Never emails —
+    matches the existing "Draft in BC, human reviews" pattern.
+    """
+    plan = compute_netted_po_lines(so_number)
+    result = {**plan, "vendor_no": vendor_no, "vendor_name": vendor_name, "dry_run": dry_run}
+
+    if not plan["included"] and not plan["component_shortfall"]:
+        result["bc_po_number"] = None
+        result["note"] = "Nothing to order — fully covered by stock/other open POs, or all items manufactured in-house."
+        return result
+
+    if dry_run:
+        result["bc_po_number"] = None
+        return result
+
+    bc_po = bc_client.create_purchase_order({"vendorNumber": vendor_no})
+    po_id, po_number = bc_po["id"], bc_po["number"]
+    _write_plan_lines(po_id, plan, so_number)
 
     result["bc_po_number"] = po_number
     result["bc_po_id"] = po_id
     return result
+
+
+def rewrite_po_lines(po_number: str, so_number: str) -> dict:
+    """Correct an EXISTING Draft PO's lines to the current netted/by-door
+    plan for its sales order.
+
+    Must delete the PO's current lines BEFORE computing the plan: BC counts
+    quantity on ANY open PO — including this one's own (possibly wrong,
+    unnetted) lines — as "already on order", so netting against a PO that
+    still holds its old content silently suppresses real demand. Confirmed
+    live 2026-09-09 fixing PO-000962: a fresh netting pass while its own
+    prior lines were still in place zeroed out items that were actually
+    short. Never call compute_netted_po_lines for a PO before clearing it.
+
+    Refuses anything but a Draft PO with nothing received — deleting lines
+    off a released/receiving PO either fails in BC or corrupts real
+    inventory/financial state, unlike a Draft that's freely editable.
+    """
+    cid = bc_client.company_id
+    po = bc_client._make_request(
+        "GET", f"companies({cid})/purchaseOrders?$filter=number eq '{po_number}'"
+               "&$expand=purchaseOrderLines")["value"]
+    if not po:
+        raise ValueError(f"{po_number} not found in BC")
+    po = po[0]
+    if (po.get("status") or "").lower() != "draft":
+        raise ValueError(f"{po_number} is {po.get('status')}, not Draft — refusing to rewrite its lines")
+    received = sum(_f(l.get("receivedQuantity")) for l in po.get("purchaseOrderLines", [])
+                   if l.get("lineType") == "Item")
+    if received > 0:
+        raise ValueError(f"{po_number} already has received quantity — refusing to rewrite its lines")
+
+    old_lines = po.get("purchaseOrderLines", [])
+    for line in old_lines:
+        bc_client._make_request(
+            "DELETE",
+            f"companies({cid})/purchaseOrders({po['id']})/purchaseOrderLines({line['id']})",
+            headers={"If-Match": "*"},
+        )
+
+    plan = compute_netted_po_lines(so_number)
+    item_count = 0
+    if plan["included"] or plan["component_shortfall"]:
+        item_count = _write_plan_lines(po["id"], plan, so_number)
+
+    return {
+        **plan, "po_number": po_number, "lines_deleted": len(old_lines), "lines_written": item_count,
+    }

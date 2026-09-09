@@ -16,11 +16,16 @@ from app.services import so_po_generation_service as svc
 
 
 class FakeBC:
-    def __init__(self, so, cost_by_item=None):
+    def __init__(self, so, cost_by_item=None, existing_po=None):
         self._so = so
         self.cost_by_item = cost_by_item or {}
         self.created = []
         self.lines = []
+        self.company_id = "cid-1"
+        # {po_number: {"id", "status", "purchaseOrderLines": [...]}}, for
+        # rewrite_po_lines tests only.
+        self._existing_pos = existing_po or {}
+        self.deleted_line_ids = []
 
     def get_sales_order_by_number(self, number):
         return self._so if number == self._so["number"] else None
@@ -40,6 +45,18 @@ class FakeBC:
     def add_purchase_order_line(self, po_id, body):
         self.lines.append((po_id, body))
         return {"id": f"line-{len(self.lines)}"}
+
+    def _make_request(self, method, endpoint, **kwargs):
+        if method == "GET" and "/purchaseOrders?" in endpoint:
+            import re
+            m = re.search(r"number eq '([^']+)'", endpoint)
+            po = self._existing_pos.get(m.group(1)) if m else None
+            return {"value": [po] if po else []}
+        if method == "DELETE" and "/purchaseOrderLines(" in endpoint:
+            line_id = endpoint.rsplit("(", 1)[1].rstrip(")")
+            self.deleted_line_ids.append(line_id)
+            return {}
+        raise AssertionError(f"unexpected _make_request {method} {endpoint}")
 
 
 class FakeProd:
@@ -79,8 +96,8 @@ def _door_header(label, seq):
             "quantity": 0, "description": label}
 
 
-def _setup(monkeypatch, so, cards, cost_by_item=None, bom_lines=None):
-    bc = FakeBC(so, cost_by_item)
+def _setup(monkeypatch, so, cards, cost_by_item=None, bom_lines=None, existing_po=None):
+    bc = FakeBC(so, cost_by_item, existing_po)
     prod = FakeProd(cards, bom_lines)
     monkeypatch.setattr(svc, "bc_client", bc)
     monkeypatch.setattr(svc, "bc_production_service", prod)
@@ -526,3 +543,94 @@ class TestBuildPo:
         assert len(kinds[2][2]) <= 100
         assert kinds[3] == ("Item", "RAW-CORE-03", "desc RAW-CORE-03")
         assert bc.lines[3][1]["quantity"] == 3
+
+
+class TestRewritePoLines:
+    """rewrite_po_lines corrects an EXISTING Draft PO — used to fix the 6
+    other hand-built POs (PO-000956..PO-000961) the same way PO-000962 was
+    fixed. Must delete the PO's own current lines BEFORE netting, or its
+    own (possibly wrong) quantities look like "already on order" and
+    silently suppress real demand — confirmed live 2026-09-09."""
+
+    def _existing_po(self, lines):
+        return {"PO-EXIST-001": {
+            "id": "po-existing-1", "number": "PO-EXIST-001", "status": "Draft",
+            "purchaseOrderLines": lines,
+        }}
+
+    def test_deletes_old_lines_before_computing_the_new_plan(self, monkeypatch):
+        # The existing PO already lists SHORT-01 at the full (wrong,
+        # unnetted) SO quantity — if that were still present when netting
+        # runs, on_po_other would make it look covered. It must be gone
+        # first, so the real shortfall (5) comes through.
+        old_lines = [{"id": "old-line-1", "lineType": "Item",
+                      "lineObjectNumber": "SHORT-01", "quantity": 5, "receivedQuantity": 0}]
+        existing = self._existing_po(old_lines)
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
+              "salesOrderLines": [_line("SHORT-01", 5)]}
+        cards = [_card("SHORT-01", on_hand=0, on_so=5)]
+        bc, _ = _setup(monkeypatch, so, cards, {"SHORT-01": {"unitCost": 10.0, "baseUnitOfMeasureCode": "EA"}},
+                        existing_po=existing)
+
+        result = svc.rewrite_po_lines("PO-EXIST-001", "SO-TEST")
+        assert bc.deleted_line_ids == ["old-line-1"]
+        assert result["lines_deleted"] == 1
+        assert result["lines_written"] == 1
+        assert result["included"][0]["quantity"] == 5  # not suppressed by its own stale line
+
+    def test_refuses_non_draft_po(self, monkeypatch):
+        existing = {"PO-EXIST-001": {"id": "x", "number": "PO-EXIST-001", "status": "Released",
+                                      "purchaseOrderLines": []}}
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": []}
+        bc, _ = _setup(monkeypatch, so, [], existing_po=existing)
+        with pytest.raises(ValueError, match="Draft"):
+            svc.rewrite_po_lines("PO-EXIST-001", "SO-TEST")
+        assert bc.deleted_line_ids == []
+
+    def test_refuses_po_with_received_quantity(self, monkeypatch):
+        old_lines = [{"id": "old-line-1", "lineType": "Item",
+                      "lineObjectNumber": "SHORT-01", "quantity": 5, "receivedQuantity": 2}]
+        existing = self._existing_po(old_lines)
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": []}
+        bc, _ = _setup(monkeypatch, so, [], existing_po=existing)
+        with pytest.raises(ValueError, match="received"):
+            svc.rewrite_po_lines("PO-EXIST-001", "SO-TEST")
+        assert bc.deleted_line_ids == []
+
+    def test_unknown_po_raises(self, monkeypatch):
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": []}
+        _setup(monkeypatch, so, [], existing_po={})
+        with pytest.raises(ValueError, match="not found"):
+            svc.rewrite_po_lines("PO-MISSING", "SO-TEST")
+
+    def test_writes_by_door_layout_into_the_same_po(self, monkeypatch):
+        old_lines = [{"id": "old-line-1", "lineType": "Item",
+                      "lineObjectNumber": "DOOR1-ONLY", "quantity": 3, "receivedQuantity": 0}]
+        existing = self._existing_po(old_lines)
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": [
+            _door_header("(1) 8'0\" x 7'0\" TX450, , UDC", 10000),
+            _line("DOOR1-ONLY", 3, seq=20000),
+        ]}
+        cards = [_card("DOOR1-ONLY", on_hand=0, on_so=3)]
+        bc, _ = _setup(monkeypatch, so, cards, {"DOOR1-ONLY": {"unitCost": 1.0, "baseUnitOfMeasureCode": "EA"}},
+                        existing_po=existing)
+
+        result = svc.rewrite_po_lines("PO-EXIST-001", "SO-TEST")
+        assert result["lines_written"] == 1
+        kinds = [(b["lineType"], b.get("lineObjectNumber"), b.get("description")) for _, b in bc.lines]
+        assert kinds[2][2].startswith("(1) 8'0\"")
+        assert kinds[3] == ("Item", "DOOR1-ONLY", "desc DOOR1-ONLY")
+
+    def test_nothing_to_order_still_clears_old_lines(self, monkeypatch):
+        old_lines = [{"id": "old-line-1", "lineType": "Item",
+                      "lineObjectNumber": "COVERED-01", "quantity": 1, "receivedQuantity": 0}]
+        existing = self._existing_po(old_lines)
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
+              "salesOrderLines": [_line("COVERED-01", 1)]}
+        cards = [_card("COVERED-01", on_hand=99, on_so=1)]
+        bc, _ = _setup(monkeypatch, so, cards, existing_po=existing)
+
+        result = svc.rewrite_po_lines("PO-EXIST-001", "SO-TEST")
+        assert bc.deleted_line_ids == ["old-line-1"]
+        assert result["lines_written"] == 0
+        assert bc.lines == []  # no comments/items written when there's nothing to order
