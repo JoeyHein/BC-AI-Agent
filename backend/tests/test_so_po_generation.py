@@ -229,6 +229,38 @@ class TestNetting:
         assert plan["included"][0]["quantity"] == 5
         assert plan["trimmed"] == []
 
+    def test_gl12_shortfall_rounds_up_to_full_sheets(self, monkeypatch):
+        """GL12 polycarbonate only comes in 4' x {12',16',20',24'} sheets
+        (48/64/80/96 SF), one BC SKU per color — a raw 196 SF need must
+        round up to a real stocked combination (208 SF / 3 sheets), not an
+        arbitrary cut size Upwardor can't supply."""
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
+              "salesOrderLines": [_line("GK17-25100-00", 196)]}
+        cards = [
+            _card("GK17-25100-00", replen="Prod. Order", bom="GK17-BOM"),
+            _card("GL12-00000-01", on_hand=0),
+        ]
+        boms = [_bom_line("GK17-BOM", "GL12-00000-01", 1.0)]
+        _setup(monkeypatch, so, cards, {"GL12-00000-01": {"unitCost": 3.0, "baseUnitOfMeasureCode": "SF"}},
+               bom_lines=boms)
+
+        plan = svc.compute_netted_po_lines("SO-TEST")
+        assert len(plan["component_shortfall"]) == 1
+        row = plan["component_shortfall"][0]
+        assert row["item_no"] == "GL12-00000-01"
+        assert row["quantity"] == 208  # 48 + 64 + 96, minimal waste over 196
+        assert row["net_need_raw"] == 196
+
+    def test_non_gl12_shortfall_is_never_sheet_rounded(self, monkeypatch):
+        assert svc._round_to_full_sheets("PN40-24405-1800", 3) == 3
+
+    @pytest.mark.parametrize("need,expected_sf", [
+        (1, 48), (48, 48), (49, 64), (96, 96), (97, 48 + 64),  # 97 -> 2 sheets beats 3
+        (192, 48 * 4),  # 4x48=192 exact, better than 3x64=192 tie (same total, fewer... actually equal sheets)
+    ])
+    def test_round_to_full_sheets_table(self, need, expected_sf):
+        assert svc._round_to_full_sheets("GL12-00000-01", need) == expected_sf
+
     def test_unknown_so_raises(self, monkeypatch):
         _setup(monkeypatch, {"id": "x", "number": "SO-OTHER", "customerName": "x",
                               "salesOrderLines": []}, [])
