@@ -48,9 +48,35 @@ _ITEM_SELECT = (
 
 _MAX_BOM_DEPTH = 6  # defends against a cyclical/self-referencing BOM
 
+# GL12 polycarbonate glazing sheet: Joey, 2026-09-09 — "the purchasing order
+# should be full sheets", BC only carries one SKU per color (priced per SF,
+# no per-length variant), and stock comes in 4' x {12',16',20',24'} pieces.
+# So a raw SF need gets rounded up to the minimal-waste combination of those
+# stocked lengths — never an arbitrary cut SF quantity Upwardor can't supply.
+_GL12_SHEET_SF = [4 * ft for ft in (12, 16, 20, 24)]  # 48, 64, 80, 96
+_GL12_MAX_SHEETS = 6
+
 
 def _f(v) -> float:
     return float(v or 0)
+
+
+def _round_to_full_sheets(item_no: str, sf_needed: float) -> float:
+    """Round a GL12 (polycarbonate glazing sheet) need up to the smallest
+    combination of stocked 4'-wide sheet lengths that covers it, minimizing
+    both waste and sheet count. Every other item passes through unchanged."""
+    if not item_no.startswith("GL12") or sf_needed <= 0:
+        return sf_needed
+    import itertools
+    best: Optional[Tuple[float, int]] = None
+    for n in range(1, _GL12_MAX_SHEETS + 1):
+        for combo in itertools.combinations_with_replacement(_GL12_SHEET_SF, n):
+            total = sum(combo)
+            if total >= sf_needed and (best is None or (total, n) < best):
+                best = (total, n)
+        if best and best[0] - sf_needed < min(_GL12_SHEET_SF):
+            break  # can't improve on this with more sheets
+    return float(best[0]) if best else sf_needed
 
 
 def _net_need(card: dict, qty: float) -> Tuple[float, float]:
@@ -210,7 +236,10 @@ def compute_netted_po_lines(so_number: str) -> dict:
             if net_need <= 0:
                 component_covered.append(row)
                 continue
-            row["quantity"] = round(net_need, 2)
+            rounded = _round_to_full_sheets(leaf, net_need)
+            if rounded != net_need:
+                row["net_need_raw"] = round(net_need, 2)  # pre-rounding, for traceability
+            row["quantity"] = round(rounded, 2)
             component_shortfall.append(row)
 
         if component_shortfall:
