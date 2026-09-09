@@ -316,6 +316,42 @@ class TestBuyComplete:
         assert plan["included"][0]["quantity"] == 1
         assert plan["component_shortfall"] == []  # never exploded
 
+    @pytest.mark.parametrize("kit_no", ["HK03-20181-RC", "HK13-1412007-RC", "HK32-16080-RC"])
+    def test_whole_hk_family_bought_complete_not_just_hk02(self, monkeypatch, kit_no):
+        """Joey, 2026-09-10, after reviewing the other 6 POs: "what I'm
+        seeing is exploded hardware box BOMs instead of just a complete
+        hardware box order" — HK03 (commercial 3" kits) and HK13
+        (high-lift extension) were still exploding on PO-000959/960/963.
+        The whole HK family gets the same treatment, not just HK02."""
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
+              "salesOrderLines": [_line(kit_no, 1)]}
+        cards = [
+            _card(kit_no, replen="Prod. Order", bom="HK-BOM", on_hand=0, on_so=1),
+            _card("RAW-HINGE-01", on_hand=0),
+        ]
+        boms = [_bom_line("HK-BOM", "RAW-HINGE-01", 12.0)]
+        _setup(monkeypatch, so, cards, {kit_no: {"unitCost": 200.0, "baseUnitOfMeasureCode": "EA"}},
+               bom_lines=boms)
+
+        plan = svc.compute_netted_po_lines("SO-TEST")
+        assert plan["excluded_manufactured"] == []
+        assert [r["item_no"] for r in plan["included"]] == [kit_no]
+        assert plan["component_shortfall"] == []
+
+    def test_hk10_unaffected_since_it_was_never_manufactured(self, monkeypatch):
+        """HK10 is Replenishment_System='Purchase' in BC already (not a
+        Prod. Order item) — the HK prefix widening must not change
+        anything about how it's netted, since it never explodes to begin
+        with."""
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
+              "salesOrderLines": [_line("HK10-00804-0809", 1)]}
+        cards = [_card("HK10-00804-0809", replen="Purchase", on_hand=0, on_so=1)]
+        _setup(monkeypatch, so, cards, {"HK10-00804-0809": {"unitCost": 77.67, "baseUnitOfMeasureCode": "EA"}})
+
+        plan = svc.compute_netted_po_lines("SO-TEST")
+        assert plan["excluded_manufactured"] == []
+        assert [r["item_no"] for r in plan["included"]] == ["HK10-00804-0809"]
+
     def test_pn45_pn46_bought_complete_not_exploded(self, monkeypatch):
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": [
             _line("PN46-24405-1800", 3), _line("PN45-24405-1000", 3),

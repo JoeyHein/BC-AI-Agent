@@ -73,10 +73,22 @@ _GL12_MAX_SHEETS = 6
 # BULK core + end caps. For these prefixes, skip the BOM explosion entirely
 # and buy the complete item itself — still netted against stock exactly like
 # any other purchasable item, just at its own part number instead of pieces.
-# NOT yet extended to PN80 (Panorama), TR02 (lift bracket mounts), or
-# SP12-00231-01 (winder set) — same BC classification, but Joey scoped this
-# to TX450 panels + hardware kits specifically; ask before widening it.
-_BUY_COMPLETE_PREFIXES = ("HK02-", "PN45-", "PN46-")
+#
+# "HK" is scoped to the whole hardware-kit family, not just HK02 — Joey,
+# 2026-09-10, reviewing the other 6 POs after the HK02 fix: "what I'm
+# seeing is exploded hardware box BOMs instead of just a complete hardware
+# box order." HK03 (commercial 3" kits) and HK13 (high-lift extension kit)
+# were still exploding into the same shape of raw hinges/bolts/springs on
+# PO-000959/960/963 — same "hardware box", different track size/lift type,
+# same fix. HK10/HK12 etc. aren't Prod. Order in BC to begin with (already
+# purchased normally) so this prefix never affects them.
+#
+# NOT yet extended to PN80 (Panorama), TR02/TR03 (lift bracket mounts), or
+# SP12-0023x-01 (winder sets) — same BC classification, but Joey scoped
+# this to TX450 panels + hardware kits specifically; ask before widening it
+# further (these are bracket-mount and spring-winder assemblies, not
+# "hardware boxes").
+_BUY_COMPLETE_PREFIXES = ("HK", "PN45-", "PN46-")
 
 
 def _buy_complete(item_no: str) -> bool:
