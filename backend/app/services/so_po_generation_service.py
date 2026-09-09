@@ -63,6 +63,25 @@ _MAX_BOM_DEPTH = 6  # defends against a cyclical/self-referencing BOM
 _GL12_SHEET_SF = [4 * ft for ft in (12, 16, 20, 24)]  # 48, 64, 80, 96
 _GL12_MAX_SHEETS = 6
 
+# Items BC flags Replenishment_System='Prod. Order' (built in-house from a
+# BOM) that Upwardor ALSO sells complete, assembled, under the same part
+# number — Joey, 2026-09-10: "for complete projects like that... we can just
+# buy complete [items] from Upwardor... we wouldn't need to break that open.
+# We would just need to go to the original part number." Confirmed live on
+# PO-000962: HK02-14120-RC (hardware kit) had been exploded to 30 individual
+# fasteners/hinges/springs; PN45-*/PN46-* (TX450 panels) exploded to a raw
+# BULK core + end caps. For these prefixes, skip the BOM explosion entirely
+# and buy the complete item itself — still netted against stock exactly like
+# any other purchasable item, just at its own part number instead of pieces.
+# NOT yet extended to PN80 (Panorama), TR02 (lift bracket mounts), or
+# SP12-00231-01 (winder set) — same BC classification, but Joey scoped this
+# to TX450 panels + hardware kits specifically; ask before widening it.
+_BUY_COMPLETE_PREFIXES = ("HK02-", "PN45-", "PN46-")
+
+
+def _buy_complete(item_no: str) -> bool:
+    return item_no.startswith(_BUY_COMPLETE_PREFIXES)
+
 
 def _f(v) -> float:
     return float(v or 0)
@@ -194,7 +213,7 @@ def compute_netted_po_lines(so_number: str) -> dict:
     for item, qty in sorted(so_qty.items()):
         card = items.get(item, {})
         replen = (card.get("Replenishment_System") or "").strip()
-        if replen == "Prod. Order":
+        if replen == "Prod. Order" and not _buy_complete(item):
             excluded_manufactured.append({
                 "item_no": item, "qty": qty, "description": line_desc.get(item, ""),
                 "reason": "manufactured in-house — needs a production order, not a PO",
