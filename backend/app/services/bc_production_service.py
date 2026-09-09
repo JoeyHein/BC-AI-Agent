@@ -286,6 +286,17 @@ class BCProductionService:
         silently return exactly ``$top`` rows — so we page with ``$skip`` until
         a short page comes back. Returns the flattened ``value`` list ([] on
         404/error so callers degrade gracefully).
+
+        A transient timeout on one page must NOT look like "this was the last
+        page" — that silently truncates a large table mid-pull with no error
+        surfaced anywhere. Confirmed live 2026-09-09: a 30s read-timeout on one
+        ProductionBomLines page dropped 7 of 13 exploded panels' BOM lines,
+        and so_po_generation_service wrote an incomplete/wrong component list
+        to a real BC purchase order (PO-000962) before anyone caught it. So a
+        *request failure* (``_make_odata_request`` returning None) retries the
+        same ``$skip`` up to twice before giving up on the whole fetch — vs. a
+        page that came back short because it legitimately was the last one,
+        which stops normally as before.
         """
         rows: List[Dict[str, Any]] = []
         skip = 0
@@ -293,8 +304,22 @@ class BCProductionService:
             params = dict(query_params or {})
             params["$top"] = str(page_size)
             params["$skip"] = str(skip)
-            resp = self._make_odata_request(endpoint, query_params=params)
-            page = (resp or {}).get("value", [])
+            resp = None
+            for attempt in range(3):
+                resp = self._make_odata_request(endpoint, query_params=params)
+                if resp is not None:
+                    break
+                if attempt < 2:
+                    logger.warning(
+                        f"{endpoint} page at $skip={skip} failed (attempt {attempt + 1}/3) — retrying"
+                    )
+            if resp is None:
+                logger.error(
+                    f"{endpoint} page at $skip={skip} failed 3/3 attempts — aborting this fetch "
+                    f"with {len(rows)} rows collected so far (was NOT necessarily the full table)"
+                )
+                break
+            page = resp.get("value", [])
             rows.extend(page)
             if len(page) < page_size:
                 break
