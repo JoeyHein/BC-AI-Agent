@@ -122,6 +122,28 @@ class PurchasingDemandService:
             except Exception as e:
                 logger.error(f"[Purchasing] Failed to fetch item stock/meta: {e}")
 
+        # 4b. Drop manufactured-in-house items (Replenishment_System='Prod. Order')
+        # — they need a production order, not a vendor PO. This used to be a "~2
+        # items, revisit if it grows" footnote; a single Upwardor PO built by hand
+        # from raw SO lines (2026-09-08, PO-000962) had 13 of 40 items be
+        # manufactured panels/hardware kits ($4,585 of $5,737) — the leak is real
+        # and this is the shared engine every PO-generation path should route
+        # through, so the exclusion belongs here, not per-caller.
+        try:
+            replen_map = bc_production_service.get_replenishment_map()
+        except Exception as e:
+            logger.warning(f"[Purchasing] replenishment map unavailable ({e}); "
+                           "not filtering manufactured items this run")
+            replen_map = {}
+        manufactured_excluded = [
+            item for item in item_numbers if replen_map.get(item) == "Prod. Order"
+        ]
+        if manufactured_excluded:
+            logger.info(f"[Purchasing] excluding {len(manufactured_excluded)} "
+                        f"manufactured-in-house items from the buy-list: "
+                        f"{manufactured_excluded}")
+            item_numbers = [i for i in item_numbers if i not in set(manufactured_excluded)]
+
         # 5. Build per-item rows.
         vendor_map = vendor_map_service.load_map(db)
         # Purchasing intelligence (cost / last-purchase / lead time) — best-effort;
@@ -176,12 +198,14 @@ class PurchasingDemandService:
             "horizon_weeks": horizon_weeks,
             "horizon_cutoff": cutoff,
             "deferred_order_count": len(deferred_orders),
+            "manufactured_excluded": manufactured_excluded,
             "summary": {
                 "shortfall_items": len(shortfall_rows),
                 "vendor_count": len(vendors),
                 "unassigned_items": sum(1 for r in shortfall_rows if r["vendor_name"] == UNASSIGNED),
                 "estimated_cost": round(sum(r["net_need"] * r["unit_cost"] for r in shortfall_rows), 2),
                 "deferred_orders": len(deferred_orders),
+                "manufactured_excluded": len(manufactured_excluded),
             },
             "items": rows,
             "vendors": vendors,
