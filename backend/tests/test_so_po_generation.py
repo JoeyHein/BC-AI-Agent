@@ -90,60 +90,60 @@ def _setup(monkeypatch, so, cards, cost_by_item=None, bom_lines=None):
 class TestNetting:
     def test_manufactured_item_excluded_entirely(self, monkeypatch):
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
-              "salesOrderLines": [_line("PN46-24405-1800", 3)]}
-        cards = [_card("PN46-24405-1800", on_hand=0, replen="Prod. Order")]
+              "salesOrderLines": [_line("MFG-PANEL-01", 3)]}
+        cards = [_card("MFG-PANEL-01", on_hand=0, replen="Prod. Order")]
         _setup(monkeypatch, so, cards)
 
         plan = svc.compute_netted_po_lines("SO-TEST")
         assert plan["included"] == []
         assert len(plan["excluded_manufactured"]) == 1
-        assert plan["excluded_manufactured"][0]["item_no"] == "PN46-24405-1800"
+        assert plan["excluded_manufactured"][0]["item_no"] == "MFG-PANEL-01"
 
     def test_manufactured_item_never_becomes_a_po_line_but_its_raw_material_does(self, monkeypatch):
-        """PN46-24405-1800 (manufactured) explodes to a raw BULK panel we're
+        """MFG-PANEL-01 (manufactured) explodes to a raw BULK panel we're
         short on — the panel itself must never be a line, but the raw
         material it's built from must show up as a real shortfall."""
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
-              "salesOrderLines": [_line("PN46-24405-1800", 3)]}
+              "salesOrderLines": [_line("MFG-PANEL-01", 3)]}
         cards = [
-            _card("PN46-24405-1800", replen="Prod. Order", bom="PN46-BOM"),
-            _card("PN40-24405-1800", on_hand=2),  # need 3, have 2 -> short 1
+            _card("MFG-PANEL-01", replen="Prod. Order", bom="PN46-BOM"),
+            _card("RAW-CORE-01", on_hand=2),  # need 3, have 2 -> short 1
         ]
-        boms = [_bom_line("PN46-BOM", "PN40-24405-1800", 1.0)]
-        _setup(monkeypatch, so, cards, {"PN40-24405-1800": {"unitCost": 257.51, "baseUnitOfMeasureCode": "EA"}},
+        boms = [_bom_line("PN46-BOM", "RAW-CORE-01", 1.0)]
+        _setup(monkeypatch, so, cards, {"RAW-CORE-01": {"unitCost": 257.51, "baseUnitOfMeasureCode": "EA"}},
                bom_lines=boms)
 
         plan = svc.compute_netted_po_lines("SO-TEST")
         assert plan["included"] == []  # the panel itself is never a PO line
-        assert [r["item_no"] for r in plan["excluded_manufactured"]] == ["PN46-24405-1800"]
+        assert [r["item_no"] for r in plan["excluded_manufactured"]] == ["MFG-PANEL-01"]
         assert len(plan["component_shortfall"]) == 1
         row = plan["component_shortfall"][0]
-        assert row["item_no"] == "PN40-24405-1800"
+        assert row["item_no"] == "RAW-CORE-01"
         assert row["quantity"] == 1
-        assert row["needed_for"] == ["PN46-24405-1800"]
+        assert row["needed_for"] == ["MFG-PANEL-01"]
 
     def test_manufactured_items_raw_material_already_covered_is_not_a_line(self, monkeypatch):
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
-              "salesOrderLines": [_line("PN45-24405-1000", 3)]}
+              "salesOrderLines": [_line("MFG-PANEL-02", 3)]}
         cards = [
-            _card("PN45-24405-1000", replen="Prod. Order", bom="PN45-BOM"),
-            _card("PN40-24405-1000", on_hand=10),  # need 3, have plenty
+            _card("MFG-PANEL-02", replen="Prod. Order", bom="PN45-BOM"),
+            _card("RAW-CORE-02", on_hand=10),  # need 3, have plenty
         ]
-        boms = [_bom_line("PN45-BOM", "PN40-24405-1000", 1.0)]
+        boms = [_bom_line("PN45-BOM", "RAW-CORE-02", 1.0)]
         _setup(monkeypatch, so, cards, bom_lines=boms)
 
         plan = svc.compute_netted_po_lines("SO-TEST")
         assert plan["component_shortfall"] == []
         assert len(plan["component_covered"]) == 1
-        assert plan["component_covered"][0]["item_no"] == "PN40-24405-1000"
+        assert plan["component_covered"][0]["item_no"] == "RAW-CORE-02"
 
     def test_bom_explosion_recurses_through_sub_assemblies(self, monkeypatch):
         """A two-level BOM (hardware kit -> winder set -> raw plugs) must
         explode all the way to the purchasable leaf, not stop one level up."""
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
-              "salesOrderLines": [_line("HK02-14120-RC", 1)]}
+              "salesOrderLines": [_line("MFG-KIT-01", 1)]}
         cards = [
-            _card("HK02-14120-RC", replen="Prod. Order", bom="HK02-BOM"),
+            _card("MFG-KIT-01", replen="Prod. Order", bom="HK02-BOM"),
             _card("SP12-00231-01", replen="Prod. Order", bom="SP12-BOM"),  # sub-assembly, also manufactured
             _card("RAW-PLUG-01", on_hand=0),
         ]
@@ -276,6 +276,81 @@ class TestNetting:
             svc.compute_netted_po_lines("SO-MISSING")
 
 
+class TestBuyComplete:
+    """Joey, 2026-09-10: HK0x hardware kits and TX450 (PN45/PN46) panels are
+    'Prod. Order' in BC (we CAN build them) but Upwardor also sells them
+    complete under the same part number — buy the finished item, don't
+    explode it to 30 raw fasteners or a raw panel core + end caps."""
+
+    def test_hk02_bought_complete_not_exploded(self, monkeypatch):
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
+              "salesOrderLines": [_line("HK02-14120-RC", 1)]}
+        cards = [
+            _card("HK02-14120-RC", replen="Prod. Order", bom="HK02-BOM", on_hand=0, on_so=1),
+            _card("RAW-HINGE-01", on_hand=0),  # would-be component if exploded
+        ]
+        boms = [_bom_line("HK02-BOM", "RAW-HINGE-01", 12.0)]
+        _setup(monkeypatch, so, cards, {"HK02-14120-RC": {"unitCost": 137.79, "baseUnitOfMeasureCode": "EA"}},
+               bom_lines=boms)
+
+        plan = svc.compute_netted_po_lines("SO-TEST")
+        assert plan["excluded_manufactured"] == []
+        assert [r["item_no"] for r in plan["included"]] == ["HK02-14120-RC"]
+        assert plan["included"][0]["quantity"] == 1
+        assert plan["component_shortfall"] == []  # never exploded
+
+    def test_pn45_pn46_bought_complete_not_exploded(self, monkeypatch):
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": [
+            _line("PN46-24405-1800", 3), _line("PN45-24405-1000", 3),
+        ]}
+        cards = [
+            _card("PN46-24405-1800", replen="Prod. Order", bom="PN46-BOM", on_hand=0, on_so=3),
+            _card("PN45-24405-1000", replen="Prod. Order", bom="PN45-BOM", on_hand=0, on_so=3),
+            _card("PN40-24405-1800", on_hand=0), _card("PN40-24405-1000", on_hand=0),
+        ]
+        boms = [_bom_line("PN46-BOM", "PN40-24405-1800", 1.0), _bom_line("PN45-BOM", "PN40-24405-1000", 1.0)]
+        _setup(monkeypatch, so, cards, {
+            "PN46-24405-1800": {"unitCost": 269.89, "baseUnitOfMeasureCode": "EA"},
+            "PN45-24405-1000": {"unitCost": 232.36, "baseUnitOfMeasureCode": "EA"},
+        }, bom_lines=boms)
+
+        plan = svc.compute_netted_po_lines("SO-TEST")
+        assert plan["excluded_manufactured"] == []
+        assert {r["item_no"] for r in plan["included"]} == {"PN46-24405-1800", "PN45-24405-1000"}
+        assert plan["component_shortfall"] == []
+
+    def test_buy_complete_item_still_netted_against_stock(self, monkeypatch):
+        """Complete-purchase items are not a blank check — already-covered
+        stock still excludes them, same as any other purchasable item."""
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
+              "salesOrderLines": [_line("PN46-24405-1800", 2)]}
+        cards = [_card("PN46-24405-1800", replen="Prod. Order", bom="PN46-BOM", on_hand=5, on_so=2)]
+        _setup(monkeypatch, so, cards, {"PN46-24405-1800": {"unitCost": 269.89, "baseUnitOfMeasureCode": "EA"}},
+               bom_lines=[])
+
+        plan = svc.compute_netted_po_lines("SO-TEST")
+        assert plan["included"] == []
+        assert [r["item_no"] for r in plan["excluded_in_stock"]] == ["PN46-24405-1800"]
+
+    def test_other_manufactured_prefixes_still_explode(self, monkeypatch):
+        """PN80 (Panorama), TR02 (lift bracket mounts), SP12-00231-01
+        (winder set) are NOT in the buy-complete list yet — regression
+        guard so widening the list later is a deliberate, visible change."""
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
+              "salesOrderLines": [_line("PN80-24100-1202", 1)]}
+        cards = [
+            _card("PN80-24100-1202", replen="Prod. Order", bom="PN80-BOM", on_hand=0, on_so=1),
+            _card("AL97-RAW", on_hand=0),
+        ]
+        boms = [_bom_line("PN80-BOM", "AL97-RAW", 5.0)]
+        _setup(monkeypatch, so, cards, {"AL97-RAW": {"unitCost": 10.0, "baseUnitOfMeasureCode": "EA"}},
+               bom_lines=boms)
+
+        plan = svc.compute_netted_po_lines("SO-TEST")
+        assert [r["item_no"] for r in plan["excluded_manufactured"]] == ["PN80-24100-1202"]
+        assert [r["item_no"] for r in plan["component_shortfall"]] == ["AL97-RAW"]
+
+
 class TestByDoorLayout:
     """Joey, 2026-09-09: "create the layout that we create the purchase
     orders in... in the same sort of format as we do the sales orders. So
@@ -333,19 +408,19 @@ class TestByDoorLayout:
     def test_manufactured_items_raw_material_attributed_to_its_door(self, monkeypatch):
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": [
             _door_header("(1) 18'0\" x 8'0\" TX450, , UDC", 10000),
-            _line("PN46-24405-1800", 3, seq=20000),
+            _line("MFG-PANEL-03", 3, seq=20000),
         ]}
         cards = [
-            _card("PN46-24405-1800", replen="Prod. Order", bom="PN46-BOM"),
-            _card("PN40-24405-1800", on_hand=0),
+            _card("MFG-PANEL-03", replen="Prod. Order", bom="PN46-BOM"),
+            _card("RAW-CORE-03", on_hand=0),
         ]
-        boms = [_bom_line("PN46-BOM", "PN40-24405-1800", 1.0)]
-        _setup(monkeypatch, so, cards, {"PN40-24405-1800": {"unitCost": 257.51, "baseUnitOfMeasureCode": "EA"}},
+        boms = [_bom_line("PN46-BOM", "RAW-CORE-03", 1.0)]
+        _setup(monkeypatch, so, cards, {"RAW-CORE-03": {"unitCost": 257.51, "baseUnitOfMeasureCode": "EA"}},
                bom_lines=boms)
 
         plan = svc.compute_netted_po_lines("SO-TEST")
         assert len(plan["by_door"]) == 1
-        assert [r["item_no"] for r in plan["by_door"][0]["component_shortfall"]] == ["PN40-24405-1800"]
+        assert [r["item_no"] for r in plan["by_door"][0]["component_shortfall"]] == ["RAW-CORE-03"]
         assert plan["shared"]["component_shortfall"] == []
 
     def test_build_upwardor_po_writes_a_comment_heading_per_door_in_order(self, monkeypatch):
@@ -433,13 +508,13 @@ class TestBuildPo:
         purchase lines at all) must still produce a PO — for the raw
         material shortfall, with a comment marking where it starts."""
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
-              "salesOrderLines": [_line("PN46-24405-1800", 3)]}
+              "salesOrderLines": [_line("MFG-PANEL-03", 3)]}
         cards = [
-            _card("PN46-24405-1800", replen="Prod. Order", bom="PN46-BOM"),
-            _card("PN40-24405-1800", on_hand=0),
+            _card("MFG-PANEL-03", replen="Prod. Order", bom="PN46-BOM"),
+            _card("RAW-CORE-03", on_hand=0),
         ]
-        boms = [_bom_line("PN46-BOM", "PN40-24405-1800", 1.0)]
-        bc, _ = _setup(monkeypatch, so, cards, {"PN40-24405-1800": {"unitCost": 257.51, "baseUnitOfMeasureCode": "EA"}},
+        boms = [_bom_line("PN46-BOM", "RAW-CORE-03", 1.0)]
+        bc, _ = _setup(monkeypatch, so, cards, {"RAW-CORE-03": {"unitCost": 257.51, "baseUnitOfMeasureCode": "EA"}},
                         bom_lines=boms)
 
         result = svc.build_upwardor_po("SO-TEST", dry_run=False)
@@ -449,5 +524,5 @@ class TestBuildPo:
         assert kinds[2][0] == "Comment" and "Raw materials" in kinds[2][2]
         # BC Comment lines 400 past 100 chars (Application_StringExceededLength) — hit live on 2026-09-09.
         assert len(kinds[2][2]) <= 100
-        assert kinds[3] == ("Item", "PN40-24405-1800", "desc PN40-24405-1800")
+        assert kinds[3] == ("Item", "RAW-CORE-03", "desc RAW-CORE-03")
         assert bc.lines[3][1]["quantity"] == 3
