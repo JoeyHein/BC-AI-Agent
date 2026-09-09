@@ -71,6 +71,14 @@ def _bom_line(bom_no, component, qty_per, comp_type="Item"):
             "Quantity_per": qty_per}
 
 
+def _door_header(label, seq):
+    """A door-header Comment line in the exact shape the configurator
+    writes — e.g. "(1) 18'0" x 8'0" TX450, , UDC, ..." — so
+    _DOOR_HEADER_RE detects it as a new door group."""
+    return {"lineType": "Comment", "sequence": seq, "lineObjectNumber": None,
+            "quantity": 0, "description": label}
+
+
 def _setup(monkeypatch, so, cards, cost_by_item=None, bom_lines=None):
     bc = FakeBC(so, cost_by_item)
     prod = FakeProd(cards, bom_lines)
@@ -266,6 +274,121 @@ class TestNetting:
                               "salesOrderLines": []}, [])
         with pytest.raises(ValueError):
             svc.compute_netted_po_lines("SO-MISSING")
+
+
+class TestByDoorLayout:
+    """Joey, 2026-09-09: "create the layout that we create the purchase
+    orders in... in the same sort of format as we do the sales orders. So
+    by door, and in order on the PO based on what we need." """
+
+    def test_no_door_headers_means_no_by_door_grouping(self, monkeypatch):
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
+              "salesOrderLines": [_line("SHORT-01", 5)]}
+        cards = [_card("SHORT-01", on_hand=0, on_so=5)]
+        _setup(monkeypatch, so, cards, {"SHORT-01": {"unitCost": 10.0, "baseUnitOfMeasureCode": "EA"}})
+
+        plan = svc.compute_netted_po_lines("SO-TEST")
+        assert plan["by_door"] == []
+        # everything with no door attribution falls into shared, not dropped
+        assert [r["item_no"] for r in plan["shared"]["included"]] == ["SHORT-01"]
+
+    def test_items_grouped_under_their_own_door(self, monkeypatch):
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": [
+            _door_header("(1) 8'0\" x 7'0\" TX450, , UDC", 10000),
+            _line("DOOR1-ONLY", 3, seq=20000),
+            _door_header("(1) 10'0\" x 8'0\" TX450, , UDC", 30000),
+            _line("DOOR2-ONLY", 2, seq=40000),
+        ]}
+        cards = [_card("DOOR1-ONLY", on_hand=0, on_so=3), _card("DOOR2-ONLY", on_hand=0, on_so=2)]
+        _setup(monkeypatch, so, cards, {
+            "DOOR1-ONLY": {"unitCost": 1.0, "baseUnitOfMeasureCode": "EA"},
+            "DOOR2-ONLY": {"unitCost": 1.0, "baseUnitOfMeasureCode": "EA"},
+        })
+
+        plan = svc.compute_netted_po_lines("SO-TEST")
+        assert len(plan["by_door"]) == 2
+        assert plan["by_door"][0]["door_index"] == 1
+        assert plan["by_door"][0]["label"].startswith("(1) 8'0\"")
+        assert [r["item_no"] for r in plan["by_door"][0]["included"]] == ["DOOR1-ONLY"]
+        assert plan["by_door"][1]["door_index"] == 2
+        assert [r["item_no"] for r in plan["by_door"][1]["included"]] == ["DOOR2-ONLY"]
+        assert plan["shared"]["included"] == []
+
+    def test_item_needed_by_two_doors_goes_to_shared_not_duplicated(self, monkeypatch):
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": [
+            _door_header("(1) 8'0\" x 7'0\" TX450, , UDC", 10000),
+            _line("SHARED-HW", 1, seq=20000),
+            _door_header("(1) 10'0\" x 8'0\" TX450, , UDC", 30000),
+            _line("SHARED-HW", 1, seq=40000),
+        ]}
+        cards = [_card("SHARED-HW", on_hand=0, on_so=2)]
+        _setup(monkeypatch, so, cards, {"SHARED-HW": {"unitCost": 1.0, "baseUnitOfMeasureCode": "EA"}})
+
+        plan = svc.compute_netted_po_lines("SO-TEST")
+        for group in plan["by_door"]:
+            assert group["included"] == []  # not duplicated into either door
+        assert [r["item_no"] for r in plan["shared"]["included"]] == ["SHARED-HW"]
+        assert plan["shared"]["included"][0]["quantity"] == 2  # still one consolidated line
+
+    def test_manufactured_items_raw_material_attributed_to_its_door(self, monkeypatch):
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": [
+            _door_header("(1) 18'0\" x 8'0\" TX450, , UDC", 10000),
+            _line("PN46-24405-1800", 3, seq=20000),
+        ]}
+        cards = [
+            _card("PN46-24405-1800", replen="Prod. Order", bom="PN46-BOM"),
+            _card("PN40-24405-1800", on_hand=0),
+        ]
+        boms = [_bom_line("PN46-BOM", "PN40-24405-1800", 1.0)]
+        _setup(monkeypatch, so, cards, {"PN40-24405-1800": {"unitCost": 257.51, "baseUnitOfMeasureCode": "EA"}},
+               bom_lines=boms)
+
+        plan = svc.compute_netted_po_lines("SO-TEST")
+        assert len(plan["by_door"]) == 1
+        assert [r["item_no"] for r in plan["by_door"][0]["component_shortfall"]] == ["PN40-24405-1800"]
+        assert plan["shared"]["component_shortfall"] == []
+
+    def test_build_upwardor_po_writes_a_comment_heading_per_door_in_order(self, monkeypatch):
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": [
+            _door_header("(1) 8'0\" x 7'0\" TX450, , UDC", 10000),
+            _line("DOOR1-ONLY", 3, seq=20000),
+            _door_header("(1) 10'0\" x 8'0\" TX450, , UDC", 30000),
+            _line("DOOR2-ONLY", 2, seq=40000),
+        ]}
+        cards = [_card("DOOR1-ONLY", on_hand=0, on_so=3), _card("DOOR2-ONLY", on_hand=0, on_so=2)]
+        bc, _ = _setup(monkeypatch, so, cards, {
+            "DOOR1-ONLY": {"unitCost": 1.0, "baseUnitOfMeasureCode": "EA"},
+            "DOOR2-ONLY": {"unitCost": 1.0, "baseUnitOfMeasureCode": "EA"},
+        })
+
+        result = svc.build_upwardor_po("SO-TEST", dry_run=False)
+        assert result["bc_po_number"] == "PO-TEST-001"
+        kinds = [(b["lineType"], b.get("lineObjectNumber"), b.get("description")) for _, b in bc.lines]
+        # header, provenance, then door 1's heading + item, door 2's heading + item
+        assert kinds[2][0] == "Comment" and kinds[2][2].startswith("(1) 8'0\"")
+        assert kinds[3] == ("Item", "DOOR1-ONLY", "desc DOOR1-ONLY")
+        assert kinds[4][0] == "Comment" and kinds[4][2].startswith("(1) 10'0\"")
+        assert kinds[5] == ("Item", "DOOR2-ONLY", "desc DOOR2-ONLY")
+
+    def test_build_upwardor_po_appends_shared_section_last(self, monkeypatch):
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": [
+            _door_header("(1) 8'0\" x 7'0\" TX450, , UDC", 10000),
+            _line("SHARED-HW", 1, seq=20000),
+            _door_header("(1) 10'0\" x 8'0\" TX450, , UDC", 30000),
+            _line("SHARED-HW", 1, seq=40000),
+        ]}
+        cards = [_card("SHARED-HW", on_hand=0, on_so=2)]
+        bc, _ = _setup(monkeypatch, so, cards, {"SHARED-HW": {"unitCost": 1.0, "baseUnitOfMeasureCode": "EA"}})
+
+        result = svc.build_upwardor_po("SO-TEST", dry_run=False)
+        kinds = [(b["lineType"], b.get("lineObjectNumber"), b.get("description")) for _, b in bc.lines]
+        # header, provenance — neither door has an exclusive item of its own
+        # (both share the one line), so no empty per-door headings are
+        # written; the shared marker still appears (gated on has_doors, not
+        # on by_door being non-empty) so this SO's door structure isn't lost.
+        assert kinds[2] == ("Comment", None, "ITEMS SHARED ACROSS MULTIPLE DOORS ON THIS ORDER")
+        assert kinds[3] == ("Item", "SHARED-HW", "desc SHARED-HW")
+        assert bc.lines[3][1]["quantity"] == 2
 
 
 class TestBuildPo:
