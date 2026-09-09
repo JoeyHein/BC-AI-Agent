@@ -645,7 +645,7 @@ class TestStaleWindowConfigGuard:
 
     _COMMERCIAL = {
         "doorType": "commercial", "doorSeries": "TX450",
-        "doorWidth": 216, "doorHeight": 96, "panelColor": "",
+        "doorWidth": 216, "doorHeight": 96, "panelColor": "WHITE",
         "panelDesign": "UDC", "endCapType": "DEC", "trackThickness": "3",
         "glazingType": "polycarbonate", "glassColor": "CLEAR",
     }
