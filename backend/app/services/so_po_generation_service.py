@@ -31,6 +31,7 @@ as component_shortfall (component_covered lists what's already on hand).
 """
 
 import logging
+import re
 from collections import defaultdict
 from datetime import date
 from typing import Dict, List, Optional, Tuple
@@ -45,6 +46,12 @@ _ITEM_SELECT = (
     "No,Description,InventoryField,Qty_on_Purch_Order,Qty_on_Sales_Order,"
     "Qty_on_Component_Lines,Replenishment_System,Production_BOM_No"
 )
+
+# Same door-header shape the configurator writes (see door_configurator.py
+# _format_door_description / _HEADER_RE): "(1) 18'0\" x 8'0\" TX450, ...".
+# Detection-only here — we don't need the full field parse, just the
+# boundary and the label text, reused verbatim on the PO.
+_DOOR_HEADER_RE = re.compile(r'^\(\d+\)\s+\d+\'\d+"\s*x\s*\d+\'\d+"')
 
 _MAX_BOM_DEPTH = 6  # defends against a cyclical/self-referencing BOM
 
@@ -147,11 +154,20 @@ def compute_netted_po_lines(so_number: str) -> dict:
     if not so:
         raise ValueError(f"{so_number} not found in BC")
     so_id = so["id"]
-    lines = bc_client.get_order_lines(so_id)
+    lines = sorted(bc_client.get_order_lines(so_id), key=lambda l: l.get("sequence") or 0)
 
     so_qty: Dict[str, float] = defaultdict(float)
     line_desc: Dict[str, str] = {}
+    item_doors: Dict[str, set] = defaultdict(set)
+    door_labels: Dict[int, str] = {}
+    door_idx = 0
     for ln in lines:
+        if ln.get("lineType") == "Comment":
+            desc = (ln.get("description") or "").strip()
+            if _DOOR_HEADER_RE.match(desc):
+                door_idx += 1
+                door_labels[door_idx] = desc
+            continue
         if ln.get("lineType") != "Item":
             continue
         item = ln.get("lineObjectNumber")
@@ -159,11 +175,14 @@ def compute_netted_po_lines(so_number: str) -> dict:
             continue
         so_qty[item] += _f(ln.get("quantity"))
         line_desc[item] = ln.get("description") or ""
+        if door_idx:
+            item_doors[item].add(door_idx)
 
     empty = {
         "so_number": so_number, "customer_name": so.get("customerName"),
         "included": [], "excluded_manufactured": [], "excluded_in_stock": [], "trimmed": [],
-        "component_shortfall": [], "component_covered": [],
+        "component_shortfall": [], "component_covered": [], "by_door": [], "shared": {},
+        "has_doors": bool(door_labels),
     }
     if not so_qty:
         return empty
@@ -179,6 +198,7 @@ def compute_netted_po_lines(so_number: str) -> dict:
             excluded_manufactured.append({
                 "item_no": item, "qty": qty, "description": line_desc.get(item, ""),
                 "reason": "manufactured in-house — needs a production order, not a PO",
+                "doors": sorted(item_doors.get(item, set())),
             })
             continue
 
@@ -199,6 +219,7 @@ def compute_netted_po_lines(so_number: str) -> dict:
             "description": line_desc.get(item, ""),
             "quantity": round(net_need, 2),
             "unit_cost": None,  # filled from item card cost below (base UoM)
+            "doors": sorted(item_doors.get(item, set())),
         })
 
     # Price included lines from the same v2.0 item-cost source the rest of
@@ -220,10 +241,12 @@ def compute_netted_po_lines(so_number: str) -> dict:
 
         raw_need: Dict[str, float] = defaultdict(float)
         needed_for: Dict[str, set] = defaultdict(set)
+        leaf_doors: Dict[str, set] = defaultdict(set)
         for m in excluded_manufactured:
             for leaf, leaf_qty in _explode_bom(m["item_no"], m["qty"], items, boms).items():
                 raw_need[leaf] += leaf_qty
                 needed_for[leaf].add(m["item_no"])
+                leaf_doors[leaf].update(m["doors"])
 
         for leaf, qty in sorted(raw_need.items()):
             card = items.get(leaf, {})
@@ -231,7 +254,7 @@ def compute_netted_po_lines(so_number: str) -> dict:
             row = {
                 "item_no": leaf, "description": card.get("Description", ""),
                 "needed_qty": round(qty, 2), "avail": round(avail, 2),
-                "needed_for": sorted(needed_for[leaf]),
+                "needed_for": sorted(needed_for[leaf]), "doors": sorted(leaf_doors[leaf]),
             }
             if net_need <= 0:
                 component_covered.append(row)
@@ -249,6 +272,8 @@ def compute_netted_po_lines(so_number: str) -> dict:
                 row["unit_cost"] = _f(meta.get("unitCost"))
                 row["uom"] = meta.get("baseUnitOfMeasureCode") or "EA"
 
+    by_door, shared = _group_by_door(door_labels, included, component_shortfall)
+
     return {
         "so_number": so_number,
         "customer_name": so.get("customerName"),
@@ -258,7 +283,40 @@ def compute_netted_po_lines(so_number: str) -> dict:
         "trimmed": trimmed,
         "component_shortfall": component_shortfall,
         "component_covered": component_covered,
+        "by_door": by_door,
+        "shared": shared,
+        "has_doors": bool(door_labels),
     }
+
+
+def _group_by_door(door_labels: Dict[int, str], included: List[dict],
+                    component_shortfall: List[dict]) -> Tuple[List[dict], dict]:
+    """Reshape the flat included/component_shortfall lists into the same
+    door-by-door layout the sales order itself uses — Joey, 2026-09-09:
+    "create the layout... in the same sort of format as we do the sales
+    orders. So by door, and in order."
+
+    A line whose `doors` set is exactly one door lands under that door's
+    heading (in SO sequence order); anything needed by more than one door
+    on this SO, or with no door attribution at all (a non-configurator SO
+    with no door-header comments — every existing PO still nets/orders
+    correctly, it just has nothing to group), falls into `shared` instead
+    of being force-split or duplicated across headings.
+    """
+    by_door: List[dict] = []
+    for door_idx in sorted(door_labels):
+        door_included = [r for r in included if r["doors"] == [door_idx]]
+        door_components = [r for r in component_shortfall if r["doors"] == [door_idx]]
+        if door_included or door_components:
+            by_door.append({
+                "door_index": door_idx, "label": door_labels[door_idx],
+                "included": door_included, "component_shortfall": door_components,
+            })
+    shared = {
+        "included": [r for r in included if len(r["doors"]) != 1],
+        "component_shortfall": [r for r in component_shortfall if len(r["doors"]) != 1],
+    }
+    return by_door, shared
 
 
 def build_upwardor_po(so_number: str, vendor_no: str = "UPW", vendor_name: str = "UPWARDOR",
@@ -293,7 +351,9 @@ def build_upwardor_po(so_number: str, vendor_no: str = "UPW", vendor_name: str =
         "description": f"Built from {so_number} - {date.today().isoformat()} - opendc purchasing (netted vs stock)",
     })
     seq = 30000
-    for row in po_lines:
+
+    def _add_item(row: dict) -> None:
+        nonlocal seq
         bc_client.add_purchase_order_line(po_id, {
             "sequence": seq, "lineType": "Item",
             "lineObjectNumber": row["item_no"], "quantity": row["quantity"],
@@ -302,21 +362,40 @@ def build_upwardor_po(so_number: str, vendor_no: str = "UPW", vendor_name: str =
         })
         seq += 10000
 
-    if component_lines:
+    def _add_comment(text: str) -> None:
+        nonlocal seq
+        # BC Comment lines cap at 100 chars (Application_StringExceededLength).
         bc_client.add_purchase_order_line(po_id, {
-            "sequence": seq, "lineType": "Comment",
-            # BC Comment lines cap at 100 chars (Application_StringExceededLength).
-            "description": "Raw materials for in-house manufactured items (BOM-exploded, netted vs stock)",
+            "sequence": seq, "lineType": "Comment", "description": text[:100],
         })
         seq += 10000
-        for row in component_lines:
-            bc_client.add_purchase_order_line(po_id, {
-                "sequence": seq, "lineType": "Item",
-                "lineObjectNumber": row["item_no"], "quantity": row["quantity"],
-                "unitOfMeasureCode": row.get("uom"), "directUnitCost": row["unit_cost"],
-                "description": row["description"],
-            })
-            seq += 10000
+
+    by_door = plan["by_door"]
+    shared = plan["shared"]
+    if plan["has_doors"]:
+        # Same shape as the sales order: one heading per door, its items
+        # underneath, in SO order — Joey, 2026-09-09.
+        for group in by_door:
+            _add_comment(group["label"])
+            for row in group["included"]:
+                _add_item(row)
+            for row in group["component_shortfall"]:
+                _add_item(row)
+        if shared["included"] or shared["component_shortfall"]:
+            _add_comment("ITEMS SHARED ACROSS MULTIPLE DOORS ON THIS ORDER")
+            for row in shared["included"]:
+                _add_item(row)
+            for row in shared["component_shortfall"]:
+                _add_item(row)
+    else:
+        # No door-header structure on this SO (e.g. not built through the
+        # configurator) — flat layout, unchanged from before.
+        for row in po_lines:
+            _add_item(row)
+        if component_lines:
+            _add_comment("Raw materials for in-house manufactured items (BOM-exploded, netted vs stock)")
+            for row in component_lines:
+                _add_item(row)
 
     result["bc_po_number"] = po_number
     result["bc_po_id"] = po_id
