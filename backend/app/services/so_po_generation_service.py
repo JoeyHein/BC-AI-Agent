@@ -83,12 +83,17 @@ _GL12_MAX_SHEETS = 6
 # same fix. HK10/HK12 etc. aren't Prod. Order in BC to begin with (already
 # purchased normally) so this prefix never affects them.
 #
-# NOT yet extended to PN80 (Panorama), TR02/TR03 (lift bracket mounts), or
-# SP12-0023x-01 (winder sets) — same BC classification, but Joey scoped
-# this to TX450 panels + hardware kits specifically; ask before widening it
-# further (these are bracket-mount and spring-winder assemblies, not
-# "hardware boxes").
-_BUY_COMPLETE_PREFIXES = ("HK", "PN45-", "PN46-")
+# TR02-/TR03- (2" and 3" track assemblies: standard/angle/vertical-lift
+# mounts, low-headroom kits, high-lift extension kits) and SP12- (spring
+# winder + stationary-plug sets) added 2026-09-10: "extend the same fix to
+# TR02/TR03 and SP12 winder sets." Every Prod. Order item under those
+# prefixes is a complete assembly Upwardor ships whole; individual raw
+# track pieces are TR10/TR11/TR12 and individual spring parts stay
+# Replenishment_System='Purchase', so they never reach this check.
+#
+# Still NOT extended: PN80 (Panorama sections) and the GK15/GK16/GK17
+# glass/glazing kits — different call, ask before widening.
+_BUY_COMPLETE_PREFIXES = ("HK", "PN45-", "PN46-", "TR02-", "TR03-", "SP12-")
 
 
 def _buy_complete(item_no: str) -> bool:
@@ -137,7 +142,13 @@ def _explode_bom(item: str, qty: float, items: Dict[str, dict], boms: Dict[str, 
     """Recursively explode a manufactured item's Production BOM down to
     purchasable leaves. A leaf is anything with no BOM of its own (or past
     the depth guard) — its needed quantity is qty_per * the parent's qty,
-    aggregated across every path that demands it."""
+    aggregated across every path that demands it.
+
+    A buy-complete sub-assembly (a hardware kit, track assembly, or winder
+    set nested inside some other manufactured item's BOM) is also a leaf:
+    we buy it whole from Upwardor, we don't break it down further."""
+    if depth > 0 and _buy_complete(item):
+        return {item: qty}
     bom_no = (items.get(item, {}).get("Production_BOM_No") or "").strip()
     if not bom_no or bom_no in seen or depth >= _MAX_BOM_DEPTH:
         return {item: qty}
@@ -190,6 +201,7 @@ def compute_netted_po_lines(so_number: str) -> dict:
     so_qty: Dict[str, float] = defaultdict(float)
     line_desc: Dict[str, str] = {}
     item_doors: Dict[str, set] = defaultdict(set)
+    door_item_qty: Dict[str, Dict[int, float]] = defaultdict(lambda: defaultdict(float))
     door_labels: Dict[int, str] = {}
     door_idx = 0
     for ln in lines:
@@ -204,10 +216,12 @@ def compute_netted_po_lines(so_number: str) -> dict:
         item = ln.get("lineObjectNumber")
         if not item or item.upper() in NON_STOCK_ITEMS:
             continue
-        so_qty[item] += _f(ln.get("quantity"))
+        qty = _f(ln.get("quantity"))
+        so_qty[item] += qty
         line_desc[item] = ln.get("description") or ""
         if door_idx:
             item_doors[item].add(door_idx)
+            door_item_qty[item][door_idx] += qty
 
     empty = {
         "so_number": so_number, "customer_name": so.get("customerName"),
@@ -303,7 +317,7 @@ def compute_netted_po_lines(so_number: str) -> dict:
                 row["unit_cost"] = _f(meta.get("unitCost"))
                 row["uom"] = meta.get("baseUnitOfMeasureCode") or "EA"
 
-    by_door, shared = _group_by_door(door_labels, included, component_shortfall)
+    by_door, shared = _group_by_door(door_labels, door_item_qty, included, component_shortfall)
 
     return {
         "so_number": so_number,
@@ -320,23 +334,60 @@ def compute_netted_po_lines(so_number: str) -> dict:
     }
 
 
-def _group_by_door(door_labels: Dict[int, str], included: List[dict],
+def _group_by_door(door_labels: Dict[int, str],
+                    door_item_qty: Dict[str, Dict[int, float]],
+                    included: List[dict],
                     component_shortfall: List[dict]) -> Tuple[List[dict], dict]:
     """Reshape the flat included/component_shortfall lists into the same
     door-by-door layout the sales order itself uses — Joey, 2026-09-09:
     "create the layout... in the same sort of format as we do the sales
     orders. So by door, and in order."
 
-    A line whose `doors` set is exactly one door lands under that door's
-    heading (in SO sequence order); anything needed by more than one door
-    on this SO, or with no door attribution at all (a non-configurator SO
-    with no door-header comments — every existing PO still nets/orders
-    correctly, it just has nothing to group), falls into `shared` instead
-    of being force-split or duplicated across headings.
+    An `included` line ordered under more than one door on the SO is SPLIT
+    back out per door (in SO door order), exactly as the SO lists it — Joey,
+    2026-09-10, "revisit the panels on PO 959": PN46-24405-2000 was landing
+    in one lumped "shared" line of 29 because the same 20'-wide section
+    serves door 1 (11) and door 2 (18). When stock covers only part of the
+    need (net_qty < what the SO wants), the shortfall fills doors in SO
+    order — door 1's need first, then door 2's, etc. Only a line with no
+    door attribution at all (a non-configurator SO with no door headers)
+    stays in `shared`.
+
+    `component_shortfall` (raw materials from a still-exploded manufactured
+    item like a glass kit) keeps the simpler rule: one door -> that door;
+    more than one -> shared. Its per-door split would need per-door BOM
+    explosion and these are low-value fastener/frame lines.
     """
+    def _split_included(row: dict) -> List[Tuple[int, dict]]:
+        want = door_item_qty.get(row["item_no"], {})
+        doors = row["doors"]
+        if len(doors) <= 1 or not want:
+            return [(doors[0], row)] if len(doors) == 1 else []
+        remaining = row["quantity"]
+        out: List[Tuple[int, dict]] = []
+        for d in sorted(doors):
+            take = min(remaining, want.get(d, 0.0))
+            if take > 0:
+                out.append((d, {**row, "quantity": round(take, 2)}))
+                remaining = round(remaining - take, 4)
+        if remaining > 0 and out:  # rounding crumbs land on the last door
+            d, last = out[-1]
+            out[-1] = (d, {**last, "quantity": round(last["quantity"] + remaining, 2)})
+        return out
+
+    per_door_included: Dict[int, List[dict]] = defaultdict(list)
+    shared_included: List[dict] = []
+    for row in included:
+        placed = _split_included(row)
+        if placed:
+            for d, sub in placed:
+                per_door_included[d].append(sub)
+        else:
+            shared_included.append(row)
+
     by_door: List[dict] = []
     for door_idx in sorted(door_labels):
-        door_included = [r for r in included if r["doors"] == [door_idx]]
+        door_included = per_door_included.get(door_idx, [])
         door_components = [r for r in component_shortfall if r["doors"] == [door_idx]]
         if door_included or door_components:
             by_door.append({
@@ -344,7 +395,7 @@ def _group_by_door(door_labels: Dict[int, str], included: List[dict],
                 "included": door_included, "component_shortfall": door_components,
             })
     shared = {
-        "included": [r for r in included if len(r["doors"]) != 1],
+        "included": shared_included,
         "component_shortfall": [r for r in component_shortfall if len(r["doors"]) != 1],
     }
     return by_door, shared
