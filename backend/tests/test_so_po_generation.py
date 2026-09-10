@@ -155,28 +155,51 @@ class TestNetting:
         assert plan["component_covered"][0]["item_no"] == "RAW-CORE-02"
 
     def test_bom_explosion_recurses_through_sub_assemblies(self, monkeypatch):
-        """A two-level BOM (hardware kit -> winder set -> raw plugs) must
-        explode all the way to the purchasable leaf, not stop one level up."""
+        """A two-level BOM (kit -> sub-assembly -> raw plugs) must explode
+        all the way to the purchasable leaf, not stop one level up — for
+        sub-assemblies that aren't themselves bought complete."""
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
               "salesOrderLines": [_line("MFG-KIT-01", 1)]}
         cards = [
-            _card("MFG-KIT-01", replen="Prod. Order", bom="HK02-BOM"),
-            _card("SP12-00231-01", replen="Prod. Order", bom="SP12-BOM"),  # sub-assembly, also manufactured
+            _card("MFG-KIT-01", replen="Prod. Order", bom="KIT-BOM"),
+            _card("MFG-SUBKIT-01", replen="Prod. Order", bom="SUB-BOM"),  # sub-assembly, also manufactured
             _card("RAW-PLUG-01", on_hand=0),
         ]
         boms = [
-            _bom_line("HK02-BOM", "SP12-00231-01", 2.0),
-            _bom_line("SP12-BOM", "RAW-PLUG-01", 4.0),
+            _bom_line("KIT-BOM", "MFG-SUBKIT-01", 2.0),
+            _bom_line("SUB-BOM", "RAW-PLUG-01", 4.0),
         ]
         _setup(monkeypatch, so, cards, {"RAW-PLUG-01": {"unitCost": 3.95, "baseUnitOfMeasureCode": "EA"}},
                bom_lines=boms)
 
         plan = svc.compute_netted_po_lines("SO-TEST")
-        # need 1 kit -> 2 winder sets -> 8 raw plugs, none on hand
+        # need 1 kit -> 2 subkits -> 8 raw plugs, none on hand
         assert len(plan["component_shortfall"]) == 1
         row = plan["component_shortfall"][0]
         assert row["item_no"] == "RAW-PLUG-01"
         assert row["quantity"] == 8
+
+    def test_buy_complete_sub_assembly_is_a_leaf_not_exploded_further(self, monkeypatch):
+        """A winder set / track kit nested inside a still-exploded item's
+        BOM (e.g. a glass kit) is bought whole, not broken into plugs —
+        Joey, 2026-09-10 extended buy-complete to SP12/TR02/TR03."""
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
+              "salesOrderLines": [_line("MFG-GLASSKIT-01", 1)]}
+        cards = [
+            _card("MFG-GLASSKIT-01", replen="Prod. Order", bom="GK-BOM"),
+            _card("SP12-00231-01", replen="Prod. Order", bom="SP12-BOM", on_hand=0),
+            _card("RAW-PLUG-01", on_hand=0),
+        ]
+        boms = [
+            _bom_line("GK-BOM", "SP12-00231-01", 2.0),
+            _bom_line("SP12-BOM", "RAW-PLUG-01", 4.0),
+        ]
+        _setup(monkeypatch, so, cards, {"SP12-00231-01": {"unitCost": 12.0, "baseUnitOfMeasureCode": "EA"}},
+               bom_lines=boms)
+
+        plan = svc.compute_netted_po_lines("SO-TEST")
+        assert [r["item_no"] for r in plan["component_shortfall"]] == ["SP12-00231-01"]
+        assert plan["component_shortfall"][0]["quantity"] == 2  # 2 sets, not 8 plugs
 
     def test_two_manufactured_items_sharing_a_component_aggregate(self, monkeypatch):
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
@@ -338,6 +361,48 @@ class TestBuyComplete:
         assert [r["item_no"] for r in plan["included"]] == [kit_no]
         assert plan["component_shortfall"] == []
 
+    @pytest.mark.parametrize("kit_no", [
+        "TR02-STDBM-0812", "TR02-LHR-08", "TR03-STDAM-22", "TR03-EXT7-00",
+        "SP12-00231-01", "SP12-00234-01",
+    ])
+    def test_tr02_tr03_and_sp12_winder_sets_bought_complete(self, monkeypatch, kit_no):
+        """Joey, 2026-09-10: "extend the same fix to TR02/TR03 and SP12
+        winder sets." Track assemblies and winder+plug sets are complete
+        Upwardor items, not something to break into raw track/spring
+        pieces."""
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
+              "salesOrderLines": [_line(kit_no, 2)]}
+        cards = [
+            _card(kit_no, replen="Prod. Order", bom="ASSY-BOM", on_hand=0, on_so=2),
+            _card("RAW-TRACK-01", on_hand=0),
+        ]
+        boms = [_bom_line("ASSY-BOM", "RAW-TRACK-01", 3.0)]
+        _setup(monkeypatch, so, cards, {kit_no: {"unitCost": 90.0, "baseUnitOfMeasureCode": "EA"}},
+               bom_lines=boms)
+
+        plan = svc.compute_netted_po_lines("SO-TEST")
+        assert plan["excluded_manufactured"] == []
+        assert [(r["item_no"], r["quantity"]) for r in plan["included"]] == [(kit_no, 2)]
+        assert plan["component_shortfall"] == []
+
+    def test_individual_track_and_spring_pieces_still_purchased_normally(self, monkeypatch):
+        """TR10/TR11/TR12 raw track pieces and individual SP12 spring parts
+        are Replenishment_System='Purchase' — they were always bought
+        directly and the TR02-/TR03-/SP12- prefix widening doesn't touch
+        them (the buy-complete check only fires for Prod. Order items)."""
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": [
+            _line("TR11-31850-00", 2), _line("SP12-00257-00", 4),
+        ]}
+        cards = [_card("TR11-31850-00", replen="Purchase", on_hand=0, on_so=2),
+                 _card("SP12-00257-00", replen="Purchase", on_hand=0, on_so=4)]
+        _setup(monkeypatch, so, cards, {
+            "TR11-31850-00": {"unitCost": 128.0, "baseUnitOfMeasureCode": "PR"},
+            "SP12-00257-00": {"unitCost": 11.5, "baseUnitOfMeasureCode": "EA"},
+        })
+
+        plan = svc.compute_netted_po_lines("SO-TEST")
+        assert {r["item_no"] for r in plan["included"]} == {"TR11-31850-00", "SP12-00257-00"}
+
     def test_hk10_unaffected_since_it_was_never_manufactured(self, monkeypatch):
         """HK10 is Replenishment_System='Purchase' in BC already (not a
         Prod. Order item) — the HK prefix widening must not change
@@ -442,21 +507,44 @@ class TestByDoorLayout:
         assert [r["item_no"] for r in plan["by_door"][1]["included"]] == ["DOOR2-ONLY"]
         assert plan["shared"]["included"] == []
 
-    def test_item_needed_by_two_doors_goes_to_shared_not_duplicated(self, monkeypatch):
+    def test_item_ordered_under_two_doors_is_split_per_door_like_the_SO(self, monkeypatch):
+        """Joey, 2026-09-10, "revisit the panels on PO 959": the same
+        20'-wide section serves door 1 (11) and door 2 (18) — it must show
+        as 11 under door 1 and 18 under door 2, mirroring the SO, not one
+        lumped line of 29 in a "shared" bucket."""
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": [
             _door_header("(1) 8'0\" x 7'0\" TX450, , UDC", 10000),
-            _line("SHARED-HW", 1, seq=20000),
-            _door_header("(1) 10'0\" x 8'0\" TX450, , UDC", 30000),
-            _line("SHARED-HW", 1, seq=40000),
+            _line("PANEL-X", 11, seq=20000),
+            _door_header("(2) 10'0\" x 8'0\" TX450, , UDC", 30000),
+            _line("PANEL-X", 18, seq=40000),
         ]}
-        cards = [_card("SHARED-HW", on_hand=0, on_so=2)]
-        _setup(monkeypatch, so, cards, {"SHARED-HW": {"unitCost": 1.0, "baseUnitOfMeasureCode": "EA"}})
+        cards = [_card("PANEL-X", on_hand=0, on_so=29)]
+        _setup(monkeypatch, so, cards, {"PANEL-X": {"unitCost": 285.0, "baseUnitOfMeasureCode": "EA"}})
 
         plan = svc.compute_netted_po_lines("SO-TEST")
-        for group in plan["by_door"]:
-            assert group["included"] == []  # not duplicated into either door
-        assert [r["item_no"] for r in plan["shared"]["included"]] == ["SHARED-HW"]
-        assert plan["shared"]["included"][0]["quantity"] == 2  # still one consolidated line
+        assert plan["shared"]["included"] == []
+        d1 = next(g for g in plan["by_door"] if g["door_index"] == 1)
+        d2 = next(g for g in plan["by_door"] if g["door_index"] == 2)
+        assert [(r["item_no"], r["quantity"]) for r in d1["included"]] == [("PANEL-X", 11)]
+        assert [(r["item_no"], r["quantity"]) for r in d2["included"]] == [("PANEL-X", 18)]
+
+    def test_multi_door_item_partial_stock_fills_doors_in_SO_order(self, monkeypatch):
+        # 29 wanted (11 + 18), 15 already on hand -> net 14: door 1 takes
+        # its full 11 first, door 2 gets the remaining 3.
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": [
+            _door_header("(1) 8'0\" x 7'0\" TX450, , UDC", 10000),
+            _line("PANEL-X", 11, seq=20000),
+            _door_header("(1) 10'0\" x 8'0\" TX450, , UDC", 30000),
+            _line("PANEL-X", 18, seq=40000),
+        ]}
+        cards = [_card("PANEL-X", on_hand=15, on_so=29)]
+        _setup(monkeypatch, so, cards, {"PANEL-X": {"unitCost": 285.0, "baseUnitOfMeasureCode": "EA"}})
+
+        plan = svc.compute_netted_po_lines("SO-TEST")
+        d1 = next(g for g in plan["by_door"] if g["door_index"] == 1)
+        d2 = next(g for g in plan["by_door"] if g["door_index"] == 2)
+        assert d1["included"][0]["quantity"] == 11
+        assert d2["included"][0]["quantity"] == 3
 
     def test_manufactured_items_raw_material_attributed_to_its_door(self, monkeypatch):
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": [
@@ -498,25 +586,44 @@ class TestByDoorLayout:
         assert kinds[4][0] == "Comment" and kinds[4][2].startswith("(1) 10'0\"")
         assert kinds[5] == ("Item", "DOOR2-ONLY", "desc DOOR2-ONLY")
 
-    def test_build_upwardor_po_appends_shared_section_last(self, monkeypatch):
+    def test_build_upwardor_po_splits_multi_door_item_under_each_door(self, monkeypatch):
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": [
             _door_header("(1) 8'0\" x 7'0\" TX450, , UDC", 10000),
-            _line("SHARED-HW", 1, seq=20000),
+            _line("PANEL-X", 11, seq=20000),
             _door_header("(1) 10'0\" x 8'0\" TX450, , UDC", 30000),
-            _line("SHARED-HW", 1, seq=40000),
+            _line("PANEL-X", 18, seq=40000),
         ]}
-        cards = [_card("SHARED-HW", on_hand=0, on_so=2)]
-        bc, _ = _setup(monkeypatch, so, cards, {"SHARED-HW": {"unitCost": 1.0, "baseUnitOfMeasureCode": "EA"}})
+        cards = [_card("PANEL-X", on_hand=0, on_so=29)]
+        bc, _ = _setup(monkeypatch, so, cards, {"PANEL-X": {"unitCost": 285.0, "baseUnitOfMeasureCode": "EA"}})
 
-        result = svc.build_upwardor_po("SO-TEST", dry_run=False)
-        kinds = [(b["lineType"], b.get("lineObjectNumber"), b.get("description")) for _, b in bc.lines]
-        # header, provenance — neither door has an exclusive item of its own
-        # (both share the one line), so no empty per-door headings are
-        # written; the shared marker still appears (gated on has_doors, not
-        # on by_door being non-empty) so this SO's door structure isn't lost.
-        assert kinds[2] == ("Comment", None, "ITEMS SHARED ACROSS MULTIPLE DOORS ON THIS ORDER")
-        assert kinds[3] == ("Item", "SHARED-HW", "desc SHARED-HW")
-        assert bc.lines[3][1]["quantity"] == 2
+        svc.build_upwardor_po("SO-TEST", dry_run=False)
+        kinds = [(b["lineType"], b.get("lineObjectNumber"), b.get("quantity")) for _, b in bc.lines]
+        assert kinds[2][0] == "Comment"
+        assert kinds[3] == ("Item", "PANEL-X", 11)
+        assert kinds[4][0] == "Comment"
+        assert kinds[5] == ("Item", "PANEL-X", 18)
+        # no "shared" section — every line landed under a door
+        assert not any(b.get("description") == "ITEMS SHARED ACROSS MULTIPLE DOORS ON THIS ORDER"
+                       for _, b in bc.lines)
+
+    def test_item_with_no_door_attribution_stays_in_shared(self, monkeypatch):
+        # An item that appears BEFORE any door header (unusual, but a
+        # manually-edited SO can look like this) has no door and lands in
+        # the shared section.
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": [
+            _line("NO-DOOR-ITEM", 2, seq=5000),
+            _door_header("(1) 8'0\" x 7'0\" TX450, , UDC", 10000),
+            _line("DOOR1-ITEM", 1, seq=20000),
+        ]}
+        cards = [_card("NO-DOOR-ITEM", on_hand=0, on_so=2), _card("DOOR1-ITEM", on_hand=0, on_so=1)]
+        _setup(monkeypatch, so, cards, {
+            "NO-DOOR-ITEM": {"unitCost": 1.0, "baseUnitOfMeasureCode": "EA"},
+            "DOOR1-ITEM": {"unitCost": 1.0, "baseUnitOfMeasureCode": "EA"},
+        })
+
+        plan = svc.compute_netted_po_lines("SO-TEST")
+        assert [r["item_no"] for r in plan["shared"]["included"]] == ["NO-DOOR-ITEM"]
+        assert [r["item_no"] for r in plan["by_door"][0]["included"]] == ["DOOR1-ITEM"]
 
 
 class TestBuildPo:
