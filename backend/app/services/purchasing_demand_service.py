@@ -39,6 +39,26 @@ UNASSIGNED = "Unassigned"
 # Item-typed lines that are charges, not purchasable stock — excluded from demand.
 NON_STOCK_ITEMS = {"FREIGHT", "INSTALLATION", "DISCOUNT", "SHIPPING", "MISC", "LABOUR", "LABOR"}
 
+# Items BC flags Replenishment_System='Prod. Order' (built in-house from a
+# BOM) that the vendor ALSO sells complete, assembled, under the same part
+# number — Joey, 2026-09-10 (so_po_generation_service): "for complete
+# projects like that... we can just buy complete [items] from Upwardor...
+# we wouldn't need to break that open." Confirmed live on PO-000962: hardware
+# kits and TX450 panels (PN45/PN46) were exploding into raw components
+# instead of being bought whole. Business direction shifted further
+# 2026-09-15: OPENDC is moving away from last-mile in-house manufacturing
+# toward buying more complete finished items, so these are no longer "still
+# needs a production order" — they should flow through the buy-list at
+# their own part number and get purchased complete, same as any other item.
+# Single source of truth — so_po_generation_service imports this rather than
+# keeping its own copy, so BOM explosion and the demand engine agree on
+# what counts as buy-complete.
+_BUY_COMPLETE_PREFIXES = ("HK", "PN45-", "PN46-", "TR02-", "TR03-", "SP12-")
+
+
+def _buy_complete(item_no: str) -> bool:
+    return item_no.startswith(_BUY_COMPLETE_PREFIXES)
+
 
 class PurchasingDemandService:
     """Nets committed job demand against stock to produce a purchasing shortfall list."""
@@ -129,6 +149,13 @@ class PurchasingDemandService:
         # manufactured panels/hardware kits ($4,585 of $5,737) — the leak is real
         # and this is the shared engine every PO-generation path should route
         # through, so the exclusion belongs here, not per-caller.
+        #
+        # Exception: _buy_complete items (PN45/PN46/HK/TR02/TR03/SP12) stay in
+        # the list even though BC flags them Prod. Order — Joey, 2026-09-15:
+        # OPENDC is buying more finished items complete instead of releasing a
+        # production order to build them in-house, so demand for those should
+        # resolve to the complete part number, not silently vanish waiting on
+        # a production order that's never coming.
         try:
             replen_map = bc_production_service.get_replenishment_map()
         except Exception as e:
@@ -136,7 +163,8 @@ class PurchasingDemandService:
                            "not filtering manufactured items this run")
             replen_map = {}
         manufactured_excluded = [
-            item for item in item_numbers if replen_map.get(item) == "Prod. Order"
+            item for item in item_numbers
+            if replen_map.get(item) == "Prod. Order" and not _buy_complete(item)
         ]
         if manufactured_excluded:
             logger.info(f"[Purchasing] excluding {len(manufactured_excluded)} "

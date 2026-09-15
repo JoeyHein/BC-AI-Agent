@@ -38,7 +38,7 @@ from typing import Dict, List, Optional, Tuple
 
 from app.integrations.bc.client import bc_client
 from app.services.bc_production_service import bc_production_service
-from app.services.purchasing_demand_service import NON_STOCK_ITEMS
+from app.services.purchasing_demand_service import NON_STOCK_ITEMS, _buy_complete
 
 logger = logging.getLogger(__name__)
 
@@ -93,11 +93,11 @@ _GL12_MAX_SHEETS = 6
 #
 # Still NOT extended: PN80 (Panorama sections) and the GK15/GK16/GK17
 # glass/glazing kits — different call, ask before widening.
-_BUY_COMPLETE_PREFIXES = ("HK", "PN45-", "PN46-", "TR02-", "TR03-", "SP12-")
-
-
-def _buy_complete(item_no: str) -> bool:
-    return item_no.startswith(_BUY_COMPLETE_PREFIXES)
+#
+# _buy_complete() / the prefix list now live in purchasing_demand_service —
+# single source of truth shared with the core demand engine (planning
+# workbook, dashboard, digest, auto-PO) so BOM explosion here and the
+# engine's own manufactured-item exclusion never drift apart.
 
 
 def _f(v) -> float:
