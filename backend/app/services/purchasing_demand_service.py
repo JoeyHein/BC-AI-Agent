@@ -53,7 +53,19 @@ NON_STOCK_ITEMS = {"FREIGHT", "INSTALLATION", "DISCOUNT", "SHIPPING", "MISC", "L
 # Single source of truth — so_po_generation_service imports this rather than
 # keeping its own copy, so BOM explosion and the demand engine agree on
 # what counts as buy-complete.
-_BUY_COMPLETE_PREFIXES = ("HK", "PN45-", "PN46-", "TR02-", "TR03-", "SP12-")
+#
+# PN80- (Panorama sections) and GK15-/GK16-/GK17- (glass/glazing kits) added
+# 2026-09-15 — previously deliberately left off ("different call, ask before
+# widening"). Confirmed live on SO-001299 (rebuilding PO-000962): GK17-25100-00
+# and four PN80-* Panorama sections were landing in excluded_manufactured, BOM
+# exploding down to raw extrusions/screws/polycarbonate sheet that were fully
+# stock-covered — so nothing got purchased at all, even though the finished
+# panel/kit itself was never in stock. Joey, 2026-09-15: "we wanted to build
+# everything that we did not have stock for, including production orders that
+# we did not have stock for. We wanted the complete product instead of the
+# individual components of each production order." Same fix, wider net.
+_BUY_COMPLETE_PREFIXES = ("HK", "PN45-", "PN46-", "PN80-", "TR02-", "TR03-", "SP12-",
+                          "GK15-", "GK16-", "GK17-")
 
 
 def _buy_complete(item_no: str) -> bool:

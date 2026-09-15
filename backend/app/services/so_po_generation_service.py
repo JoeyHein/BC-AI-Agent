@@ -91,8 +91,8 @@ _GL12_MAX_SHEETS = 6
 # track pieces are TR10/TR11/TR12 and individual spring parts stay
 # Replenishment_System='Purchase', so they never reach this check.
 #
-# Still NOT extended: PN80 (Panorama sections) and the GK15/GK16/GK17
-# glass/glazing kits — different call, ask before widening.
+# PN80 (Panorama sections) and GK15/GK16/GK17 (glass/glazing kits) added
+# 2026-09-15 — see purchasing_demand_service._BUY_COMPLETE_PREFIXES for why.
 #
 # _buy_complete() / the prefix list now live in purchasing_demand_service —
 # single source of truth shared with the core demand engine (planning
