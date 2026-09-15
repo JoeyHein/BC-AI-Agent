@@ -3,6 +3,7 @@ Business Central API Client with OAuth 2.0 Authentication
 """
 
 import logging
+import time
 from typing import Optional, Dict, List, Any
 import msal
 import requests
@@ -11,6 +12,30 @@ from datetime import datetime, timedelta, date
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+# BC's OData write endpoints occasionally throw a transient "JIT load" /
+# optimistic-concurrency error when a document (e.g. a sales quote) is
+# written to twice in quick succession — the field values loaded when the
+# request started have gone stale by the time BC computes derived fields
+# (Amount, etc). It always fails BEFORE the record commits, so a retry is
+# safe (never produces a duplicate line). Seen recurring on SQ-003035 and
+# SQ-003118: a glazing line silently degraded to an unpriced Comment
+# because the caller treated this as permanent and never retried.
+_TRANSIENT_STATUS_CODES = {408, 409, 423, 429, 500, 502, 503, 504}
+_TRANSIENT_MESSAGE_MARKERS = (
+    "has changed in the database between initial and jit load",
+    "the error may be transient",
+)
+
+
+def _is_transient_bc_error(exc: Exception) -> bool:
+    response = getattr(exc, "response", None)
+    if response is None:
+        return False
+    if response.status_code in _TRANSIENT_STATUS_CODES:
+        return True
+    body_text = (response.text or "").lower()
+    return any(marker in body_text for marker in _TRANSIENT_MESSAGE_MARKERS)
 
 
 class BusinessCentralClient:
@@ -83,35 +108,53 @@ class BusinessCentralClient:
             logger.error(f"Failed to acquire BC token: {error} - {error_description}")
             raise Exception(f"Authentication failed: {error}")
 
-    def _make_request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
-        """Make authenticated request to BC API"""
-        token = self._get_access_token()
+    def _make_request(self, method: str, endpoint: str, max_retries: int = 2, **kwargs) -> Dict[str, Any]:
+        """Make authenticated request to BC API.
 
-        headers = kwargs.pop("headers", {})
-        headers["Authorization"] = f"Bearer {token}"
-        headers["Content-Type"] = "application/json"
-
+        Retries transient BC errors (throttling, and the "JIT load" optimistic-
+        concurrency error BC raises when a document is written to twice in
+        quick succession) — see `_is_transient_bc_error`. These fail before
+        the record commits, so retrying never creates a duplicate.
+        """
         url = f"{self.base_url}/{endpoint}"
+        base_headers = kwargs.pop("headers", {})
+        backoff_seconds = 0.5
 
-        logger.debug(f"{method.upper()} {url}")
+        for attempt in range(max_retries + 1):
+            token = self._get_access_token()
 
-        response = requests.request(method, url, headers=headers, **kwargs)
+            headers = dict(base_headers)
+            headers["Authorization"] = f"Bearer {token}"
+            headers["Content-Type"] = "application/json"
 
-        if response.status_code >= 400:
-            logger.error(f"BC API error {response.status_code}: {response.text}")
-            # Extract BC error message from response body so callers see the real reason
-            bc_message = ""
-            try:
-                error_body = response.json()
-                bc_message = error_body.get("error", {}).get("message", "")
-            except Exception:
-                bc_message = response.text[:500] if response.text else ""
-            raise requests.HTTPError(
-                f"{response.status_code} {response.reason} for url: {url} | BC: {bc_message}",
-                response=response,
-            )
+            logger.debug(f"{method.upper()} {url} (attempt {attempt + 1}/{max_retries + 1})")
 
-        return response.json() if response.content else {}
+            response = requests.request(method, url, headers=headers, **kwargs)
+
+            if response.status_code >= 400:
+                logger.error(f"BC API error {response.status_code}: {response.text}")
+                # Extract BC error message from response body so callers see the real reason
+                bc_message = ""
+                try:
+                    error_body = response.json()
+                    bc_message = error_body.get("error", {}).get("message", "")
+                except Exception:
+                    bc_message = response.text[:500] if response.text else ""
+                error = requests.HTTPError(
+                    f"{response.status_code} {response.reason} for url: {url} | BC: {bc_message}",
+                    response=response,
+                )
+                if attempt < max_retries and _is_transient_bc_error(error):
+                    logger.warning(
+                        f"Transient BC error on {method.upper()} {url} "
+                        f"(attempt {attempt + 1}/{max_retries + 1}), retrying in {backoff_seconds}s: {bc_message}"
+                    )
+                    time.sleep(backoff_seconds)
+                    backoff_seconds *= 2
+                    continue
+                raise error
+
+            return response.json() if response.content else {}
 
     def _fetch_raw_url(self, url: str) -> bytes:
         """Fetch raw bytes from a full URL (e.g. mediaReadLink). Used for PDF content streams."""
