@@ -128,6 +128,11 @@ class Settings(BaseSettings):
     # Integrations (service-to-service API key for Donna PA and other AI agents)
     INTEGRATIONS_API_KEY: Optional[str] = None
 
+    # Read-only quote accuracy lookup (Open Distribution Quote Accuracy assistant).
+    # Dedicated key on purpose: INTEGRATIONS_API_KEY can POST CRM notes, and
+    # X-Service-AI-Key rows are supplier-account scoped. Unset = endpoint 503s.
+    QUOTE_ACCURACY_API_KEY: Optional[str] = None
+
     # Logging
     LOG_LEVEL: str = "INFO"
 

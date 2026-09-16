@@ -33,6 +33,7 @@ from app.api import external_quotes
 from app.api import external_inventory
 from app.api import external_purchase_orders
 from app.api import external_door_config
+from app.api import internal_quotes
 
 # Import services
 from app.services.scheduler_service import get_scheduler
@@ -194,14 +195,14 @@ app.add_middleware(RequestIdMiddleware)
 
 @app.middleware("http")
 async def external_call_log_middleware(request, call_next):
-    """TD-QOC-A8: record every /api/external/* call (method, path, status,
-    latency, key prefix) for observability/billing. Best-effort — a logging
+    """Record every /api/external/* and /api/internal/* call (method, path,
+    status, latency, key prefix) for observability. Best-effort — a logging
     failure never affects the response. Stores only the 12-char key PREFIX,
     never the secret."""
     import time as _time
 
     path = request.url.path
-    if not path.startswith("/api/external/"):
+    if not (path.startswith("/api/external/") or path.startswith("/api/internal/")):
         return await call_next(request)
     start = _time.perf_counter()
     response = await call_next(request)
@@ -210,7 +211,7 @@ async def external_call_log_middleware(request, call_next):
         from app.db.database import SessionLocal
         from app.db.models import ExternalCallLog
 
-        key = request.headers.get("x-service-ai-key") or ""
+        key = request.headers.get("x-service-ai-key") or request.headers.get("x-api-key") or ""
         db = SessionLocal()
         try:
             db.add(
@@ -276,6 +277,9 @@ logger.info(f"Including external_purchase_orders router: {external_purchase_orde
 app.include_router(external_purchase_orders.router)
 logger.info(f"Including external_door_config router: {external_door_config.router.prefix}")
 app.include_router(external_door_config.router)
+# Internal read-only quote accuracy lookup (QUOTE_ACCURACY_API_KEY).
+logger.info(f"Including internal_quotes router: {internal_quotes.router.prefix}")
+app.include_router(internal_quotes.router)
 
 # Admin Quote Search router (global cross-customer quote lookup)
 logger.info(f"Including admin_quotes router: {admin_quotes.router.prefix}")

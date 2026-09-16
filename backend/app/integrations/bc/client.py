@@ -156,6 +156,58 @@ class BusinessCentralClient:
 
             return response.json() if response.content else {}
 
+    def _follow_odata_pages(self, endpoint: str, *, max_pages: int = 50) -> List[Dict[str, Any]]:
+        """GET an OData collection and follow ``@odata.nextLink`` until exhausted.
+
+        Raises the same ``HTTPError`` as ``_make_request`` if any page fails so
+        callers never silently drop trailing rows. Logs (without payloads) when
+        ``max_pages`` is hit so a runaway nextLink cannot loop forever.
+        """
+        all_rows: List[Dict[str, Any]] = []
+        result = self._make_request("GET", endpoint)
+        if isinstance(result, dict):
+            all_rows.extend(result.get("value") or [])
+            next_link = result.get("@odata.nextLink")
+        else:
+            next_link = None
+
+        pages = 1
+        while next_link and pages < max_pages:
+            token = self._get_access_token()
+            response = requests.get(
+                next_link,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/json",
+                },
+                timeout=60,
+            )
+            if response.status_code >= 400:
+                logger.error(f"BC API error {response.status_code}: {response.text}")
+                bc_message = ""
+                try:
+                    error_body = response.json()
+                    bc_message = error_body.get("error", {}).get("message", "")
+                except Exception:
+                    bc_message = response.text[:500] if response.text else ""
+                raise requests.HTTPError(
+                    f"{response.status_code} {response.reason} for url: {next_link} | BC: {bc_message}",
+                    response=response,
+                )
+            data = response.json() if response.content else {}
+            all_rows.extend(data.get("value") or [])
+            next_link = data.get("@odata.nextLink") if isinstance(data, dict) else None
+            pages += 1
+
+        if next_link:
+            logger.warning(
+                "OData pagination hit max_pages=%s on %s; returning %s rows (truncated)",
+                max_pages,
+                endpoint.split("?")[0],
+                len(all_rows),
+            )
+        return all_rows
+
     def _fetch_raw_url(self, url: str) -> bytes:
         """Fetch raw bytes from a full URL (e.g. mediaReadLink). Used for PDF content streams."""
         token = self._get_access_token()
@@ -696,11 +748,35 @@ class BusinessCentralClient:
 
     # ==================== Sales Quote Lines ====================
 
-    def get_quote_lines(self, quote_id: str, company_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Get lines for a sales quote"""
+    def get_quote_lines(
+        self,
+        quote_id: str,
+        company_id: Optional[str] = None,
+        *,
+        expand_dimensions: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Get all lines for a sales quote, following OData pagination.
+
+        When ``expand_dimensions`` is True, requests ``$expand=dimensionSetLines``
+        so option/dimension values travel with each line. If BC rejects the
+        expand (older API page), retries the same collection without it.
+        """
         cid = company_id or self.company_id
-        result = self._make_request("GET", f"companies({cid})/salesQuotes({quote_id})/salesQuoteLines")
-        return result.get("value", [])
+        base = f"companies({cid})/salesQuotes({quote_id})/salesQuoteLines"
+        query = "$top=200"
+        if expand_dimensions:
+            try:
+                return self._follow_odata_pages(f"{base}?{query}&$expand=dimensionSetLines")
+            except requests.HTTPError as exc:
+                status = getattr(getattr(exc, "response", None), "status_code", None)
+                if status not in (400, 404):
+                    raise
+                logger.info(
+                    "dimensionSetLines expand unsupported for quote_id=%s (HTTP %s); retrying without expand",
+                    quote_id,
+                    status,
+                )
+        return self._follow_odata_pages(f"{base}?{query}")
 
     def add_quote_line(self, quote_id: str, line_data: Dict[str, Any], company_id: Optional[str] = None) -> Dict[str, Any]:
         """Add line to sales quote"""
