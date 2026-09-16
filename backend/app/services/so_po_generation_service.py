@@ -99,6 +99,24 @@ _GL12_MAX_SHEETS = 6
 # workbook, dashboard, digest, auto-PO) so BOM explosion here and the
 # engine's own manufactured-item exclusion never drift apart.
 
+# Astragal, retainer, and top seal always ride along with the panels they
+# seal — Joey, 2026-09-16: "we must include the astragal, the retainer, and
+# the top seal as well" whenever a PO has panels on it. Confirmed live on
+# SO-001301/SO-001304/etc.: BC shows large on-hand/other-PO quantities for
+# these bulk coil items (e.g. 13,050" astragal on hand vs. 240" needed) so
+# the normal "don't buy what we already have" netting excluded all of them
+# from every one of the day's POs. Unlike everything else this module nets
+# against stock, these three families always go on the PO at the SO's full
+# ordered quantity — matched by keyword in the BC item Description since
+# their part numbers don't share a clean prefix (astragal/retainer/top-seal
+# item numbers are scattered among weatherstrip's PL10-xx203-00 pattern).
+_ALWAYS_FULL_QTY_KEYWORDS = ("ASTRAGAL", "RETAINER", "TOP SEAL")
+
+
+def _always_full_qty(description: str) -> bool:
+    d = (description or "").upper()
+    return any(k in d for k in _ALWAYS_FULL_QTY_KEYWORDS)
+
 
 def _f(v) -> float:
     return float(v or 0)
@@ -248,6 +266,8 @@ def compute_netted_po_lines(so_number: str) -> dict:
             continue
 
         avail, net_need = _net_need(card, qty)
+        if net_need <= 0 and _always_full_qty(card.get("Description", "")):
+            avail, net_need = 0.0, qty
         row = {
             "item_no": item, "ordered_qty": qty, "on_hand": _f(card.get("InventoryField")),
             "on_po_other": _f(card.get("Qty_on_Purch_Order")), "avail": round(avail, 2),
