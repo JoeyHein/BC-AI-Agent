@@ -110,12 +110,15 @@ def _lines() -> List[Dict[str, Any]]:
     ]
 
 
+_UNSET = object()
+
+
 class FakeBC:
     """Read-only stub. Write methods raise so a regression is obvious."""
 
-    def __init__(self, header=None, lines=None, header_error=None, lines_error=None):
-        self.header = header if header is not None else _header()
-        self.lines = lines if lines is not None else _lines()
+    def __init__(self, header=_UNSET, lines=_UNSET, header_error=None, lines_error=None):
+        self.header = _header() if header is _UNSET else header
+        self.lines = _lines() if lines is _UNSET else lines
         self.header_error = header_error
         self.lines_error = lines_error
         self.header_calls = []
