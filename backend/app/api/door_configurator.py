@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 import logging
 import re
 
@@ -122,7 +122,10 @@ DOOR_SERIES = {
                 "thickness": "1 3/4\" (44.5mm)",
                 "rValue": 16.3,
                 "steel": "26-Gauge Pebble Embossed",
+                # Stocked sizes only — brochure / PN95 catalog, not cut-to-size.
+                # Source: docs/UPWARDOR_PORTAL_CONFIGURATION.md (Craft Series).
                 "availableWidths": [96, 108, 144, 192],  # 8', 9', 12', 16'
+                "availableHeights": [84, 96],  # 7' (3×28") or 8' (3×32")
                 "maxHeight": 96,  # 8'
                 "sectionHeights": [28, 32],
                 "minHeaderClearance": 23,
@@ -505,6 +508,114 @@ def validate_panel_combo(series: str, color: Optional[str], design: Optional[str
             raise ValueError(f"{s} doors are not available in design '{design}'. Available: {names}.")
 
 
+def format_ft_in(total_inches: int) -> str:
+    """Format inches as feet+inches, e.g. 96 -> 8'0\"."""
+    feet, rem = divmod(int(total_inches or 0), 12)
+    return f"{feet}'{rem}\""
+
+
+def format_ft_in_list(values) -> str:
+    """Natural-language list of sizes: 8'0", 9'0", 12'0", and 16'0"."""
+    formatted = [format_ft_in(v) for v in values or []]
+    if not formatted:
+        return ""
+    if len(formatted) == 1:
+        return formatted[0]
+    if len(formatted) == 2:
+        return f"{formatted[0]} and {formatted[1]}"
+    return ", ".join(formatted[:-1]) + f", and {formatted[-1]}"
+
+
+def find_door_series(door_series: str, door_type: Optional[str] = None) -> Optional[dict]:
+    """Look up a DOOR_SERIES catalog entry by id, optionally scoped by type."""
+    series_id = (door_series or "").upper()
+    if not series_id:
+        return None
+    if door_type:
+        for series in DOOR_SERIES.get(door_type, []):
+            if series["id"] == series_id:
+                return series
+    for series_list in DOOR_SERIES.values():
+        for series in series_list:
+            if series["id"] == series_id:
+                return series
+    return None
+
+
+def collect_dimension_validation(
+    door_type: Optional[str],
+    door_series: str,
+    door_width: int,
+    door_height: int,
+) -> Tuple[List[str], List[str]]:
+    """Return (errors, warnings) for series dimension constraints.
+
+    Discrete stocked lists (`availableWidths` / `availableHeights`) are hard
+    errors so Craft fails as soon as series+size are known, not later at
+    BC SKU lookup. Range limits (`maxWidth` / `maxHeight`) stay errors as
+    before. Series without a discrete list (Kanata, TX450, …) are unchanged:
+    any size under the max still passes.
+    """
+    errors: List[str] = []
+    warnings: List[str] = []
+
+    series = find_door_series(door_series, door_type)
+    if not series:
+        errors.append(f"Invalid door series: {door_series}")
+        return errors, warnings
+
+    specs = series.get("specs") or {}
+    name = series.get("name") or door_series
+    width = int(door_width or 0)
+    height = int(door_height or 0)
+
+    available_widths = specs.get("availableWidths")
+    if available_widths and width not in available_widths:
+        errors.append(
+            f"{name} is not available in width {format_ft_in(width)}. "
+            f"Available widths: {format_ft_in_list(available_widths)}."
+        )
+    elif "maxWidth" in specs and width > specs["maxWidth"]:
+        errors.append(
+            f"Door width {width}\" exceeds maximum {specs['maxWidth']}\" for {name}"
+        )
+
+    available_heights = specs.get("availableHeights")
+    if available_heights and height not in available_heights:
+        errors.append(
+            f"{name} is not available in height {format_ft_in(height)}. "
+            f"Available heights: {format_ft_in_list(available_heights)}."
+        )
+    elif "maxHeight" in specs and height > specs["maxHeight"]:
+        errors.append(
+            f"Door height {height}\" exceeds maximum {specs['maxHeight']}\" for {name}"
+        )
+
+    snap_warn = specs.get("snapWarningWidth")
+    if snap_warn and width > snap_warn:
+        warnings.append(
+            f"No {name} panel is stocked between {snap_warn}\" and 362\" wide — "
+            f"this door will be built on the 30'2\" panel (PN97-*-3002), oversized for the requested opening. "
+            f"Confirm this is intended before quoting."
+        )
+
+    return errors, warnings
+
+
+def validate_door_dimensions(
+    door_type: Optional[str],
+    door_series: str,
+    door_width: int,
+    door_height: int,
+) -> None:
+    """Raise ValueError if width/height isn't stocked for this series."""
+    errors, _ = collect_dimension_validation(
+        door_type, door_series, door_width, door_height
+    )
+    if errors:
+        raise ValueError(" ".join(errors))
+
+
 WINDOW_INSERTS_LONG = {
     # Long window inserts — fit SHXL/BCXL stamps or span 2 short stamps
     "STOCKTON": [
@@ -816,35 +927,9 @@ async def get_full_configuration():
 @router.post("/validate")
 async def validate_door_config(config: DoorConfigRequest):
     """Validate a door configuration"""
-    errors = []
-    warnings = []
-
-    # Get series specs
-    series_list = DOOR_SERIES.get(config.doorType, [])
-    series = next((s for s in series_list if s["id"] == config.doorSeries), None)
-
-    if not series:
-        errors.append(f"Invalid door series: {config.doorSeries}")
-    else:
-        specs = series.get("specs", {})
-
-        # Validate dimensions
-        if "maxWidth" in specs and config.doorWidth > specs["maxWidth"]:
-            errors.append(f"Door width {config.doorWidth}\" exceeds maximum {specs['maxWidth']}\" for {series['name']}")
-
-        if "maxHeight" in specs and config.doorHeight > specs["maxHeight"]:
-            errors.append(f"Door height {config.doorHeight}\" exceeds maximum {specs['maxHeight']}\" for {series['name']}")
-
-        if "availableWidths" in specs and config.doorWidth not in specs["availableWidths"]:
-            warnings.append(f"Non-standard width. Available widths: {specs['availableWidths']}")
-
-        snap_warn = specs.get("snapWarningWidth")
-        if snap_warn and config.doorWidth > snap_warn:
-            warnings.append(
-                f"No {series['name']} panel is stocked between {snap_warn}\" and 362\" wide — "
-                f"this door will be built on the 30'2\" panel (PN97-*-3002), oversized for the requested opening. "
-                f"Confirm this is intended before quoting."
-            )
+    errors, warnings = collect_dimension_validation(
+        config.doorType, config.doorSeries, config.doorWidth, config.doorHeight
+    )
 
     # Validate track radius for low headroom
     if config.trackRadius == "12":
@@ -1399,6 +1484,9 @@ def build_bc_quote_from_doors(
             try:
                 validate_panel_combo(door.doorSeries, door.panelColor,
                                      getattr(door, "panelDesign", None))
+                validate_door_dimensions(
+                    door.doorType, door.doorSeries, door.doorWidth, door.doorHeight
+                )
             except ValueError as ve:
                 raise HTTPException(status_code=400, detail=f"Door {door_index}: {ve}")
 
@@ -2214,10 +2302,15 @@ async def get_dimension_constraints(series_id: str):
             "sectionHeights": [18, 21, 24]
         },
         "CRAFT": {
-            "availableWidths": [96, 108, 144, 192],
-            "availableHeights": [84, 96],
-            "sectionHeights": [28, 32],
-            "minHeaderClearance": 23
+            # Keep in lockstep with DOOR_SERIES["residential"] CRAFT specs —
+            # discrete stocked sizes, not a max-width range like Kanata/TX.
+            **{
+                k: v for k, v in (find_door_series("CRAFT") or {}).get("specs", {}).items()
+                if k in (
+                    "availableWidths", "availableHeights", "maxHeight",
+                    "sectionHeights", "minHeaderClearance",
+                )
+            }
         },
         "AL976": {
             "minWidth": 60,

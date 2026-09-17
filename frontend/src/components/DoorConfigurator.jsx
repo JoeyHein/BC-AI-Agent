@@ -12,6 +12,11 @@ import {
   getCurrentPocketCount,
   buildPocketsForCount,
 } from '../utils/glassPockets'
+import {
+  lookupSeries,
+  getDimensionValidation,
+  collectDoorsDimensionErrors,
+} from '../utils/doorDimensions'
 
 const STEPS = [
   { id: 'type', title: 'Door Type', description: 'Select door category' },
@@ -261,11 +266,9 @@ function DoorConfigurator() {
       case 'series':
         return !!door.doorSeries
       case 'dimensions': {
-        const seriesSpecs = config?.doorSeries[door.doorType]?.find(s => s.id === door.doorSeries)?.specs || {}
-        const maxW = seriesSpecs.maxWidth || 288
-        const maxH = seriesSpecs.maxHeight || 384
-        return door.doorWidth > 0 && door.doorHeight > 0 && door.doorCount > 0
-          && door.doorWidth <= maxW && door.doorHeight <= maxH
+        const series = lookupSeries(config, door)
+        const { errors: dimErrors } = getDimensionValidation(series, door.doorWidth, door.doorHeight)
+        return door.doorWidth > 0 && door.doorHeight > 0 && door.doorCount > 0 && dimErrors.length === 0
       }
       case 'design':
         return !!door.panelColor && !!door.panelDesign
@@ -281,6 +284,12 @@ function DoorConfigurator() {
   }
 
   async function handleGenerateQuote(force = false) {
+    const dimErrors = collectDoorsDimensionErrors(doors, config)
+    if (dimErrors.length) {
+      setGenerateError(dimErrors.join(' '))
+      return
+    }
+
     const request = {
       forceGenerate: force === true,
       doors: doors.map(door => ({
@@ -772,15 +781,15 @@ function DimensionsStep({ door, onChange, series }) {
     if (inches > 0) onChange({ doorHeight: inches })
   }
 
-  // Dimension limit warnings
-  const maxWidth = specs.maxWidth || 288
-  const maxHeight = specs.maxHeight || 384
-  const widthExceeded = door.doorWidth > maxWidth
-  const heightExceeded = door.doorHeight > maxHeight
+  const { errors: dimErrors, widthInvalid, heightInvalid } = getDimensionValidation(
+    series, door.doorWidth, door.doorHeight
+  )
   const snapWarningWidth = specs.snapWarningWidth
-  const widthInSnapGap = snapWarningWidth && door.doorWidth > snapWarningWidth && !widthExceeded
+  const widthInSnapGap = snapWarningWidth && door.doorWidth > snapWarningWidth && !widthInvalid
+  const invalidInputClass = 'border-red-400 focus:ring-red-500 focus:border-red-500'
+  const validInputClass = 'border-gray-300 focus:ring-odc-500 focus:border-odc-500'
 
-  // Common door sizes
+  // Common door sizes — hide combinations this series does not stock (Craft).
   const commonSizes = [
     { width: 96, height: 84, label: unitMode === 'mm' ? "2438 x 2134" : "8' x 7'" },
     { width: 108, height: 84, label: unitMode === 'mm' ? "2743 x 2134" : "9' x 7'" },
@@ -790,7 +799,11 @@ function DimensionsStep({ door, onChange, series }) {
     { width: 108, height: 96, label: unitMode === 'mm' ? "2743 x 2438" : "9' x 8'" },
     { width: 144, height: 96, label: unitMode === 'mm' ? "3658 x 2438" : "12' x 8'" },
     { width: 192, height: 96, label: unitMode === 'mm' ? "4877 x 2438" : "16' x 8'" },
-  ]
+  ].filter((size) => {
+    if (specs.availableWidths?.length && !specs.availableWidths.includes(size.width)) return false
+    if (specs.availableHeights?.length && !specs.availableHeights.includes(size.height)) return false
+    return true
+  })
 
   return (
     <div className="space-y-6">
@@ -862,7 +875,7 @@ function DimensionsStep({ door, onChange, series }) {
                 }}
                 min={Math.floor((specs.minWidth || 60) / 12)}
                 max={Math.ceil((specs.maxWidth || 288) / 12)}
-                className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
+                className={`w-full border rounded-md shadow-sm px-3 py-2 ${widthInvalid ? invalidInputClass : validInputClass}`}
               />
               <p className="mt-1 text-xs text-gray-500">feet</p>
             </div>
@@ -877,7 +890,7 @@ function DimensionsStep({ door, onChange, series }) {
                 }}
                 min={0}
                 max={11}
-                className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
+                className={`w-full border rounded-md shadow-sm px-3 py-2 ${widthInvalid ? invalidInputClass : validInputClass}`}
               />
               <p className="mt-1 text-xs text-gray-500">inches</p>
             </div>
@@ -898,7 +911,7 @@ function DimensionsStep({ door, onChange, series }) {
                 }}
                 min={Math.floor((specs.minHeight || 72) / 12)}
                 max={Math.ceil((specs.maxHeight || 384) / 12)}
-                className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
+                className={`w-full border rounded-md shadow-sm px-3 py-2 ${heightInvalid ? invalidInputClass : validInputClass}`}
               />
               <p className="mt-1 text-xs text-gray-500">feet</p>
             </div>
@@ -913,7 +926,7 @@ function DimensionsStep({ door, onChange, series }) {
                 }}
                 min={0}
                 max={11}
-                className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
+                className={`w-full border rounded-md shadow-sm px-3 py-2 ${heightInvalid ? invalidInputClass : validInputClass}`}
               />
               <p className="mt-1 text-xs text-gray-500">inches</p>
             </div>
@@ -952,7 +965,7 @@ function DimensionsStep({ door, onChange, series }) {
             min={Math.round((specs.minWidth || 60) * 25.4)}
             max={Math.round((specs.maxWidth || 288) * 25.4)}
             step={1}
-            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
+            className={`w-full border rounded-md shadow-sm px-3 py-2 ${widthInvalid ? invalidInputClass : validInputClass}`}
           />
           <p className="mt-1 text-xs text-gray-400">= {Math.floor(door.doorWidth / 12)}' {door.doorWidth % 12}" ({door.doorWidth}" total)</p>
         </div>
@@ -965,7 +978,7 @@ function DimensionsStep({ door, onChange, series }) {
             min={Math.round((specs.minHeight || 72) * 25.4)}
             max={Math.round((specs.maxHeight || 384) * 25.4)}
             step={1}
-            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
+            className={`w-full border rounded-md shadow-sm px-3 py-2 ${heightInvalid ? invalidInputClass : validInputClass}`}
           />
           <p className="mt-1 text-xs text-gray-400">= {Math.floor(door.doorHeight / 12)}' {door.doorHeight % 12}" ({door.doorHeight}" total)</p>
         </div>
@@ -993,7 +1006,18 @@ function DimensionsStep({ door, onChange, series }) {
       )}
 
       {/* Constraints Info */}
-      {(specs.maxWidth || specs.maxHeight) && (
+      {(specs.availableWidths || specs.availableHeights) && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <p className="text-sm text-blue-700">
+            <strong>{series?.name}:</strong>
+            {specs.availableWidths && ` Available widths ${specs.availableWidths.map((w) => `${Math.floor(w / 12)}'`).join(', ')}`}
+            {specs.availableWidths && specs.availableHeights && ';'}
+            {specs.availableHeights && ` available heights ${specs.availableHeights.map((h) => `${Math.floor(h / 12)}'`).join(', ')}`}
+            {specs.sectionHeights && `. Section heights: ${specs.sectionHeights.join('", ')}"`}
+          </p>
+        </div>
+      )}
+      {(specs.maxWidth || specs.maxHeight) && !specs.availableWidths && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
           <p className="text-sm text-blue-700">
             <strong>{series?.name}:</strong>
@@ -1004,12 +1028,11 @@ function DimensionsStep({ door, onChange, series }) {
           </p>
         </div>
       )}
-      {(widthExceeded || heightExceeded) && (
+      {dimErrors.length > 0 && (
         <div className="bg-red-50 border border-red-300 rounded-lg p-3">
-          <p className="text-sm text-red-700 font-medium">
-            {widthExceeded && `Width exceeds ${series?.name || 'series'} maximum of ${Math.floor(maxWidth / 12)}'. `}
-            {heightExceeded && `Height exceeds ${series?.name || 'series'} maximum of ${Math.floor(maxHeight / 12)}'.`}
-          </p>
+          {dimErrors.map((msg) => (
+            <p key={msg} className="text-sm text-red-700 font-medium">{msg}</p>
+          ))}
         </div>
       )}
       {widthInSnapGap && (
@@ -3081,6 +3104,7 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
   const [showReviewPanel, setShowReviewPanel] = useState(false)
   const [freightConfig, setFreightConfig] = useState(null)
   const [downloadingPdf, setDownloadingPdf] = useState(false)
+  const dimensionErrors = collectDoorsDimensionErrors(doors, config)
 
   const handleDownloadPdf = async () => {
     const sq = quoteResult?.data?.bc_quote_number
@@ -3804,9 +3828,16 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
       )}
 
       {/* Generate Quote Button */}
+      {dimensionErrors.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+          {dimensionErrors.map((msg) => (
+            <p key={msg} className="text-sm text-red-700">{msg}</p>
+          ))}
+        </div>
+      )}
       <button
         onClick={onGenerateQuote}
-        disabled={isGenerating || !selectedCustomer}
+        disabled={isGenerating || !selectedCustomer || dimensionErrors.length > 0}
         className="w-full inline-flex justify-center items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-odc-600 hover:bg-odc-700 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {isGenerating ? (
@@ -3824,8 +3855,8 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
         )}
       </button>
 
-      {/* Generation failed — offer "Generate anyway" */}
-      {generateError && !isGenerating && (
+      {/* Generation failed — offer "Generate anyway" (not for invalid Craft sizes) */}
+      {generateError && !isGenerating && dimensionErrors.length === 0 && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 space-y-3">
           <div className="flex items-start">
             <svg className="h-5 w-5 text-red-400 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">

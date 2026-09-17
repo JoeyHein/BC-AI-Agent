@@ -14,6 +14,11 @@ import {
   getCurrentPocketCount,
   buildPocketsForCount,
 } from '../../utils/glassPockets'
+import {
+  lookupSeries,
+  getDimensionValidation,
+  collectDoorsDimensionErrors,
+} from '../../utils/doorDimensions'
 
 const STEPS = [
   { id: 'type', title: 'Door Type', description: 'Select door category' },
@@ -220,8 +225,11 @@ function QuoteBuilder() {
         return !!door.doorType && !!quoteName.trim()
       case 'series':
         return !!door.doorSeries
-      case 'dimensions':
-        return door.doorWidth > 0 && door.doorHeight > 0 && door.doorCount > 0
+      case 'dimensions': {
+        const series = lookupSeries(config, door)
+        const { errors: dimErrors } = getDimensionValidation(series, door.doorWidth, door.doorHeight)
+        return door.doorWidth > 0 && door.doorHeight > 0 && door.doorCount > 0 && dimErrors.length === 0
+      }
       case 'design':
         return !!door.panelColor && !!door.panelDesign
       case 'windows':
@@ -280,6 +288,12 @@ function QuoteBuilder() {
     }
     if (!deliveryType) {
       setErrors({ delivery: 'Please select Delivery or Pickup before requesting pricing' })
+      return
+    }
+
+    const dimErrors = collectDoorsDimensionErrors(doors, config)
+    if (dimErrors.length) {
+      setErrors({ pricing: dimErrors.join(' ') })
       return
     }
 
@@ -782,6 +796,9 @@ function DimensionsStep({ door, onChange, series }) {
   const [unitMode, setUnitMode] = useState('imperial')
   const [mmWidth, setMmWidth] = useState(() => Math.round(door.doorWidth * 25.4))
   const [mmHeight, setMmHeight] = useState(() => Math.round(door.doorHeight * 25.4))
+  const { errors: dimErrors, widthInvalid, heightInvalid } = getDimensionValidation(
+    series, door.doorWidth, door.doorHeight
+  )
 
   useEffect(() => {
     if (unitMode === 'imperial') {
@@ -802,7 +819,10 @@ function DimensionsStep({ door, onChange, series }) {
     if (inches > 0) onChange({ doorHeight: inches })
   }
 
-  // Common door sizes
+  const invalidInputClass = 'border-red-400 focus:ring-red-500 focus:border-red-500'
+  const validInputClass = 'border-gray-300 focus:ring-odc-500 focus:border-odc-500'
+
+  // Common door sizes — hide combinations this series does not stock (Craft).
   const commonSizes = [
     { width: 96, height: 84, label: unitMode === 'mm' ? "2438 x 2134" : "8' x 7'" },
     { width: 108, height: 84, label: unitMode === 'mm' ? "2743 x 2134" : "9' x 7'" },
@@ -812,7 +832,11 @@ function DimensionsStep({ door, onChange, series }) {
     { width: 108, height: 96, label: unitMode === 'mm' ? "2743 x 2438" : "9' x 8'" },
     { width: 144, height: 96, label: unitMode === 'mm' ? "3658 x 2438" : "12' x 8'" },
     { width: 192, height: 96, label: unitMode === 'mm' ? "4877 x 2438" : "16' x 8'" },
-  ]
+  ].filter((size) => {
+    if (specs.availableWidths?.length && !specs.availableWidths.includes(size.width)) return false
+    if (specs.availableHeights?.length && !specs.availableHeights.includes(size.height)) return false
+    return true
+  })
 
   return (
     <div className="space-y-6">
@@ -884,7 +908,7 @@ function DimensionsStep({ door, onChange, series }) {
                 }}
                 min={Math.floor((specs.minWidth || 60) / 12)}
                 max={Math.ceil((specs.maxWidth || 288) / 12)}
-                className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
+                className={`w-full border rounded-md shadow-sm px-3 py-2 ${widthInvalid ? invalidInputClass : validInputClass}`}
               />
               <p className="mt-1 text-xs text-gray-500">feet</p>
             </div>
@@ -899,7 +923,7 @@ function DimensionsStep({ door, onChange, series }) {
                 }}
                 min={0}
                 max={11}
-                className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
+                className={`w-full border rounded-md shadow-sm px-3 py-2 ${widthInvalid ? invalidInputClass : validInputClass}`}
               />
               <p className="mt-1 text-xs text-gray-500">inches</p>
             </div>
@@ -920,7 +944,7 @@ function DimensionsStep({ door, onChange, series }) {
                 }}
                 min={Math.floor((specs.minHeight || 72) / 12)}
                 max={Math.ceil((specs.maxHeight || 384) / 12)}
-                className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
+                className={`w-full border rounded-md shadow-sm px-3 py-2 ${heightInvalid ? invalidInputClass : validInputClass}`}
               />
               <p className="mt-1 text-xs text-gray-500">feet</p>
             </div>
@@ -935,7 +959,7 @@ function DimensionsStep({ door, onChange, series }) {
                 }}
                 min={0}
                 max={11}
-                className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
+                className={`w-full border rounded-md shadow-sm px-3 py-2 ${heightInvalid ? invalidInputClass : validInputClass}`}
               />
               <p className="mt-1 text-xs text-gray-500">inches</p>
             </div>
@@ -974,7 +998,7 @@ function DimensionsStep({ door, onChange, series }) {
             min={Math.round((specs.minWidth || 60) * 25.4)}
             max={Math.round((specs.maxWidth || 288) * 25.4)}
             step={1}
-            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
+            className={`w-full border rounded-md shadow-sm px-3 py-2 ${widthInvalid ? invalidInputClass : validInputClass}`}
           />
           <p className="mt-1 text-xs text-gray-400">= {Math.floor(door.doorWidth / 12)}' {door.doorWidth % 12}" ({door.doorWidth}" total)</p>
         </div>
@@ -987,7 +1011,7 @@ function DimensionsStep({ door, onChange, series }) {
             min={Math.round((specs.minHeight || 72) * 25.4)}
             max={Math.round((specs.maxHeight || 384) * 25.4)}
             step={1}
-            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-odc-500 focus:border-odc-500"
+            className={`w-full border rounded-md shadow-sm px-3 py-2 ${heightInvalid ? invalidInputClass : validInputClass}`}
           />
           <p className="mt-1 text-xs text-gray-400">= {Math.floor(door.doorHeight / 12)}' {door.doorHeight % 12}" ({door.doorHeight}" total)</p>
         </div>
@@ -1015,12 +1039,30 @@ function DimensionsStep({ door, onChange, series }) {
       )}
 
       {/* Constraints Info */}
-      {specs.maxWidth && (
+      {(specs.availableWidths || specs.availableHeights) && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <p className="text-sm text-odc-700">
+            <strong>{series?.name}:</strong>
+            {specs.availableWidths && ` Available widths ${specs.availableWidths.map((w) => `${Math.floor(w / 12)}'`).join(', ')}`}
+            {specs.availableWidths && specs.availableHeights && ';'}
+            {specs.availableHeights && ` available heights ${specs.availableHeights.map((h) => `${Math.floor(h / 12)}'`).join(', ')}`}
+            {specs.sectionHeights && `. Section heights: ${specs.sectionHeights.join('", ')}"`}
+          </p>
+        </div>
+      )}
+      {specs.maxWidth && !specs.availableWidths && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
           <p className="text-sm text-odc-700">
             <strong>{series?.name}:</strong> Max width {specs.maxWidth}" ({Math.floor(specs.maxWidth / 12)}'){unitMode === 'mm' && ` / ${Math.round(specs.maxWidth * 25.4)} mm`}
             {specs.sectionHeights && `, Section heights: ${specs.sectionHeights.join('", ')}`}
           </p>
+        </div>
+      )}
+      {dimErrors.length > 0 && (
+        <div className="bg-red-50 border border-red-300 rounded-lg p-3">
+          {dimErrors.map((msg) => (
+            <p key={msg} className="text-sm text-red-700 font-medium">{msg}</p>
+          ))}
         </div>
       )}
       {specs.snapWarningWidth && door.doorWidth > specs.snapWarningWidth && door.doorWidth <= specs.maxWidth && (
@@ -2967,6 +3009,8 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
 }
 
 function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deliveryType, onNameChange, onDescriptionChange, onPoNumberChange, onDeliveryTypeChange, onSave, isSaving, errors, isBCLinked, isHomeBuilder, pricingData, pricingLoading, onGetPricing, onConfirmSubmit, onUpdateDoor }) {
+  const dimensionErrors = collectDoorsDimensionErrors(doors, config)
+
   function getSeriesName(doorType, seriesId) {
     const series = config?.doorSeries?.[doorType]?.find(s => s.id === seriesId)
     return series?.name || seriesId
@@ -3254,6 +3298,13 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
       )}
 
       {/* Error Messages */}
+      {dimensionErrors.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-md p-3">
+          {dimensionErrors.map((msg) => (
+            <p key={msg} className="text-sm text-red-700">{msg}</p>
+          ))}
+        </div>
+      )}
       {errors.pricing && (
         <div className="bg-red-50 border border-red-200 rounded-md p-3">
           <p className="text-sm text-red-700">{errors.pricing}</p>
@@ -3282,7 +3333,7 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
         {isBCLinked && !pricingData && (
           <button
             onClick={onGetPricing}
-            disabled={pricingLoading || !quoteName.trim()}
+            disabled={pricingLoading || !quoteName.trim() || dimensionErrors.length > 0}
             className="w-full inline-flex justify-center items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {pricingLoading ? (
