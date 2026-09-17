@@ -25,6 +25,18 @@ BC_COMPANY_ID=        # BC Company ID (GUID)
 BC_COMPANY_NAME=      # BC Company Name (for reference)
 ```
 
+## Portal staff quote PDF (SQ number)
+
+Staff / CoS agents should **not** log into BC interactively to print a quote.
+Use the portal admin JWT + existing BC client-credentials app:
+
+```
+GET https://portal.opendc.ca/api/admin/quotes/by-number/SQ-003132/pdf
+Authorization: Bearer <staff admin access_token>
+```
+
+Full curl, auth, and filename notes: `docs/STAFF_QUOTE_PDF.md`.
+
 ## API Endpoints
 
 ### Base URLs

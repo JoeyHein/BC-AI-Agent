@@ -659,6 +659,12 @@ export const customersApi = {
 export const adminQuotesApi = {
   search: (params = {}) =>
     apiClient.get('/api/admin/quotes', { params }),
+
+  // BC sales-quote PDF by SQ number (SQ-003132) or BC GUID
+  downloadPdfByNumber: (sqNumber) =>
+    apiClient.get(`/api/admin/quotes/by-number/${encodeURIComponent(sqNumber)}/pdf`, {
+      responseType: 'blob',
+    }),
 };
 
 // Catalog Builder API (Admin)

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { doorConfigApi, settingsApi } from '../api/client'
+import { doorConfigApi, settingsApi, adminQuotesApi } from '../api/client'
 import apiClient from '../api/client'
 import DoorDrawings from './DoorDrawings'
 import DoorPreview from './DoorPreview'
@@ -3080,6 +3080,28 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
   const [showCalcs, setShowCalcs] = useState(true)
   const [showReviewPanel, setShowReviewPanel] = useState(false)
   const [freightConfig, setFreightConfig] = useState(null)
+  const [downloadingPdf, setDownloadingPdf] = useState(false)
+
+  const handleDownloadPdf = async () => {
+    const sq = quoteResult?.data?.bc_quote_number
+    if (!sq) return
+    setDownloadingPdf(true)
+    try {
+      const response = await adminQuotesApi.downloadPdfByNumber(sq)
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `Quote_${sq}.pdf`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      alert(err?.response?.data?.detail || 'Failed to download quote PDF')
+    } finally {
+      setDownloadingPdf(false)
+    }
+  }
 
   // Fetch freight config on mount for rate display
   useEffect(() => {
@@ -3916,6 +3938,16 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
               {/* Review Changes + Start New Quote */}
               {quoteResult.data.bc_quote_id && (
                 <div className="mt-3 pt-3 border-t border-green-200 flex flex-wrap gap-2">
+                  {quoteResult.data.bc_quote_number && (
+                    <button
+                      type="button"
+                      onClick={handleDownloadPdf}
+                      disabled={downloadingPdf}
+                      className="px-3 py-1.5 text-sm font-medium text-green-800 bg-white hover:bg-green-100 border border-green-300 rounded-md disabled:text-gray-400"
+                    >
+                      {downloadingPdf ? 'Downloading…' : 'Download PDF'}
+                    </button>
+                  )}
                   <button
                     onClick={() => setShowReviewPanel(!showReviewPanel)}
                     className="px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md"
