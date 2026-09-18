@@ -542,19 +542,62 @@ def find_door_series(door_series: str, door_type: Optional[str] = None) -> Optio
     return None
 
 
+# Absolute envelope for staff overrides / calculate-door. Catalog maxWidth /
+# maxHeight and Craft stocked lists stay hard errors for customers (strict=True)
+# and become warnings on the internal configurator (strict=False).
+ABSOLUTE_MIN_WIDTH_IN = 60    # 5'
+ABSOLUTE_MAX_WIDTH_IN = 576   # 48'
+ABSOLUTE_MIN_HEIGHT_IN = 60   # 5'
+ABSOLUTE_MAX_HEIGHT_IN = 480  # 40'
+
+
+def collect_absolute_dimension_errors(
+    width: int,
+    height: int,
+    *,
+    skip_zero: bool = True,
+) -> List[str]:
+    """Hard physical envelope — always errors, even when catalog limits are overridable.
+
+    `skip_zero=True` (configurator validation) ignores unset 0" fields so the
+    series/catalog messages stay primary. calculate-door passes skip_zero=False
+    so 0" is rejected as out of range.
+    """
+    errors: List[str] = []
+    check_width = not (skip_zero and not width)
+    check_height = not (skip_zero and not height)
+    if check_width and (width < ABSOLUTE_MIN_WIDTH_IN or width > ABSOLUTE_MAX_WIDTH_IN):
+        errors.append(
+            f"Door width must be between {ABSOLUTE_MIN_WIDTH_IN}\" and "
+            f"{ABSOLUTE_MAX_WIDTH_IN}\" (5' to 48')"
+        )
+    if check_height and (height < ABSOLUTE_MIN_HEIGHT_IN or height > ABSOLUTE_MAX_HEIGHT_IN):
+        errors.append(
+            f"Door height must be between {ABSOLUTE_MIN_HEIGHT_IN}\" and "
+            f"{ABSOLUTE_MAX_HEIGHT_IN}\" (5' to 40')"
+        )
+    return errors
+
+
 def collect_dimension_validation(
     door_type: Optional[str],
     door_series: str,
     door_width: int,
     door_height: int,
+    *,
+    strict: bool = True,
 ) -> Tuple[List[str], List[str]]:
     """Return (errors, warnings) for series dimension constraints.
 
-    Discrete stocked lists (`availableWidths` / `availableHeights`) are hard
-    errors so Craft fails as soon as series+size are known, not later at
-    BC SKU lookup. Range limits (`maxWidth` / `maxHeight`) stay errors as
-    before. Series without a discrete list (Kanata, TX450, …) are unchanged:
-    any size under the max still passes.
+    Discrete stocked lists (`availableWidths` / `availableHeights`) and range
+    limits (`maxWidth` / `maxHeight`) are hard errors when `strict=True`
+    (customer portals) so Craft fails as soon as series+size are known, not
+    later at BC SKU lookup. Staff generate-quote passes `strict=False` so those
+    catalog violations become warnings and custom/oversize quotes can proceed.
+    Series without a discrete list (Kanata, TX450, …) are unchanged when
+    under the catalog max: any size under the max still passes.
+
+    Absolute width/height envelope still errors in both modes.
     """
     errors: List[str] = []
     warnings: List[str] = []
@@ -568,26 +611,27 @@ def collect_dimension_validation(
     name = series.get("name") or door_series
     width = int(door_width or 0)
     height = int(door_height or 0)
+    catalog_bucket = errors if strict else warnings
 
     available_widths = specs.get("availableWidths")
     if available_widths and width not in available_widths:
-        errors.append(
+        catalog_bucket.append(
             f"{name} is not available in width {format_ft_in(width)}. "
             f"Available widths: {format_ft_in_list(available_widths)}."
         )
     elif "maxWidth" in specs and width > specs["maxWidth"]:
-        errors.append(
+        catalog_bucket.append(
             f"Door width {width}\" exceeds maximum {specs['maxWidth']}\" for {name}"
         )
 
     available_heights = specs.get("availableHeights")
     if available_heights and height not in available_heights:
-        errors.append(
+        catalog_bucket.append(
             f"{name} is not available in height {format_ft_in(height)}. "
             f"Available heights: {format_ft_in_list(available_heights)}."
         )
     elif "maxHeight" in specs and height > specs["maxHeight"]:
-        errors.append(
+        catalog_bucket.append(
             f"Door height {height}\" exceeds maximum {specs['maxHeight']}\" for {name}"
         )
 
@@ -599,6 +643,7 @@ def collect_dimension_validation(
             f"Confirm this is intended before quoting."
         )
 
+    errors.extend(collect_absolute_dimension_errors(width, height))
     return errors, warnings
 
 
@@ -607,10 +652,16 @@ def validate_door_dimensions(
     door_series: str,
     door_width: int,
     door_height: int,
+    *,
+    strict: bool = True,
 ) -> None:
-    """Raise ValueError if width/height isn't stocked for this series."""
+    """Raise ValueError if width/height isn't allowed for this series.
+
+    Customer paths keep `strict=True` (catalog limits are hard). Staff
+    generate-quote uses `strict=False` so catalog oversize is a warning.
+    """
     errors, _ = collect_dimension_validation(
-        door_type, door_series, door_width, door_height
+        door_type, door_series, door_width, door_height, strict=strict
     )
     if errors:
         raise ValueError(" ".join(errors))
@@ -800,7 +851,9 @@ class QuoteGenerationRequest(BaseModel):
     # "Generate anyway" — when a section/panel can't be resolved to a stocked BC
     # SKU (and no larger size exists), add it as a MANUAL ENTRY comment line
     # instead of aborting the whole quote. Does NOT bypass validate_panel_combo
-    # (unstocked color/stamp/series stays a hard block).
+    # (unstocked color/stamp/series stays a hard block). Catalog size limits are
+    # overridable on this staff endpoint via validate_door_dimensions(strict=False);
+    # forceGenerate is not required for oversize.
     forceGenerate: bool = False
 
 
@@ -1485,7 +1538,11 @@ def build_bc_quote_from_doors(
                 validate_panel_combo(door.doorSeries, door.panelColor,
                                      getattr(door, "panelDesign", None))
                 validate_door_dimensions(
-                    door.doorType, door.doorSeries, door.doorWidth, door.doorHeight
+                    door.doorType,
+                    door.doorSeries,
+                    door.doorWidth,
+                    door.doorHeight,
+                    strict=False,
                 )
             except ValueError as ve:
                 raise HTTPException(status_code=400, detail=f"Door {door_index}: {ve}")
@@ -2554,10 +2611,11 @@ async def calculate_door_specifications(request: DoorCalculationRequest, db: Ses
         width_inches = (request.widthFeet * 12) + request.widthInches
         height_inches = (request.heightFeet * 12) + request.heightInches
 
-        if width_inches < 60 or width_inches > 432:
-            raise HTTPException(status_code=400, detail="Door width must be between 60\" and 432\" (5' to 36')")
-        if height_inches < 60 or height_inches > 288:
-            raise HTTPException(status_code=400, detail="Door height must be between 60\" and 288\" (5' to 24')")
+        abs_errors = collect_absolute_dimension_errors(
+            width_inches, height_inches, skip_zero=False
+        )
+        if abs_errors:
+            raise HTTPException(status_code=400, detail=" ".join(abs_errors))
 
         # Load spring inventory from BC so we only select stocked springs
         spring_inventory = get_bc_spring_inventory()
