@@ -928,6 +928,39 @@ class BusinessCentralClient:
         )
         return self._paginate_v2(url, "open purchase orders")
 
+    def get_draft_purchase_orders_with_lines(self, company_id: Optional[str] = None
+                                              ) -> List[Dict[str, Any]]:
+        """Unsent POs only: api/v2.0 purchaseOrders with status Draft and
+        lines expanded. Source of truth for CoS draft-PO review — Open /
+        Released POs have already been sent to the vendor.
+
+        Same pagination as get_open_purchase_orders_with_lines (no $top).
+        Callers should still ignore any non-Draft row if BC's filter is
+        loose; the service layer re-checks status."""
+        cid = company_id or self.company_id
+        url = (
+            f"{self.base_url}/companies({cid})/purchaseOrders"
+            f"?$filter=status eq 'Draft'"
+            f"&$expand=purchaseOrderLines"
+        )
+        return self._paginate_v2(url, "draft purchase orders")
+
+    def get_purchase_order_by_number(self, po_number: str,
+                                      company_id: Optional[str] = None
+                                      ) -> Optional[Dict[str, Any]]:
+        """One purchase order by document number, lines expanded.
+        Returns None when BC has no matching PO (any status)."""
+        cid = company_id or self.company_id
+        safe = (po_number or "").replace("'", "''")
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/purchaseOrders"
+            f"?$filter=number eq '{safe}'"
+            f"&$expand=purchaseOrderLines",
+        )
+        rows = result.get("value", [])
+        return rows[0] if rows else None
+
     # ==================== Purchase Invoices ====================
     # Unlike salesOrders/purchaseOrders, this v2.0 entity is NOT restricted to
     # non-posted documents — it also returns posted invoices (status Open/Paid),

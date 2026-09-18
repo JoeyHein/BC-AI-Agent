@@ -29,6 +29,7 @@ from app.services.so_coverage_service import (
 )
 from app.services.so_master_crosscheck_service import so_master_crosscheck_service
 from app.integrations.bc.client import bc_client
+from app.services.draft_po_review_service import draft_po_review_service
 
 router = APIRouter(prefix="/api/admin/purchasing", tags=["purchasing"])
 logger = logging.getLogger(__name__)
@@ -377,6 +378,55 @@ async def so_po_links(
     """Per-sales-order purchase-order linkage (tool-created POs only)."""
     from app.services.po_so_link_service import po_so_link_service
     return {"links": po_so_link_service.links_by_so(db)}
+
+
+# ==================== Draft PO review (read-only, CoS) ====================
+
+@router.get("/draft-pos")
+async def list_draft_pos(
+    number: Optional[str] = Query(None, description="Filter to one PO number (e.g. PO-000962)"),
+    admin: User = Depends(get_current_admin),
+):
+    """Live BC Draft purchase orders with lines. Unsent POs only — source of
+    truth is purchaseOrders status=Draft, not the portal /purchasing UI."""
+    try:
+        return draft_po_review_service.list_drafts(number=number)
+    except Exception as e:
+        logger.error(f"Draft PO list failed: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Failed to load draft POs from BC: {e}")
+
+
+@router.get("/draft-pos/validate")
+async def validate_all_draft_pos(
+    admin: User = Depends(get_current_admin),
+):
+    """Validate every Draft PO against buy-complete / companion / leftover rules.
+    Read-only — does not rewrite, release, or email."""
+    try:
+        return draft_po_review_service.validate_all()
+    except Exception as e:
+        logger.error(f"Draft PO validate-all failed: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Failed to validate draft POs: {e}")
+
+
+@router.get("/draft-pos/{po_number}/validate")
+async def validate_one_draft_po(
+    po_number: str,
+    admin: User = Depends(get_current_admin),
+):
+    """Validate one Draft PO. 404 if BC has no such document; 422 if it is
+    not Draft (already released / sent)."""
+    try:
+        return draft_po_review_service.validate_one(po_number)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"{po_number} not found in BC")
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Draft PO validate {po_number} failed: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Failed to validate {po_number}: {e}")
 
 
 # ==================== Cut work orders (yay/nay approval) ====================
