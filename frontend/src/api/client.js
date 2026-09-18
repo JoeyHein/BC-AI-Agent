@@ -719,6 +719,17 @@ export const purchasingApi = {
   cutWorkOrderHistory: (params = {}) => apiClient.get('/api/admin/purchasing/cut-work-orders/history', { params }),
 };
 
+// AI invoice intake (AP) — bookkeeper review of mailbox → BC Draft invoices
+export const invoiceIntakeApi = {
+  list: (params = {}) => apiClient.get('/api/admin/invoices', { params }),
+  get: (id) => apiClient.get(`/api/admin/invoices/${id}`),
+  pipeline: () => apiClient.get('/api/admin/invoices/pipeline'),
+  runNow: () => apiClient.post('/api/admin/invoices/run'),
+  resolveVendor: (id, vendorNumber) =>
+    apiClient.post(`/api/admin/invoices/${id}/resolve-vendor`, { vendor_number: vendorNumber }),
+  markReviewed: (id) => apiClient.post(`/api/admin/invoices/${id}/mark-reviewed`),
+};
+
 // Install Referrals API (Admin)
 export const installReferralsAdminApi = {
   // List all install referrals (filterable by status)
