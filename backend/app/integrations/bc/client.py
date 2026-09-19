@@ -945,6 +945,12 @@ class BusinessCentralClient:
         )
         return self._paginate_v2(url, "draft purchase orders")
 
+    def get_purchase_order(self, po_id: str, company_id: Optional[str] = None
+                            ) -> Dict[str, Any]:
+        """Get a purchase order by system ID (GUID)."""
+        cid = company_id or self.company_id
+        return self._make_request("GET", f"companies({cid})/purchaseOrders({po_id})")
+
     def get_purchase_order_by_number(self, po_number: str,
                                       company_id: Optional[str] = None
                                       ) -> Optional[Dict[str, Any]]:
@@ -960,6 +966,45 @@ class BusinessCentralClient:
         )
         rows = result.get("value", [])
         return rows[0] if rows else None
+
+    def get_purchase_order_pdf(self, po_id: str, company_id: Optional[str] = None
+                                ) -> bytes:
+        """
+        Download the PDF for a purchase order using BC's built-in PDF generation.
+
+        Same two-step flow as get_quote_pdf:
+        1. GET .../purchaseOrders({id})/pdfDocument → metadata with mediaReadLink
+        2. GET that mediaReadLink URL → binary PDF bytes
+
+        Args:
+            po_id: The BC purchase order ID (GUID)
+            company_id: Optional company ID
+
+        Returns:
+            PDF file content as bytes
+        """
+        cid = company_id or self.company_id
+        endpoint = f"companies({cid})/purchaseOrders({po_id})/pdfDocument"
+
+        result = self._make_request("GET", endpoint)
+
+        doc = result.get("value", [result])[0] if result.get("value") else result
+        content_url = (
+            doc.get("content@odata.mediaReadLink")
+            or doc.get("pdfDocumentContent@odata.mediaReadLink")
+        )
+
+        if not content_url:
+            raise ValueError(f"No PDF mediaReadLink returned for purchase order {po_id}")
+
+        logger.info(f"Fetching purchase order PDF from: {content_url}")
+        pdf_bytes = self._fetch_raw_url(content_url)
+
+        if not pdf_bytes:
+            raise ValueError(f"Empty PDF content for purchase order {po_id}")
+
+        logger.info(f"Downloaded PDF for purchase order {po_id} ({len(pdf_bytes)} bytes)")
+        return pdf_bytes
 
     # ==================== Purchase Invoices ====================
     # Unlike salesOrders/purchaseOrders, this v2.0 entity is NOT restricted to
