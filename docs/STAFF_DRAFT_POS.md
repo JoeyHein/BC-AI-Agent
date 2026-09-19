@@ -71,6 +71,31 @@ Rules (same lists as `purchasing_demand_service` / `so_po_generation_service`):
 
 Issue `code`s: `missing_companion`, `companion_zero_qty`, `exploded_leftover`.
 
+### Download one PO PDF (by number)
+
+```
+GET /api/admin/purchasing/draft-pos/{po_number}/pdf
+```
+
+| | |
+|---|---|
+| `{po_number}` | `PO-000962` (any case), bare digits (`962` → `PO-000962`), or the BC purchase-order GUID |
+| Success | `200 application/pdf` with `Content-Disposition: attachment; filename="PO-000962.pdf"` |
+| Missing PO | `404` |
+| Bad identifier | `400` |
+| Not signed in / not admin | `401` / `403` |
+
+Lookup is always against **production** BC. Any status is allowed (Draft,
+Open, Released) — unlike `/validate`, this is not limited to unsent Drafts:
+
+1. `purchaseOrders?$filter=number eq 'PO-…'` (`BCClient.get_purchase_order_by_number`) — or `purchaseOrders({guid})` when a GUID is passed
+2. `purchaseOrders({guid})/pdfDocument` then `mediaReadLink` (`BCClient.get_purchase_order_pdf`)
+
+This is **read-only**. It does not release, email, send, or rewrite a PO.
+There is no bulk-PDF endpoint; CoS should loop this single-PO call (see
+curl below). This is BC's built-in `pdfDocument`, not the portal-rendered
+fpdf2 attachment from `POST /api/admin/purchasing/generate-po`.
+
 ## Example curl
 
 Login (staff portal user). Do not commit real passwords.
@@ -91,6 +116,20 @@ curl -fsS -H "Authorization: Bearer ${TOKEN}" \
 
 curl -fsS -H "Authorization: Bearer ${TOKEN}" \
   "$BASE/api/admin/purchasing/draft-pos/PO-000962/validate" | python3 -m json.tool
+
+PO=PO-000962
+curl -fsS -o "${PO}.pdf" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  "$BASE/api/admin/purchasing/draft-pos/${PO}/pdf"
+
+file "${PO}.pdf"   # should report PDF document
+
+# Bulk: no zip endpoint — loop the single-PO PDF call
+for PO in PO-000961 PO-000962 PO-000963; do
+  curl -fsS -o "${PO}.pdf" \
+    -H "Authorization: Bearer ${TOKEN}" \
+    "$BASE/api/admin/purchasing/draft-pos/${PO}/pdf"
+done
 ```
 
 If you already have a staff session token (portal `localStorage.authToken`):
@@ -98,10 +137,14 @@ If you already have a staff session token (portal `localStorage.authToken`):
 ```bash
 curl -fsS -H "Authorization: Bearer ${TOKEN}" \
   https://portal.opendc.ca/api/admin/purchasing/draft-pos
+
+curl -fsS -o PO-000962.pdf \
+  -H "Authorization: Bearer ${TOKEN}" \
+  https://portal.opendc.ca/api/admin/purchasing/draft-pos/PO-000962/pdf
 ```
 
 ## Related (do not use for CoS Draft-PO inventory)
 
 - `GET /api/admin/purchasing/requirements` — demand netted vs stock/open POs; not a Draft-PO list.
 - `GET /api/admin/purchasing/so-po-links` — tool-created POs only (`POAgentLog`); misses hand-keyed BC Drafts.
-- `POST /api/admin/purchasing/generate-po` / `auto-po/run` — writes Draft POs; not for review.
+- `POST /api/admin/purchasing/generate-po` / `auto-po/run` — writes Draft POs; not for review. The PDF it emails is a portal fpdf2 render, not BC `pdfDocument`.

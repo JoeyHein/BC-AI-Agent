@@ -37,6 +37,18 @@ Authorization: Bearer <staff admin access_token>
 
 Full curl, auth, and filename notes: `docs/STAFF_QUOTE_PDF.md`.
 
+## Portal staff purchase-order PDF (PO number)
+
+Staff / CoS agents should **not** log into BC interactively to print a PO.
+Use the portal admin JWT + existing BC client-credentials app:
+
+```
+GET https://portal.opendc.ca/api/admin/purchasing/draft-pos/PO-000962/pdf
+Authorization: Bearer <staff admin access_token>
+```
+
+Single-PO only; loop in curl for several POs. Full notes: `docs/STAFF_DRAFT_POS.md`.
+
 ## API Endpoints
 
 ### Base URLs
