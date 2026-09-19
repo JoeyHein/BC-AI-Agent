@@ -104,6 +104,16 @@ BC AI Agent exposes a small surface for Service.AI to call into:
 
 Auth: `X-Service-AI-Key` header. Each key is bound to a single `supplier_account_code` (e.g., the Elevated Doors BC customer number). Cross-key probes return 404 NOT_FOUND (never 403) — never confirm the existence of another tenant's account code.
 
+## Internal Quote Accuracy API (read-only)
+
+Authorized internal callers (Quote Accuracy assistant / Cursor) look up a production BC sales quote by document number:
+
+- `GET /api/internal/sales-quotes/{quote_number}` — header + paginated lines (items, comments/options, prices, discounts, tax, freight). Follows BC OData `@odata.nextLink`.
+- Auth: `X-API-Key` matching env `QUOTE_ACCURACY_API_KEY` (dedicated read-only key; do **not** reuse `INTEGRATIONS_API_KEY` or a supplier `X-Service-AI-Key`).
+- After deploy: generate a key, set `QUOTE_ACCURACY_API_KEY` in production `.env`, recreate the backend container. Unset = 503.
+
+See `docs/QUOTE_ACCURACY_API.md` for the contract, curl sample, and remaining credential steps.
+
 Observability: `RequestIdMiddleware` reads / echoes `X-Request-ID` so one id traces web → Service.AI → BC AI Agent → BC OData.
 
 Detailed reference: see `servicetitan-clone/docs/api/supplier-quote-bridge.md`.
