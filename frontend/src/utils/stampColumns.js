@@ -8,8 +8,8 @@
  *   17'–19'  → 5
  *   20'+     → 6
  *
- * Keep this table in lockstep with:
- *   widget/src/stampColumns.js
+ * Canonical JS table. The widget re-exports this file.
+ * Keep in lockstep with:
  *   backend/app/services/shop_drawings/framing.py  (_stamp_columns)
  */
 

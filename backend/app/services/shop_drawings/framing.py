@@ -476,8 +476,8 @@ def _lift_type_label(ctx) -> str:
 
 def _stamp_columns(width_inches: float, stamp_type: str, is_craft: bool,
                    panel_design: str) -> int:
-    """Mirror of getStampColumns() in DoorPreview.jsx — number of panel
-    stamps horizontally for the given width and panel design."""
+    """Mirror of frontend/src/utils/stampColumns.js getStampColumns() —
+    number of panel stamps horizontally for the given width and design."""
     width_feet = width_inches / 12
     # Long stamps (SHXL, BCXL): ~42" wide.
     # 16'2" (194") must stay at 4 rectangles; 5 starts at 17'0".

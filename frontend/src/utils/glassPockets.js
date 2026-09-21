@@ -1,7 +1,6 @@
 // Glass pocket (center stile) customization for AL976 and SWD aluminum doors.
-// Shared between admin DoorConfigurator and customer QuoteBuilder so both
-// enforce the same constraints and storage format. The widget has its own
-// copy at widget/src/utils/glassPockets.js (separate build tree).
+// Shared between admin DoorConfigurator, customer QuoteBuilder, and the
+// embeddable widget (widget re-exports this file).
 //
 // Storage format on door config: glassPocketsPerSection = {0: n, 1: n, ...}
 // or null when every section matches the width-based default.
