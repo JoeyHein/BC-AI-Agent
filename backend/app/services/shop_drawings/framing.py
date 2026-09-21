@@ -479,12 +479,13 @@ def _stamp_columns(width_inches: float, stamp_type: str, is_craft: bool,
     """Mirror of getStampColumns() in DoorPreview.jsx — number of panel
     stamps horizontally for the given width and panel design."""
     width_feet = width_inches / 12
-    # Long stamps (SHXL, BCXL): ~42" wide
+    # Long stamps (SHXL, BCXL): ~42" wide.
+    # 16'2" (194") must stay at 4 rectangles; 5 starts at 17'0".
     if width_feet < 12:
         long_cols = 2
     elif width_feet <= 14:
         long_cols = 3
-    elif width_feet <= 16:
+    elif width_feet < 17:
         long_cols = 4
     elif width_feet <= 19:
         long_cols = 5

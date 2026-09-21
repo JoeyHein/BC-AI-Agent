@@ -5,53 +5,13 @@
  */
 
 import { useMemo } from 'react'
+import { getStampColumns } from '../utils/stampColumns'
 
 // Panel design patterns as SVG patterns
 // Based on Upwardor stamp layouts
 
-// Calculate number of stamp columns based on door width (in inches)
-// Stamps are 42" long x 14" tall
-// Based on Upwardor Long Raised Panel layout specifications
 const STAMP_WIDTH = 42 // inches
 const STAMP_HEIGHT = 14 // inches
-
-const getStampColumns = (widthInches, stampType = 'long', isCraft = false, panelDesign = '') => {
-  const widthFeet = widthInches / 12
-
-  // Long stamps (SHXL, BCXL): ~42" wide
-  // Breakpoints align with standard door widths: 8,9,10,10'2" → 2; 12,14 → 3; 16 → 4; 18 → 5; 20+ → 6
-  let longCols
-  if (widthFeet < 12) longCols = 2       // up to 10'2"
-  else if (widthFeet <= 14) longCols = 3  // 12'-14'
-  else if (widthFeet <= 16) longCols = 4  // 16'
-  else if (widthFeet <= 19) longCols = 5  // 18'
-  else longCols = 6
-
-  if (isCraft) return longCols
-  if (stampType === 'long') return longCols
-
-  // Short stamps vary by design — SH and BC have different stamp widths
-  // SH (Sheridan): ~21" stamps
-  // BC (Bronte Creek): always in pairs of 2 stamps
-  const isBronte = panelDesign === 'BC'
-  if (isBronte) {
-    // BC stamps always come in pairs: 2 pairs=4, 3 pairs=6, 4 pairs=8
-    if (widthFeet <= 10) return 4   // 2 pairs
-    if (widthFeet <= 14) return 6   // 3 pairs
-    if (widthFeet <= 16) return 8   // 4 pairs
-    if (widthFeet <= 18) return 8   // 4 pairs
-    return 10                       // 5 pairs
-  } else {
-    // SH (default for standard stamps)
-    if (widthFeet <= 9) return 4
-    if (widthFeet <= 10) return 5
-    if (widthFeet <= 12) return 6
-    if (widthFeet <= 14) return 7
-    if (widthFeet <= 16) return 8
-    if (widthFeet <= 18) return 9
-    return 10
-  }
-}
 
 const PANEL_PATTERNS = {
   // Sheridan XL - Long raised panel (1 row, columns based on width)

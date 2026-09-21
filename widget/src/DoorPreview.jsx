@@ -5,48 +5,10 @@
  */
 
 import { useMemo } from 'react'
+import { getStampColumns } from './stampColumns'
 
-// Stamp dimensions (inches)
 const STAMP_WIDTH = 42
 const STAMP_HEIGHT = 14
-
-const getStampColumns = (widthInches, stampType = 'long', isCraft = false, panelDesign = '') => {
-  const widthFeet = widthInches / 12
-
-  // Long stamps (SHXL, BCXL): ~42" wide
-  // Breakpoints: 8,9,10,10'2" → 2; 12,14 → 3; 16 → 4; 18 → 5; 20+ → 6
-  let longCols
-  if (widthFeet < 12) longCols = 2
-  else if (widthFeet <= 14) longCols = 3
-  else if (widthFeet <= 16) longCols = 4
-  else if (widthFeet <= 19) longCols = 5
-  else longCols = 6
-
-  if (isCraft) return longCols
-  if (stampType === 'long') return longCols
-
-  // Short stamps vary by design — SH and BC have different stamp widths
-  // SH (Sheridan): ~21" stamps
-  // BC (Bronte Creek): always in pairs of 2 stamps
-  const isBronte = panelDesign === 'BC'
-  if (isBronte) {
-    // BC stamps always come in pairs: 2 pairs=4, 3 pairs=6, 4 pairs=8
-    if (widthFeet <= 10) return 4   // 2 pairs
-    if (widthFeet <= 14) return 6   // 3 pairs
-    if (widthFeet <= 16) return 8   // 4 pairs
-    if (widthFeet <= 18) return 8   // 4 pairs
-    return 10                       // 5 pairs
-  } else {
-    // SH: 8'=4, 9'=4, 10'=5, 12'=6, 14'=7, 16'=8, 18'=9
-    if (widthFeet <= 9) return 4
-    if (widthFeet <= 10) return 5
-    if (widthFeet <= 12) return 6
-    if (widthFeet <= 14) return 7
-    if (widthFeet <= 16) return 8
-    if (widthFeet <= 18) return 9
-    return 10
-  }
-}
 
 const PANEL_PATTERNS = {
   SHXL: { type: 'raised', rows: 1, cols: 'dynamic', stampType: 'long', style: 'sheridan', description: 'Sheridan XL - Long Raised Panel' },
