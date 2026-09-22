@@ -1009,6 +1009,40 @@ class SpringCalculatorService:
             "ippt": round(ippt, 2),
         }
 
+    def duplex_lengths(
+        self,
+        outer_wire: float,
+        inner_wire: float,
+        positions: int,
+        ippt: float,
+        outer_coil: float = 6.0,
+        inner_coil: float = 3.75,
+    ) -> Optional[Tuple[float, float, float]]:
+        """Outer/inner manufactured lengths for a duplex assembly.
+
+        A duplex nest (6" outer + 3.75" inner) occupies ONE shaft position
+        and the two springs share the same active-coil count. Combined
+        divider is the SSSpring / Canimex conversion model:
+
+            active = (positions × (outer_div + inner_div)) / IPPT
+            length = active + dead_coil_factor(wire, coil)
+
+        ``positions`` is SSSpring's "springs on door" — 3 LH + 3 RH duplex
+        assemblies = 6. Returns (outer_length, inner_length, combined_divider)
+        or None if a divider is missing / IPPT is zero.
+        """
+        if ippt <= 0 or positions <= 0:
+            return None
+        outer_div = self.get_divider(outer_wire, outer_coil)
+        inner_div = self.get_divider(inner_wire, inner_coil)
+        if not outer_div or not inner_div:
+            return None
+        combined = outer_div + inner_div
+        needed_active = (positions * combined) / ippt
+        outer_length = round(needed_active + self.get_dead_coil_factor(outer_wire, outer_coil), 2)
+        inner_length = round(needed_active + self.get_dead_coil_factor(inner_wire, inner_coil), 2)
+        return outer_length, inner_length, combined
+
     def _calculate_duplex_conversions(
         self,
         ippt: float,

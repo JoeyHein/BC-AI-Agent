@@ -858,6 +858,7 @@ class DoorCalculatorService:
                     inner_wire_diameter=springs.inner_wire_diameter,
                     inner_length=springs.inner_length,
                     duplex_pairs=springs.duplex_pairs,
+                    is_tandem=springs.is_tandem,
                 )
 
         # 7. Calculate shaft (spring count drives shaft count)
@@ -1187,9 +1188,19 @@ class DoorCalculatorService:
                     cable_length=cable_length
                 )
 
-        # If no drum found, return largest available for lift type
+        # Over-height / overweight fallback: prefer the drum that can
+        # actually carry the weight. Sorting by max_height alone picked
+        # D6375-164 (393" / 1600 lb) over D800-120 (384" / 2200 lb) on a
+        # 20' high-lift door a couple hundred pounds over 2200, which then
+        # forced extra turns and a tandem spring pack. Height-capable
+        # drums win first; among those, highest max_weight.
         if eligible_drums:
-            largest = max(eligible_drums, key=lambda x: x[1]["max_height"])
+            height_ok = [
+                (name, spec) for name, spec in eligible_drums
+                if eff_h <= spec["max_height"]
+            ]
+            pool = height_ok or eligible_drums
+            largest = max(pool, key=lambda x: (x[1]["max_weight"], x[1]["max_height"]))
             if lift_type == "high":
                 cable_length = eff_h + 8
             elif lift_type == "vertical":
@@ -1348,6 +1359,9 @@ class DoorCalculatorService:
             return None
 
         MAX_PRACTICAL_LENGTH = 75.0
+        # Quote-time warning fires at 60". Prefer a pack that stays under
+        # that line when one exists (e.g. 3-pair ~38" duplex over 2-pair 61").
+        MAX_WARN_LENGTH = 60.0
 
         def sort_key(r):
             # Legacy fallback ordering, used only when NOTHING is priced. It must
@@ -1360,6 +1374,7 @@ class DoorCalculatorService:
             is_reasonable = r.length <= MAX_PRACTICAL_LENGTH
             return (
                 0 if is_reasonable else 1,
+                0 if r.length <= MAX_WARN_LENGTH else 1,
                 r.spring_quantity,
                 r.coil_diameter,     # smaller coil = cheaper (cost-free proxy)
                 r.length,
@@ -1382,6 +1397,7 @@ class DoorCalculatorService:
                 priced,
                 key=lambda pair: (
                     0 if pair[1].length <= MAX_PRACTICAL_LENGTH else 1,
+                    0 if pair[1].length <= MAX_WARN_LENGTH else 1,
                     pair[0],                      # assembly cost — the objective
                     pair[1].spring_quantity,      # tiebreak: fewer springs = less labour
                     pair[1].length,               # tiebreak: shorter = easier handling
@@ -1560,6 +1576,7 @@ class DoorCalculatorService:
         # Pick best candidate
         # Max practical spring length is 75" for handling/shipping
         MAX_PRACTICAL_LENGTH = 75.0
+        MAX_WARN_LENGTH = 60.0
 
         # Single springs over 36" are impractical — penalize in sorting
         MAX_SINGLE_SPRING_LENGTH = 36.0
@@ -1577,6 +1594,7 @@ class DoorCalculatorService:
 
             return (
                 0 if is_reasonable else 1,  # reasonable length first
+                0 if c.length <= MAX_WARN_LENGTH else 1,
                 c.quantity,                  # fewer springs always preferred
                 c.coil_diameter,             # smaller coil (cheaper)
                 c.length,                    # shorter spring
@@ -1593,6 +1611,7 @@ class DoorCalculatorService:
                 priced,
                 key=lambda pair: (
                     0 if pair[1].length <= MAX_PRACTICAL_LENGTH else 1,
+                    0 if pair[1].length <= MAX_WARN_LENGTH else 1,
                     pair[0],              # assembly cost
                     pair[1].quantity,     # fewer springs = less labour
                     pair[1].length,       # shorter = easier handling
@@ -1626,27 +1645,27 @@ class DoorCalculatorService:
         """
         Calculate duplex spring configuration.
 
-        Duplex springs have a 6" outer coil with a 3-3/4" inner coil nested inside.
-        Each shaft position provides torque from both springs combined.
+        Duplex springs nest a 6" outer around a 3-3/4" inner at each shaft
+        position. ``duplex_pairs`` is the count per hand (3 pairs = 3 LH +
+        3 RH = 6 positions). That matches SSSpring's "springs on door" and
+        the parts path (``lh_count = rh_count = duplex_pairs``).
 
-        For N duplex pairs: total_springs = N * 2 (N outer + N inner).
-        The load is distributed across all springs equally using Canimex formulas.
+        Length uses the combined divider (same as SSSpring / Canimex
+        conversion), not two independent single-spring calculations:
 
-        Args:
-            door_weight: Door weight in lbs
-            height_inches: Door height in inches
-            target_cycles: Target cycle life
-            track_radius: Track radius (12 or 15)
-            inventory: Stocked coil/wire inventory. Pass None to consider
-                every wire size in the Canimex divider table that pairs
-                with 6"/3.75" coils — used by the unfiltered fallback when
-                no inventory was supplied.
-            duplex_pairs: Number of duplex pairs (2/3/4/5 — totals 4/6/8/10)
+            active = (positions × (outer_div + inner_div)) / IPPT
 
-        Returns:
-            SpringSelection with duplex fields populated, or None
+        MIP is per position: outer_cap + inner_cap must cover
+        (IPPT × turns) / positions. Treating outer and inner as 2N
+        independent springs used to reject 3-pair packs, escalate to
+        5-pair 70"+ outers, and emit a tandem shaft on high-lift doors
+        that SSSpring solves as a single-shaft duplex.
+
+        High-lift drums stay on one shaft — tandem is standard-lift only.
         """
-        total_qty = duplex_pairs * 2  # outer + inner at each position
+        # 3 pairs → 3 LH + 3 RH duplex assemblies (SSSpring "springs on door: 6")
+        positions = duplex_pairs * 2
+        total_qty = positions
 
         if inventory is not None:
             outer_wires = inventory.get("6.0", [])
@@ -1667,148 +1686,147 @@ class DoorCalculatorService:
             if not outer_wires or not inner_wires:
                 return None
 
-        # Calculate what each spring needs to handle
-        drum_data = spring_calculator.get_drum_data(height_inches, track_radius, drum_model, high_lift_inches=high_lift_inches)
+        drum_data = spring_calculator.get_drum_data(
+            height_inches, track_radius, drum_model, high_lift_inches=high_lift_inches
+        )
         if drum_data is None:
             return None
 
         drum_model, multiplier, turns = drum_data
         ippt = spring_calculator.calculate_ippt(multiplier, door_weight)
-        mip_per_spring = spring_calculator.calculate_mip(ippt, turns, total_qty)
+        mip_per_position = spring_calculator.calculate_mip(ippt, turns, positions)
 
-        # Find viable outer springs (6" coil)
-        outer_candidates = []
-        for wire_str in outer_wires:
-            try:
-                wire_diam = normalize_wire_diameter(float(wire_str))
-            except (ValueError, TypeError):
-                continue
-            mip_cap = spring_calculator.get_mip_capacity(wire_diam, target_cycles)
-            if mip_cap and mip_cap >= mip_per_spring:
-                result = spring_calculator.calculate_spring(
-                    door_weight=door_weight,
-                    door_height=height_inches,
-                    track_radius=track_radius,
-                    spring_qty=total_qty,
-                    wire_diameter=wire_diam,
-                    coil_diameter=6.0,
-                    target_cycles=target_cycles,
-                    drum_model=drum_model,
-                    high_lift_inches=high_lift_inches,
-                )
-                if result:
-                    outer_candidates.append(result)
+        def _parse_wires(raw):
+            parsed = []
+            for wire_str in raw:
+                try:
+                    parsed.append(normalize_wire_diameter(float(wire_str)))
+                except (ValueError, TypeError):
+                    continue
+            return parsed
 
-        # Find viable inner springs (3.75" coil)
-        inner_candidates = []
-        for wire_str in inner_wires:
-            try:
-                wire_diam = normalize_wire_diameter(float(wire_str))
-            except (ValueError, TypeError):
-                continue
-            mip_cap = spring_calculator.get_mip_capacity(wire_diam, target_cycles)
-            if mip_cap and mip_cap >= mip_per_spring:
-                result = spring_calculator.calculate_spring(
-                    door_weight=door_weight,
-                    door_height=height_inches,
-                    track_radius=track_radius,
-                    spring_qty=total_qty,
-                    wire_diameter=wire_diam,
-                    coil_diameter=3.75,
-                    target_cycles=target_cycles,
-                    drum_model=drum_model,
-                    high_lift_inches=high_lift_inches,
-                )
-                if result:
-                    inner_candidates.append(result)
-
-        if not outer_candidates or not inner_candidates:
+        outer_wire_sizes = _parse_wires(outer_wires)
+        inner_wire_sizes = _parse_wires(inner_wires)
+        if not outer_wire_sizes or not inner_wire_sizes:
             return None
 
-        # Cones require the inner spring to assemble inside the outer with at
-        # least 1" of clearance, so inner.length must be <= outer.length - 1.
-        # Pick the (outer, inner) pair that minimises outer length while
-        # honoring the constraint, with the longest feasible inner (closest
-        # to outer - 1") as a balance preference.
-        CONE_CLEARANCE_IN = 1.0
         valid_pairs = []
-        for outer in outer_candidates:
-            feasible_inners = [
-                i for i in inner_candidates if i.length <= outer.length - CONE_CLEARANCE_IN
-            ]
-            if not feasible_inners:
+        for outer_wire in outer_wire_sizes:
+            outer_mip = spring_calculator.get_mip_capacity(outer_wire, target_cycles)
+            if not outer_mip:
                 continue
-            best_inner_for_outer = max(feasible_inners, key=lambda i: i.length)
-            valid_pairs.append((outer, best_inner_for_outer))
+            for inner_wire in inner_wire_sizes:
+                if inner_wire >= outer_wire:
+                    continue
+                inner_mip = spring_calculator.get_mip_capacity(inner_wire, target_cycles)
+                if not inner_mip:
+                    continue
+                if outer_mip + inner_mip < mip_per_position:
+                    continue
+                lengths = spring_calculator.duplex_lengths(
+                    outer_wire, inner_wire, positions, ippt
+                )
+                if lengths is None:
+                    continue
+                outer_len, inner_len, _combined = lengths
+                # Same active coils; inner DCF is slightly smaller so inner
+                # is a hair shorter. Reject an inner that would stick out.
+                if outer_len < 8 or inner_len < 6:
+                    continue
+                if inner_len > outer_len:
+                    continue
+                valid_pairs.append((outer_wire, outer_len, inner_wire, inner_len))
 
         if not valid_pairs:
             logger.info(
-                f"Duplex {duplex_pairs} pairs: no (outer, inner) pair with "
-                f"inner ≥ 1\" shorter than outer at {target_cycles} cycles"
+                f"Duplex {duplex_pairs} pairs ({positions} positions): no "
+                f"combined-MIP (outer+inner) ≥ {mip_per_position:.0f} at "
+                f"{target_cycles} cycles"
             )
             return None
 
-        # Shaft-fit filter. A duplex pair occupies ONE shaft position
-        # (inner nested inside outer), so spring footprint per shaft is
-        # pairs_on_shaft × outer_length. Try single shaft first; if no
-        # pair fits, retry with tandem (two shafts coupled together,
-        # each carrying ceil(pairs/2)). Drums stay on the primary shaft.
-        # Shaft length = door width + 18" of overhang.
+        # A duplex nest occupies ONE shaft slot sized by the outer. Fit
+        # against the quoted position count (LH + RH). High-lift never
+        # gets a second (tandem) shaft — add pairs / shorten springs
+        # instead. Standard-lift may still split across a tandem shaft.
         shaft_length = width_inches + 18
-        is_tandem = False
-        feasible_pairs = []
-        for outer, inner in valid_pairs:
-            installed_outer = outer.length + (outer.turns or 0) * (outer.wire_diameter or 0)
-            if _duplex_fits_on_shaft(shaft_length, installed_outer, duplex_pairs, drum_model):
-                feasible_pairs.append((outer, inner))
+        is_high_lift = high_lift_inches > 0 or (
+            drum_model in getattr(spring_calculator, "hl_drum_multipliers", {})
+        )
 
-        if not feasible_pairs:
-            # Try tandem: split the pair count across two coupled shafts.
-            # Primary holds drums + ceil(pairs/2) spring positions; tandem
-            # holds the rest. Both must fit on their respective shafts.
-            pairs_primary = (duplex_pairs + 1) // 2  # ceil
-            pairs_tandem = duplex_pairs // 2          # floor
-            for outer, inner in valid_pairs:
-                installed_outer = outer.length + (outer.turns or 0) * (outer.wire_diameter or 0)
-                primary_ok = _duplex_fits_on_shaft(shaft_length, installed_outer, pairs_primary, drum_model)
-                tandem_ok = _duplex_fits_on_shaft(shaft_length, installed_outer, pairs_tandem, drum_model=None) if pairs_tandem > 0 else True
+        def _fits(outer_wire, outer_len, slots, model):
+            installed_outer = outer_len + turns * outer_wire
+            return _duplex_fits_on_shaft(shaft_length, installed_outer, slots, model)
+
+        feasible_pairs = [
+            combo for combo in valid_pairs
+            if _fits(combo[0], combo[1], positions, drum_model)
+        ]
+        is_tandem = False
+
+        if not feasible_pairs and not is_high_lift:
+            slots_primary = (positions + 1) // 2
+            slots_tandem = positions // 2
+            for combo in valid_pairs:
+                primary_ok = _fits(combo[0], combo[1], slots_primary, drum_model)
+                tandem_ok = (
+                    _fits(combo[0], combo[1], slots_tandem, None)
+                    if slots_tandem > 0 else True
+                )
                 if primary_ok and tandem_ok:
-                    feasible_pairs.append((outer, inner))
+                    feasible_pairs.append(combo)
             if feasible_pairs:
                 is_tandem = True
                 logger.info(
                     f"Duplex {duplex_pairs} pairs: single shaft full → using tandem "
-                    f"({pairs_primary} primary + {pairs_tandem} tandem)"
+                    f"({slots_primary} primary + {slots_tandem} tandem)"
                 )
-            else:
-                logger.info(
-                    f"Duplex {duplex_pairs} pairs: no pair fits even on tandem shaft"
-                )
-                return None
 
-        best_outer, best_inner = min(feasible_pairs, key=lambda p: p[0].length)
+        if not feasible_pairs:
+            logger.info(
+                f"Duplex {duplex_pairs} pairs: no combined-divider pack fits "
+                f"{'a single high-lift shaft' if is_high_lift else 'even on tandem'}"
+            )
+            return None
+
+        def _as_selection(outer_wire, outer_len, inner_wire, inner_len) -> SpringSelection:
+            return SpringSelection(
+                quantity=total_qty,
+                coil_diameter=6.0,
+                wire_diameter=outer_wire,
+                length=outer_len,
+                cycles=target_cycles,
+                turns=turns,
+                galvanized=False,
+                is_duplex=True,
+                inner_coil_diameter=3.75,
+                inner_wire_diameter=inner_wire,
+                inner_length=inner_len,
+                duplex_pairs=duplex_pairs,
+                is_tandem=is_tandem,
+            )
+
+        selections = [_as_selection(*combo) for combo in feasible_pairs]
+
+        def _score(sel: SpringSelection):
+            cost = self._cost_of(sel)
+            return (
+                0 if cost is not None else 1,
+                cost if cost is not None else 0.0,
+                sel.wire_diameter,
+                sel.inner_wire_diameter or 0.0,
+                sel.length,
+            )
+
+        best = min(selections, key=_score)
 
         logger.info(
-            f"Duplex option: {duplex_pairs} pairs ({total_qty} total springs) - "
-            f"Outer: {best_outer.wire_diameter}\" wire x 6\" coil ({best_outer.length}\") / "
-            f"Inner: {best_inner.wire_diameter}\" wire x 3.75\" coil ({best_inner.length}\")"
+            f"Duplex option: {duplex_pairs} pairs ({positions} positions) - "
+            f"Outer: {best.wire_diameter}\" wire x 6\" coil ({best.length}\") / "
+            f"Inner: {best.inner_wire_diameter}\" wire x 3.75\" coil ({best.inner_length}\")"
+            f"{' TANDEM' if is_tandem else ''}"
         )
-
-        return SpringSelection(
-            quantity=total_qty,
-            coil_diameter=best_outer.coil_diameter,
-            wire_diameter=best_outer.wire_diameter,
-            length=best_outer.length,
-            cycles=target_cycles,
-            turns=turns,
-            galvanized=False,
-            is_duplex=True,
-            inner_coil_diameter=best_inner.coil_diameter,
-            inner_wire_diameter=best_inner.wire_diameter,
-            inner_length=best_inner.length,
-            duplex_pairs=duplex_pairs,
-            is_tandem=is_tandem,
-        )
+        return best
 
     def _calculate_shaft(
         self,
