@@ -6,8 +6,10 @@ vendor mapping management, daily-report trigger, and per-vendor PO generation.
 """
 
 import logging
-from typing import List, Optional
+import re
+from typing import List, Optional, Tuple
 
+import requests
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -29,11 +31,17 @@ from app.services.so_coverage_service import (
 )
 from app.services.so_master_crosscheck_service import so_master_crosscheck_service
 from app.integrations.bc.client import bc_client
+from app.services.draft_po_review_service import draft_po_review_service
 
 router = APIRouter(prefix="/api/admin/purchasing", tags=["purchasing"])
 logger = logging.getLogger(__name__)
 
 security = HTTPBearer()
+
+# Same GUID shape staff quote PDF uses for BC document ids.
+_GUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 
 def get_db():
@@ -377,6 +385,172 @@ async def so_po_links(
     """Per-sales-order purchase-order linkage (tool-created POs only)."""
     from app.services.po_so_link_service import po_so_link_service
     return {"links": po_so_link_service.links_by_so(db)}
+
+
+# ==================== Draft PO review (read-only, CoS) ====================
+
+@router.get("/draft-pos")
+async def list_draft_pos(
+    number: Optional[str] = Query(None, description="Filter to one PO number (e.g. PO-000962)"),
+    admin: User = Depends(get_current_admin),
+):
+    """Live BC Draft purchase orders with lines. Unsent POs only — source of
+    truth is purchaseOrders status=Draft, not the portal /purchasing UI."""
+    try:
+        return draft_po_review_service.list_drafts(number=number)
+    except Exception as e:
+        logger.error(f"Draft PO list failed: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Failed to load draft POs from BC: {e}")
+
+
+@router.get("/draft-pos/validate")
+async def validate_all_draft_pos(
+    admin: User = Depends(get_current_admin),
+):
+    """Validate every Draft PO against buy-complete / companion / leftover rules.
+    Read-only — does not rewrite, release, or email."""
+    try:
+        return draft_po_review_service.validate_all()
+    except Exception as e:
+        logger.error(f"Draft PO validate-all failed: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Failed to validate draft POs: {e}")
+
+
+@router.get("/draft-pos/{po_number}/validate")
+async def validate_one_draft_po(
+    po_number: str,
+    admin: User = Depends(get_current_admin),
+):
+    """Validate one Draft PO. 404 if BC has no such document; 422 if it is
+    not Draft (already released / sent)."""
+    try:
+        return draft_po_review_service.validate_one(po_number)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"{po_number} not found in BC")
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Draft PO validate {po_number} failed: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Failed to validate {po_number}: {e}")
+
+
+def normalize_staff_po_ref(raw: str) -> Tuple[str, str]:
+    """Parse a staff-supplied PO identifier into ('guid', uuid) or ('number', 'PO-XXXXXX').
+
+    Accepts:
+      - BC system GUID
+      - PO-000962 (any case)
+      - 962 / 000962 → PO-000962
+    """
+    value = (raw or "").strip()
+    if not value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="PO number is required",
+        )
+    if _GUID_RE.fullmatch(value):
+        return ("guid", value)
+    upper = value.upper()
+    if upper.startswith("PO-"):
+        rest = upper[3:]
+        if not rest or not rest.replace("-", "").isalnum():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid PO number '{raw}'",
+            )
+        return ("number", upper)
+    try:
+        return ("number", f"PO-{int(value):06d}")
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid PO number '{raw}'",
+        )
+
+
+def _lookup_bc_purchase_order(kind: str, value: str) -> dict:
+    """Resolve a purchase order from BC by number or GUID (any status)."""
+    try:
+        if kind == "guid":
+            po = bc_client.get_purchase_order(value)
+        else:
+            po = bc_client.get_purchase_order_by_number(value)
+    except requests.HTTPError as e:
+        bc_status = getattr(e.response, "status_code", None)
+        if bc_status == 404:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Purchase order {value} not found in Business Central",
+            ) from e
+        logger.error(f"BC lookup failed for purchase order {value}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to look up purchase order in Business Central: {e}",
+        ) from e
+
+    if not po:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Purchase order {value} not found in Business Central",
+        )
+    return po
+
+
+@router.get("/draft-pos/{po_number}/pdf")
+def download_po_pdf_by_number(
+    po_number: str,
+    admin: User = Depends(get_current_admin),
+):
+    """Staff: download the BC purchase-order PDF by PO number or GUID.
+
+    Looks up the PO in Business Central (`number eq 'PO-…'` or by GUID),
+    then streams `BCClient.get_purchase_order_pdf(guid)` as `PO-XXXXXX.pdf`.
+
+    Any status is allowed (Draft, Open, Released) — unlike /validate, this
+    is not limited to unsent Drafts. Read-only: does not release, email,
+    or rewrite the PO.
+    """
+    kind, value = normalize_staff_po_ref(po_number)
+    po = _lookup_bc_purchase_order(kind, value)
+    logger.info(
+        "Admin %s downloading BC purchase-order PDF %s (%s)",
+        getattr(admin, "email", "?"),
+        value,
+        kind,
+    )
+    po_guid = po.get("id")
+    if not po_guid:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Business Central returned purchase order {value} without an id",
+        )
+
+    try:
+        pdf_bytes = bc_client.get_purchase_order_pdf(po_guid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to download PDF for purchase order {value}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to download PDF from BC: {e}",
+        ) from e
+
+    if not pdf_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Empty PDF content for purchase order {value}",
+        )
+
+    po_no = po.get("number") or value
+    filename = f"{po_no}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ==================== Cut work orders (yay/nay approval) ====================

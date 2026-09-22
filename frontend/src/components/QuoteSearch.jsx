@@ -11,9 +11,22 @@ function statusBadge(q) {
   return { text: 'Draft', cls: 'bg-yellow-100 text-yellow-800' }
 }
 
+async function downloadQuotePdf(sqNumber) {
+  const response = await adminQuotesApi.downloadPdfByNumber(sqNumber)
+  const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.setAttribute('download', `Quote_${sqNumber}.pdf`)
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
+
 function QuoteSearch() {
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
+  const [downloadingPdf, setDownloadingPdf] = useState({})
 
   useEffect(() => {
     const t = setTimeout(() => setSearch(searchInput.trim()), 250)
@@ -29,6 +42,18 @@ function QuoteSearch() {
   })
 
   const list = quotes || []
+
+  const handleDownloadPdf = async (sqNumber) => {
+    if (!sqNumber) return
+    setDownloadingPdf((prev) => ({ ...prev, [sqNumber]: true }))
+    try {
+      await downloadQuotePdf(sqNumber)
+    } catch (err) {
+      alert(err?.response?.data?.detail || 'Failed to download quote PDF')
+    } finally {
+      setDownloadingPdf((prev) => ({ ...prev, [sqNumber]: false }))
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -83,15 +108,17 @@ function QuoteSearch() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">PDF</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {list.map((q) => {
                   const b = statusBadge(q)
+                  const sq = q.bc_quote_number
                   return (
                     <tr key={q.id} className="hover:bg-gray-50">
                       <td className="px-6 py-3 text-sm font-mono text-gray-700">
-                        {q.bc_quote_number || <span className="text-gray-400">—</span>}
+                        {sq || <span className="text-gray-400">—</span>}
                       </td>
                       <td className="px-6 py-3 text-sm text-gray-900">
                         {q.name || <span className="text-gray-400">(untitled)</span>}
@@ -112,6 +139,20 @@ function QuoteSearch() {
                       </td>
                       <td className="px-6 py-3 text-sm text-gray-500">
                         {q.created_at ? formatDate(q.created_at) : '—'}
+                      </td>
+                      <td className="px-6 py-3 text-right">
+                        {sq ? (
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadPdf(sq)}
+                            disabled={!!downloadingPdf[sq]}
+                            className="text-sm font-medium text-odc-600 hover:text-odc-800 disabled:text-gray-400"
+                          >
+                            {downloadingPdf[sq] ? 'Downloading…' : 'Download PDF'}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
+                        )}
                       </td>
                     </tr>
                   )

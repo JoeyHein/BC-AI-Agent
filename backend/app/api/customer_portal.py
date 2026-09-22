@@ -692,6 +692,8 @@ def _format_door_description(door: dict) -> str:
 
 def _validate_doors_config(config_data: dict) -> List[dict]:
     """Validate and extract doors from config_data. Raises HTTPException on failure."""
+    from app.api.door_configurator import collect_dimension_validation
+
     doors = config_data.get("doors", [])
     if not doors:
         raise HTTPException(
@@ -710,6 +712,17 @@ def _validate_doors_config(config_data: dict) -> List[dict]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Door {i + 1} is missing required fields: {', '.join(missing)}"
+            )
+        dim_errors, _ = collect_dimension_validation(
+            door.get("doorType"),
+            door.get("doorSeries"),
+            door.get("doorWidth"),
+            door.get("doorHeight"),
+        )
+        if dim_errors:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Door {i + 1}: {' '.join(dim_errors)}"
             )
     return doors
 
