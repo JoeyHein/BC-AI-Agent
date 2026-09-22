@@ -1,57 +1,16 @@
 /**
- * DoorPreview Component
- * Renders a visual preview of the door configuration in real-time
- * Shows panel layout, colors, window placement, and design patterns
+ * DoorPreview — canonical SVG door renderer for the dealer portal and the
+ * embeddable widget. Widget re-exports this file; do not fork a second copy.
  */
 
-import { useMemo } from 'react'
+import { useMemo, useId } from 'react'
+import { getStampColumns } from '../utils/stampColumns'
 
 // Panel design patterns as SVG patterns
 // Based on Upwardor stamp layouts
 
-// Calculate number of stamp columns based on door width (in inches)
-// Stamps are 42" long x 14" tall
-// Based on Upwardor Long Raised Panel layout specifications
 const STAMP_WIDTH = 42 // inches
 const STAMP_HEIGHT = 14 // inches
-
-const getStampColumns = (widthInches, stampType = 'long', isCraft = false, panelDesign = '') => {
-  const widthFeet = widthInches / 12
-
-  // Long stamps (SHXL, BCXL): ~42" wide
-  // Breakpoints align with standard door widths: 8,9,10,10'2" → 2; 12,14 → 3; 16 → 4; 18 → 5; 20+ → 6
-  let longCols
-  if (widthFeet < 12) longCols = 2       // up to 10'2"
-  else if (widthFeet <= 14) longCols = 3  // 12'-14'
-  else if (widthFeet <= 16) longCols = 4  // 16'
-  else if (widthFeet <= 19) longCols = 5  // 18'
-  else longCols = 6
-
-  if (isCraft) return longCols
-  if (stampType === 'long') return longCols
-
-  // Short stamps vary by design — SH and BC have different stamp widths
-  // SH (Sheridan): ~21" stamps
-  // BC (Bronte Creek): always in pairs of 2 stamps
-  const isBronte = panelDesign === 'BC'
-  if (isBronte) {
-    // BC stamps always come in pairs: 2 pairs=4, 3 pairs=6, 4 pairs=8
-    if (widthFeet <= 10) return 4   // 2 pairs
-    if (widthFeet <= 14) return 6   // 3 pairs
-    if (widthFeet <= 16) return 8   // 4 pairs
-    if (widthFeet <= 18) return 8   // 4 pairs
-    return 10                       // 5 pairs
-  } else {
-    // SH (default for standard stamps)
-    if (widthFeet <= 9) return 4
-    if (widthFeet <= 10) return 5
-    if (widthFeet <= 12) return 6
-    if (widthFeet <= 14) return 7
-    if (widthFeet <= 16) return 8
-    if (widthFeet <= 18) return 9
-    return 10
-  }
-}
 
 const PANEL_PATTERNS = {
   // Sheridan XL - Long raised panel (1 row, columns based on width)
@@ -135,7 +94,9 @@ const COLOR_MAP = {
   // Solid colors (RAL)
   WHITE: '#E2E2E2',           // measured from catalogue (matte finish reads darker than RAL 9003)
   BRIGHT_WHITE: '#F4F4F4',    // RAL 9003
+  ALMOND: '#DCCBB3',          // catalogue alias used by the widget
   BLACK: '#282828',           // RAL 9004 Signal Black
+  ONYX_BLACK: '#1a1a1a',      // darker catalogue black / widget alias
   NEW_BROWN: '#4C4842',       // RAL 7022 Umbra Grey
   HAZELWOOD: '#756F61',       // RAL 7006 Beige Grey (solid, not woodgrain)
   BRONZE: '#6C6961',          // RAL 7039 Quartz Grey
@@ -147,6 +108,7 @@ const COLOR_MAP = {
   WALNUT: '#673D27',          // measured from catalogue
   ENGLISH_CHESTNUT: '#7F583F',    // measured from catalogue
   FRENCH_OAK: '#D6B880',          // honey-gold base, warm brown grain
+  CANYON: '#8B6F47',              // widget / older catalogue alias
   // Aluminum finishes
   CLEAR_ANODIZED: '#C0C0C0',
   BLACK_ANODIZED: '#1a1a1a',
@@ -240,6 +202,7 @@ function DoorPreview({
   doorSeries = '',  // 'CRAFT' for 3-panel doors
   showDimensions = true,
   scale = 1,
+  maxWidth = 400,  // preview CSS width; widget thumbnails pass a smaller cap
   interactive = false,  // Enable click-to-place window mode
   onStampClick = null,  // Callback when stamp is clicked (section, col)
   onSectionClick = null,  // Legacy: Callback when section is clicked
@@ -250,11 +213,12 @@ function DoorPreview({
   glassPocketsPerSection = null,  // Per-section glass pocket overrides: { 0: 4, 1: 3, ... } or null for defaults
 }) {
   const isCommercial = doorType === 'commercial'
-  // Calculate display dimensions (max 400px width for preview)
-  const maxDisplayWidth = 400 * scale
+  const maxDisplayWidth = maxWidth * scale
   const aspectRatio = height / width
-  const displayWidth = Math.min(maxDisplayWidth, 400)
+  const displayWidth = Math.min(maxDisplayWidth, maxWidth)
   const displayHeight = displayWidth * aspectRatio
+  // Unique SVG paint-server ids so multiple previews on one page don't collide
+  const instanceId = useId().replace(/[^a-zA-Z0-9_-]/g, '')
 
   // Helper to check if a specific stamp position has a window
   const hasWindowAtPosition = (section, col) => {
@@ -304,8 +268,8 @@ function DoorPreview({
 
   // Get colors
   const doorColor = COLOR_MAP[color] || COLOR_MAP.WHITE
-  const surfaceFill = isWoodgrain(color) ? 'url(#woodgrainPattern)' : doorColor
-  const isDark = ['BLACK', 'WALNUT', 'IRON_ORE', 'NEW_BROWN', 'ENGLISH_CHESTNUT'].includes(color)
+  const surfaceFill = isWoodgrain(color) ? `url(#woodgrainPattern-${instanceId})` : doorColor
+  const isDark = ['BLACK', 'ONYX_BLACK', 'WALNUT', 'IRON_ORE', 'NEW_BROWN', 'ENGLISH_CHESTNUT'].includes(color)
   const lineColor = isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.2)'
   const shadowColor = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.15)'
 
@@ -323,11 +287,33 @@ function DoorPreview({
 
     const windows = []
     for (let col = 0; col < cols; col++) {
+      const x = padding + gapX + col * (cellW + gapX)
       if (hasWindowAtPosition(absoluteSection, col)) {
-        const x = padding + gapX + col * (cellW + gapX)
         windows.push(
-          <g key={`window-overlay-${sectionIndex}-${col}`}>
+          <g key={`window-overlay-${sectionIndex}-${col}`}
+            style={interactive ? { cursor: 'pointer' } : {}}
+            onClick={interactive && onStampClick ? () => onStampClick(absoluteSection, col) : undefined}
+            onMouseEnter={interactive && onStampHover ? () => onStampHover(absoluteSection, col) : undefined}
+            onMouseLeave={interactive && onStampHover ? () => onStampHover(null) : undefined}
+          >
             {renderStampWindow(x, y, cellW, cellH, col)}
+          </g>
+        )
+      } else if (interactive) {
+        const isHovered = highlightStamp &&
+          highlightStamp.section === absoluteSection &&
+          highlightStamp.col === col
+        windows.push(
+          <g key={`interactive-overlay-${sectionIndex}-${col}`}
+            style={{ cursor: 'pointer' }}
+            onClick={onStampClick ? () => onStampClick(absoluteSection, col) : undefined}
+            onMouseEnter={onStampHover ? () => onStampHover(absoluteSection, col) : undefined}
+            onMouseLeave={onStampHover ? () => onStampHover(null) : undefined}
+          >
+            <rect x={x} y={y} width={cellW} height={cellH}
+              fill={isHovered ? 'rgba(201, 169, 110, 0.2)' : 'transparent'}
+              stroke={isHovered ? 'rgba(201, 169, 110, 0.8)' : 'none'}
+              strokeWidth="2" strokeDasharray="4,2" rx="2" />
           </g>
         )
       }
@@ -407,7 +393,7 @@ function DoorPreview({
     // Overlay residential windows on top for ribbed/horizontal_ribbed/flush
     if (pattern.type !== 'raised' && pattern.type !== 'carriage') {
       const windowOverlays = renderWindowOverlays(sectionY + padding, panelWidth, panelHeight, padding, sectionIndex)
-      if (windowOverlays.length > 0) {
+      if (windowOverlays.length > 0 || interactive) {
         return <>{baseElements}{windowOverlays}</>
       }
     }
@@ -844,7 +830,7 @@ function DoorPreview({
         y={windowY}
         width={windowWidth}
         height={windowHeight}
-        fill="url(#glassReflection)"
+        fill={`url(#glassReflection-${instanceId})`}
         opacity="0.28"
       />
     )
@@ -876,7 +862,7 @@ function DoorPreview({
           y={windowY + 3}
           width={windowWidth * 0.25}
           height={windowHeight * 0.35}
-          fill="url(#glassReflection)"
+          fill={`url(#glassReflection-${instanceId})`}
           opacity="0.3"
         />
       )
@@ -979,7 +965,7 @@ function DoorPreview({
         y={windowY + 3}
         width={windowWidth * 0.25}
         height={windowHeight * 0.35}
-        fill="url(#glassReflection)"
+        fill={`url(#glassReflection-${instanceId})`}
         opacity="0.3"
       />
     )
@@ -1432,7 +1418,7 @@ function DoorPreview({
           <rect key={`craft-win-refl-${i}`}
             x={wx + 3} y={wy + 3}
             width={windowW * 0.18} height={windowH * 0.22}
-            fill="url(#glassReflection)" opacity="0.3" />
+            fill={`url(#glassReflection-${instanceId})`} opacity="0.3" />
         )
       }
       return elements
@@ -1685,7 +1671,7 @@ function DoorPreview({
         y={windowY + 5}
         width={windowWidth * 0.3}
         height={windowHeight * 0.4}
-        fill="url(#glassReflection)"
+        fill={`url(#glassReflection-${instanceId})`}
         opacity="0.3"
       />
     )
@@ -1750,7 +1736,7 @@ function DoorPreview({
   })
 
   return (
-    <div className="door-preview" style={{ display: 'inline-block' }}>
+    <div className="door-preview odc-door-preview" style={{ display: 'inline-block' }}>
       <svg
         width={displayWidth + (showDimensions ? 50 : 0)}
         height={displayHeight + (showDimensions ? 45 : 0)}
@@ -1758,18 +1744,18 @@ function DoorPreview({
       >
         <defs>
           {/* Glass reflection gradient */}
-          <linearGradient id="glassReflection" x1="0%" y1="0%" x2="100%" y2="100%">
+          <linearGradient id={`glassReflection-${instanceId}`} x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stopColor="white" stopOpacity="0.6" />
             <stop offset="100%" stopColor="white" stopOpacity="0" />
           </linearGradient>
 
           {/* Door shadow */}
-          <filter id="doorShadow" x="-20%" y="-20%" width="140%" height="140%">
+          <filter id={`doorShadow-${instanceId}`} x="-20%" y="-20%" width="140%" height="140%">
             <feDropShadow dx="3" dy="3" stdDeviation="4" floodOpacity="0.3"/>
           </filter>
 
           {/* Metallic sheen - vertical gradient overlay for steel/black finishes */}
-          <linearGradient id="metallicSheen" x1="0%" y1="0%" x2="0%" y2="100%">
+          <linearGradient id={`metallicSheen-${instanceId}`} x1="0%" y1="0%" x2="0%" y2="100%">
             <stop offset="0%" stopColor="white" stopOpacity="0.12" />
             <stop offset="35%" stopColor="white" stopOpacity="0.02" />
             <stop offset="65%" stopColor="black" stopOpacity="0.02" />
@@ -1782,7 +1768,7 @@ function DoorPreview({
             if (color === 'WALNUT') {
               // Walnut: very dense, tight flowing grain. Many narrow streaks close together.
               return (
-                <pattern id="woodgrainPattern" patternUnits="userSpaceOnUse" width="480" height="100">
+                <pattern id={`woodgrainPattern-${instanceId}`} patternUnits="userSpaceOnUse" width="480" height="100">
                   <rect width="480" height="100" fill={g.base} />
                   <path d="M0,3 Q100,2 200,4 T400,3 T480,4" stroke={g.dark} strokeWidth="0.9" fill="none" opacity="0.85" />
                   <path d="M0,7 Q140,6 280,8 T480,7" stroke={g.dark} strokeWidth="0.4" fill="none" opacity="0.55" />
@@ -1824,7 +1810,7 @@ function DoorPreview({
             } else if (color === 'ENGLISH_CHESTNUT') {
               // English Chestnut: bold, dramatic sweeping arches. Wider spacing, thicker prominent streaks.
               return (
-                <pattern id="woodgrainPattern" patternUnits="userSpaceOnUse" width="480" height="140">
+                <pattern id={`woodgrainPattern-${instanceId}`} patternUnits="userSpaceOnUse" width="480" height="140">
                   <rect width="480" height="140" fill={g.base} />
                   {/* Bold primary grain — wider cathedral curves */}
                   <path d="M0,8 Q120,3 240,10 T480,6" stroke={g.dark} strokeWidth="1.4" fill="none" opacity="0.95" />
@@ -1860,7 +1846,7 @@ function DoorPreview({
               // Layers: tonal banding, cathedral grain bands, latewood streaks, earlywood highlights,
               // dense pore dashes (oak's signature), and quarter-sawn ray flecks.
               return (
-                <pattern id="woodgrainPattern" patternUnits="userSpaceOnUse" width="480" height="120">
+                <pattern id={`woodgrainPattern-${instanceId}`} patternUnits="userSpaceOnUse" width="480" height="120">
                   <rect width="480" height="120" fill={g.base} />
                   {/* Subtle tonal banding — breaks up flat fill, hints at heart/sap variation */}
                   <rect x="0" y="0" width="480" height="22" fill={g.light} opacity="0.08" />
@@ -1956,7 +1942,7 @@ function DoorPreview({
           fill={surfaceFill}
           stroke="#333"
           strokeWidth="2"
-          filter="url(#doorShadow)"
+          filter={`url(#doorShadow-${instanceId})`}
         />
         {/* Metallic sheen overlay - only for steel/black/aluminum finishes */}
         {hasMetallicSheen(color) && (
@@ -1965,7 +1951,7 @@ function DoorPreview({
             y="0"
             width={displayWidth}
             height={displayHeight}
-            fill="url(#metallicSheen)"
+            fill={`url(#metallicSheen-${instanceId})`}
             pointerEvents="none"
           />
         )}
