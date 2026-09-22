@@ -110,7 +110,17 @@ _GL12_MAX_SHEETS = 6
 # ordered quantity — matched by keyword in the BC item Description since
 # their part numbers don't share a clean prefix (astragal/retainer/top-seal
 # item numbers are scattered among weatherstrip's PL10-xx203-00 pattern).
-_ALWAYS_FULL_QTY_KEYWORDS = ("ASTRAGAL", "RETAINER", "TOP SEAL")
+#
+# "HARDWARE BOX" (HK10-*, residential) added 2026-09-22 — Joey, reviewing
+# PO-000985/986 (SO-001317/SO-001318): "the hardware boxes for these
+# residential ones would be the HK10s... it should be the same hardware box
+# that's on the sales order." Same root cause: BC showed a few units on
+# hand (9 vs. 1 needed; 5 vs. 1 needed) for a box that's actually cut/built
+# to that door's exact width and height, not generic stock. Deliberately
+# scoped to the "HARDWARE BOX" description text only — the commercial
+# HK02/03/13/32 kits already on _BUY_COMPLETE_PREFIXES say "HARDWARE KIT"
+# and aren't part of this ask.
+_ALWAYS_FULL_QTY_KEYWORDS = ("ASTRAGAL", "RETAINER", "TOP SEAL", "HARDWARE BOX")
 
 
 def _always_full_qty(description: str) -> bool:

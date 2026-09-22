@@ -283,15 +283,20 @@ class TestNetting:
         "BOTTOM RETAINER, 1 3/4\" RESI RIGID BLACK 10'-0\" (BOTTOM)",
         "TOP/BOTTOM RETAINER, 1 3/4\" (TOP)",
         "TOP SEAL RUBBER (FS-1864 Die # 206)",
+        "HARDWARE BOX, 2R 8'-10' X 8', STANDARD, 4S3HW, 4 SECTIONS",
     ])
-    def test_astragal_retainer_topseal_always_full_qty_despite_stock(self, monkeypatch, desc):
+    def test_astragal_retainer_topseal_hwbox_always_full_qty_despite_stock(self, monkeypatch, desc):
         """Joey, 2026-09-16: "we must include the astragal, the retainer,
         and the top seal as well" whenever panels are on the PO — confirmed
         live on SO-001301/etc. that BC's large on-hand/other-PO quantities
         for these bulk coil items (13,050" astragal on hand vs. 240" needed)
-        were excluding all of them from every PO. Unlike every other item
-        this module nets against stock, these three always go on at the
-        SO's full ordered quantity."""
+        were excluding all of them from every PO. "HARDWARE BOX" (HK10-*
+        residential boxes) added 2026-09-22 — Joey, reviewing PO-985/986:
+        "the hardware boxes for these residential ones would be the HK10s
+        ... it should be the same hardware box that's on the sales order" —
+        same root cause, a box cut to that door's exact size isn't generic
+        stock either. Unlike every other item this module nets against
+        stock, these always go on at the SO's full ordered quantity."""
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
               "salesOrderLines": [_line("PL10-SEAL-01", 240)]}
         cards = [_card("PL10-SEAL-01", on_hand=13050, on_po=1860, on_so=240, desc=desc)]
@@ -304,8 +309,8 @@ class TestNetting:
         assert plan["included"][0]["quantity"] == 240
 
     def test_weatherstrip_is_not_swept_up_by_the_always_full_qty_override(self, monkeypatch):
-        """Only astragal/retainer/top-seal get the override — an ordinary
-        stocked item (weatherstrip, hardware, anything else) still nets
+        """Only astragal/retainer/top-seal/hardware-box get the override —
+        an ordinary stocked item (weatherstrip, anything else) still nets
         against stock normally."""
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
               "salesOrderLines": [_line("PL10-08203-00", 4)]}
@@ -316,6 +321,21 @@ class TestNetting:
         plan = svc.compute_netted_po_lines("SO-TEST")
         assert plan["included"] == []
         assert [r["item_no"] for r in plan["excluded_in_stock"]] == ["PL10-08203-00"]
+
+    def test_commercial_hardware_kit_is_not_swept_up_by_hardware_box_override(self, monkeypatch):
+        """The commercial HK02/03/13/32 kits say "HARDWARE KIT" (already
+        buy-complete, but still netted against stock like anything else) —
+        the "HARDWARE BOX" keyword must not also match "HARDWARE KIT" and
+        accidentally bypass stock netting for those too."""
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
+              "salesOrderLines": [_line("HK02-14120-RC", 1)]}
+        cards = [_card("HK02-14120-RC", on_hand=1, on_po=0, on_so=1, replen="Prod. Order", bom="HK-BOM",
+                        desc="HARDWARE KIT, STD LIFT 2\", 11'3\"-14'2\" X 10'3\"-12'2\", SEC")]
+        _setup(monkeypatch, so, cards, {"HK02-14120-RC": {"unitCost": 200.0, "baseUnitOfMeasureCode": "EA"}})
+
+        plan = svc.compute_netted_po_lines("SO-TEST")
+        assert plan["included"] == []
+        assert [r["item_no"] for r in plan["excluded_in_stock"]] == ["HK02-14120-RC"]
 
     def test_gl12_shortfall_rounds_up_to_full_sheets(self, monkeypatch):
         """GL12 polycarbonate only comes in 4' x {12',16',20',24'} sheets
