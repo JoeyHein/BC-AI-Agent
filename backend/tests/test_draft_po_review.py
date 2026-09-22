@@ -175,7 +175,7 @@ class TestSummarizeAndValidate:
         po = _po(lines=[_line("PN45-24405-1000", 3, desc="SECTION TX450")])
         result = validate_po(po)
         assert result["ok"] is False
-        assert {i["keyword"] for i in result["issues"]} == {"ASTRAGAL", "RETAINER", "TOP SEAL"}
+        assert {i["keyword"] for i in result["issues"]} == {"ASTRAGAL", "RETAINER", "TOP SEAL", "HARDWARE BOX"}
         assert all(i["code"] == "missing_companion" for i in result["issues"])
 
     def test_weatherstrip_does_not_count_as_companion(self):
