@@ -57,7 +57,7 @@ class InvoiceIntakeService:
         Returns a summary dict for logging/the digest email."""
         mailbox = settings.INVOICE_INTAKE_MAILBOX or settings.EMAIL_INBOX_1
         if not mailbox:
-            logger.warning("[InvoiceIntake] No mailbox configured (INVOICE_INTAKE_MAILBOX / EMAIL_INBOX_1)")
+            logger.warning("[InvoiceIntake] No mailbox configured (INVOICE_INTAKE_MAILBOX)")
             return {"processed": 0, "error": "no mailbox configured"}
 
         summary = {"processed": 0, "created": 0, "pending": 0, "duplicate": 0, "error": 0}
