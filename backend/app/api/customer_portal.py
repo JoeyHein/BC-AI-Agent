@@ -1791,6 +1791,18 @@ def _add_install_block(
 
     desc = install_pricing_service.build_install_description(install_result)
 
+    travel_warn = install_pricing_service.travel_warning(install_result)
+    if travel_warn:
+        try:
+            warn = bc_client.add_quote_line(bc_quote_id, {
+                "lineType": "Comment", "description": travel_warn,
+            })
+            if warn.get("id"):
+                added_ids.append(warn["id"])
+                track_shared("install", warn)
+        except Exception as warn_err:
+            logger.warning(f"Could not add travel warning comment: {warn_err}")
+
     try:
         line = bc_client.add_quote_line(bc_quote_id, {
             "lineType": "Item",

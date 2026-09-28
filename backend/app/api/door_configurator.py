@@ -2185,6 +2185,14 @@ def build_bc_quote_from_doors(
                     db=db,
                 )
                 install_total = install_result.get("grand_total", 0) or 0
+                travel_warn = install_pricing_service.travel_warning(install_result)
+                if install_total > 0 and travel_warn:
+                    try:
+                        bc_client.add_quote_line(bc_quote_id, {
+                            "lineType": "Comment", "description": travel_warn,
+                        })
+                    except Exception as warn_err:
+                        logger.warning(f"Failed to add travel warning comment: {warn_err}")
                 if install_total > 0:
                     desc = install_pricing_service.build_install_description(install_result)
                     inst_line = bc_client.add_quote_line(bc_quote_id, {

@@ -40,8 +40,8 @@ BUILDER_INSTALL_RATE_PER_SQFT = 4.50      # wood-mount $/sqft (default / fallbac
 # carry a higher install rate; the door product price is unaffected by mount.
 BUILDER_INSTALL_RATE_BY_MOUNT = {
     "wood": 4.50,
-    "steel": 5.50,
-    "concrete": 7.50,
+    "steel": 6.00,
+    "concrete": 8.50,
 }
 
 BUILDER_RESIDENTIAL_SMALL_FLAT = 500.00   # flat FLOOR for residential < 90 sqft
@@ -49,13 +49,26 @@ BUILDER_RESIDENTIAL_MEDIUM_FLAT = 600.00  # flat FLOOR for residential 90 - 130 
 BUILDER_RESIDENTIAL_LARGE_THRESHOLD = 130 # > 130 sqft -> per-sqft model
 BUILDER_RESIDENTIAL_SMALL_THRESHOLD = 90  # < 90 sqft -> small flat floor
 
-BUILDER_TRAVEL_RATE_PER_KM = 1.00         # $/km, one-way from Medicine Hat
+BUILDER_TRAVEL_RATE_PER_KM = 2.25         # $/km, one-way from Medicine Hat
 BUILDER_LIFT_BLOCK_SQFT = 400             # one charge per 400 sqft of qualifying door
 BUILDER_LIFT_BLOCK_PRICE = 400.00         # $/block (when any door > 12' tall)
-BUILDER_PER_DIEM_BLOCK_PRICE = 200.00     # $/block (when total > 400 sqft AND far)
+BUILDER_PER_DIEM_BLOCK_SQFT = 250        # per-diem block size (separate from lift's 400)
+BUILDER_PER_DIEM_BLOCK_PRICE = 200.00     # $/block (when total > 250 sqft AND far)
 BUILDER_PER_DIEM_MIN_KM = 200             # no per diem within 200 km of Medicine Hat
 BUILDER_LIFT_HEIGHT_INCHES = 144          # 12' = 144"
-BUILDER_OPERATOR_ADDON_PER_DOOR = 150.00  # flat $/door for any door with an operator
+BUILDER_OPERATOR_ADDON_PER_DOOR = 250.00  # flat $/door for any door with an operator
+
+_PROVINCE_SUFFIX_RE = re.compile(
+    r"[\s,]+(ab|alta\.?|alberta|sk|sask\.?|saskatchewan|mb|man\.?|manitoba|bc|"
+    r"british columbia|mt|montana)(\s*,?\s*(canada|usa))?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _strip_province(town: str) -> str:
+    """'Melfort SK' / 'Melfort, Saskatchewan, Canada' -> 'Melfort'."""
+    return _PROVINCE_SUFFIX_RE.sub("", town).strip() or town
+
 
 # Default travel distances (km from Medicine Hat, AB)
 DEFAULT_TRAVEL_DISTANCES = {
@@ -169,9 +182,12 @@ class InstallPricingService:
         normalized = town.strip()
         distances = self.get_travel_distances(db)
 
-        # 1. Case-insensitive match against the cached/static dict.
+        # 1. Case-insensitive match against the cached/static dict — also with
+        # any trailing province stripped ("Melfort SK" / "Melfort, Sask." ->
+        # "Melfort"), which is how the configurator field usually gets typed.
+        bare = _strip_province(normalized)
         for t, d in distances.items():
-            if t.lower() == normalized.lower():
+            if t.lower() in (normalized.lower(), bare.lower()):
                 return float(d), "static"
 
         # 2. Ask Google.
@@ -364,7 +380,7 @@ class InstallPricingService:
         Install fee for one door under the builder model.
 
         The $/sqft rate is set by the mount surface (uniform across builders):
-          wood $4.50, steel $5.50, concrete $7.50.
+          wood $4.50, steel $6.00, concrete $8.50.
 
         Residential doors <= 130 sqft carry a flat FLOOR ($500 < 90 sqft,
         $600 for 90-130). We bill the HIGHER of that floor and the per-sqft
@@ -406,10 +422,10 @@ class InstallPricingService:
             ($500 / $600), everything else is sqft_rate * area_sqft.
           * Lift fee: if ANY door height > 12', charge $400 for every full
             400 sqft block of TOTAL installed area (ceil math).
-          * Per diem: if TOTAL installed area > 400 sqft AND the install town is
+          * Per diem: if TOTAL installed area > 250 sqft AND the install town is
             more than 200 km from Medicine Hat (overnight trip), charge $200 for
-            every 400 sqft block (ceil math). No per diem within 200 km.
-          * Travel: $2/km one-way from Medicine Hat to the install town.
+            every 250 sqft block (ceil math). No per diem within 200 km.
+          * Travel: $2.25/km one-way from Medicine Hat to the install town.
 
         Per-customer overrides on CustomerInstallPricing:
           * commercial_sqft_rate -> overrides BUILDER_INSTALL_RATE_PER_SQFT
@@ -468,17 +484,20 @@ class InstallPricingService:
                 travel_distance_km = km
                 travel_price = round(km * travel_rate, 2)
 
-        # Lift and per-diem are block-based on total sqft.
+        # Lift (400 sqft blocks) and per-diem (250 sqft blocks) are block-based
+        # on total sqft.
         blocks = math.ceil(total_sqft / BUILDER_LIFT_BLOCK_SQFT) if total_sqft > 0 else 0
         needs_lift = max_height_in > BUILDER_LIFT_HEIGHT_INCHES
         lift_qty = blocks if needs_lift else 0
         lift_total = round(lift_qty * BUILDER_LIFT_BLOCK_PRICE, 2)
         # Per diem covers the crew staying overnight — only when the install is
         # far enough to not be a day trip. Within 200 km of Medicine Hat there is
-        # no per diem, regardless of size. A per diem also needs > 400 sqft.
+        # no per diem, regardless of size. A per diem also needs > 250 sqft.
         per_diem_far = (travel_distance_km is not None
                         and travel_distance_km > BUILDER_PER_DIEM_MIN_KM)
-        per_diem_qty = blocks if (total_sqft > BUILDER_LIFT_BLOCK_SQFT and per_diem_far) else 0
+        per_diem_blocks = math.ceil(total_sqft / BUILDER_PER_DIEM_BLOCK_SQFT) if total_sqft > 0 else 0
+        per_diem_qty = (per_diem_blocks
+                        if (total_sqft > BUILDER_PER_DIEM_BLOCK_SQFT and per_diem_far) else 0)
         per_diem_total = round(per_diem_qty * BUILDER_PER_DIEM_BLOCK_PRICE, 2)
 
         operator_addon_total = round(operator_doors * BUILDER_OPERATOR_ADDON_PER_DOOR, 2)
@@ -499,6 +518,7 @@ class InstallPricingService:
             "lift_qty": lift_qty,
             "lift_unit_price": BUILDER_LIFT_BLOCK_PRICE,
             "lift_total": lift_total,
+            "per_diem_block_sqft": BUILDER_PER_DIEM_BLOCK_SQFT,
             "per_diem_qty": per_diem_qty,
             "per_diem_unit_price": BUILDER_PER_DIEM_BLOCK_PRICE,
             "per_diem_total": per_diem_total,
@@ -543,9 +563,28 @@ class InstallPricingService:
 
         if install_result.get("lift_qty"):
             door_info += ", incl. lift"
+        km = install_result.get("travel_distance_km")
+        if km and install_result.get("travel_price"):
+            door_info += f", {km:.0f} km"
 
         prefix = f"Installation - {town} " if town else "Installation "
         return f"{prefix}({door_info})"
+
+
+    @staticmethod
+    def travel_warning(install_result: Dict[str, Any]) -> Optional[str]:
+        """
+        Internal quote comment when travel could not be priced (no install town,
+        or the town could not be resolved to a distance). Without this the
+        install line silently carries $0 travel — and builders get no freight
+        line either, so the trip is billed nowhere.
+        """
+        if not install_result or install_result.get("travel_price"):
+            return None
+        town = install_result.get("town")
+        if not town:
+            return "** TRAVEL NOT PRICED - no install town entered; add travel manually **"
+        return f"** TRAVEL NOT PRICED - could not find distance to {town!s}; add travel manually **"[:100]
 
 
 # Module-level singleton
