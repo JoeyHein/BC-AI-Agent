@@ -3,7 +3,8 @@
 Builder accounts get perforated back-hang angle on every door — we install
 those doors, so the material rides on the quote. Dealers supply their own.
 
-Size flips to 2x2 x 12GA at 500 lb; stick count steps
+Commercial doors: always 2x2 x 12GA, 2 sticks per 200 sqft (ceil), per door.
+Everything else: size flips to 2x2 x 12GA at 500 lb; stick count steps
 2 -> 4 (500) -> 6 (900) -> 8 (1200) -> 10 (1500 lb).
 """
 import pytest
@@ -46,7 +47,7 @@ def _angle_at_weight(weight, **overrides):
     practical.
     """
     config = DoorConfiguration(
-        door_type="commercial", door_series="KANATA",
+        door_type="residential", door_series="KANATA",
         door_width=192, door_height=120, door_count=1,
         panel_color="WHITE", panel_design="FLUSH",
         door_weight=weight, include_perforated_angle=True,
@@ -100,6 +101,44 @@ class TestWeightThresholds:
             assert part.part_number == LIGHT and part.quantity == 2
 
 
+def _commercial_angle(width, height, weight=150):
+    config = DoorConfiguration(
+        door_type="commercial", door_series="TX450",
+        door_width=width, door_height=height, door_count=1,
+        panel_color="WHITE", panel_design="UDC",
+        door_weight=weight, include_perforated_angle=True,
+    )
+    return part_number_service._get_perforated_angle_parts(config)
+
+
+class TestCommercialRule:
+    """Commercial: 2" angle regardless of weight, 2 sticks per 200 sqft."""
+
+    @pytest.mark.parametrize("w_ft,h_ft,expected_qty", [
+        (10, 10, 2),   # 100 sqft
+        (10, 20, 2),   # exactly 200 sqft
+        (12, 16, 2),   # 192 sqft -> 1 block (SQ-003191 doors)
+        (16, 16, 4),   # 256 sqft -> 2 blocks
+        (20, 20, 4),   # 400 sqft -> 2 blocks
+        (24, 16, 4),   # 384 sqft -> 2 blocks
+        (24, 20, 6),   # 480 sqft -> 3 blocks
+    ])
+    def test_sticks_by_area(self, w_ft, h_ft, expected_qty):
+        part = _commercial_angle(w_ft * 12, h_ft * 12)[0]
+        assert part.part_number == HEAVY
+        assert part.quantity == expected_qty, f"{w_ft}x{h_ft}"
+
+    def test_light_commercial_still_gets_2in(self):
+        assert _commercial_angle(96, 84, weight=120)[0].part_number == HEAVY
+
+    def test_heavy_weight_does_not_override_area(self):
+        assert _commercial_angle(120, 120, weight=1600)[0].quantity == 2
+
+    def test_residential_unchanged(self):
+        parts = _angle_lines(includePerforatedAngle=True)
+        assert parts[0]["part_number"] == LIGHT and parts[0]["quantity"] == 2
+
+
 class TestQuoteIntegration:
     def test_quantity_multiplies_by_door_count(self):
         # 2 sticks per door (108x84 is under 500 lb) x 3 identical doors.
@@ -110,7 +149,7 @@ class TestQuoteIntegration:
         parts = _angle_lines(doorWidth=288, doorHeight=216, doorType="commercial",
                              panelDesign="FLUSH", includePerforatedAngle=True)
         assert "10' stick(s)" in parts[0]["notes"]
-        assert "lbs" in parts[0]["notes"]
+        assert "sqft" in parts[0]["notes"]
 
     def test_sorts_between_track_and_hardware(self):
         from app.api.door_configurator import _sort_parts_by_category

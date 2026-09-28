@@ -263,6 +263,11 @@ PERFORATED_ANGLE_QTY_BREAKS = (
     (0.0, 2),
 )
 
+# Commercial doors always get the 2x2 x 12GA angle, sized by door area instead
+# of weight: 2 sticks for every 200 sqft (or part thereof), per door.
+PERFORATED_ANGLE_COMMERCIAL_SQFT_BLOCK = 200.0
+PERFORATED_ANGLE_COMMERCIAL_STICKS_PER_BLOCK = 2
+
 
 # ============================================================================
 # PART NUMBER RULES - CONFIGURE THESE WITH DOMAIN KNOWLEDGE
@@ -2882,11 +2887,28 @@ class PartNumberService:
         Both SKUs are 10' sticks, quoted per door (the door-count multiplier is
         applied once for all parts at the end of get_parts_for_configuration).
 
-        - Size steps up to 2" x 2" x 12GA at PERFORATED_ANGLE_HEAVY_THRESHOLD.
-        - Stick count steps through PERFORATED_ANGLE_QTY_BREAKS, floor of 2.
+        - Commercial: always 2" x 2" x 12GA, 2 sticks per 200 sqft (ceil).
+        - Otherwise size steps up to 2" x 2" x 12GA at
+          PERFORATED_ANGLE_HEAVY_THRESHOLD, and stick count steps through
+          PERFORATED_ANGLE_QTY_BREAKS, floor of 2.
         """
         if not config.include_perforated_angle:
             return []
+
+        if (config.door_type or "").lower() == "commercial":
+            area_sqft = (config.door_width or 0) * (config.door_height or 0) / 144.0
+            blocks = max(1, math.ceil(area_sqft / PERFORATED_ANGLE_COMMERCIAL_SQFT_BLOCK))
+            quantity = blocks * PERFORATED_ANGLE_COMMERCIAL_STICKS_PER_BLOCK
+            part_number, description = PERFORATED_ANGLE_HEAVY
+            return [
+                PartSelection(
+                    part_number=part_number,
+                    description=description,
+                    quantity=quantity,
+                    category="perforated_angle",
+                    notes=f"Back-hang angle: {quantity} x 10' stick(s) @ {area_sqft:.0f} sqft (commercial)",
+                ),
+            ]
 
         door_weight = config.door_weight
         if door_weight is None:
