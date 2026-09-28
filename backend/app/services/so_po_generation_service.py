@@ -364,6 +364,104 @@ def compute_netted_po_lines(so_number: str) -> dict:
     }
 
 
+# Complete-order mode — Joey, 2026-09-28: "we're going to be ordering all the
+# projects complete." The PO mirrors the sales order 1:1 (complete part
+# numbers, full SO quantity, no netting against stock, no BOM explosion),
+# replacing the 2026-09-09 "reduce our own stock first" netting as the
+# default. Two families never go on the Upwardor PO:
+#   * operators (OP*) — bought direct from the operator maker (e.g. OP20 =
+#     Micanan), handled manually for now;
+#   * wrapping (WRAP*) — done in-house, not purchased.
+_COMPLETE_MODE_EXCLUDE_PREFIXES = {
+    "OP": "operator — ordered direct from the manufacturer, not Upwardor",
+    "WRAP": "wrapping — handled internally",
+}
+
+
+def _complete_mode_exclusion(item_no: str) -> Optional[str]:
+    up = (item_no or "").upper()
+    for prefix, reason in _COMPLETE_MODE_EXCLUDE_PREFIXES.items():
+        if up.startswith(prefix):
+            return reason
+    return None
+
+
+def compute_complete_po_lines(so_number: str) -> dict:
+    """One sales order's item lines, copied complete for purchase.
+
+    Same return shape as compute_netted_po_lines (so _write_plan_lines and
+    the door-by-door layout work unchanged), but every purchasable SO line
+    goes on at its full ordered quantity. `excluded` lists what was left off
+    and why (operators, wrapping).
+    """
+    so = bc_client.get_sales_order_by_number(so_number)
+    if not so:
+        raise ValueError(f"{so_number} not found in BC")
+    lines = sorted(bc_client.get_order_lines(so["id"]), key=lambda l: l.get("sequence") or 0)
+
+    so_qty: Dict[str, float] = defaultdict(float)
+    line_desc: Dict[str, str] = {}
+    item_doors: Dict[str, set] = defaultdict(set)
+    door_item_qty: Dict[str, Dict[int, float]] = defaultdict(lambda: defaultdict(float))
+    door_labels: Dict[int, str] = {}
+    excluded: Dict[str, dict] = {}
+    door_idx = 0
+    for ln in lines:
+        if ln.get("lineType") == "Comment":
+            desc = (ln.get("description") or "").strip()
+            if _DOOR_HEADER_RE.match(desc):
+                door_idx += 1
+                door_labels[door_idx] = desc
+            continue
+        if ln.get("lineType") != "Item":
+            continue
+        item = ln.get("lineObjectNumber")
+        if not item or item.upper() in NON_STOCK_ITEMS:
+            continue
+        qty = _f(ln.get("quantity"))
+        reason = _complete_mode_exclusion(item)
+        if reason:
+            row = excluded.setdefault(item, {"item_no": item, "qty": 0.0, "reason": reason,
+                                             "description": ln.get("description") or ""})
+            row["qty"] += qty
+            continue
+        so_qty[item] += qty
+        line_desc[item] = ln.get("description") or ""
+        if door_idx:
+            item_doors[item].add(door_idx)
+            door_item_qty[item][door_idx] += qty
+
+    included = [{
+        "item_no": item, "description": line_desc.get(item, ""),
+        "quantity": round(qty, 2), "unit_cost": None,
+        "doors": sorted(item_doors.get(item, set())),
+    } for item, qty in sorted(so_qty.items()) if qty > 0]
+
+    if included:
+        cost_cards = bc_client.get_items_by_numbers([r["item_no"] for r in included])
+        for row in included:
+            meta = cost_cards.get(row["item_no"], {})
+            row["unit_cost"] = _f(meta.get("unitCost"))
+            row["uom"] = meta.get("baseUnitOfMeasureCode") or "EA"
+
+    by_door, shared = _group_by_door(door_labels, door_item_qty, included, [])
+    return {
+        "so_number": so_number, "customer_name": so.get("customerName"), "mode": "complete",
+        "included": included, "excluded": list(excluded.values()),
+        "excluded_manufactured": [], "excluded_in_stock": [], "trimmed": [],
+        "component_shortfall": [], "component_covered": [],
+        "by_door": by_door, "shared": shared, "has_doors": bool(door_labels),
+    }
+
+
+def _compute_plan(so_number: str, mode: str) -> dict:
+    if mode == "complete":
+        return compute_complete_po_lines(so_number)
+    if mode == "netted":
+        return compute_netted_po_lines(so_number)
+    raise ValueError(f"unknown PO mode {mode!r} (expected 'complete' or 'netted')")
+
+
 def _group_by_door(door_labels: Dict[int, str],
                     door_item_qty: Dict[str, Dict[int, float]],
                     included: List[dict],
@@ -443,7 +541,8 @@ def _write_plan_lines(po_id: str, plan: dict, so_number: str) -> int:
     })
     bc_client.add_purchase_order_line(po_id, {
         "sequence": 20000, "lineType": "Comment",
-        "description": f"Built from {so_number} - {date.today().isoformat()} - opendc purchasing (netted vs stock)",
+        "description": (f"Built from {so_number} - {date.today().isoformat()} - opendc purchasing "
+                        + ("(complete order)" if plan.get("mode") == "complete" else "(netted vs stock)")),
     })
     seq = 30000
     item_count = 0
@@ -498,17 +597,20 @@ def _write_plan_lines(po_id: str, plan: dict, so_number: str) -> int:
 
 
 def build_upwardor_po(so_number: str, vendor_no: str = "UPW", vendor_name: str = "UPWARDOR",
-                       dry_run: bool = True) -> dict:
+                       dry_run: bool = True, mode: str = "complete") -> dict:
     """Preview (dry_run=True) or create (dry_run=False) a Draft Upwardor PO
-    for one sales order, netted per compute_netted_po_lines. Never emails —
-    matches the existing "Draft in BC, human reviews" pattern.
+    for one sales order. mode="complete" (default) copies the SO in full per
+    compute_complete_po_lines; mode="netted" is the older stock-netted plan.
+    Never emails — matches the existing "Draft in BC, human reviews" pattern.
     """
-    plan = compute_netted_po_lines(so_number)
+    plan = _compute_plan(so_number, mode)
     result = {**plan, "vendor_no": vendor_no, "vendor_name": vendor_name, "dry_run": dry_run}
 
     if not plan["included"] and not plan["component_shortfall"]:
         result["bc_po_number"] = None
-        result["note"] = "Nothing to order — fully covered by stock/other open POs, or all items manufactured in-house."
+        result["note"] = ("Nothing to order — every SO line is an operator, wrapping, or service line."
+                          if mode == "complete" else
+                          "Nothing to order — fully covered by stock/other open POs, or all items manufactured in-house.")
         return result
 
     if dry_run:
@@ -524,7 +626,7 @@ def build_upwardor_po(so_number: str, vendor_no: str = "UPW", vendor_name: str =
     return result
 
 
-def rewrite_po_lines(po_number: str, so_number: str) -> dict:
+def rewrite_po_lines(po_number: str, so_number: str, mode: str = "complete") -> dict:
     """Correct an EXISTING Draft PO's lines to the current netted/by-door
     plan for its sales order.
 
@@ -562,7 +664,7 @@ def rewrite_po_lines(po_number: str, so_number: str) -> dict:
             headers={"If-Match": "*"},
         )
 
-    plan = compute_netted_po_lines(so_number)
+    plan = _compute_plan(so_number, mode)
     item_count = 0
     if plan["included"] or plan["component_shortfall"]:
         item_count = _write_plan_lines(po["id"], plan, so_number)

@@ -667,7 +667,7 @@ class TestByDoorLayout:
             "DOOR2-ONLY": {"unitCost": 1.0, "baseUnitOfMeasureCode": "EA"},
         })
 
-        result = svc.build_upwardor_po("SO-TEST", dry_run=False)
+        result = svc.build_upwardor_po("SO-TEST", dry_run=False, mode="netted")
         assert result["bc_po_number"] == "PO-TEST-001"
         kinds = [(b["lineType"], b.get("lineObjectNumber"), b.get("description")) for _, b in bc.lines]
         # header, provenance, then door 1's heading + item, door 2's heading + item
@@ -686,7 +686,7 @@ class TestByDoorLayout:
         cards = [_card("PANEL-X", on_hand=0, on_so=29)]
         bc, _ = _setup(monkeypatch, so, cards, {"PANEL-X": {"unitCost": 285.0, "baseUnitOfMeasureCode": "EA"}})
 
-        svc.build_upwardor_po("SO-TEST", dry_run=False)
+        svc.build_upwardor_po("SO-TEST", dry_run=False, mode="netted")
         kinds = [(b["lineType"], b.get("lineObjectNumber"), b.get("quantity")) for _, b in bc.lines]
         assert kinds[2][0] == "Comment"
         assert kinds[3] == ("Item", "PANEL-X", 11)
@@ -723,7 +723,7 @@ class TestBuildPo:
         cards = [_card("SHORT-01", on_hand=0, on_so=5)]
         bc, _ = _setup(monkeypatch, so, cards, {"SHORT-01": {"unitCost": 10.0, "baseUnitOfMeasureCode": "EA"}})
 
-        result = svc.build_upwardor_po("SO-TEST", dry_run=True)
+        result = svc.build_upwardor_po("SO-TEST", dry_run=True, mode="netted")
         assert result["bc_po_number"] is None
         assert bc.created == []
 
@@ -733,7 +733,7 @@ class TestBuildPo:
         cards = [_card("SH12-11810-00", on_hand=47, on_so=1)]
         bc, _ = _setup(monkeypatch, so, cards)
 
-        result = svc.build_upwardor_po("SO-TEST", dry_run=False)
+        result = svc.build_upwardor_po("SO-TEST", dry_run=False, mode="netted")
         assert result["bc_po_number"] is None
         assert "Nothing to order" in result["note"]
         assert bc.created == []
@@ -744,7 +744,7 @@ class TestBuildPo:
         cards = [_card("SHORT-01", on_hand=0, on_so=5)]
         bc, _ = _setup(monkeypatch, so, cards, {"SHORT-01": {"unitCost": 10.0, "baseUnitOfMeasureCode": "EA"}})
 
-        result = svc.build_upwardor_po("SO-TEST", dry_run=False)
+        result = svc.build_upwardor_po("SO-TEST", dry_run=False, mode="netted")
         assert result["bc_po_number"] == "PO-TEST-001"
         assert bc.created[0]["vendorNumber"] == "UPW"
         kinds = [(b["lineType"], b.get("lineObjectNumber")) for _, b in bc.lines]
@@ -767,7 +767,7 @@ class TestBuildPo:
         bc, _ = _setup(monkeypatch, so, cards, {"RAW-CORE-03": {"unitCost": 257.51, "baseUnitOfMeasureCode": "EA"}},
                         bom_lines=boms)
 
-        result = svc.build_upwardor_po("SO-TEST", dry_run=False)
+        result = svc.build_upwardor_po("SO-TEST", dry_run=False, mode="netted")
         assert result["bc_po_number"] == "PO-TEST-001"
         kinds = [(b["lineType"], b.get("lineObjectNumber"), b.get("description")) for _, b in bc.lines]
         # header comment, provenance comment, marker comment, then the raw material
@@ -805,7 +805,7 @@ class TestRewritePoLines:
         bc, _ = _setup(monkeypatch, so, cards, {"SHORT-01": {"unitCost": 10.0, "baseUnitOfMeasureCode": "EA"}},
                         existing_po=existing)
 
-        result = svc.rewrite_po_lines("PO-EXIST-001", "SO-TEST")
+        result = svc.rewrite_po_lines("PO-EXIST-001", "SO-TEST", mode="netted")
         assert bc.deleted_line_ids == ["old-line-1"]
         assert result["lines_deleted"] == 1
         assert result["lines_written"] == 1
@@ -817,7 +817,7 @@ class TestRewritePoLines:
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": []}
         bc, _ = _setup(monkeypatch, so, [], existing_po=existing)
         with pytest.raises(ValueError, match="Draft"):
-            svc.rewrite_po_lines("PO-EXIST-001", "SO-TEST")
+            svc.rewrite_po_lines("PO-EXIST-001", "SO-TEST", mode="netted")
         assert bc.deleted_line_ids == []
 
     def test_refuses_po_with_received_quantity(self, monkeypatch):
@@ -827,14 +827,14 @@ class TestRewritePoLines:
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": []}
         bc, _ = _setup(monkeypatch, so, [], existing_po=existing)
         with pytest.raises(ValueError, match="received"):
-            svc.rewrite_po_lines("PO-EXIST-001", "SO-TEST")
+            svc.rewrite_po_lines("PO-EXIST-001", "SO-TEST", mode="netted")
         assert bc.deleted_line_ids == []
 
     def test_unknown_po_raises(self, monkeypatch):
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": []}
         _setup(monkeypatch, so, [], existing_po={})
         with pytest.raises(ValueError, match="not found"):
-            svc.rewrite_po_lines("PO-MISSING", "SO-TEST")
+            svc.rewrite_po_lines("PO-MISSING", "SO-TEST", mode="netted")
 
     def test_writes_by_door_layout_into_the_same_po(self, monkeypatch):
         old_lines = [{"id": "old-line-1", "lineType": "Item",
@@ -848,7 +848,7 @@ class TestRewritePoLines:
         bc, _ = _setup(monkeypatch, so, cards, {"DOOR1-ONLY": {"unitCost": 1.0, "baseUnitOfMeasureCode": "EA"}},
                         existing_po=existing)
 
-        result = svc.rewrite_po_lines("PO-EXIST-001", "SO-TEST")
+        result = svc.rewrite_po_lines("PO-EXIST-001", "SO-TEST", mode="netted")
         assert result["lines_written"] == 1
         kinds = [(b["lineType"], b.get("lineObjectNumber"), b.get("description")) for _, b in bc.lines]
         assert kinds[2][2].startswith("(1) 8'0\"")
@@ -863,7 +863,46 @@ class TestRewritePoLines:
         cards = [_card("COVERED-01", on_hand=99, on_so=1)]
         bc, _ = _setup(monkeypatch, so, cards, existing_po=existing)
 
-        result = svc.rewrite_po_lines("PO-EXIST-001", "SO-TEST")
+        result = svc.rewrite_po_lines("PO-EXIST-001", "SO-TEST", mode="netted")
         assert bc.deleted_line_ids == ["old-line-1"]
         assert result["lines_written"] == 0
         assert bc.lines == []  # no comments/items written when there's nothing to order
+
+
+class TestCompleteMode:
+    """Default mode (2026-09-28): PO mirrors the SO in full — no netting, no
+    BOM explosion — minus operators (bought direct) and wrapping (in-house)."""
+
+    def _so(self):
+        return {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": [
+            _line("(1) 12'0\" x 16'0\" TX450", 0, seq=10000, ltype="Comment") | {"lineObjectNumber": "",
+                "description": "(1) 12'0\" x 16'0\" TX450, BLACK, UDC"},
+            _line("PN45-24405-1200", 8, seq=20000),
+            _line("SH12-11810-00", 1, seq=30000),
+            _line("OP20-01056-00", 1, seq=40000),
+            _line("WRAPALU", 57.3, seq=50000),
+            _line("FREIGHT", 1, seq=60000),
+        ]}
+
+    def test_full_qty_ignores_stock_and_manufacturing(self, monkeypatch):
+        cards = [_card("PN45-24405-1200", replen="Prod. Order", bom="B1"),
+                 _card("SH12-11810-00", on_hand=47, on_so=1)]
+        _setup(monkeypatch, self._so(), cards)
+        plan = svc.compute_complete_po_lines("SO-TEST")
+        got = {r["item_no"]: r["quantity"] for r in plan["included"]}
+        assert got == {"PN45-24405-1200": 8, "SH12-11810-00": 1}
+        assert plan["by_door"][0]["label"].startswith("(1) 12'0")
+
+    def test_operators_and_wrapping_excluded(self, monkeypatch):
+        _setup(monkeypatch, self._so(), [])
+        plan = svc.compute_complete_po_lines("SO-TEST")
+        assert {r["item_no"] for r in plan["excluded"]} == {"OP20-01056-00", "WRAPALU"}
+        assert not {"OP20-01056-00", "WRAPALU", "FREIGHT"} & {r["item_no"] for r in plan["included"]}
+
+    def test_build_defaults_to_complete(self, monkeypatch):
+        bc, _ = _setup(monkeypatch, self._so(), [])
+        result = svc.build_upwardor_po("SO-TEST", dry_run=False)
+        assert result["mode"] == "complete" and result["bc_po_number"] == "PO-TEST-001"
+        items = [b["lineObjectNumber"] for _, b in bc.lines if b["lineType"] == "Item"]
+        assert sorted(items) == ["PN45-24405-1200", "SH12-11810-00"]
+        assert "(complete order)" in bc.lines[1][1]["description"]
