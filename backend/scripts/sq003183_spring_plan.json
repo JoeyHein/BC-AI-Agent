@@ -1,0 +1,296 @@
+{
+ "16x18": [
+  [
+   "C",
+   "Door Weight: 759 lbs | Drum: D6375-164 (extrap.) | Turns: 17.0 | 25K | 2 SHAFTS"
+  ],
+  [
+   "C",
+   "Springs/door: Outer 0.3437x6\"x75\" + Inner 0.3125x3.75\"x72\" | 2 LH + 2 RH duplex sets"
+  ],
+  [
+   "C",
+   "ESTIMATE: 168\" HL past D6375-164 data (162\"); turns extrapolated - verify drum w/ Canimex"
+  ],
+  [
+   "C",
+   "NOTE: 75\" duplex springs - confirm length w/ spring supplier"
+  ],
+  [
+   "I",
+   "SP11-34360-01",
+   2400,
+   "SPRINGS, OIL TEMPERED, .343 X 6\"  LH"
+  ],
+  [
+   "I",
+   "SP11-34360-02",
+   2400,
+   "SPRINGS, OIL TEMPERED, .343 X 6\"  RH"
+  ],
+  [
+   "I",
+   "SP11-31236-01",
+   2304,
+   "SPRINGS, OIL TEMPERED, .312 X 3 3/4\"  LH"
+  ],
+  [
+   "I",
+   "SP11-31236-02",
+   2304,
+   "SPRINGS, OIL TEMPERED, .312 X 3 3/4\"  RH"
+  ],
+  [
+   "I",
+   "SP12-00234-01",
+   64,
+   "SPRING, WINDERS & STATIONARY PLUGS SET, 6\", 1\" BORE, UNIVERSAL"
+  ],
+  [
+   "I",
+   "SP12-00233-01",
+   64,
+   "SPRING, WINDERS & STATIONARY PLUGS SET, 3 3/4\", 1\" BORE, UNIVERSAL"
+  ],
+  [
+   "C",
+   "** 2-SHAFT ASSEMBLY (2/2 spring positions). Shaft connector SKU pending **"
+  ],
+  [
+   "I",
+   "SH11-10806-00",
+   32,
+   "1\" Solid Shaft Keyed 8'-6\""
+  ],
+  [
+   "I",
+   "SH11-10906-00",
+   32,
+   "1\" Solid Shaft Keyed 9'-6\""
+  ],
+  [
+   "I",
+   "SP12-00160-00",
+   32,
+   "SPRING ASSY CAST IRON COUPLER BLACK CANIMEX, 1\" BORE"
+  ]
+ ],
+ "20x20": [
+  [
+   "C",
+   "Door Weight: 1067 lbs | Drum: D6375-164 (extrap.) | Turns: 18.3 | 25K | 3 SHAFTS"
+  ],
+  [
+   "C",
+   "Springs/door: Outer 0.3437x6\"x81\" + Inner 0.3125x3.75\"x78\" | 3 LH + 3 RH duplex sets"
+  ],
+  [
+   "C",
+   "ESTIMATE: 192\" HL past D6375-164 data (162\"); turns extrapolated - verify drum w/ Canimex"
+  ],
+  [
+   "C",
+   "NOTE: 81\" duplex springs - confirm length w/ spring supplier"
+  ],
+  [
+   "I",
+   "SP11-34360-01",
+   1944,
+   "SPRINGS, OIL TEMPERED, .343 X 6\"  LH"
+  ],
+  [
+   "I",
+   "SP11-34360-02",
+   1944,
+   "SPRINGS, OIL TEMPERED, .343 X 6\"  RH"
+  ],
+  [
+   "I",
+   "SP11-31236-01",
+   1872,
+   "SPRINGS, OIL TEMPERED, .312 X 3 3/4\"  LH"
+  ],
+  [
+   "I",
+   "SP11-31236-02",
+   1872,
+   "SPRINGS, OIL TEMPERED, .312 X 3 3/4\"  RH"
+  ],
+  [
+   "I",
+   "SP12-00234-01",
+   48,
+   "SPRING, WINDERS & STATIONARY PLUGS SET, 6\", 1\" BORE, UNIVERSAL"
+  ],
+  [
+   "I",
+   "SP12-00233-01",
+   48,
+   "SPRING, WINDERS & STATIONARY PLUGS SET, 3 3/4\", 1\" BORE, UNIVERSAL"
+  ],
+  [
+   "C",
+   "** 3-SHAFT ASSEMBLY (2/2/2 spring positions). Shaft connector SKU pending **"
+  ],
+  [
+   "I",
+   "SH11-11006-00",
+   24,
+   "1\" Solid Shaft Keyed 10'-6\""
+  ],
+  [
+   "I",
+   "SH11-11106-00",
+   24,
+   "1\" Solid Shaft Keyed 11'-6\""
+  ],
+  [
+   "I",
+   "SP12-00160-00",
+   24,
+   "SPRING ASSY CAST IRON COUPLER BLACK CANIMEX, 1\" BORE"
+  ]
+ ],
+ "24x24": [
+  [
+   "C",
+   "Door Weight: 1633 lbs | Drum: D6375-164 (extrap.) | Turns: 20.6 | 25K | 4 SHAFTS"
+  ],
+  [
+   "C",
+   "Springs/door: Outer 0.3625x6\"x94\" + Inner 0.331x3.75\"x93\" | 4 LH + 4 RH duplex sets"
+  ],
+  [
+   "C",
+   "ESTIMATE: 240\" HL past D6375-164 data (162\"); turns extrapolated - verify drum w/ Canimex"
+  ],
+  [
+   "C",
+   "WARNING: 1633 lb door exceeds D6375-164 rating (1600 lb) - verify drum"
+  ],
+  [
+   "C",
+   "NOTE: 94\" duplex springs - confirm length w/ spring supplier"
+  ],
+  [
+   "I",
+   "SP11-36260-01",
+   3384,
+   "SPRINGS, OIL TEMPERED, .362 X 6\"  LH"
+  ],
+  [
+   "I",
+   "SP11-36260-02",
+   3384,
+   "SPRINGS, OIL TEMPERED, .362 X 6\"  RH"
+  ],
+  [
+   "I",
+   "SP11-33136-01",
+   3348,
+   "SPRINGS, OIL TEMPERED, .331 X 3 3/4\" , LH"
+  ],
+  [
+   "I",
+   "SP11-33136-02",
+   3348,
+   "SPRINGS, OIL TEMPERED, .331 X 3 3/4\" , RH"
+  ],
+  [
+   "I",
+   "SP12-00234-01",
+   72,
+   "SPRING, WINDERS & STATIONARY PLUGS SET, 6\", 1\" BORE, UNIVERSAL"
+  ],
+  [
+   "I",
+   "SP12-00233-01",
+   72,
+   "SPRING, WINDERS & STATIONARY PLUGS SET, 3 3/4\", 1\" BORE, UNIVERSAL"
+  ],
+  [
+   "C",
+   "** 4-SHAFT ASSEMBLY (2/2/2/2 spring positions). Shaft connector SKU pending **"
+  ],
+  [
+   "I",
+   "SH11-11106-00",
+   36,
+   "1\" Solid Shaft Keyed 11'-6\""
+  ],
+  [
+   "I",
+   "SH11-11506-00",
+   36,
+   "1\" Solid Shaft Keyed 15'-6\""
+  ],
+  [
+   "I",
+   "SP12-00160-00",
+   36,
+   "SPRING ASSY CAST IRON COUPLER BLACK CANIMEX, 1\" BORE"
+  ]
+ ],
+ "30x30": [
+  [
+   "C",
+   "Door Weight: 3007 lbs | Drum: D800-384 | Turns: 14.5 | 25K | 3 SHAFTS"
+  ],
+  [
+   "C",
+   "Springs/door: Outer 0.4062x6\"x93\" + Inner 0.3625x3.75\"x82\" | 4 LH + 4 RH duplex sets"
+  ],
+  [
+   "C",
+   "WARNING: 3007 lb door exceeds D800-384 rating (2200 lb) - verify drum"
+  ],
+  [
+   "C",
+   "NOTE: 93\" duplex springs - confirm length w/ spring supplier"
+  ],
+  [
+   "I",
+   "SP11-40660-01",
+   1488,
+   "SPRINGS, OIL TEMPERED, .406 X 6\" LH"
+  ],
+  [
+   "I",
+   "SP11-40660-02",
+   1488,
+   "SPRINGS, OIL TEMPERED, .406 X 6\" RH"
+  ],
+  [
+   "I",
+   "SP11-36236-01",
+   1312,
+   "SPRINGS, OIL TEMPERED, .362 X 3 3/4\"  LH"
+  ],
+  [
+   "I",
+   "SP11-36236-02",
+   1312,
+   "SPRINGS, OIL TEMPERED, .362 X 3 3/4\"  RH"
+  ],
+  [
+   "I",
+   "SP12-00236-01",
+   32,
+   "SPRING, WINDERS & STATIONARY PLUGS SET, 6\", 1-1/4\" BORE, UNIVERSAL"
+  ],
+  [
+   "C",
+   "3-3/4\" WINDER SET 1-1/4\" BORE x32 - no BC SKU, office to source"
+  ],
+  [
+   "C",
+   "** 3-SHAFT ASSEMBLY (3/3/2 spring positions). Shaft connector SKU pending **"
+  ],
+  [
+   "I",
+   "SH10-00002-00",
+   4536,
+   "SOLID 1-1/4\" KEYED SHAFT (378\")"
+  ]
+ ]
+}
