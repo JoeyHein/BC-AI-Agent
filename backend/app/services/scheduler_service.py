@@ -134,18 +134,18 @@ class SchedulerService:
         )
         logger.info("✓ Scheduled: Daily planning workbook 04:00 America/Edmonton")
 
-        # Daily production schedule refresh — 04:30 America/Edmonton, every day.
-        # Shop-floor tracking sheet (open SOs x Panels/Hardware/Tracks/Springs/
-        # Shafts/Weather Stripping/Operators), hand-edited live in SharePoint;
-        # this reads back existing edits before merging in new/changed BC orders.
+        # Production schedule refresh — 04:30, 12:30, 16:30 America/Edmonton,
+        # every day. Box-in/box-out SO tracking sheet + SO-PO Log, hand-edited
+        # live in SharePoint; reads back existing edits before merging in BC.
+        # The midday runs keep the SO-PO Log's "last changed" current.
         self.scheduler.add_job(
             func=self._production_schedule_job,
-            trigger=CronTrigger(hour=4, minute=30, timezone='America/Edmonton'),
+            trigger=CronTrigger(hour='4,12,16', minute=30, timezone='America/Edmonton'),
             id='production_schedule',
-            name='Daily Production Schedule - open SOs x component tracking',
+            name='Production Schedule - open SOs + SO-PO log',
             replace_existing=True,
         )
-        logger.info("✓ Scheduled: Daily production schedule refresh 04:30 America/Edmonton")
+        logger.info("✓ Scheduled: Production schedule refresh 04:30/12:30/16:30 America/Edmonton")
 
         # Nightly auto-PO — 05:00 America/Edmonton, Mon-Fri. Runs after the 4:00
         # planning workbook / 4:30 production schedule and before the 7:00

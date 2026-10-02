@@ -50,6 +50,18 @@ extension (blank until deployed — see bc-extension/picking-api/README.md).
 
 "Purchase Orders" sheet — read-only, one row per (open SO, BC purchase
 order) from the same PO linkage, with receipt progress.
+
+"SO-PO Log" sheet — the permanent record of which sales order is linked to
+which purchase order, and when each link was last touched. Unlike the other
+read-only sheets it is NOT rebuilt from scratch: rows are read back (keyed
+by SO + PO) and updated in place, so history survives the SO closing or the
+PO being posted out of BC's open set. An open SO with no PO yet gets a "No
+PO yet" placeholder row, replaced by the real link once a PO referencing it
+shows up (tool-built or hand-keyed — detected via the same PO→SO linkage,
+not by hooking the PO generator). Each change (new link, status Draft→Open,
+receipts, PO/SO closing) stamps Last Changed + Last Change. Notes is
+hand-edited and carried forward. Most recently touched first. See
+build_po_log.
 """
 
 import io
@@ -139,6 +151,15 @@ ASSIGN_HEADERS = ["Priority", "SO Number", "Customer", "Assigned To", "Complete 
                    "Status", "Due Date"]
 ASSIGN_TOTAL_COLUMNS = COL_A_DUE_DATE
 
+PO_LOG_SHEET_NAME = "SO-PO Log"
+PO_LOG_HEADERS = ["SO Number", "Customer", "PO Number", "Vendor", "PO Status", "PO Date",
+                   "Lines", "Received", "First Logged", "Last Changed", "Last Change", "Notes"]
+NO_PO_YET = "No PO yet"
+SO_CLOSED_NO_PO = "SO closed - no PO"
+NOT_OPEN_IN_BC = "Closed in BC"
+TIMESTAMP_FORMAT = "yyyy-mm-dd hh:mm"
+LOCAL_TZ = "America/Edmonton"
+
 PO_LINKS_SHEET_NAME = "Purchase Orders"
 PO_LINKS_HEADERS = ["SO Number", "Customer", "PO Number", "Vendor", "PO Status",
                      "Lines", "Received", "Expected Receipt"]
@@ -190,6 +211,12 @@ def _parse_date_value(value) -> Optional[date]:
     except ValueError:
         return None
     return None if parsed.year <= 1 else parsed
+
+
+def _local_now() -> datetime:
+    """Naive shop-local time for log timestamps — Excel has no timezones."""
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo(LOCAL_TZ)).replace(tzinfo=None, second=0, microsecond=0)
 
 
 def _has_prefix(item_no: str, prefixes: Tuple[str, ...]) -> bool:
@@ -259,6 +286,8 @@ class _SORecord:
 
 class ProductionScheduleService:
 
+    last_po_log: List[dict] = []
+
     # ── BC data ─────────────────────────────────────────────────────────
 
     def fetch_open_orders(self) -> List[Dict[str, Any]]:
@@ -295,6 +324,7 @@ class ProductionScheduleService:
                         "_po_number": po.get("number") or "",
                         "_po_status": po.get("status") or "",
                         "_vendor": po.get("vendorName") or "",
+                        "_po_date": po.get("orderDate") or "",
                     })
         return dict(by_so)
 
@@ -737,6 +767,161 @@ class ProductionScheduleService:
         for col_idx, w in enumerate(widths, start=1):
             ws.column_dimensions[get_column_letter(col_idx)].width = w
 
+    # ── SO-PO Log (persistent) ───────────────────────────────────────────
+
+    def parse_po_log_from_bytes(self, content: bytes) -> Dict[Tuple[str, str], dict]:
+        """{(so_number, po_number or ""): row dict} from the SO-PO Log sheet,
+        read by HEADER NAME so a column added later can't wipe history."""
+        rows: Dict[Tuple[str, str], dict] = {}
+        if not content:
+            return rows
+        try:
+            wb = load_workbook(io.BytesIO(content))
+        except Exception as e:
+            logger.warning(f"[ProductionSchedule] PO log read-back: could not open workbook ({e})")
+            return rows
+        if PO_LOG_SHEET_NAME not in wb.sheetnames:
+            return rows
+        ws = wb[PO_LOG_SHEET_NAME]
+        header = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), ())
+        col_by_name = {str(v).strip(): i for i, v in enumerate(header) if v}
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            rec = {name: (row[i] if i < len(row) else None) for name, i in col_by_name.items()}
+            so = str(rec.get("SO Number") or "").strip()
+            if not so:
+                continue
+            rows[(so, str(rec.get("PO Number") or "").strip())] = rec
+        return rows
+
+    def build_po_log(
+        self,
+        prior: Dict[Tuple[str, str], dict],
+        so_customer_map: Dict[str, str],
+        po_lines_by_so: Dict[str, List[dict]],
+        now: datetime,
+    ) -> List[dict]:
+        """Merge the fresh SO→PO linkage into the prior log. Returns rows
+        keyed by PO_LOG_HEADERS (plus "_touched" when this refresh changed
+        the row), most recently changed first."""
+        logged_sos = {so for so, _ in prior}
+        fresh: Dict[Tuple[str, str], dict] = {}
+        for so, lines in po_lines_by_so.items():
+            # Links on SOs that aren't open are only tracked if already logged
+            # — keeps typo'd / ancient SO refs on old POs out of the log.
+            if so not in so_customer_map and so not in logged_sos:
+                continue
+            by_po: Dict[str, List[dict]] = defaultdict(list)
+            for ln in lines:
+                by_po[ln["_po_number"]].append(ln)
+            for po_no, po_lines in by_po.items():
+                received = sum(1 for l in po_lines
+                               if float(l.get("quantity") or 0) > 0
+                               and float(l.get("receivedQuantity") or 0) >= float(l.get("quantity") or 0))
+                fresh[(so, po_no)] = {
+                    "SO Number": so, "PO Number": po_no,
+                    "Customer": so_customer_map.get(so, ""),
+                    "Vendor": po_lines[0]["_vendor"],
+                    "PO Status": po_lines[0]["_po_status"],
+                    "PO Date": _parse_date_value(po_lines[0].get("_po_date")),
+                    "Lines": len(po_lines),
+                    "Received": f"{received}/{len(po_lines)}",
+                }
+        sos_with_po = {so for so, _ in fresh}
+        for so, customer in so_customer_map.items():
+            if so not in sos_with_po:
+                fresh[(so, "")] = {"SO Number": so, "PO Number": "", "Customer": customer,
+                                   "Vendor": "", "PO Status": NO_PO_YET, "PO Date": None,
+                                   "Lines": None, "Received": ""}
+
+        out: List[dict] = []
+        for key, f in fresh.items():
+            p = prior.get(key)
+            row = dict(f)
+            if p is None:
+                if key[1]:
+                    change = f"PO linked ({f['PO Status']})"
+                    if (key[0], "") in prior:
+                        change += " - was No PO yet"
+                else:
+                    change = "New SO - no PO yet"
+                row.update({"First Logged": now, "Last Changed": now, "Last Change": change,
+                            "Notes": "", "_touched": True})
+            else:
+                diffs = []
+                if str(p.get("PO Status") or "") != str(f["PO Status"]):
+                    diffs.append(f"Status {p.get('PO Status') or '?'} -> {f['PO Status']}")
+                if key[1] and str(p.get("Received") or "") != f["Received"]:
+                    diffs.append(f"Received {p.get('Received') or '?'} -> {f['Received']}")
+                if key[1] and p.get("Lines") not in (None, "") and int(p["Lines"]) != f["Lines"]:
+                    diffs.append(f"Lines {p['Lines']} -> {f['Lines']}")
+                row["Customer"] = f["Customer"] or p.get("Customer") or ""
+                row.update({
+                    "First Logged": p.get("First Logged") or now,
+                    "Last Changed": now if diffs else (p.get("Last Changed") or now),
+                    "Last Change": "; ".join(diffs) if diffs else (p.get("Last Change") or ""),
+                    "Notes": p.get("Notes") or "",
+                    "_touched": bool(diffs),
+                })
+            out.append(row)
+
+        for key, p in prior.items():
+            if key in fresh:
+                continue
+            so, po = key
+            row = {h: p.get(h) for h in PO_LOG_HEADERS}
+            row["_touched"] = False
+            if not po:
+                if so in sos_with_po:
+                    continue  # placeholder superseded by the real link row
+                terminal, change = SO_CLOSED_NO_PO, "SO closed without a PO"
+            else:
+                terminal = NOT_OPEN_IN_BC
+                change = "PO posted / closed in BC" if so in so_customer_map else "SO and PO closed in BC"
+            if row.get("PO Status") != terminal:
+                row.update({"PO Status": terminal, "Last Changed": now, "Last Change": change, "_touched": True})
+            out.append(row)
+
+        def changed_at(r):
+            v = r.get("Last Changed")
+            if isinstance(v, datetime):
+                return v
+            d = _parse_date_value(v)
+            return datetime.combine(d, datetime.min.time()) if d else datetime.min
+
+        out.sort(key=lambda r: (changed_at(r), _sort_key(r["SO Number"])), reverse=True)
+        return out
+
+    def _write_po_log_sheet(self, wb: Workbook, rows: List[dict]) -> None:
+        if PO_LOG_SHEET_NAME in wb.sheetnames:
+            del wb[PO_LOG_SHEET_NAME]
+        ws = wb.create_sheet(PO_LOG_SHEET_NAME)
+        for c, title in enumerate(PO_LOG_HEADERS, start=1):
+            cell = ws.cell(row=1, column=c, value=title)
+            cell.font = HEADER_FONT
+            cell.fill = HEADER_FILL
+        ws.freeze_panes = "B2"
+
+        status_col = PO_LOG_HEADERS.index("PO Status") + 1
+        for r_i, r in enumerate(rows, start=2):
+            for c_i, name in enumerate(PO_LOG_HEADERS, start=1):
+                cell = ws.cell(row=r_i, column=c_i, value=r.get(name))
+                if name == "PO Date":
+                    cell.number_format = DATE_FORMAT
+                elif name in ("First Logged", "Last Changed"):
+                    cell.number_format = TIMESTAMP_FORMAT
+                if r.get("PO Status") == NOT_OPEN_IN_BC:
+                    cell.fill = ARCHIVED_FILL
+                elif r.get("_touched") and name != "Notes":
+                    cell.fill = AMBER_FILL  # changed on this refresh
+            if r.get("PO Status") in (NO_PO_YET, SO_CLOSED_NO_PO):
+                status_cell = ws.cell(row=r_i, column=status_col)
+                status_cell.fill, status_cell.font = RED_FILL, RED_FONT
+        ws.auto_filter.ref = f"A1:{get_column_letter(len(PO_LOG_HEADERS))}{max(len(rows) + 1, 2)}"
+
+        widths = [13, 24, 13, 18, 16, 12, 7, 10, 17, 17, 40, 30]
+        for col_idx, w in enumerate(widths, start=1):
+            ws.column_dimensions[get_column_letter(col_idx)].width = w
+
     # ── build ───────────────────────────────────────────────────────────
 
     def _style_sheet(self, ws, archived: bool = False):
@@ -827,6 +1012,8 @@ class ProductionScheduleService:
         prod_so_map: Optional[Dict[str, str]] = None,
         picking_remaining: Optional[Dict[str, dict]] = None,
         po_lines_by_so: Optional[Dict[str, List[dict]]] = None,
+        po_log_prior: Optional[Dict[Tuple[str, str], dict]] = None,
+        now: Optional[datetime] = None,
     ) -> Tuple[bytes, int, int]:
         open_so_numbers = {o.get("number", "") for o in orders}
         so_facts = so_facts or {}
@@ -879,6 +1066,10 @@ class ProductionScheduleService:
             picking_remaining, so_work,
         )
         self._write_po_links_sheet(wb, po_lines_by_so, so_customer_map)
+        self.last_po_log = self.build_po_log(
+            po_log_prior or {}, so_customer_map, po_lines_by_so or {}, now or _local_now(),
+        )
+        self._write_po_log_sheet(wb, self.last_po_log)
 
         buf = io.BytesIO()
         wb.save(buf)
@@ -886,27 +1077,37 @@ class ProductionScheduleService:
 
     # ── orchestration ───────────────────────────────────────────────────
 
-    def _refresh(self, existing: Optional[bytes]) -> Tuple[bytes, dict]:
+    def _fetch_bc(self) -> dict:
+        """Every slow BC call, done BEFORE the SharePoint read-back so the
+        download -> upload window (where a live edit could be overwritten)
+        stays seconds long — matters now that the refresh also runs during
+        the work day, not only at 4:30am."""
+        orders = self.fetch_open_orders()
+        po_lines_by_so = self.fetch_po_lines_by_so()
+        return {
+            "orders": orders,
+            "po_lines_by_so": po_lines_by_so,
+            "so_facts": self.compute_so_facts(orders, po_lines_by_so),
+            "prod_orders": self.fetch_open_production_orders(),
+            "prod_so_map": self.fetch_prod_so_map(),
+            "picking_remaining": self.fetch_picking_remaining(),
+        }
+
+    def _build(self, existing: Optional[bytes], bc: dict) -> Tuple[bytes, dict]:
         records: Dict[str, _SORecord] = {}
         assignment_records: Dict[str, dict] = {}
+        po_log_prior: Dict[Tuple[str, str], dict] = {}
         if existing:
             records = self.parse_records_from_bytes(existing)
             assignment_records = self.parse_assignments_from_bytes(existing)
+            po_log_prior = self.parse_po_log_from_bytes(existing)
 
-        orders = self.fetch_open_orders()
-        po_lines_by_so = self.fetch_po_lines_by_so()
-        so_facts = self.compute_so_facts(orders, po_lines_by_so)
-        emergency_open = any(
-            (records.get(o.get("number")) or _SORecord("")).fulfillment == EMERGENCY_BUILD for o in orders
-        )
-        # Production orders only matter under Emergency Build SOs now.
-        prod_orders = self.fetch_open_production_orders() if emergency_open else []
-        prod_so_map = self.fetch_prod_so_map() if emergency_open else {}
-        picking_remaining = self.fetch_picking_remaining(so_numbers=list(assignment_records.keys()))
+        orders = bc["orders"]
         xlsx, open_count, archived_count = self.build_workbook_bytes(
-            orders, records, so_facts,
-            prod_orders=prod_orders, assignment_records=assignment_records, prod_so_map=prod_so_map,
-            picking_remaining=picking_remaining, po_lines_by_so=po_lines_by_so,
+            orders, records, bc["so_facts"],
+            prod_orders=bc["prod_orders"], assignment_records=assignment_records,
+            prod_so_map=bc["prod_so_map"], picking_remaining=bc["picking_remaining"],
+            po_lines_by_so=bc["po_lines_by_so"], po_log_prior=po_log_prior,
         )
         return xlsx, {
             "open_orders": open_count,
@@ -916,25 +1117,25 @@ class ProductionScheduleService:
                 if (records.get(o.get("number")) or _SORecord("")).fulfillment == EMERGENCY_BUILD
             ),
             "assigned": len(assignment_records),
+            "sos_without_po": sum(1 for r in self.last_po_log if r.get("PO Status") == NO_PO_YET),
+            "po_log_changes": sum(1 for r in self.last_po_log if r.get("_touched")),
         }
 
     def build_and_deliver(self) -> dict:
-        """Download current SharePoint copy (if any), merge in fresh BC
-        orders preserving hand-edited status, and overwrite the file in
-        place. Requires PRODSCHED_SHAREPOINT_ENABLED + DRIVE_ID configured."""
+        """Fetch BC, then download the current SharePoint copy, merge
+        preserving hand edits + the SO-PO Log history, and overwrite in
+        place. A failed download (anything but "file doesn't exist yet")
+        aborts instead of uploading a rebuild with no history in it.
+        Requires PRODSCHED_SHAREPOINT_ENABLED + DRIVE_ID configured."""
         if not (settings.PRODSCHED_SHAREPOINT_ENABLED and settings.PRODSCHED_SHAREPOINT_DRIVE_ID):
             raise RuntimeError("PRODSCHED_SHAREPOINT_ENABLED/DRIVE_ID not configured")
 
-        current = None
-        try:
-            current = graph_client.download_drive_file(
-                settings.PRODSCHED_SHAREPOINT_DRIVE_ID,
-                settings.PRODSCHED_SHAREPOINT_FILE_PATH,
-            )
-        except Exception as e:
-            logger.error(f"[ProductionSchedule] SharePoint read-back failed: {e}")
-
-        xlsx, result = self._refresh(current)
+        bc = self._fetch_bc()
+        current = graph_client.download_drive_file(
+            settings.PRODSCHED_SHAREPOINT_DRIVE_ID,
+            settings.PRODSCHED_SHAREPOINT_FILE_PATH,
+        )
+        xlsx, result = self._build(current, bc)
         sharepoint_url = graph_client.upload_drive_file(
             settings.PRODSCHED_SHAREPOINT_DRIVE_ID,
             settings.PRODSCHED_SHAREPOINT_FILE_PATH,
@@ -949,8 +1150,9 @@ class ProductionScheduleService:
         reads and writes a filesystem path instead of SharePoint."""
         from pathlib import Path
         output_path = Path(output_path)
+        bc = self._fetch_bc()
         existing = output_path.read_bytes() if output_path.exists() else None
-        xlsx, result = self._refresh(existing)
+        xlsx, result = self._build(existing, bc)
         output_path.write_bytes(xlsx)
         result["path"] = str(output_path)
         return result
