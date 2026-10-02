@@ -104,29 +104,22 @@ def price_of(part_number: str) -> Optional[float]:
 
 
 def _resolved_spring_price_in(wire_diameter: float, coil_diameter: float, mapper) -> Optional[tuple]:
-    """Price the sellable spring for this wire/coil, per inch, per winding.
+    """Price the exact SP11 spring for this wire/coil, per inch, per winding.
 
-    Mirrors _get_spring_parts: if the exact SP11 SKU isn't a real BC item, step
-    up via resolve_spring_in_bc to the part that would actually be sold, then
-    price THAT. Returns (lh_price_per_in, rh_price_per_in, resolved_coil) or None
-    when nothing sellable is priced. resolved_coil flows out because a coil
-    step-up (e.g. 2.0 → 2.625) changes the winder set and the PVC decision.
+    Returns (lh_price_per_in, rh_price_per_in, coil) or None when the exact SKU
+    isn't a priced BC item. Deliberately NO step-up: the candidate's length was
+    computed for THIS wire/coil; pricing a heavier wire at that length scored an
+    over-strong spring as cheap and made it win (the July 2026 regression that
+    quoted e.g. .312x6" at a .295's length). The calculator only proposes
+    sellable SKUs now, so an unpriced combo simply drops out.
     """
     lh_pn = mapper.get_spring_part_number(wire_diameter, coil_diameter, "LH").part_number
-    resolved_coil = coil_diameter
-    if price_of(lh_pn) is None:
-        found, rw, rc = mapper.resolve_spring_in_bc(wire_diameter, coil_diameter)
-        if not found:
-            return None
-        wire_diameter, resolved_coil = rw, rc
-        lh_pn = mapper.get_spring_part_number(wire_diameter, resolved_coil, "LH").part_number
-
-    rh_pn = mapper.get_spring_part_number(wire_diameter, resolved_coil, "RH").part_number
+    rh_pn = mapper.get_spring_part_number(wire_diameter, coil_diameter, "RH").part_number
     lh_price = price_of(lh_pn)
     rh_price = price_of(rh_pn)
     if lh_price is None or rh_price is None:
         return None
-    return lh_price, rh_price, resolved_coil
+    return lh_price, rh_price, coil_diameter
 
 
 def _winding_counts(spring_qty: int) -> tuple:
@@ -167,7 +160,15 @@ def assembly_cost(
 
     mapper = get_bc_mapper()
     length_in = math.ceil(length)
-    lh_count, rh_count = _winding_counts(spring_qty)
+    # Duplex: spring_qty counts outer+inner; each outer/inner line gets one
+    # spring per shaft position (duplex_pairs), split LH/RH. Mirrors
+    # part_number_service._get_spring_parts.
+    positions = duplex_pairs if is_duplex else spring_qty
+    if is_duplex:
+        lh_count = positions // 2
+        rh_count = positions - lh_count
+    else:
+        lh_count, rh_count = _winding_counts(spring_qty)
 
     total = 0.0
 
@@ -185,7 +186,7 @@ def assembly_cost(
     winder_price = price_of(winder_pn)
     if winder_price is None:
         return None
-    total += winder_price * spring_qty
+    total += winder_price * positions
 
     if is_duplex:
         if not (inner_wire_diameter and inner_coil_diameter and inner_length and duplex_pairs):
@@ -195,13 +196,13 @@ def assembly_cost(
         if inner is None:
             return None
         inner_lh, inner_rh, inner_coil = inner
-        total += (inner_lh + inner_rh) * inner_len_in * duplex_pairs
+        total += (inner_lh * lh_count + inner_rh * rh_count) * inner_len_in
 
         inner_winder_pn = mapper.get_winder_stationary_set(inner_coil, SHAFT_BORE).part_number
         inner_winder_price = price_of(inner_winder_pn)
         if inner_winder_price is None:
             return None
-        total += inner_winder_price * spring_qty
+        total += inner_winder_price * positions
     elif coil_diameter == 6.0:
         # 6" springs need a PVC tube inside each spring; duplex skips it because
         # the inner spring already fills the outer.
@@ -211,7 +212,7 @@ def assembly_cost(
         total += pvc * length_in * spring_qty
 
     # More than 2 springs forces a second shaft, hence couplers (see module note).
-    couplers = max(0, spring_qty // 2 - 1)
+    couplers = max(0, positions // 2 - 1)
     if couplers:
         coupler_price = price_of(COUPLER_PN)
         if coupler_price is None:

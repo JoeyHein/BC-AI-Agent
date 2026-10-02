@@ -335,6 +335,30 @@ def _springs_fit_on_shaft(
 # `width` is axial footprint of the drum on the shaft in inches — needed for
 # the spring/shaft fit check. Larger drums (D6375, D800-120, vertical-lift
 # 1100/1350) take more shaft length.
+def _spring_sellable(wire: float, coil: float) -> bool:
+    """True when BC sells the exact oil-tempered SP11 spring (both winds).
+
+    The calculator must only propose springs we can quote as-is: the parts
+    service's wire step-up keeps the computed length, so a non-sellable pick
+    becomes a heavier, over-strong spring on the quote. Returns True when the
+    item cache isn't loaded (tests / cold start) so selection still works.
+    """
+    try:
+        from app.services.bc_part_number_mapper import get_bc_mapper
+        mapper = get_bc_mapper()
+    except Exception:
+        return True
+    if not mapper.spring_items:
+        return True
+    lh = mapper.get_spring_part_number(wire, coil, "LH").part_number
+    rh = mapper.get_spring_part_number(wire, coil, "RH").part_number
+    return lh in mapper.spring_items and rh in mapper.spring_items
+
+
+# Duplex shaft positions to try. Each position is one 6" outer + one 3-3/4"
+# inner nested together; positions must be even so they split evenly LH/RH.
+DUPLEX_POSITION_COUNTS = (2, 4, 6)
+
 DRUM_TABLE = {
     # Standard Lift Drums
     "D400-96":   {"max_height": 96,  "max_weight": 530,  "offset": 3.375, "cables": [0.125, 0.125],     "lift": "standard", "radius": 12, "width": 4.5},
@@ -636,6 +660,8 @@ class DoorCalculatorService:
                 # Wire/coil pairing must exist in the Canimex divider table
                 if coil not in spring_calculator.dividers.get(wire, {}):
                     continue
+                if not _spring_sellable(wire, coil):
+                    continue
                 capacity = spring_calculator.get_mip_capacity(wire, target_cycles)
                 if capacity is None:
                     continue
@@ -789,7 +815,13 @@ class DoorCalculatorService:
 
         # 5. Select drum (3" track forces D525-216 minimum — no D400 drums)
         drums = self._select_drum(height_inches, weight.total_weight, lift_config, effective_height=effective_height, track_size=track_size)
-        if drums is None:
+        if drums is None and lift_type_str == "high" and high_lift_inches:
+            warnings.append(
+                f"High lift {high_lift_inches}\" exceeds every high-lift drum's data "
+                f"(max {self.max_high_lift_supported(height_inches)}\" at {height_inches}\" door height). "
+                f"Drum and springs need engineering, or convert to vertical lift."
+            )
+        elif drums is None:
             warnings.append("No suitable drum found for door specifications")
 
         # 6. Calculate springs (inventory-aware, progressive scaling, duplex support)
@@ -860,9 +892,10 @@ class DoorCalculatorService:
                     duplex_pairs=springs.duplex_pairs,
                 )
 
-        # 7. Calculate shaft (spring count drives shaft count)
+        # 7. Calculate shaft (spring count drives shaft count). A duplex
+        # outer+inner nest occupies one shaft position, so count positions.
         is_residential = door_type == "residential"
-        spring_count = springs.quantity if springs else 2
+        spring_count = (springs.duplex_pairs if springs.is_duplex else springs.quantity) if springs else 2
         shaft = self._calculate_shaft(width_inches, weight.total_weight, shaft_type, is_residential=is_residential, spring_count=spring_count)
 
         # 8. Calculate hardware list
@@ -1131,6 +1164,18 @@ class DoorCalculatorService:
             lift_type=lift_config["name"]
         )
 
+    def max_high_lift_supported(self, height_inches: int) -> int:
+        """Largest high lift (inches) any HL drum has data for at this door height."""
+        best = 0
+        for name, spec in self.drum_table.items():
+            if spec["lift"] != "high":
+                continue
+            for hl in sorted(spring_calculator.hl_drum_multipliers.get(name, {}).get("table", {}), reverse=True):
+                if spring_calculator.hl_drum_supports(name, height_inches, hl):
+                    best = max(best, hl)
+                    break
+        return best
+
     def _select_drum(
         self,
         height_inches: int,
@@ -1164,6 +1209,19 @@ class DoorCalculatorService:
                 (name, spec) for name, spec in eligible_drums
                 if spec.get("radius") != 12
             ]
+
+        # High lift: the drum must also have table data for this exact high-lift
+        # amount (its cable capacity), not just a big enough height+HL sum.
+        # Past every drum's limit we return None rather than the largest drum —
+        # the caller flags it for office review instead of quoting bad springs.
+        if lift_type == "high":
+            hl_inches = max(0, eff_h - height_inches)
+            eligible_drums = [
+                (name, spec) for name, spec in eligible_drums
+                if spring_calculator.hl_drum_supports(name, height_inches, hl_inches)
+            ]
+            if not eligible_drums:
+                return None
 
         # Find smallest drum that can handle the effective height and weight
         # Sort by max_height ascending so we pick the smallest drum that fits
@@ -1255,6 +1313,21 @@ class DoorCalculatorService:
 
         drum_model = drums.model if drums else None
 
+        # The BC inventory feed includes galvanized/other SP1x items, so a wire
+        # can look "stocked" with no SP11 part behind it. Keep only sellable.
+        if spring_inventory:
+            spring_inventory = {
+                coil: [w for w in wires if _spring_sellable(normalize_wire_diameter(float(w)), float(coil))]
+                for coil, wires in spring_inventory.items()
+            }
+
+        # No drum for a high-lift door means the HL exceeds every drum's data.
+        # Without this guard get_drum_data falls back to a STANDARD-lift drum
+        # and sizes springs for the wrong turns.
+        if drum_model is None and high_lift_inches:
+            logger.warning(f"No high-lift drum covers {high_lift_inches}\" HL at {height_inches}\" — no springs")
+            return None
+
         if spring_inventory:
             result = self._calculate_springs_from_inventory(
                 door_weight, height_inches, target_cycles,
@@ -1322,10 +1395,10 @@ class DoorCalculatorService:
                 all_candidates.append(result)
 
         # Heavy doors that don't fit on a single regular spring layout often
-        # work as duplex (6" outer + 3.75" inner). Try 2/3/4/5 pairs (totals
-        # 4/6/8/10 springs). No inventory constraint here — calculator walks
+        # work as duplex (6" outer + 3.75" inner). Try 2/4/6 shaft positions (totals
+        # 4/8/12 springs). No inventory constraint here — calculator walks
         # the Canimex table for any valid wire/coil pairing.
-        for duplex_pairs in [2, 3, 4, 5]:
+        for duplex_pairs in DUPLEX_POSITION_COUNTS:
             duplex = self._calculate_duplex_springs(
                 door_weight, height_inches, target_cycles,
                 track_radius, inventory=None, duplex_pairs=duplex_pairs,
@@ -1537,10 +1610,10 @@ class DoorCalculatorService:
                     f"{height_inches}\" height, trying more springs..."
                 )
 
-        # Try duplex springs at 2/3/4/5 pairs (totals 4/6/8/10) — heavy
+        # Try duplex springs at 2/4/6 positions (totals 4/8/12) — heavy
         # doors that don't fit on regular springs often work with more
         # duplex positions.
-        for duplex_pairs in [2, 3, 4, 5]:
+        for duplex_pairs in DUPLEX_POSITION_COUNTS:
             duplex = self._calculate_duplex_springs(
                 door_weight, height_inches, target_cycles,
                 track_radius, inventory, duplex_pairs,
@@ -1641,7 +1714,9 @@ class DoorCalculatorService:
                 every wire size in the Canimex divider table that pairs
                 with 6"/3.75" coils — used by the unfiltered fallback when
                 no inventory was supplied.
-            duplex_pairs: Number of duplex pairs (2/3/4/5 — totals 4/6/8/10)
+            duplex_pairs: Number of duplex POSITIONS on the shaft (each an
+                outer+inner nest). total springs = 2 × positions; half the
+                positions are LH, half RH.
 
         Returns:
             SpringSelection with duplex fields populated, or None
@@ -1666,6 +1741,10 @@ class DoorCalculatorService:
             ]
             if not outer_wires or not inner_wires:
                 return None
+
+        # Only SKUs BC actually sells (see _spring_sellable)
+        outer_wires = [w for w in outer_wires if _spring_sellable(normalize_wire_diameter(float(w)), 6.0)]
+        inner_wires = [w for w in inner_wires if _spring_sellable(normalize_wire_diameter(float(w)), 3.75)]
 
         # Calculate what each spring needs to handle
         drum_data = spring_calculator.get_drum_data(height_inches, track_radius, drum_model, high_lift_inches=high_lift_inches)

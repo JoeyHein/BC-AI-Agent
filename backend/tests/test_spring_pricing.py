@@ -65,18 +65,12 @@ class TestAssemblyCost:
         assert small is not None and big is not None
         assert small < big
 
-    def test_steps_up_to_sellable_part_like_the_emitter(self):
-        """.375 x 3.75" has no direct BC SKU, but part_number_service steps it up
-        to a real part (.375 x 6") and sells it. The cost model must price that
-        same stepped-up part, not drop the candidate as unpriceable.
+    def test_non_sellable_combo_is_not_priced_as_a_step_up(self):
+        """.375 x 3.75" has no SP11 SKU. Pricing it as the stepped-up .375 x 6"
+        at the SAME length scored a different-rate spring as cheap (July 2026
+        regression); the candidate must drop out instead.
         """
-        from app.services.bc_part_number_mapper import get_bc_mapper
-
-        mapper = get_bc_mapper()
-        found, rw, rc = mapper.resolve_spring_in_bc(0.375, 3.75)
-        assert found and (rw, rc) == (0.375, 6.0)
-        cost = spring_pricing.assembly_cost(0.375, 3.75, 40, 2)
-        assert cost is not None and cost > 0
+        assert spring_pricing.assembly_cost(0.375, 3.75, 40, 2) is None
 
     def test_truly_unsellable_wire_coil_returns_none_not_zero(self):
         """A wire past the top of the BC catalog resolves to nothing.
@@ -126,13 +120,15 @@ class TestAssemblyCost:
         def p(pn):
             return spring_pricing.price_of(pn)
 
-        outer = sum(p(mapper.get_spring_part_number(0.3125, 6.0, w).part_number) * outer_len * (qty // 2)
+        # 2 duplex positions = 1 LH + 1 RH outer, 1 LH + 1 RH inner, one winder
+        # set per spring, single shaft (no coupler). qty (4) counts outer+inner.
+        outer = sum(p(mapper.get_spring_part_number(0.3125, 6.0, w).part_number) * outer_len * (pairs // 2)
                     for w in ("LH", "RH"))
-        inner = sum(p(mapper.get_spring_part_number(0.2625, 3.75, w).part_number) * inner_len * pairs
+        inner = sum(p(mapper.get_spring_part_number(0.2625, 3.75, w).part_number) * inner_len * (pairs // 2)
                     for w in ("LH", "RH"))
-        winders = (p(mapper.get_winder_stationary_set(6.0, 1.0).part_number) * qty
-                   + p(mapper.get_winder_stationary_set(3.75, 1.0).part_number) * qty)
-        coupler = spring_pricing.price_of(spring_pricing.COUPLER_PN) * (qty // 2 - 1)
+        winders = (p(mapper.get_winder_stationary_set(6.0, 1.0).part_number) * pairs
+                   + p(mapper.get_winder_stationary_set(3.75, 1.0).part_number) * pairs)
+        coupler = spring_pricing.price_of(spring_pricing.COUPLER_PN) * (pairs // 2 - 1)
         assert cost == pytest.approx(outer + inner + winders + coupler, abs=0.01)
 
     def test_couplers_charged_above_two_springs(self):

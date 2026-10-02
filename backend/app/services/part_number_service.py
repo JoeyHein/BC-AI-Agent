@@ -1955,6 +1955,21 @@ class PartNumberService:
             track_size=track_size,
         )
 
+        if dc_lift_type == 'high' and drums is None:
+            parts.append(PartSelection(
+                part_number="",
+                description=(
+                    f"** OFFICE REVIEW REQUIRED — DRUM: {high_lift_inches}\" high lift on a "
+                    f"{config.door_height}\" high door exceeds every high-lift drum we have data for "
+                    f"(max {door_calculator.max_high_lift_supported(config.door_height)}\" HL at this height). "
+                    f"Drum + springs must be engineered (or convert to vertical lift). **"
+                ),
+                quantity=0,
+                category="spring_warning",
+                notes="hl_drum_out_of_range",
+            ))
+            return parts, 2, False
+
         # Use door_calculator._calculate_springs() — same engine as specs tab
         spring_result = door_calculator._calculate_springs(
             door_weight=door_weight,
@@ -1985,7 +2000,7 @@ class PartNumberService:
                     f"** OFFICE REVIEW REQUIRED — SPRINGS: "
                     f"{door_weight:.0f} lbs door at {config.target_cycles:,} cycles "
                     f"exceeds standard spring sizing. Engineering must spec and "
-                    f"price the spring assembly before this quote is approved. **"
+                    f"price the spring assembly before this quote is approved — contact office. **"
                 ),
                 quantity=0,
                 category="spring_warning",
@@ -2087,7 +2102,15 @@ class PartNumberService:
         # single LH spring with NO RH counterpart. The previous floor of
         # max(1, spring_qty // 2) emitted both windings for a 1-spring
         # door, which doubled the spring lines on the quote.
-        if spring_qty <= 1:
+        # Duplex: spring_qty counts outer+inner springs (2 per shaft position);
+        # the outer/inner lines each get ONE spring per position, half LH /
+        # half RH. Using spring_qty here doubled every duplex quote.
+        positions = spring_result.duplex_pairs if (is_duplex and spring_result) else spring_qty
+        if is_duplex and spring_result:
+            lh_count = positions // 2
+            rh_count = positions - lh_count
+            pairs = lh_count
+        elif spring_qty <= 1:
             lh_count = 1
             rh_count = 0
             pairs = 1   # legacy alias still referenced below
@@ -2111,6 +2134,23 @@ class PartNumberService:
                         f"Spring {wire_size}\" x {coil_id}\" not in BC — "
                         f"resolved to {resolved_wire}\" x {resolved_coil}\""
                     )
+                if (resolved_wire != wire_size or resolved_coil != coil_id) and spring_result:
+                    # A heavier wire / bigger coil at the SAME length is a much
+                    # stronger spring — re-size the length for the part we sell.
+                    from app.services.spring_calculator_service import spring_calculator as _sc
+                    resized = _sc.calculate_spring(
+                        door_weight=door_weight,
+                        door_height=config.door_height,
+                        track_radius=track_radius,
+                        spring_qty=spring_qty,
+                        wire_diameter=resolved_wire,
+                        coil_diameter=resolved_coil,
+                        target_cycles=config.target_cycles,
+                        drum_model=drums.model if drums else None,
+                        high_lift_inches=high_lift_inches,
+                    )
+                    if resized:
+                        spring_length = math.ceil(resized.length)
                 wire_size = resolved_wire
                 coil_id = resolved_coil
                 spring_lh = mapper.get_spring_part_number(wire_size, coil_id, "LH")
@@ -2173,14 +2213,14 @@ class PartNumberService:
                 total_rh = rh_count * config.door_count
                 total_springs = spring_qty * config.door_count
                 if total_rh > 0:
-                    spring_detail_desc = f"{specs} | {total_lh} LH + {total_rh} RH ({total_springs} total)"
+                    spring_detail_desc = f"{specs} | {total_lh} LH + {total_rh} RH duplex sets ({total_springs} springs)"
                 else:
-                    spring_detail_desc = f"{specs} | {total_lh} LH ({total_springs} total)"
+                    spring_detail_desc = f"{specs} | {total_lh} LH duplex sets ({total_springs} springs)"
             else:
                 if rh_count > 0:
-                    spring_detail_desc = f"{specs} | {lh_count} LH + {rh_count} RH ({spring_qty} total)"
+                    spring_detail_desc = f"{specs} | {lh_count} LH + {rh_count} RH duplex sets ({spring_qty} springs)"
                 else:
-                    spring_detail_desc = f"{specs} | {lh_count} LH ({spring_qty} total)"
+                    spring_detail_desc = f"{specs} | {lh_count} LH duplex sets ({spring_qty} springs)"
         else:
             base = f"Springs: {wire_size}\" wire x {coil_id}\" ID x {spring_length}\" long"
             if config.door_count > 1:
@@ -2257,24 +2297,24 @@ class PartNumberService:
             parts.append(PartSelection(
                 part_number=inner_lh.part_number,
                 description=inner_lh.description,
-                quantity=inner_length * duplex_pairs,
+                quantity=inner_length * lh_count,
                 category="spring",
-                notes=f"Inner spring: {inner_wire}\" x {inner_coil}\" x {inner_length}\" LH × {duplex_pairs}"
+                notes=f"Inner spring: {inner_wire}\" x {inner_coil}\" x {inner_length}\" LH × {lh_count}"
             ))
             parts.append(PartSelection(
                 part_number=inner_rh.part_number,
                 description=inner_rh.description,
-                quantity=inner_length * duplex_pairs,
+                quantity=inner_length * rh_count,
                 category="spring",
-                notes=f"Inner spring: {inner_wire}\" x {inner_coil}\" x {inner_length}\" RH × {duplex_pairs}"
+                notes=f"Inner spring: {inner_wire}\" x {inner_coil}\" x {inner_length}\" RH × {rh_count}"
             ))
 
-            # Winder/stationary sets for inner coil size — universal
+            # Winder/stationary sets for inner coil size — one per inner spring
             inner_winder = mapper.get_winder_stationary_set(inner_coil, 1.0)
             parts.append(PartSelection(
                 part_number=inner_winder.part_number,
                 description=inner_winder.description,
-                quantity=spring_qty,
+                quantity=positions,
                 category="spring_accessory"
             ))
 
@@ -2283,11 +2323,12 @@ class PartNumberService:
         parts.append(PartSelection(
             part_number=winder_universal.part_number,
             description=winder_universal.description,
-            quantity=spring_qty,  # one set per spring
+            quantity=positions,  # one set per (outer) spring
             category="spring_accessory"
         ))
 
-        return parts, spring_qty, is_tandem
+        # Shaft sizing counts shaft positions (a duplex nest is one position).
+        return parts, positions, is_tandem
 
     def _get_shaft_parts(self, config: DoorConfiguration, spring_count: int = 2, is_tandem: bool = False) -> List[PartSelection]:
         """Get shaft part numbers using actual BC parts.

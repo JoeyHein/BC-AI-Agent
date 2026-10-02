@@ -569,26 +569,46 @@ class SpringCalculatorService:
 
         return None
 
-    def _get_hl_drum_data(self, drum_model: str, door_height: int, high_lift_inches: int) -> Optional[Tuple[str, float, float]]:
-        """Look up high-lift drum multiplier: HL inches -> door height -> (mult, turns)."""
-        drum_data = self.hl_drum_multipliers[drum_model]
+    def hl_drum_supports(self, drum_model: str, door_height: int, high_lift_inches: int) -> bool:
+        """True when the HL drum's table actually covers this door height + high lift."""
+        return self._hl_cell(drum_model, door_height, high_lift_inches) is not None
+
+    def _hl_cell(self, drum_model: str, door_height: int, high_lift_inches: int) -> Optional[Tuple[float, float]]:
+        """(multiplier, turns) for an HL drum, or None if outside the drum's data.
+
+        Rounds UP to the next tabulated HL row and door height (more turns, never
+        fewer). Anything past the drum's last row is out of range — the drum
+        physically can't store that much cable, so we must not clamp to the
+        nearest row (that used to quote a 168" HL door off the 120" row).
+        """
+        drum_data = self.hl_drum_multipliers.get(drum_model)
+        if not drum_data:
+            return None
         table = drum_data["table"]
-
-        # Find closest high-lift row
         hl_keys = sorted(table.keys())
-        closest_hl = min(hl_keys, key=lambda hl: abs(hl - high_lift_inches))
-
-        height_table = table[closest_hl]
+        max_hl = max(hl_keys[-1], drum_data.get("max_hi_lift") or 0)
+        if high_lift_inches > max_hl:
+            return None
+        row_hl = next((hl for hl in hl_keys if hl >= high_lift_inches), hl_keys[-1])
+        height_table = table[row_hl]
         if not height_table:
             return None
-
-        # Find closest door height in that HL row
-        closest_height = min(height_table.keys(), key=lambda h: abs(h - door_height))
-        result = height_table[closest_height]
-        if result is None:
+        heights = sorted(h for h, v in height_table.items() if v)
+        row_h = next((h for h in heights if h >= door_height), None)
+        if row_h is None:
             return None
+        return height_table[row_h]
 
-        multiplier, turns = result
+    def _get_hl_drum_data(self, drum_model: str, door_height: int, high_lift_inches: int) -> Optional[Tuple[str, float, float]]:
+        """Look up high-lift drum multiplier: HL inches -> door height -> (mult, turns)."""
+        cell = self._hl_cell(drum_model, door_height, high_lift_inches)
+        if cell is None:
+            logger.warning(
+                f"{drum_model}: {high_lift_inches}\" high lift at {door_height}\" door height "
+                f"is outside the drum's data — no multiplier"
+            )
+            return None
+        multiplier, turns = cell
         return (drum_model, multiplier, turns)
 
     def _get_vl_drum_data(self, drum_model: str, door_height: int) -> Optional[Tuple[str, float, float]]:
