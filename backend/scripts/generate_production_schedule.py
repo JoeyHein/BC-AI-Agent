@@ -11,8 +11,9 @@ Behavior (see app/services/production_schedule_service.py for the real logic):
 - Pulls every in-flight sales order from Business Central.
 - Reads back whatever copy already exists (SharePoint or local file) and
   carries forward hand-edited status per SO number — never a blind overwrite.
-- Each tracking column (Panels..Operators) is a dropdown: Complete (green) /
-  Not Complete (red) / blank (white, N/A — component not on this order).
+- Box-in/box-out layout: one row per SO — Fulfillment (Buy Complete /
+  Emergency Build), whole-order Order Status from the linked Upwardor PO,
+  Operators, Window Kits (the only default in-house work), Emergency Build.
 - SOs no longer open in BC move to an "Archived" sheet instead of vanishing.
 """
 

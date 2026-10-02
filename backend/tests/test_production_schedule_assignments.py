@@ -1,6 +1,7 @@
 """Assignments sheet on the production schedule workbook — Joey's curated,
-prioritized week queue, keyed by SALES ORDER with production orders as
-read-only sub-lines grouped beneath each SO. See
+prioritized shop queue, keyed by SALES ORDER with the SO's in-house work
+(window kits; production orders only for Emergency Builds) as read-only
+sub-lines grouped beneath each SO. See
 production_schedule_service.py module docstring.
 
 Unlike the Schedule sheet, Assignments is NOT a full listing: only sales
@@ -26,19 +27,26 @@ def _prod_order(no, item="PN10-24101-0802", desc="Panel section", qty=1,
             "Quantity": qty, "Status": status, "Due_Date": due}
 
 
-def _build_bytes(prod_orders, prior=None, prod_so_map=None, so_customer_map=None):
+EMERGENCY = {"fulfillment": "Emergency Build", "window_kits": "", "window_kit_lines": []}
+
+
+def _emergency(*so_numbers):
+    return {so: EMERGENCY for so in so_numbers}
+
+
+def _build_bytes(prod_orders, prior=None, prod_so_map=None, so_customer_map=None, so_work=None):
     wb = Workbook()
     wb.remove(wb.active)
-    svc._write_assignments_sheet(wb, prod_orders, prior or {}, prod_so_map, so_customer_map)
+    svc._write_assignments_sheet(wb, prod_orders, prior or {}, prod_so_map, so_customer_map, None, so_work)
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
 
 
-def _build_ws(prod_orders, prior, prod_so_map=None, so_customer_map=None):
+def _build_ws(prod_orders, prior, prod_so_map=None, so_customer_map=None, so_work=None):
     wb = Workbook()
     wb.remove(wb.active)
-    svc._write_assignments_sheet(wb, prod_orders, prior, prod_so_map, so_customer_map)
+    svc._write_assignments_sheet(wb, prod_orders, prior, prod_so_map, so_customer_map, None, so_work)
     return wb["Assignments"]
 
 
@@ -57,20 +65,20 @@ def test_round_trips_priority_assigned_to_and_complete_by():
     assert rec["customer"] == "Acme Doors"
 
 
-def test_production_orders_list_as_sub_lines_under_their_sales_order():
+def test_emergency_build_lists_production_orders_as_sub_lines():
     prod_orders = [_prod_order("PRD-001", item="PANEL-A"), _prod_order("PRD-002", item="PANEL-B")]
     prod_so_map = {"PRD-001": "SO-100", "PRD-002": "SO-100"}
     prior = {"SO-100": {"priority": 1, "assigned_to": "Dave", "complete_by": None}}
     so_customer_map = {"SO-100": "Acme Doors"}
 
-    ws = _build_ws(prod_orders, prior, prod_so_map, so_customer_map)
+    ws = _build_ws(prod_orders, prior, prod_so_map, so_customer_map, so_work=_emergency("SO-100"))
     rows = list(ws.iter_rows(min_row=2, values_only=True))
 
-    # Main line first: Priority, SO Number, Customer populated; sub-line
-    # columns (Prod Order # onward) blank on the main line.
+    # Main line first: Priority, SO Number, Customer populated; Work column
+    # flags the emergency.
     assert rows[0][1] == "SO-100"
     assert rows[0][2] == "Acme Doors"
-    assert rows[0][6] is None  # Prod Order # column blank on main line
+    assert rows[0][6] == "Emergency Build"
 
     # Sub-lines follow: SO Number blank, Prod Order # populated.
     sub_po_numbers = {rows[1][6], rows[2][6]}
@@ -83,7 +91,7 @@ def test_sub_lines_are_outline_grouped_under_their_main_line():
     prod_so_map = {"PRD-001": "SO-100"}
     prior = {"SO-100": {"priority": 1, "assigned_to": "", "complete_by": None}}
 
-    ws = _build_ws(prod_orders, prior, prod_so_map, {"SO-100": "Acme"})
+    ws = _build_ws(prod_orders, prior, prod_so_map, {"SO-100": "Acme"}, so_work=_emergency("SO-100"))
 
     assert ws.row_dimensions[2].outlineLevel == 0  # main line
     assert ws.row_dimensions[3].outlineLevel == 1  # sub-line
@@ -165,7 +173,7 @@ def test_finished_production_order_quietly_drops_from_still_open_so():
     prod_so_map = {"PRD-001": "SO-100", "PRD-002": "SO-100"}
     prior = {"SO-100": {"priority": 1, "assigned_to": "Dave", "complete_by": None}}
 
-    ws = _build_ws(prod_orders, prior, prod_so_map, {"SO-100": "Acme"})
+    ws = _build_ws(prod_orders, prior, prod_so_map, {"SO-100": "Acme"}, so_work=_emergency("SO-100"))
     rows = list(ws.iter_rows(min_row=2, values_only=True))
 
     assert len(rows) == 2  # main line + one surviving sub-line
@@ -207,20 +215,37 @@ def test_new_workbook_has_no_prior_assignments():
     assert svc.parse_assignments_from_bytes(buf.getvalue()) == {}
 
 
-def test_open_production_orders_sheet_lists_every_open_order_with_customer():
-    prod_orders = [_prod_order("PRD-001", due="2026-09-10"), _prod_order("PRD-002", due="2026-09-01")]
-    prod_so_map = {"PRD-001": "SO-100", "PRD-002": "SO-200"}
-    so_customer_map = {"SO-100": "Acme Doors", "SO-200": "Beta Garage"}
+def test_buy_complete_so_hides_bc_production_orders():
+    """BC still auto-creates production orders for buy-complete SOs — noise
+    in the box-in/box-out model, so they must not show as sub-lines."""
+    prod_orders = [_prod_order("PRD-001")]
+    prior = {"SO-100": {"priority": 1, "assigned_to": "", "complete_by": None}}
 
-    wb = Workbook()
-    wb.remove(wb.active)
-    svc._write_open_production_orders_sheet(wb, prod_orders, prod_so_map, so_customer_map)
-    ws = wb["Open Production Orders"]
+    ws = _build_ws(prod_orders, prior, {"PRD-001": "SO-100"}, {"SO-100": "Acme"},
+                   so_work={"SO-100": {"fulfillment": "Buy Complete", "window_kits": "", "window_kit_lines": []}})
+    rows = list(ws.iter_rows(min_row=2, values_only=True))
 
-    data_rows = list(ws.iter_rows(min_row=2, values_only=True))
-    assert [row[0] for row in data_rows] == ["PRD-002", "PRD-001"]  # sorted by due date
-    assert data_rows[0][6] == "SO-200"
-    assert data_rows[0][7] == "Beta Garage"
+    assert len(rows) == 1
+    assert rows[0][6] is None
+
+
+def test_window_kits_list_as_sub_lines_with_schedule_status():
+    prior = {"SO-100": {"priority": 1, "assigned_to": "Dave", "complete_by": None}}
+    so_work = {"SO-100": {
+        "fulfillment": "Buy Complete",
+        "window_kits": "In Progress",
+        "window_kit_lines": [{"item": "GK17-10000-00", "description": "Clear thermal kit", "qty": 4.0}],
+    }}
+
+    ws = _build_ws([], prior, so_customer_map={"SO-100": "Acme"}, so_work=so_work)
+    rows = list(ws.iter_rows(min_row=2, values_only=True))
+
+    assert len(rows) == 2
+    assert rows[1][6] == "Window Kit"
+    assert rows[1][7] == "GK17-10000-00"
+    assert rows[1][9] == 4.0
+    assert rows[1][10] == "In Progress"
+    assert ws.row_dimensions[3].outlineLevel == 1
 
 
 def test_parses_rows_written_under_an_older_narrower_schema():
