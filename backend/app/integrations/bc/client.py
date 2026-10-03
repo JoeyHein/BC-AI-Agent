@@ -3,13 +3,15 @@ Business Central API Client with OAuth 2.0 Authentication
 """
 
 import logging
+import re
 import time
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Tuple
 import msal
 import requests
 from datetime import datetime, timedelta, date
 
 from app.config import settings
+from app.integrations.bc.paging import collect_odata_pages
 
 logger = logging.getLogger(__name__)
 
@@ -436,6 +438,53 @@ class BusinessCentralClient:
 
         return result
 
+    def get_item_category_codes(self, item_numbers: List[str],
+                                 company_id: Optional[str] = None) -> Dict[str, Optional[str]]:
+        """Map item number -> itemCategoryCode.
+
+        Same batching as get_items_by_numbers. A failed batch is logged and
+        skipped so one bad filter does not drop the rest of the lookup.
+        Numbers BC does not return are absent from the dict.
+        """
+        if not item_numbers:
+            return {}
+
+        cid = company_id or self.company_id
+        result: Dict[str, Optional[str]] = {}
+        batch_size = 40
+        unique: List[str] = []
+        seen = set()
+        for number in item_numbers:
+            if number and number not in seen:
+                seen.add(number)
+                unique.append(number)
+
+        for start in range(0, len(unique), batch_size):
+            batch = unique[start:start + batch_size]
+            filter_parts = " or ".join(
+                f"number eq '{pn.replace(chr(39), chr(39) * 2)}'" for pn in batch
+            )
+            endpoint = (
+                f"companies({cid})/items?$filter={filter_parts}"
+                f"&$select=number,itemCategoryCode"
+            )
+            try:
+                resp = self._make_request("GET", endpoint)
+                for item in resp.get("value", []):
+                    number = item.get("number")
+                    if number:
+                        result[number] = item.get("itemCategoryCode") or None
+            except Exception as e:
+                logger.warning(f"Item category lookup failed for {len(batch)} items: {e}")
+
+        return result
+
+    def get_item_categories(self, company_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Item category list (code, displayName, parent when BC sends one)."""
+        cid = company_id or self.company_id
+        url = f"{self.base_url}/companies({cid})/itemCategories"
+        return self._paginate_v2(url, "item categories")
+
     def search_items_by_prefix(self, prefix: str, company_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Fetch all items whose number starts with a given prefix.
@@ -486,37 +535,127 @@ class BusinessCentralClient:
         order-to-invoice cycle time.
 
         since_date: ISO 'YYYY-MM-DD'. Filters Posting_Date >= since.
-        Paginates via @odata.nextLink.
+
+        ODataV4 PostedSalesInvoices does not emit @odata.nextLink, so a
+        single ``$top`` is a silent cap (this used to stop at 500). Follow
+        nextLink when a tenant sends one, and otherwise page with ``$skip``
+        until a short page comes back.
         """
-        company_segment = self._odata_v4_company_segment(company_id)
-        select = (
-            "$select=No,Order_No,Order_Date,Posting_Date,Document_Date,"
-            "Shipment_Date,Quote_Date,Sell_to_Customer_Name,Bill_to_Customer_No,"
-            "Amount_Including_VAT,External_Document_No"
-        )
-        url = (
-            f"{self.odata_url}/{company_segment}/PostedSalesInvoices"
-            f"?$filter=Posting_Date ge {since_date}&{select}&$top={page_size}"
-        )
         rows: List[Dict[str, Any]] = []
         try:
-            token = self._get_access_token()
-            while url:
-                resp = requests.get(
-                    url,
-                    headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-                    timeout=120,
-                )
+            company_segment = self._odata_v4_company_segment(company_id)
+            select = (
+                "$select=No,Order_No,Order_Date,Posting_Date,Document_Date,"
+                "Shipment_Date,Quote_Date,Sell_to_Customer_Name,Bill_to_Customer_No,"
+                "Amount_Including_VAT,External_Document_No"
+            )
+            base = (
+                f"{self.odata_url}/{company_segment}/PostedSalesInvoices"
+                f"?$filter=Posting_Date ge {since_date}&{select}&$top={page_size}"
+            )
+
+            def url_for(skip: int) -> str:
+                if skip:
+                    return f"{base}&$skip={skip}"
+                return base
+
+            def fetch(url: str) -> Dict[str, Any]:
+                try:
+                    token = self._get_access_token()
+                    resp = requests.get(
+                        url,
+                        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+                        timeout=120,
+                    )
+                except Exception as e:
+                    logger.error(f"get_posted_sales_invoices failed: {e}")
+                    return {"value": [], "_error": True}
                 if resp.status_code >= 400:
-                    logger.error(f"get_posted_sales_invoices HTTP {resp.status_code}: {resp.text[:300]}")
-                    break
-                data = resp.json()
-                rows.extend(data.get("value", []))
-                url = data.get("@odata.nextLink")
+                    logger.error(
+                        f"get_posted_sales_invoices HTTP {resp.status_code}: {resp.text[:300]}"
+                    )
+                    return {"value": [], "_error": True}
+                return resp.json()
+
+            rows, complete = collect_odata_pages(fetch, url_for(0), url_for, page_size)
+            if not complete:
+                logger.warning(
+                    f"PostedSalesInvoices since {since_date} may be truncated "
+                    f"at {len(rows)} rows ($skip paging did not finish)"
+                )
         except Exception as e:
             logger.error(f"get_posted_sales_invoices failed: {e}")
         logger.info(f"Fetched {len(rows)} PostedSalesInvoices since {since_date}")
         return rows
+
+    def get_sales_invoices_with_lines(
+        self,
+        start_date: str,
+        end_date: str,
+        customer_number: Optional[str] = None,
+        company_id: Optional[str] = None,
+        page_size: int = 200,
+    ) -> Tuple[List[Dict[str, Any]], bool]:
+        """Posted sales invoices in an inclusive postingDate window, with lines.
+
+        The date filter is on the invoice HEADER. ``salesInvoiceLine`` has no
+        postingDate (a ``$filter=postingDate`` on ``salesInvoiceLines`` is a
+        400, which is why the executive product mix came back empty). Lines
+        are joined with ``$expand=salesInvoiceLines``.
+
+        Returns ``(invoices, complete)``. ``complete`` is False when paging
+        stopped early. Does not write to BC.
+        """
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", start_date or ""):
+            raise ValueError(f"start_date must be YYYY-MM-DD, got {start_date!r}")
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", end_date or ""):
+            raise ValueError(f"end_date must be YYYY-MM-DD, got {end_date!r}")
+
+        cid = company_id or self.company_id
+        filter_expr = f"postingDate ge {start_date} and postingDate le {end_date}"
+        if customer_number:
+            safe_customer = customer_number.replace("'", "''")
+            filter_expr += f" and customerNumber eq '{safe_customer}'"
+
+        def url_for(skip: int) -> str:
+            url = (
+                f"{self.base_url}/companies({cid})/salesInvoices"
+                f"?$filter={filter_expr}&$expand=salesInvoiceLines"
+            )
+            if skip:
+                url += f"&$skip={skip}"
+            return url
+
+        def fetch(url: str) -> Dict[str, Any]:
+            try:
+                token = self._get_access_token()
+                resp = requests.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Accept": "application/json",
+                        # Ask BC to page. $top is intentionally absent: on
+                        # api/v2.0 it caps the total result, not the page.
+                        "Prefer": f"odata.maxpagesize={page_size}",
+                    },
+                    timeout=120,
+                )
+            except Exception as e:
+                logger.error(f"get_sales_invoices_with_lines failed: {e}")
+                return {"value": [], "_error": True}
+            if resp.status_code >= 400:
+                logger.error(
+                    f"get_sales_invoices_with_lines HTTP {resp.status_code}: {resp.text[:300]}"
+                )
+                return {"value": [], "_error": True}
+            return resp.json()
+
+        rows, complete = collect_odata_pages(fetch, url_for(0), url_for, page_size)
+        logger.info(
+            f"Fetched {len(rows)} sales invoices with lines "
+            f"({start_date}..{end_date}, complete={complete})"
+        )
+        return rows, complete
 
     # ==================== Sales Prices (OData V4) ====================
     # BC's modern Sales Pricing experience exposes price-list lines via the
