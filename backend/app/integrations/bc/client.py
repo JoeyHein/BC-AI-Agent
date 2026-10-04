@@ -1851,6 +1851,117 @@ class BusinessCentralClient:
             company_id=company_id,
         )
 
+    def get_posted_picking_headers(
+        self,
+        sales_order_no: Optional[str] = None,
+        company_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Posted picking headers (page 70139) for one sales order, or all.
+
+        Returns [] when the picking extension is not deployed. Never raises
+        for a missing extension — callers treat that as "no picking data".
+        """
+        odata_filter = None
+        if sales_order_no:
+            safe = sales_order_no.replace("'", "''")
+            odata_filter = f"salesOrderNo eq '{safe}'"
+        return self._picking_api(
+            "postedPickingHeaders",
+            odata_filter=odata_filter,
+            company_id=company_id,
+        )
+
+    # ==================== External order reads (ED-008) ====================
+    # Used by /api/external/orders. These follow @odata.nextLink and raise
+    # on HTTP errors so a BC outage is not reported as an empty order list.
+    # No $top: on api/v2.0, $top caps the whole result, not the page.
+
+    def _collect_v2(self, endpoint: str, label: str, max_pages: int = 25) -> Dict[str, Any]:
+        """GET an api/v2.0 collection and follow @odata.nextLink.
+
+        Returns {"value": [...], "complete": bool}. complete is false when
+        paging stops early (page cap, or a nextLink that repeats).
+        """
+        out: List[Dict[str, Any]] = []
+        result = self._make_request("GET", endpoint)
+        out.extend(result.get("value") or [])
+        url = result.get("@odata.nextLink")
+        seen = set()
+        pages = 1
+        while url:
+            if url in seen or pages >= max_pages:
+                logger.warning(
+                    "Stopped paging %s after %d pages (complete=false)", label, pages
+                )
+                return {"value": out, "complete": False}
+            seen.add(url)
+            token = self._get_access_token()
+            resp = requests.get(
+                url,
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+                timeout=60,
+            )
+            if resp.status_code >= 400:
+                logger.error(
+                    "BC API error paging %s: %s %s", label, resp.status_code, resp.text[:300]
+                )
+                raise requests.HTTPError(
+                    f"{resp.status_code} {resp.reason} while paging {label}",
+                    response=resp,
+                )
+            data = resp.json()
+            out.extend(data.get("value") or [])
+            url = data.get("@odata.nextLink")
+            pages += 1
+        return {"value": out, "complete": True}
+
+    def get_sales_orders_by_customer_number(
+        self, customer_number: str, company_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Open sales orders whose customerNumber matches this BC customer.
+
+        Returns {"value": [...], "complete": bool}. The caller must still
+        drop any row whose customerNumber does not match — a filter BC
+        ignores must not leak another customer's orders.
+        """
+        cid = company_id or self.company_id
+        safe = (customer_number or "").replace("'", "''")
+        endpoint = (
+            f"companies({cid})/salesOrders"
+            f"?$filter=customerNumber eq '{safe}'"
+        )
+        return self._collect_v2(endpoint, f"sales orders for {customer_number}")
+
+    def get_sales_order_with_lines_by_number(
+        self, order_number: str, company_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Open sales order plus salesOrderLines, looked up by document number.
+
+        None when BC has no open order with that number (it may already be
+        posted). Raises on transport / HTTP errors other than an empty set.
+        """
+        cid = company_id or self.company_id
+        safe = (order_number or "").replace("'", "''")
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/salesOrders"
+            f"?$filter=number eq '{safe}'&$expand=salesOrderLines",
+        )
+        orders = result.get("value") or []
+        return orders[0] if orders else None
+
+    def get_sales_shipments_by_order_number(
+        self, order_number: str, company_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Posted sales shipments for one sales-order document number."""
+        cid = company_id or self.company_id
+        safe = (order_number or "").replace("'", "''")
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/salesShipments?$filter=orderNumber eq '{safe}'",
+        )
+        return result.get("value") or []
+
 
 # Global BC client instance
 bc_client = BusinessCentralClient()
