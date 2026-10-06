@@ -1,0 +1,274 @@
+{
+ "16x18": [
+  [
+   "C",
+   "Door Weight: 759 lbs | Drum: D6375-164 | Turns: 16.5 | 25K | TANDEM SHAFT"
+  ],
+  [
+   "C",
+   "Springs/door: Outer 0.3437x6.0\"x75\" | Inner 0.3125x3.75\"x73\" | 2 LH + 2 RH duplex sets"
+  ],
+  [
+   "I",
+   "SP11-34360-01",
+   2400,
+   "SPRINGS, OIL TEMPERED, .343 X 6\"  LH"
+  ],
+  [
+   "I",
+   "SP11-34360-02",
+   2400,
+   "SPRINGS, OIL TEMPERED, .343 X 6\"  RH"
+  ],
+  [
+   "I",
+   "SP11-31236-01",
+   2336,
+   "SPRINGS, OIL TEMPERED, .312 X 3 3/4\"  LH"
+  ],
+  [
+   "I",
+   "SP11-31236-02",
+   2336,
+   "SPRINGS, OIL TEMPERED, .312 X 3 3/4\"  RH"
+  ],
+  [
+   "I",
+   "SP12-00233-01",
+   64,
+   "SPRING, WINDERS & STATIONARY PLUGS SET, 3 3/4\", 1\" BORE, UNIVERSAL"
+  ],
+  [
+   "I",
+   "SP12-00234-01",
+   64,
+   "SPRING, WINDERS & STATIONARY PLUGS SET, 6\", 1\" BORE, UNIVERSAL"
+  ],
+  [
+   "C",
+   "** TANDEM SHAFT ASSEMBLY: 2x shafts + couplers below. Connector SKU pending **"
+  ],
+  [
+   "I",
+   "SH11-10806-00",
+   32,
+   "1\" Solid Shaft Keyed 8'-6\""
+  ],
+  [
+   "I",
+   "SH11-10906-00",
+   32,
+   "1\" Solid Shaft Keyed 9'-6\""
+  ],
+  [
+   "I",
+   "SP12-00160-00",
+   32,
+   "SPRING ASSY CAST IRON COUPLER BLACK CANIMEX, 1\" BORE"
+  ]
+ ],
+ "20x20": [
+  [
+   "C",
+   "Door Weight: 1067 lbs | Drum: D6375-164 | Turns: 16.6 | 25K | TANDEM SHAFT"
+  ],
+  [
+   "C",
+   "Springs/door: Outer 0.3195x6.0\"x59\" | Inner 0.289x3.75\"x56\" | 3 LH + 3 RH duplex sets"
+  ],
+  [
+   "I",
+   "SP11-31960-01",
+   1416,
+   "SPRINGS, OIL TEMPERED, .319 X 6\" , LH"
+  ],
+  [
+   "I",
+   "SP11-31960-02",
+   1416,
+   "SPRINGS, OIL TEMPERED, .319 X 6\" , RH"
+  ],
+  [
+   "I",
+   "SP11-29536-01",
+   1344,
+   "SPRINGS, OIL TEMPERED, .295 X 3 3/4\" LH"
+  ],
+  [
+   "I",
+   "SP11-29536-02",
+   1344,
+   "SPRINGS, OIL TEMPERED, .295 X 3 3/4\"  RH"
+  ],
+  [
+   "I",
+   "SP12-00233-01",
+   48,
+   "SPRING, WINDERS & STATIONARY PLUGS SET, 3 3/4\", 1\" BORE, UNIVERSAL"
+  ],
+  [
+   "I",
+   "SP12-00234-01",
+   48,
+   "SPRING, WINDERS & STATIONARY PLUGS SET, 6\", 1\" BORE, UNIVERSAL"
+  ],
+  [
+   "C",
+   "** TANDEM SHAFT ASSEMBLY: 2x shafts + couplers below. Connector SKU pending **"
+  ],
+  [
+   "I",
+   "SH11-10606-00",
+   32,
+   "1\" Solid Shaft Keyed 6'-6\""
+  ],
+  [
+   "I",
+   "SH11-10806-00",
+   16,
+   "1\" Solid Shaft Keyed 8'-6\""
+  ],
+  [
+   "I",
+   "SP12-00160-00",
+   32,
+   "SPRING ASSY CAST IRON COUPLER BLACK CANIMEX, 1\" BORE"
+  ]
+ ],
+ "24x24": [
+  [
+   "C",
+   "Door Weight: 1633 lbs | Drum: D800-120 | Turns: 13.8 | 25K | TANDEM SHAFT"
+  ],
+  [
+   "C",
+   "Springs/door: Outer 0.375x6.0\"x74\" | Inner 0.331x3.75\"x62\" | 3 LH + 3 RH duplex sets"
+  ],
+  [
+   "I",
+   "SP11-37560-01",
+   1998,
+   "SPRINGS, OIL TEMPERED, .375 X 6\" LH"
+  ],
+  [
+   "I",
+   "SP11-37560-02",
+   1998,
+   "SPRINGS, OIL TEMPERED, .375 X 6\" RH"
+  ],
+  [
+   "I",
+   "SP11-33136-01",
+   1674,
+   "SPRINGS, OIL TEMPERED, .331 X 3 3/4\" , LH"
+  ],
+  [
+   "I",
+   "SP11-33136-02",
+   1674,
+   "SPRINGS, OIL TEMPERED, .331 X 3 3/4\" , RH"
+  ],
+  [
+   "I",
+   "SP12-00233-01",
+   54,
+   "SPRING, WINDERS & STATIONARY PLUGS SET, 3 3/4\", 1\" BORE, UNIVERSAL"
+  ],
+  [
+   "I",
+   "SP12-00234-01",
+   54,
+   "SPRING, WINDERS & STATIONARY PLUGS SET, 6\", 1\" BORE, UNIVERSAL"
+  ],
+  [
+   "C",
+   "** TANDEM SHAFT ASSEMBLY: 2x shafts + couplers below. Connector SKU pending **"
+  ],
+  [
+   "I",
+   "SH11-10806-00",
+   36,
+   "1\" Solid Shaft Keyed 8'-6\""
+  ],
+  [
+   "I",
+   "SH11-10806-00",
+   18,
+   "1\" Solid Shaft Keyed 8'-6\""
+  ],
+  [
+   "I",
+   "SP12-00160-00",
+   36,
+   "SPRING ASSY CAST IRON COUPLER BLACK CANIMEX, 1\" BORE"
+  ]
+ ],
+ "30x30": [
+  [
+   "C",
+   "Door Weight: 3007 lbs | Drum: D800-384 | Turns: 14.5 | 10K | TANDEM SHAFT"
+  ],
+  [
+   "C",
+   "Springs/door: Outer 0.3437x6.0\"x52\" | Inner 0.3125x3.75\"x50\" | 5 LH + 5 RH duplex sets"
+  ],
+  [
+   "C",
+   "WARNING: 3007 lb door exceeds D800-384 rating (2200 lb) - verify drum"
+  ],
+  [
+   "I",
+   "SP11-34360-01",
+   1040,
+   "SPRINGS, OIL TEMPERED, .343 X 6\"  LH"
+  ],
+  [
+   "I",
+   "SP11-34360-02",
+   1040,
+   "SPRINGS, OIL TEMPERED, .343 X 6\"  RH"
+  ],
+  [
+   "I",
+   "SP11-31236-01",
+   1000,
+   "SPRINGS, OIL TEMPERED, .312 X 3 3/4\"  LH"
+  ],
+  [
+   "I",
+   "SP11-31236-02",
+   1000,
+   "SPRINGS, OIL TEMPERED, .312 X 3 3/4\"  RH"
+  ],
+  [
+   "C",
+   "6\" WINDER SET 1-1/4\" BORE x40 - SP12-00236-01 BLOCKED in BC, office to source"
+  ],
+  [
+   "C",
+   "3-3/4\" WINDER SET 1-1/4\" BORE x40 - no BC SKU, office to source"
+  ],
+  [
+   "C",
+   "** TANDEM SHAFT ASSEMBLY (5/5 positions). Connector SKU pending **"
+  ],
+  [
+   "I",
+   "SH10-21900-00",
+   8,
+   "SOLID 1-1/4\" KEYED SHAFT, 19'"
+  ],
+  [
+   "I",
+   "SH10-21506-00",
+   8,
+   "SOLID 1-1/4\" KEYED SHAFT, 15'- 06\""
+  ],
+  [
+   "I",
+   "SP12-00161-00",
+   8,
+   "SPRING ASSY CAST IRON COUPLER BLACK CANIMEX, 1-1/4\" BORE"
+  ]
+ ]
+}
