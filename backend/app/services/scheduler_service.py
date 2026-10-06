@@ -422,8 +422,9 @@ class SchedulerService:
 
     def _production_schedule_job(self):
         """Refresh the SharePoint production schedule from open BC sales orders,
-        preserving hand-edited status (see production_schedule_service). No-op
-        if PRODSCHED_SHAREPOINT_ENABLED/DRIVE_ID aren't configured."""
+        preserving hand-edited status and Pull from stock (see
+        production_schedule_service). No-op if PRODSCHED_SHAREPOINT_ENABLED/DRIVE_ID
+        aren't configured. Does not download Upwardor's open-order export."""
         try:
             from app.config import settings
             if not (settings.PRODSCHED_SHAREPOINT_ENABLED and settings.PRODSCHED_SHAREPOINT_DRIVE_ID):

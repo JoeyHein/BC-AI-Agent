@@ -9,7 +9,9 @@ customer who can't wait. So the Schedule sheet is one row per open SO:
 
   SO Number | Customer Name | Customer Tag / External Doc # | Order Date |
   PO Date | Fulfillment | Upwardor PO # | Order Status | Expected Receipt |
-  Operators | Window Kits | Emergency Build | Shipping Status
+  Operators | Window Kits | Emergency Build | Shipping Status |
+  Upwardor Ack # (S-ORD) | Upwardor Status | Recon Flag | Recon Note |
+  Pull from stock
 
 - Fulfillment: "Buy Complete" (default) or "Emergency Build" — hand-set.
   BC still auto-creates production orders for most SOs (190 released prod
@@ -38,6 +40,16 @@ rows — see parse_records_from_bytes. It also migrates the two previous
 layouts (v3: 7 components × Purchasing/Production; legacy: 1-row header).
 SOs that drop out of BC's open set move to an "Archived" sheet.
 
+Ack # and Upwardor Status are refreshed from vendor_order_acks (vendor ack
+intake) joined on the Upwardor PO. Recon Flag is RED when a PO has no ack
+number, and MISSED ("MISSED, no PO, no ack") when an open SO that needs an
+Upwardor buy has neither. Pull from stock is the one new hand-edited column:
+a Yes/blank dropdown, read back by header name so it survives the rebuild.
+Yes means that SO needs no PO and no ack — the flag formula shows
+"OK - pull from stock" and the red/orange row formatting does not apply.
+A column that is not one of these known headers is still wiped on rebuild;
+that is why Pull from stock lives in SCHEDULE_HEADERS.
+
 "Assignments" sheet — Joey's curated, prioritized shop queue, keyed by SALES
 ORDER. Paste an SO # onto a MAIN line; Customer auto-fills and the SO's
 in-house work lists as read-only SUB-LINES beneath it (Excel outline
@@ -53,7 +65,14 @@ order) from the same PO linkage, with receipt progress. Vendor Ack #,
 Ack Status, Ack Received, and Completion Date come from Upwardor
 acknowledgements (vendor_order_acks), joined on the normalized PO.
 A split ack (PO-000960(2)) is shown on the base PO and labeled with
-its suffix; it does not replace the primary ack number.
+its suffix; it does not replace the primary ack number. A row with no
+ack number is filled red.
+
+"Upwardor Reconciliation" sheet — read-only. Lists our POs (including
+stock POs that reference no sales order) and whether each has an
+acknowledgement. When an Upw Sales Order Master export is passed in as
+upwardor_open_orders, also compares Upwardor's open S-ORDs with those POs.
+Email ingest of that file is a follow-up; see upwardor_reconciliation.py.
 
 "SO-PO Log" sheet — the permanent record of which sales order is linked to
 which purchase order, and when each link was last touched. Unlike the other
@@ -78,13 +97,33 @@ from typing import Any, Dict, List, Optional, Tuple
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.worksheet.datavalidation import DataValidation
-from openpyxl.formatting.rule import CellIsRule
+from openpyxl.formatting.rule import CellIsRule, FormulaRule
 from openpyxl.utils import get_column_letter
 
 from app.config import settings
 from app.integrations.bc.client import bc_client
 from app.integrations.email.client import graph_client
 from app.services.bc_production_service import bc_production_service, ODATA_ENDPOINTS
+from app.services.upwardor_reconciliation import (
+    ACK_HEADER,
+    FLAG_CHECK,
+    FLAG_HEADER,
+    FLAG_MISSED,
+    FLAG_RED,
+    NOTE_HEADER,
+    PULL_FROM_STOCK_YES,
+    PULL_HEADER,
+    SCHEDULE_RECON_HEADERS,
+    STATUS_HEADER,
+    add_reconciliation_sheet,
+    build_reconciliation_report,
+    base_flag_from_cell,
+    index_open_orders,
+    normalize_pull_from_stock,
+    recon_flag_formula,
+    recon_row_formulas,
+    schedule_recon,
+)
 from app.services.vendor_ack_parser import ack_cells_for_po
 
 logger = logging.getLogger(__name__)
@@ -124,11 +163,22 @@ SCHEDULE_HEADERS = [
     "SO Number", "Customer Name", "Customer Tag / External Doc #", "Order Date", "PO Date",
     "Fulfillment", "Upwardor PO #", "Order Status", "Expected Receipt",
     "Operators", "Window Kits", "Emergency Build", "Shipping Status",
-]
+] + SCHEDULE_RECON_HEADERS
 COL = {name: i for i, name in enumerate(SCHEDULE_HEADERS, start=1)}
 TOTAL_COLUMNS = len(SCHEDULE_HEADERS)
 DATA_START_ROW = 2
-AUTO_COLUMNS = ("Upwardor PO #", "Expected Receipt")  # read-only, refreshed every run
+# Read-only, refreshed every run. Pull from stock is hand-edited and is NOT here.
+AUTO_COLUMNS = (
+    "Upwardor PO #", "Expected Receipt",
+    ACK_HEADER, STATUS_HEADER, FLAG_HEADER, NOTE_HEADER,
+)
+_COLUMN_WIDTHS = {
+    "SO Number": 14, "Customer Name": 28, "Customer Tag / External Doc #": 26,
+    "Order Date": 12, "PO Date": 12, "Fulfillment": 16, "Upwardor PO #": 16,
+    "Order Status": 18, "Expected Receipt": 13, "Operators": 18, "Window Kits": 14,
+    "Emergency Build": 16, "Shipping Status": 15,
+    ACK_HEADER: 28, STATUS_HEADER: 42, FLAG_HEADER: 22, NOTE_HEADER: 46, PULL_HEADER: 16,
+}
 
 # ── previous layouts, kept only to migrate live files ──────────────────
 _V3_COMPONENTS = ["Panels", "Hardware", "Tracks", "Springs", "Shafts", "Weather Stripping", "Operators"]
@@ -240,6 +290,48 @@ def _advance(current: str, computed: Optional[str]) -> str:
     return current
 
 
+def partition_purchase_orders(pos: List[dict]) -> Tuple[Dict[str, List[dict]], List[dict]]:
+    """Split open BC purchase orders into SO-linked lines and stock POs.
+
+    Linked lines match the previous fetch_po_lines_by_so shape
+    (`_po_number` / `_po_status` / `_vendor` / `_po_date` stamped on).
+    Stock POs — no SO number in the external document or line descriptions —
+    come back as `{po_number, vendor, po_status, lines}` so the
+    reconciliation sheet can still show an unacknowledged buy that has no
+    sales order. The schedule sheet stays one row per SO.
+    """
+    from app.services.draft_po_review_service import _sales_orders_from_po
+
+    by_so: Dict[str, List[dict]] = defaultdict(list)
+    unlinked: List[dict] = []
+    for po in pos or []:
+        lines = po.get("purchaseOrderLines") or []
+        sos = list(_sales_orders_from_po(po, lines))
+        stamped = []
+        for ln in lines:
+            if ln.get("lineType") != "Item" or not ln.get("lineObjectNumber"):
+                continue
+            stamped.append({
+                **ln,
+                "_po_number": po.get("number") or "",
+                "_po_status": po.get("status") or "",
+                "_vendor": po.get("vendorName") or "",
+                "_po_date": po.get("orderDate") or "",
+            })
+        if not sos:
+            if stamped:
+                unlinked.append({
+                    "po_number": po.get("number") or "",
+                    "vendor": po.get("vendorName") or "",
+                    "po_status": po.get("status") or "",
+                    "lines": stamped,
+                })
+            continue
+        for so in sos:
+            by_so[so].extend(stamped)
+    return dict(by_so), unlinked
+
+
 def _order_status_from_lines(lines: List[dict]) -> Optional[str]:
     """Status of one group of BC purchase-order item lines (each carrying its
     PO's `_po_status`). None when there are no lines."""
@@ -265,6 +357,7 @@ class _SORecord:
         "so_number", "customer_name", "customer_tag", "order_date", "po_date",
         "fulfillment", "po_numbers", "order_status", "expected_receipt",
         "operators", "window_kits", "emergency_build", "shipping_status",
+        "ack_numbers", "upwardor_status", "recon_flag", "recon_note", "pull_from_stock",
     )
 
     def __init__(self, so_number: str):
@@ -281,18 +374,26 @@ class _SORecord:
         self.window_kits = NOT_APPLICABLE
         self.emergency_build = NOT_APPLICABLE
         self.shipping_status = DEFAULT_SHIPPING_STATE
+        self.ack_numbers = ""
+        self.upwardor_status = ""
+        self.recon_flag = ""
+        self.recon_note = ""
+        self.pull_from_stock = ""
 
     def to_row(self) -> list:
         return [
             self.so_number, self.customer_name, self.customer_tag, self.order_date, self.po_date,
             self.fulfillment, self.po_numbers, self.order_status, self.expected_receipt,
             self.operators, self.window_kits, self.emergency_build, self.shipping_status,
+            self.ack_numbers or None, self.upwardor_status or None,
+            self.recon_flag or None, self.recon_note or None, self.pull_from_stock or None,
         ]
 
 
 class ProductionScheduleService:
 
     last_po_log: List[dict] = []
+    last_recon: Dict[str, int] = {}
 
     # ── BC data ─────────────────────────────────────────────────────────
 
@@ -308,31 +409,25 @@ class ProductionScheduleService:
         orders.sort(key=lambda o: _sort_key(o.get("number", "")))
         return orders
 
-    def fetch_po_lines_by_so(self) -> Dict[str, List[dict]]:
-        """{so_number: [PO item line + _po_number/_po_status/_vendor]} for every
-        non-posted BC purchase order that references the SO. Best-effort —
-        BC failure degrades to {} (statuses then just don't advance)."""
-        from app.services.draft_po_review_service import _sales_orders_from_po
+    def fetch_po_context(self) -> dict:
+        """SO-linked PO lines plus stock POs that reference no sales order.
+
+        Best-effort — a BC failure degrades to empty collections (statuses
+        then just don't advance). One call, so the job does not download
+        purchase orders twice.
+        """
         try:
             pos = bc_client.get_open_purchase_orders_with_lines()
         except Exception as e:
             logger.error(f"[ProductionSchedule] Purchase orders fetch failed: {e}")
-            return {}
-        by_so: Dict[str, List[dict]] = defaultdict(list)
-        for po in pos:
-            lines = po.get("purchaseOrderLines") or []
-            for so in _sales_orders_from_po(po, lines):
-                for ln in lines:
-                    if ln.get("lineType") != "Item" or not ln.get("lineObjectNumber"):
-                        continue
-                    by_so[so].append({
-                        **ln,
-                        "_po_number": po.get("number") or "",
-                        "_po_status": po.get("status") or "",
-                        "_vendor": po.get("vendorName") or "",
-                        "_po_date": po.get("orderDate") or "",
-                    })
-        return dict(by_so)
+            return {"po_lines_by_so": {}, "unlinked_pos": []}
+        by_so, unlinked = partition_purchase_orders(pos)
+        return {"po_lines_by_so": by_so, "unlinked_pos": unlinked}
+
+    def fetch_po_lines_by_so(self) -> Dict[str, List[dict]]:
+        """{so_number: [PO item line + _po_number/_po_status/_vendor]} for every
+        non-posted BC purchase order that references the SO."""
+        return self.fetch_po_context()["po_lines_by_so"]
 
     def compute_so_facts(
         self, orders: List[Dict[str, Any]], po_lines_by_so: Dict[str, List[dict]],
@@ -445,6 +540,14 @@ class ProductionScheduleService:
             rec.window_kits = _normalize_choice(get(row, "Window Kits"), WINDOW_KIT_STATES, NOT_APPLICABLE)
             rec.emergency_build = _normalize_choice(get(row, "Emergency Build"), BUILD_STATES, NOT_APPLICABLE)
             rec.shipping_status = _normalize_choice(get(row, "Shipping Status"), SHIPPING_STATES, DEFAULT_SHIPPING_STATE)
+            # Pull from stock is the hand edit that must survive. Ack / flag /
+            # note are recomputed for open SOs; archived rows keep whatever
+            # was last written, including a Recon Flag formula.
+            rec.pull_from_stock = normalize_pull_from_stock(get(row, PULL_HEADER))
+            rec.ack_numbers = get(row, ACK_HEADER) or ""
+            rec.upwardor_status = get(row, STATUS_HEADER) or ""
+            rec.recon_flag = base_flag_from_cell(get(row, FLAG_HEADER))
+            rec.recon_note = get(row, NOTE_HEADER) or ""
             records[rec.so_number] = rec
 
     def _parse_v3_sheet(self, ws, records: Dict[str, _SORecord]):
@@ -795,6 +898,11 @@ class ProductionScheduleService:
             received.number_format = DATE_FORMAT
             completion = ws.cell(row=i, column=12, value=ack["completion_date"])
             completion.number_format = DATE_FORMAT
+            if not ack["vendor_ack"]:
+                for col in range(1, len(PO_LINKS_HEADERS) + 1):
+                    cell = ws.cell(row=i, column=col)
+                    cell.fill = RED_FILL
+                    cell.font = RED_FONT
 
         widths = [14, 24, 14, 22, 10, 8, 10, 16, 28, 22, 16, 18]
         for col_idx, w in enumerate(widths, start=1):
@@ -962,6 +1070,34 @@ class ProductionScheduleService:
         max_row = max(ws.max_row, DATA_START_ROW)
         ws.auto_filter.ref = f"A1:{get_column_letter(TOTAL_COLUMNS)}{max_row}"
 
+        # Row redlines first so they outrank the per-column status colors.
+        # Pull from stock = Yes suppresses them without waiting for a rebuild.
+        if not archived:
+            flag_col = get_column_letter(COL[FLAG_HEADER])
+            pull_col = get_column_letter(COL[PULL_HEADER])
+            formulas = recon_row_formulas(DATA_START_ROW, flag_col, pull_col)
+            row_range = f"A{DATA_START_ROW}:{get_column_letter(TOTAL_COLUMNS)}{max_row}"
+            ws.conditional_formatting.add(row_range, FormulaRule(
+                formula=[formulas[FLAG_RED]],
+                fill=RED_FILL,
+                font=Font(color="9C0006", bold=True),
+                stopIfTrue=True,
+            ))
+            ws.conditional_formatting.add(row_range, FormulaRule(
+                formula=[formulas[FLAG_MISSED]],
+                fill=ORANGE_FILL,
+                font=Font(color="833C0B", bold=True, italic=True),
+                stopIfTrue=True,
+            ))
+            ws.conditional_formatting.add(
+                f"{flag_col}{DATA_START_ROW}:{flag_col}{max_row}",
+                FormulaRule(
+                    formula=[formulas[FLAG_CHECK]],
+                    fill=AMBER_FILL,
+                    font=AMBER_FONT,
+                ),
+            )
+
         for name, col_idx in COL.items():
             cell = ws.cell(row=1, column=col_idx)
             cell.fill = AUTO_HEADER_FILL if name in AUTO_COLUMNS else HEADER_FILL
@@ -969,9 +1105,8 @@ class ProductionScheduleService:
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         ws.row_dimensions[1].height = 32
 
-        widths = [14, 28, 26, 12, 12, 16, 16, 18, 13, 18, 14, 16, 15]
-        for col_idx, width in enumerate(widths, start=1):
-            ws.column_dimensions[get_column_letter(col_idx)].width = width
+        for name, col_idx in COL.items():
+            ws.column_dimensions[get_column_letter(col_idx)].width = _COLUMN_WIDTHS.get(name, 16)
 
         for name in ("Order Date", "PO Date", "Expected Receipt"):
             for r in range(DATA_START_ROW, max_row + 1):
@@ -1019,9 +1154,17 @@ class ProductionScheduleService:
         color(rng, "Ready to Ship", AMBER_FILL, AMBER_FONT)
         color(rng, "Shipped", GREEN_FILL, GREEN_FONT)
 
+        add_dropdown(PULL_HEADER, [PULL_FROM_STOCK_YES])
+
+        text_cols = {COL[ACK_HEADER], COL[STATUS_HEADER], COL[NOTE_HEADER]}
         for row in ws.iter_rows(min_row=DATA_START_ROW, max_row=max_row):
             for cell in row:
-                cell.alignment = Alignment(horizontal="center") if cell.column >= COL["Order Date"] else Alignment(horizontal="left")
+                if cell.column in text_cols:
+                    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                elif cell.column >= COL["Order Date"]:
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                else:
+                    cell.alignment = Alignment(horizontal="left", vertical="center")
                 if archived:
                     cell.fill = ARCHIVED_FILL
                 elif cell.column in (COL[n] for n in AUTO_COLUMNS):
@@ -1030,8 +1173,12 @@ class ProductionScheduleService:
     def _write_schedule_sheet(self, ws, rows: List[list], archived: bool = False):
         for c, title in enumerate(SCHEDULE_HEADERS, start=1):
             ws.cell(row=1, column=c, value=title)
+        flag_idx = COL[FLAG_HEADER]
+        pull_col = get_column_letter(COL[PULL_HEADER])
         for r_i, row in enumerate(rows, start=DATA_START_ROW):
             for c_i, value in enumerate(row, start=1):
+                if c_i == flag_idx:
+                    value = recon_flag_formula(r_i, value or "", pull_col)
                 ws.cell(row=r_i, column=c_i, value=value)
         self._style_sheet(ws, archived=archived)
 
@@ -1048,9 +1195,14 @@ class ProductionScheduleService:
         po_log_prior: Optional[Dict[Tuple[str, str], dict]] = None,
         now: Optional[datetime] = None,
         vendor_acks: Optional[List[dict]] = None,
+        upwardor_open_orders: Optional[List[dict]] = None,
+        unlinked_pos: Optional[List[dict]] = None,
     ) -> Tuple[bytes, int, int]:
         open_so_numbers = {o.get("number", "") for o in orders}
         so_facts = so_facts or {}
+        vendor_acks = vendor_acks or []
+        open_index = index_open_orders(upwardor_open_orders)
+        self.last_recon = {"red": 0, "missed": 0, "check": 0, "pull_from_stock": 0}
 
         wb = Workbook()
         ws = wb.active
@@ -1082,6 +1234,24 @@ class ProductionScheduleService:
                 rec.emergency_build = NOT_APPLICABLE
             elif not rec.emergency_build:
                 rec.emergency_build = NOT_STARTED
+            recon = schedule_recon(
+                rec.po_numbers,
+                vendor_acks,
+                needs_upwardor=bool(facts and facts.get("order_status")),
+                open_orders_by_sord=open_index,
+            )
+            rec.ack_numbers = recon.ack_numbers or ""
+            rec.upwardor_status = recon.upwardor_status or ""
+            rec.recon_flag = recon.flag or ""
+            rec.recon_note = recon.note or ""
+            if rec.pull_from_stock == PULL_FROM_STOCK_YES:
+                self.last_recon["pull_from_stock"] += 1
+            elif recon.flag == FLAG_RED:
+                self.last_recon["red"] += 1
+            elif recon.flag == FLAG_MISSED:
+                self.last_recon["missed"] += 1
+            elif recon.flag == FLAG_CHECK:
+                self.last_recon["check"] += 1
             rows.append(rec.to_row())
             so_work[so_number] = {
                 "fulfillment": rec.fulfillment,
@@ -1104,6 +1274,9 @@ class ProductionScheduleService:
             po_log_prior or {}, so_customer_map, po_lines_by_so or {}, now or _local_now(),
         )
         self._write_po_log_sheet(wb, self.last_po_log)
+        add_reconciliation_sheet(wb, build_reconciliation_report(
+            po_lines_by_so, so_customer_map, vendor_acks, upwardor_open_orders, unlinked_pos,
+        ))
 
         buf = io.BytesIO()
         wb.save(buf)
@@ -1117,14 +1290,20 @@ class ProductionScheduleService:
         stays seconds long — matters now that the refresh also runs during
         the work day, not only at 4:30am."""
         orders = self.fetch_open_orders()
-        po_lines_by_so = self.fetch_po_lines_by_so()
+        po_ctx = self.fetch_po_context()
+        po_lines_by_so = po_ctx["po_lines_by_so"]
         return {
             "orders": orders,
             "po_lines_by_so": po_lines_by_so,
+            "unlinked_pos": po_ctx["unlinked_pos"],
             "so_facts": self.compute_so_facts(orders, po_lines_by_so),
             "prod_orders": self.fetch_open_production_orders(),
             "prod_so_map": self.fetch_prod_so_map(),
             "picking_remaining": self.fetch_picking_remaining(),
+            # Email ingest of the Upw Sales Order Master export is a follow-up.
+            # A caller with parsed rows can set this before _build; None leaves
+            # the reconciliation sheet as an acknowledgement checklist.
+            "upwardor_open_orders": None,
         }
 
     def _build(self, existing: Optional[bytes], bc: dict) -> Tuple[bytes, dict]:
@@ -1146,7 +1325,10 @@ class ProductionScheduleService:
             prod_so_map=bc["prod_so_map"], picking_remaining=bc["picking_remaining"],
             po_lines_by_so=bc["po_lines_by_so"], po_log_prior=po_log_prior,
             vendor_acks=vendor_acks,
+            upwardor_open_orders=bc.get("upwardor_open_orders"),
+            unlinked_pos=bc.get("unlinked_pos") or [],
         )
+        recon = getattr(self, "last_recon", {}) or {}
         return xlsx, {
             "open_orders": open_count,
             "archived_orders": archived_count,
@@ -1157,6 +1339,10 @@ class ProductionScheduleService:
             "assigned": len(assignment_records),
             "sos_without_po": sum(1 for r in self.last_po_log if r.get("PO Status") == NO_PO_YET),
             "po_log_changes": sum(1 for r in self.last_po_log if r.get("_touched")),
+            "recon_red": recon.get("red", 0),
+            "recon_missed": recon.get("missed", 0),
+            "recon_check": recon.get("check", 0),
+            "recon_pull_from_stock": recon.get("pull_from_stock", 0),
         }
 
     def build_and_deliver(self) -> dict:

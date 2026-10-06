@@ -63,6 +63,6 @@ All default **off** for the job itself, so a deploy does not read mail or touch 
 3. Publish the Purchase Order web service (above). Leave `VENDOR_ACK_INTAKE_ENABLED` unset.
 4. Dry-run one poll as a staff admin: `POST /api/admin/vendor-acks/run?dry_run=true`
 5. `GET /api/admin/vendor-acks` — ack numbers, PO, status, completion date. `bc_write_status` should be `dry_run`. Pending rows have no PO.
-6. Refresh the production schedule (or wait for the 04:30 / 12:30 / 16:30 job). Purchase Orders sheet shows Vendor Ack #, Ack Status, Ack Received, Completion Date. Split acks keep the `(2)` label.
+6. Refresh the production schedule (or wait for the 04:30 / 12:30 / 16:30 job). Purchase Orders sheet shows Vendor Ack #, Ack Status, Ack Received, Completion Date. Split acks keep the `(2)` label. The Schedule sheet repeats the ack number and status on the sales-order row. See [PRODUCTION_SCHEDULE_RECON.md](PRODUCTION_SCHEDULE_RECON.md) before refreshing a live file — that job overwrites SharePoint.
 7. When the rows look right, set `VENDOR_ACK_DRY_RUN=false` and `VENDOR_ACK_INTAKE_ENABLED=true`, restart the backend, and run once without `dry_run`. Confirm Vendor Order No. on the PO in BC. Failures stay on the row and in the backend log; they do not block the next PDF.
 8. Do not mark this intake as the thing that posts or releases POs. It only fills Vendor Order No.
