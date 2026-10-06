@@ -101,6 +101,16 @@ class GeneratePORequest(BaseModel):
     cc: Optional[List[str]] = None
 
 
+class ExistingPOReviewDraftRequest(BaseModel):
+    """Optional extras for an Outlook review draft of a PO already in BC.
+
+    The draft is always unsent. notes and cc match generate-po. Omit the
+    body entirely when neither is needed.
+    """
+    notes: Optional[str] = None
+    cc: Optional[List[str]] = None
+
+
 def review_draft_requested(body: GeneratePORequest) -> bool:
     """Whether generate-po should save an Outlook review draft.
 
@@ -417,7 +427,9 @@ async def so_po_links(
     return {"links": po_so_link_service.links_by_so(db)}
 
 
-# ==================== Draft PO review (read-only, CoS) ====================
+# ==================== Draft PO review (CoS) ====================
+# List, validate, and PDF download are read-only. review-draft saves an
+# unsent Outlook message; it does not send, release, or rewrite the PO.
 
 @router.get("/draft-pos")
 async def list_draft_pos(
@@ -581,6 +593,69 @@ def download_po_pdf_by_number(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/draft-pos/{po_number}/review-draft")
+async def create_existing_po_review_draft(
+    po_number: str,
+    body: Optional[ExistingPOReviewDraftRequest] = None,
+    admin: User = Depends(get_current_admin),
+):
+    """Save an unsent Outlook review draft for an existing BC Draft PO.
+
+    Resolves the purchase order (PO number, bare digits, or GUID), requires
+    status Draft, downloads ``BCClient.get_purchase_order_pdf``, and saves a
+    Graph message in ``NOTIFICATION_SENDER_EMAIL`` Drafts (production:
+    joey@opendc.ca). To is the BC vendor email. Subject and body match
+    generate-po. Does not call sendMail.
+
+    A second call for the same PO creates another draft. PDF or Graph
+    failure is HTTP 200 with ``pdf_error`` / ``draft_error`` — the PO is
+    left unchanged. Missing PO is 404. A PO that is not Draft is 422.
+    """
+    kind, value = normalize_staff_po_ref(po_number)
+    payload = body or ExistingPOReviewDraftRequest()
+    logger.info(
+        "Admin %s requesting Outlook review draft for existing PO %s (%s)",
+        getattr(admin, "email", "?"),
+        value,
+        kind,
+    )
+    try:
+        return purchasing_po_service.create_review_draft_for_existing(
+            kind=kind,
+            value=value,
+            notes=payload.notes,
+            cc=payload.cc,
+        )
+    except KeyError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Purchase order {value} not found in Business Central",
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        )
+    except requests.HTTPError as e:
+        logger.error(
+            "BC lookup failed for purchase order %s review draft: %s",
+            value, e, exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to look up purchase order in Business Central: {e}",
+        ) from e
+    except RuntimeError as e:
+        logger.error(
+            "Outlook review draft for existing PO %s failed: %s",
+            value, e, exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(e),
+        ) from e
 
 
 # ==================== Cut work orders (yay/nay approval) ====================

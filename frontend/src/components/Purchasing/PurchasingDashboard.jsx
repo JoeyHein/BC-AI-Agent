@@ -185,6 +185,8 @@ export default function PurchasingDashboard() {
 
       <MorningBrief data={brief} busy={busy === 'brief'} onRefresh={refreshBrief} />
 
+      <DraftPurchaseOrders />
+
       {!data?.production_included && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-lg text-sm">
           Production-order demand not included — BC production web services aren't published yet.
@@ -382,6 +384,132 @@ function MorningBrief({ data, busy, onRefresh }) {
           )}
           <Section title="Watch" items={b.watch} color="text-gray-500" />
         </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Live BC Draft purchase orders. "Outlook review draft" saves an unsent
+ * message in the portal mailbox (BC PDF attached, To: the vendor). It does
+ * not send. Each click creates another draft.
+ */
+function DraftPurchaseOrders() {
+  const [rows, setRows] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const [notice, setNotice] = useState(null);
+
+  useEffect(() => { load(); }, []);
+
+  async function load() {
+    setLoadError(null);
+    try {
+      const res = await purchasingApi.listDraftPOs();
+      setRows(res.data.purchase_orders || []);
+    } catch (e) {
+      setRows([]);
+      setLoadError(e.response?.data?.detail || e.message);
+    }
+  }
+
+  async function saveReviewDraft(po) {
+    const number = po.number;
+    if (!number) return;
+    const vendor = po.vendor_name || po.vendor_number || 'the vendor';
+    if (!window.confirm(
+      `Save an unsent Outlook review draft for ${number} (${vendor})?\n\n`
+      + 'The Business Central PDF is attached and the draft is addressed to the vendor. '
+      + 'It stays in Outlook Drafts and is not sent. Doing this again creates another draft.',
+    )) return;
+
+    setBusy(number);
+    setNotice(null);
+    try {
+      const res = await purchasingApi.createDraftPoReviewDraft(number, {});
+      const d = res.data;
+      let text;
+      if (d.review_draft_created) {
+        const to = d.draft_to ? ` addressed to ${d.draft_to}` : ' with no To address';
+        text = `Review draft for ${d.bc_po_number || number} saved in ${d.review_mailbox || 'Outlook'} Drafts${to}. Not sent to the vendor.`;
+        if (d.draft_warning) text += ` ${d.draft_warning}.`;
+      } else {
+        const why = d.draft_error || d.pdf_error || 'review draft was not saved';
+        text = `Outlook draft for ${d.bc_po_number || number} not saved (${why}). Not sent to the vendor.`;
+      }
+      setNotice({
+        type: d.review_draft_created && !d.draft_warning && !d.pdf_error ? 'success' : 'warn',
+        text,
+      });
+    } catch (e) {
+      setNotice({ type: 'error', text: `Outlook draft failed: ${e.response?.data?.detail || e.message}` });
+    }
+    setBusy(null);
+  }
+
+  const noticeClass = {
+    success: 'bg-green-50 text-green-800',
+    error: 'bg-red-50 text-red-800',
+    warn: 'bg-yellow-50 text-yellow-800',
+  };
+
+  return (
+    <div className="bg-white rounded-lg border p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs uppercase tracking-wide text-gray-500">Unsent draft purchase orders</div>
+          <div className="text-sm text-gray-600 mt-1">
+            Save an Outlook review draft with the Business Central PDF. It stays in Drafts and is not sent to the vendor.
+          </div>
+        </div>
+        <button onClick={load} className="shrink-0 px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm">
+          Reload
+        </button>
+      </div>
+
+      {notice && <div className={`mt-3 p-3 rounded-lg text-sm ${noticeClass[notice.type]}`}>{notice.text}</div>}
+      {loadError && (
+        <div className="mt-3 p-3 rounded-lg text-sm bg-red-50 text-red-800">
+          Could not load draft purchase orders: {loadError}
+        </div>
+      )}
+      {rows === null && !loadError && (
+        <div className="mt-3 text-sm text-gray-500">Loading draft purchase orders…</div>
+      )}
+      {rows && rows.length === 0 && !loadError && (
+        <div className="mt-3 text-sm text-gray-500">No unsent Draft purchase orders in Business Central.</div>
+      )}
+      {rows && rows.length > 0 && (
+        <div className="mt-3 max-h-80 overflow-y-auto border rounded-lg">
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-50 text-gray-500 text-xs sticky top-0">
+              <tr>
+                <th className="p-2 text-left">PO</th>
+                <th className="p-2 text-left">Vendor</th>
+                <th className="p-2 text-right">Lines</th>
+                <th className="p-2 text-right"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((po) => (
+                <tr key={po.id || po.number} className="border-t border-gray-100">
+                  <td className="p-2 font-mono">{po.number}</td>
+                  <td className="p-2 text-gray-700">{po.vendor_name || po.vendor_number || '—'}</td>
+                  <td className="p-2 text-right text-gray-500">{po.item_line_count ?? po.line_count ?? '—'}</td>
+                  <td className="p-2 text-right">
+                    <button
+                      onClick={() => saveReviewDraft(po)}
+                      disabled={busy === po.number}
+                      className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {busy === po.number ? 'Saving draft…' : 'Outlook review draft'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

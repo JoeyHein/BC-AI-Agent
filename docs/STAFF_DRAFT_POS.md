@@ -3,12 +3,17 @@
 Ops / Grok Bot Chief of Staff can inventory unsent Business Central purchase
 orders and check buy-complete rules using the existing BC API client
 credentials (no interactive BC login). Source of truth is `purchaseOrders`
-with `status eq 'Draft'` — the portal `/purchasing` UI does not list live
-Draft POs.
+with `status eq 'Draft'`. The purchasing screen lists those Drafts and
+can save an Outlook review draft for one of them; it is not a second
+source of truth.
 
-These endpoints are **read-only**. They do not release, email, send, or
-rewrite a PO. After review, draft the finance email in Outlook from the
-JSON; a human still sends the PO from BC.
+List, validate, and PDF download are **read-only**. They do not release,
+email, send, or rewrite a PO. `POST .../review-draft` is the exception: it
+saves an **unsent** Outlook message in joey@opendc.ca Drafts (BC PDF
+attached, To: the vendor). It does not call sendMail. A human still sends.
+
+After review, the finance email can still be drafted in Outlook from the
+JSON; that is separate from the vendor review draft.
 
 Customer-portal routes are unchanged.
 
@@ -91,10 +96,62 @@ Open, Released) — unlike `/validate`, this is not limited to unsent Drafts:
 1. `purchaseOrders?$filter=number eq 'PO-…'` (`BCClient.get_purchase_order_by_number`) — or `purchaseOrders({guid})` when a GUID is passed
 2. `purchaseOrders({guid})/pdfDocument` then `mediaReadLink` (`BCClient.get_purchase_order_pdf`)
 
-This is **read-only**. It does not release, email, send, or rewrite a PO.
-There is no bulk-PDF endpoint; CoS should loop this single-PO call (see
+This download is **read-only**. It does not release, email, send, or rewrite
+a PO. There is no bulk-PDF endpoint; CoS should loop this single-PO call (see
 curl below). This is BC's built-in `pdfDocument` — the same report
-`POST /api/admin/purchasing/generate-po` attaches to the Outlook review draft.
+`POST /api/admin/purchasing/generate-po` and
+`POST /api/admin/purchasing/draft-pos/{po_number}/review-draft` attach to
+the Outlook review draft.
+
+### Outlook review draft for an existing Draft PO
+
+```
+POST /api/admin/purchasing/draft-pos/{po_number}/review-draft
+```
+
+For a purchase order that is **already** in BC (hand-keyed, auto-po, or an
+earlier generate-po that skipped the mailbox). Staff admin JWT. Body is
+optional:
+
+```json
+{ "notes": "ship dock 2", "cc": ["buyer@opendc.ca"] }
+```
+
+`notes` and `cc` match generate-po. Omit them (empty body, or `{}`) when
+you only want the standard subject and body.
+
+| | |
+|---|---|
+| `{po_number}` | `PO-000962` (any case), bare digits (`962` → `PO-000962`), or the BC purchase-order GUID |
+| Success | `200` JSON. `review_draft_created: true` when an unsent message is in Drafts. `email_sent` is always `false`. `emailed_to` is always `null`. |
+| Draft, no vendor email | `200`. The draft is still saved, with no To address, and `draft_warning` is set. |
+| BC PDF fetch fails | `200`. Nothing is saved in Outlook. `pdf_error` and `draft_error` are set. `review_draft_created` is `false`. |
+| Graph save fails | `200`. The PO stays in BC unchanged. `draft_error` explains why. `pdf_source` is `bc` when the PDF downloaded. |
+| Missing PO | `404` |
+| Exists but not Draft | `422` (already released / sent — do not draft a vendor email for it) |
+| Bad identifier | `400` |
+| BC lookup failure | `502` |
+| Not signed in / not admin | `401` / `403` |
+
+What it does, same helpers as generate-po (`purchasing_po_service._save_review_draft`, `graph_client.create_draft_with_attachment`):
+
+1. Resolve the PO (`number eq 'PO-…'` or `purchaseOrders({guid})`). Status must be `Draft`.
+2. Download the BC report with `BCClient.get_purchase_order_pdf`. The homemade fpdf2 table is not attached.
+3. Look up the vendor email on the BC vendor card (`vendorNumber`).
+4. Save an **unsent** Outlook message with Graph createMessage:
+   `POST /users/{NOTIFICATION_SENDER_EMAIL}/mailFolders/drafts/messages`.
+   In production that mailbox is joey@opendc.ca. To: the BC vendor email.
+   Subject `Purchase Order {number} — Open Distribution Company Inc.` and
+   the same HTML body as generate-po. Attachment name `PO_{number}.pdf`.
+
+**Not idempotent.** A second POST for the same PO creates another Drafts
+message. That is intentional — Joey may want a fresh copy. Nothing is
+stored to dedupe, and sendMail is never called. Check Sent after a test;
+it should stay empty.
+
+The purchasing screen (`/purchasing`) lists live Draft POs and has an
+**Outlook review draft** button per row. It posts this endpoint with an
+empty body. The confirm dialog states the message is not sent.
 
 ## Example curl
 
@@ -143,6 +200,27 @@ curl -fsS -o PO-000962.pdf \
   https://portal.opendc.ca/api/admin/purchasing/draft-pos/PO-000962/pdf
 ```
 
+Review draft for a Draft that already exists. This **writes** an unsent
+message in joey@opendc.ca Drafts. It does not send. Replace the PO number
+with one you mean to review. A second call creates another draft.
+
+```bash
+PO=PO-000962   # a live Draft, not a released PO
+curl -fsS -X POST \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{}' \
+  "$BASE/api/admin/purchasing/draft-pos/${PO}/review-draft" | python3 -m json.tool
+```
+
+## Verify
+
+1. `GET /api/admin/purchasing/draft-pos` and pick a known Draft (status Draft).
+2. `POST /api/admin/purchasing/draft-pos/{that-number}/review-draft` with a staff admin JWT. Or use **Outlook review draft** on `/purchasing`.
+3. In joey@opendc.ca Outlook, open **Drafts**. The new message is To the BC vendor email, subject `Purchase Order {number} — Open Distribution Company Inc.`, body the same as a generate-po review draft, and the attachment is the BC purchase-order PDF (same report as `GET .../pdf`).
+4. **Sent** does not contain that message. Do not click Send while checking.
+5. POST again. A second draft appears in Drafts. Sent is still empty.
+
 ## Outlook review draft (`generate-po`)
 
 `POST /api/admin/purchasing/generate-po` creates the Draft PO in BC. It does
@@ -171,8 +249,12 @@ screen), the API then:
 Do not click Send on that draft while checking layout, and do not aim a test
 at a real vendor address unless you intend to leave a draft in Drafts.
 
+The same Outlook draft, for a PO that already exists, is
+`POST /api/admin/purchasing/draft-pos/{po_number}/review-draft` (above).
+generate-po creates the PO; review-draft does not.
+
 ## Related (do not use for CoS Draft-PO inventory)
 
 - `GET /api/admin/purchasing/requirements` — demand netted vs stock/open POs; not a Draft-PO list.
 - `GET /api/admin/purchasing/so-po-links` — tool-created POs only (`POAgentLog`); misses hand-keyed BC Drafts.
-- `POST /api/admin/purchasing/generate-po` / `auto-po/run` — writes Draft POs; not for CoS inventory. `generate-po` can also save an unsent Outlook review draft with the BC PDF. It does not email the vendor. `auto-po/run` drafts in BC and does not email.
+- `POST /api/admin/purchasing/generate-po` / `auto-po/run` — writes Draft POs; not for CoS inventory. `generate-po` can also save an unsent Outlook review draft with the BC PDF. It does not email the vendor. `auto-po/run` drafts in BC and does not email. For a Draft that already exists, use `POST /draft-pos/{po_number}/review-draft` instead of generate-po.
