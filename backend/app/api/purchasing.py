@@ -90,8 +90,29 @@ class GeneratePORequest(BaseModel):
     vendor_name: str
     lines: List[POLineIn]
     notes: Optional[str] = None
-    send_email: bool = True
+    # Save an unsent Outlook draft in NOTIFICATION_SENDER_EMAIL with the BC
+    # purchase-order PDF attached. Default true matches the purchasing screen.
+    # Never sends mail to the vendor.
+    create_review_draft: Optional[bool] = None
+    # Deprecated alias for create_review_draft. Does not send. When
+    # create_review_draft is omitted, true saves the Outlook draft and false
+    # skips Graph. Prefer create_review_draft.
+    send_email: Optional[bool] = None
     cc: Optional[List[str]] = None
+
+
+def review_draft_requested(body: GeneratePORequest) -> bool:
+    """Whether generate-po should save an Outlook review draft.
+
+    create_review_draft wins when both flags are present. Neither flag means
+    yes — that is the purchasing dashboard. send_email is the old name and
+    does not send mail.
+    """
+    if body.create_review_draft is not None:
+        return body.create_review_draft
+    if body.send_email is not None:
+        return body.send_email
+    return True
 
 
 @router.get("/requirements")
@@ -278,16 +299,25 @@ async def generate_po(
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
-    """Create a PO in BC for one vendor and email the PDF to that vendor."""
+    """Create a PO in BC and save an unsent Outlook review draft.
+
+    The draft is created in `NOTIFICATION_SENDER_EMAIL` (production:
+    joey@opendc.ca) via Graph createMessage in Drafts, with the BC
+    purchase-order PDF attached (`get_purchase_order_pdf`) and To set to the
+    vendor email. The API does not send mail to the vendor. A failed PDF
+    download or Graph save is returned on the JSON (`pdf_error`, `draft_error`)
+    and does not roll back the BC PO. `create_review_draft=false` (or the
+    deprecated `send_email=false`) skips the PDF fetch and Graph.
+    """
     try:
-        result = purchasing_po_service.create_and_send(
+        result = purchasing_po_service.create_with_review_draft(
             db,
             vendor_no=body.vendor_no,
             vendor_name=body.vendor_name,
             lines=[ln.model_dump() for ln in body.lines],
             user_id=admin.id,
             notes=body.notes,
-            send_email=body.send_email,
+            create_review_draft=review_draft_requested(body),
             cc=body.cc,
         )
         db.commit()

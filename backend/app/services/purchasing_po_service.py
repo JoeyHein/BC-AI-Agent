@@ -1,18 +1,22 @@
 """
 Purchase-order generation for the purchasing tool.
 
-Takes a purchaser's per-vendor selection, creates the PO in Business Central,
-renders an OpenDC PO PDF, and emails it to the vendor (BC native send isn't
-available via the API, so we deliver our own PDF via Microsoft Graph). The
-result is recorded on POAgentLog for audit.
+Creates the PO in Business Central, downloads BC's purchase-order report
+(`purchaseOrders({id})/pdfDocument`, the same bytes as the staff PDF
+download), and saves an Outlook draft in the portal mailbox
+(`NOTIFICATION_SENDER_EMAIL`) with that PDF attached. The draft is
+pre-addressed to the BC vendor so a person can review it and hit Send.
+
+This service does not email the vendor. Graph sendMail is not used.
+BC has no native send on purchaseOrder. The portal fpdf2 table is not
+attached.
 """
 
+import html
 import logging
 from datetime import datetime
 from typing import List, Optional
 
-# fpdf2 is imported lazily inside _build_pdf so this module (and the app/test
-# import chain that loads it via the purchasing router) doesn't hard-require it.
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -26,7 +30,7 @@ COMPANY_NAME = "Open Distribution Company Inc."
 
 
 class PurchasingPOService:
-    def create_and_send(
+    def create_with_review_draft(
         self,
         db: Session,
         vendor_no: Optional[str],
@@ -34,13 +38,22 @@ class PurchasingPOService:
         lines: List[dict],
         user_id: int,
         notes: Optional[str] = None,
-        send_email: bool = True,
+        create_review_draft: bool = True,
         cc: Optional[List[str]] = None,
     ) -> dict:
-        """Create the PO in BC, render+email the PDF, and log it.
+        """Create the PO in BC and, by default, an unsent Outlook review draft.
 
         `lines`: [{item_no, description, quantity, unit_cost}]. Quantity must be
-        > 0. Returns bc_po_number + email status; raises on BC creation failure.
+        > 0. Raises on BC creation failure.
+
+        `create_review_draft` true (the purchasing-dashboard default) downloads
+        `get_purchase_order_pdf` and saves a Graph draft in
+        `settings.NOTIFICATION_SENDER_EMAIL`. It never sends. A failed PDF
+        download or a failed Graph save is logged and returned on the response
+        (`pdf_error` / `draft_error`); the BC PO is kept either way, because
+        Business Central has already accepted it. `create_review_draft` false
+        skips both the PDF fetch and Graph so a Draft can be created without
+        touching a mailbox.
         """
         clean = [ln for ln in lines if float(ln.get("quantity") or 0) > 0]
         if not clean:
@@ -66,38 +79,23 @@ class PurchasingPOService:
                 line_data["description"] = str(ln["description"])[:100]
             bc_client.add_purchase_order_line(bc_po_id, line_data)
 
-        # 3. Render PDF.
-        pdf_bytes = self._build_pdf(bc_po_number, vendor_no, vendor_name, clean, notes)
+        # 3. BC PDF + Outlook draft. Never sendMail.
+        mailbox = settings.NOTIFICATION_SENDER_EMAIL
+        draft_id = None
+        draft_web_link = None
+        draft_to = None
+        draft_warning = None
+        draft_error = None
+        pdf_error = None
+        pdf_source = None
+        if create_review_draft:
+            draft_to, draft_id, draft_web_link, draft_warning, draft_error, pdf_error, pdf_source = (
+                self._save_review_draft(
+                    bc_po_id, bc_po_number, vendor_no, vendor_name, notes, cc, mailbox,
+                )
+            )
 
-        # 4. Email to vendor.
-        emailed_to = None
-        emailed_at = None
-        email_error = None
-        vendor_email = self._vendor_email(vendor_no) if vendor_no else None
-        if send_email:
-            if not vendor_email:
-                email_error = "No email on the BC vendor record"
-            else:
-                try:
-                    graph_client.send_mail(
-                        from_email=settings.NOTIFICATION_SENDER_EMAIL,
-                        to=vendor_email,
-                        subject=f"Purchase Order {bc_po_number} — {COMPANY_NAME}",
-                        html_body=self._email_body(bc_po_number, vendor_name),
-                        attachments=[{
-                            "name": f"PO_{bc_po_number}.pdf",
-                            "content_bytes": pdf_bytes,
-                            "content_type": "application/pdf",
-                        }],
-                        cc=cc,
-                    )
-                    emailed_to = vendor_email
-                    emailed_at = datetime.utcnow()
-                except Exception as e:
-                    email_error = str(e)
-                    logger.error(f"[PurchasingPO] PO {bc_po_number} email failed: {e}")
-
-        # 5. Record for audit.
+        # 4. Record for audit. emailed_* stay empty: the vendor was not emailed.
         total = round(sum(float(l["quantity"]) * float(l.get("unit_cost") or 0) for l in clean), 2)
         log = POAgentLog(
             vendor_id=vendor_no,
@@ -117,8 +115,8 @@ class PurchasingPOService:
             approved_by=user_id,
             approved_at=datetime.utcnow(),
             submitted_at=datetime.utcnow(),
-            emailed_to=emailed_to,
-            emailed_at=emailed_at,
+            emailed_to=None,
+            emailed_at=None,
         )
         db.add(log)
         db.flush()
@@ -129,11 +127,101 @@ class PurchasingPOService:
             "bc_po_id": bc_po_id,
             "bc_po_number": bc_po_number,
             "total_amount": total,
-            "emailed_to": emailed_to,
-            "email_error": email_error,
+            "email_sent": False,
+            "emailed_to": None,
+            "review_draft_created": bool(draft_id),
+            "review_mailbox": mailbox if create_review_draft else None,
+            "draft_id": draft_id,
+            "draft_web_link": draft_web_link,
+            "draft_to": draft_to if draft_id else None,
+            "draft_warning": draft_warning,
+            "draft_error": draft_error,
+            "pdf_error": pdf_error,
+            "pdf_source": pdf_source,
         }
 
     # ─── helpers ───────────────────────────────────────────────
+
+    def _save_review_draft(
+        self,
+        bc_po_id: str,
+        bc_po_number: Optional[str],
+        vendor_no: Optional[str],
+        vendor_name: str,
+        notes: Optional[str],
+        cc: Optional[List[str]],
+        mailbox: str,
+    ):
+        """Download the BC report and save an unsent Outlook draft.
+
+        Returns (draft_to, draft_id, web_link, warning, draft_error, pdf_error, pdf_source).
+        """
+        vendor_email = self._vendor_email(vendor_no) if vendor_no else None
+        try:
+            pdf_bytes = bc_client.get_purchase_order_pdf(bc_po_id)
+            if not pdf_bytes:
+                raise ValueError(f"Empty PDF content for purchase order {bc_po_id}")
+        except Exception as exc:
+            logger.error(
+                "[PurchasingPO] BC purchase-order PDF fetch failed for %s (id=%s); "
+                "Outlook review draft not created. Error: %s",
+                bc_po_number, bc_po_id, exc,
+                exc_info=True,
+            )
+            pdf_error = f"BC PDF unavailable: {exc}"
+            draft_error = (
+                "Outlook review draft not created because the Business Central PDF "
+                "could not be downloaded"
+            )
+            return None, None, None, None, draft_error, pdf_error, None
+
+        logger.info(
+            "[PurchasingPO] Fetched BC purchase-order PDF for %s (id=%s, %s bytes)",
+            bc_po_number, bc_po_id, len(pdf_bytes),
+        )
+        warning = None
+        if not vendor_email:
+            warning = "No email on the BC vendor record; review draft has no To address"
+            logger.warning(
+                "[PurchasingPO] %s for PO %s (vendor %s)",
+                warning, bc_po_number, vendor_no,
+            )
+
+        try:
+            draft = graph_client.create_draft_with_attachment(
+                mailbox=mailbox,
+                to=vendor_email,
+                subject=f"Purchase Order {bc_po_number} — {COMPANY_NAME}",
+                html_body=self._email_body(bc_po_number, vendor_name, notes),
+                attachments=[{
+                    "name": f"PO_{bc_po_number}.pdf",
+                    "content_bytes": pdf_bytes,
+                    "content_type": "application/pdf",
+                }],
+                cc=cc,
+            )
+        except Exception as exc:
+            logger.error(
+                "[PurchasingPO] Outlook review draft failed for PO %s (mailbox %s): %s",
+                bc_po_number, mailbox, exc,
+                exc_info=True,
+            )
+            return vendor_email, None, None, warning, str(exc), None, "bc"
+
+        draft_id = draft.get("id")
+        if not draft_id:
+            logger.error(
+                "[PurchasingPO] Graph did not return a draft id for PO %s (mailbox %s)",
+                bc_po_number, mailbox,
+            )
+            return vendor_email, None, None, warning, "Graph did not return a draft id", None, "bc"
+
+        logger.info(
+            "[PurchasingPO] Saved Outlook review draft %s in %s for PO %s "
+            "(not sent; to=%s)",
+            draft_id, mailbox, bc_po_number, vendor_email or "(none)",
+        )
+        return vendor_email, draft_id, draft.get("webLink"), warning, None, None, "bc"
 
     @staticmethod
     def _vendor_email(vendor_no: str) -> Optional[str]:
@@ -149,78 +237,16 @@ class PurchasingPOService:
             return None
 
     @staticmethod
-    def _email_body(po_number: str, vendor_name: str) -> str:
+    def _email_body(po_number: str, vendor_name: str, notes: Optional[str] = None) -> str:
+        notes_html = ""
+        if notes:
+            notes_html = f"<p><strong>Notes:</strong> {html.escape(str(notes))}</p>"
         return f"""<div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;color:#111827">
-        <p>Hello {vendor_name},</p>
-        <p>Please find attached our Purchase Order <strong>{po_number}</strong>.</p>
+        <p>Hello {html.escape(vendor_name)},</p>
+        <p>Please find attached our Purchase Order <strong>{html.escape(str(po_number or ''))}</strong>.</p>
+        {notes_html}
         <p>Kindly confirm receipt and expected ship date. Reply to this email with any questions.</p>
         <p>Thank you,<br>{COMPANY_NAME}</p></div>"""
-
-    def _build_pdf(self, po_number: str, vendor_no: Optional[str], vendor_name: str,
-                   lines: List[dict], notes: Optional[str]) -> bytes:
-        from fpdf import FPDF  # lazy: only the PO-PDF path needs fpdf2
-
-        pdf = FPDF(orientation="P", unit="mm", format="A4")
-        pdf.set_auto_page_break(auto=True, margin=15)
-        pdf.add_page()
-
-        # Header
-        pdf.set_font("Helvetica", "B", 18)
-        pdf.cell(0, 10, COMPANY_NAME, ln=1)
-        pdf.set_font("Helvetica", "B", 14)
-        pdf.set_text_color(80, 80, 80)
-        pdf.cell(0, 8, "PURCHASE ORDER", ln=1)
-        pdf.set_text_color(0, 0, 0)
-        pdf.set_font("Helvetica", "", 10)
-        pdf.cell(0, 6, f"PO Number: {po_number or '(pending)'}", ln=1)
-        pdf.cell(0, 6, f"Date: {datetime.utcnow().strftime('%Y-%m-%d')}", ln=1)
-        pdf.ln(2)
-
-        # Vendor block
-        pdf.set_font("Helvetica", "B", 10)
-        pdf.cell(0, 6, "Vendor", ln=1)
-        pdf.set_font("Helvetica", "", 10)
-        pdf.cell(0, 6, f"{vendor_name}" + (f"  ({vendor_no})" if vendor_no else ""), ln=1)
-        pdf.ln(3)
-
-        # Line table header
-        col = {"item": 36, "desc": 88, "qty": 18, "cost": 24, "amt": 24}
-        pdf.set_font("Helvetica", "B", 9)
-        pdf.set_fill_color(243, 244, 246)
-        pdf.cell(col["item"], 7, "Item", border=1, fill=True)
-        pdf.cell(col["desc"], 7, "Description", border=1, fill=True)
-        pdf.cell(col["qty"], 7, "Qty", border=1, align="R", fill=True)
-        pdf.cell(col["cost"], 7, "Unit Cost", border=1, align="R", fill=True)
-        pdf.cell(col["amt"], 7, "Amount", border=1, align="R", ln=1, fill=True)
-
-        pdf.set_font("Helvetica", "", 9)
-        total = 0.0
-        for ln in lines:
-            qty = float(ln["quantity"])
-            cost = float(ln.get("unit_cost") or 0)
-            amt = qty * cost
-            total += amt
-            desc = (ln.get("description") or "")[:60]
-            pdf.cell(col["item"], 6, str(ln["item_no"])[:22], border=1)
-            pdf.cell(col["desc"], 6, desc, border=1)
-            pdf.cell(col["qty"], 6, f"{qty:g}", border=1, align="R")
-            pdf.cell(col["cost"], 6, f"${cost:,.2f}", border=1, align="R")
-            pdf.cell(col["amt"], 6, f"${amt:,.2f}", border=1, align="R", ln=1)
-
-        pdf.set_font("Helvetica", "B", 10)
-        pdf.cell(col["item"] + col["desc"] + col["qty"], 7, "", border=0)
-        pdf.cell(col["cost"], 7, "Total", border=1, align="R")
-        pdf.cell(col["amt"], 7, f"${total:,.2f}", border=1, align="R", ln=1)
-
-        if notes:
-            pdf.ln(4)
-            pdf.set_font("Helvetica", "B", 9)
-            pdf.cell(0, 6, "Notes", ln=1)
-            pdf.set_font("Helvetica", "", 9)
-            pdf.multi_cell(0, 5, str(notes))
-
-        out = pdf.output()  # fpdf2 returns bytearray
-        return bytes(out)
 
 
 purchasing_po_service = PurchasingPOService()

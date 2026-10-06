@@ -234,6 +234,81 @@ class GraphEmailClient:
             logger.error(f"Failed to create draft reply: {e}")
             return None
 
+    @staticmethod
+    def _recipients(addrs: Any) -> List[Dict[str, Any]]:
+        if not addrs:
+            return []
+        if isinstance(addrs, str):
+            addrs = [addrs]
+        return [{"emailAddress": {"address": a}} for a in addrs]
+
+    @staticmethod
+    def _file_attachments(attachments: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        import base64
+
+        if not attachments:
+            return []
+        return [
+            {
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                "name": att["name"],
+                "contentType": att.get("content_type", "application/octet-stream"),
+                "contentBytes": base64.b64encode(att["content_bytes"]).decode("ascii"),
+            }
+            for att in attachments
+        ]
+
+    def _message_payload(
+        self,
+        to: Any,
+        subject: str,
+        html_body: str,
+        attachments: Optional[List[Dict[str, Any]]] = None,
+        cc: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        message: Dict[str, Any] = {
+            "subject": subject,
+            "body": {"contentType": "HTML", "content": html_body},
+            "toRecipients": self._recipients(to),
+        }
+        if cc:
+            message["ccRecipients"] = self._recipients(cc)
+        file_attachments = self._file_attachments(attachments)
+        if file_attachments:
+            message["attachments"] = file_attachments
+        return message
+
+    def create_draft_with_attachment(
+        self,
+        mailbox: str,
+        to: Any,
+        subject: str,
+        html_body: str,
+        attachments: Optional[List[Dict[str, Any]]] = None,
+        cc: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """Save an unsent message in the mailbox Drafts folder.
+
+        Graph createMessage: POST /users/{mailbox}/mailFolders/drafts/messages.
+        The well-known `drafts` folder is where Outlook shows unsent mail.
+        This does not call sendMail or /messages/{id}/send.
+
+        `attachments` matches send_mail: {"name", "content_bytes", "content_type"}.
+        Returns the Graph message resource (id, webLink, isDraft).
+        """
+        message = self._message_payload(to, subject, html_body, attachments, cc)
+        endpoint = f"users/{mailbox}/mailFolders/drafts/messages"
+        result = self._make_request("POST", endpoint, json=message)
+        if result.get("isDraft") is False:
+            raise RuntimeError(
+                f"Graph saved message {result.get('id')} in {mailbox} but isDraft is false"
+            )
+        logger.info(
+            "Saved Outlook draft %s in %s Drafts (not sent) subject=%r",
+            result.get("id"), mailbox, subject,
+        )
+        return result
+
     # ==================== Sending ====================
 
     def send_mail(
@@ -251,33 +326,7 @@ class GraphEmailClient:
         address or a list. `attachments` is a list of
         {"name", "content_bytes": bytes, "content_type"}.
         """
-        import base64
-
-        def recips(addrs):
-            if not addrs:
-                return []
-            if isinstance(addrs, str):
-                addrs = [addrs]
-            return [{"emailAddress": {"address": a}} for a in addrs]
-
-        message: Dict[str, Any] = {
-            "subject": subject,
-            "body": {"contentType": "HTML", "content": html_body},
-            "toRecipients": recips(to),
-        }
-        if cc:
-            message["ccRecipients"] = recips(cc)
-        if attachments:
-            message["attachments"] = [
-                {
-                    "@odata.type": "#microsoft.graph.fileAttachment",
-                    "name": att["name"],
-                    "contentType": att.get("content_type", "application/octet-stream"),
-                    "contentBytes": base64.b64encode(att["content_bytes"]).decode("ascii"),
-                }
-                for att in attachments
-            ]
-
+        message = self._message_payload(to, subject, html_body, attachments, cc)
         endpoint = f"users/{from_email}/sendMail"
         self._make_request("POST", endpoint, json={"message": message, "saveToSentItems": True})
         logger.info(f"Sent email '{subject}' from {from_email} to {to}")
