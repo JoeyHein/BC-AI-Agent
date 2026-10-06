@@ -28,6 +28,20 @@ _TRANSIENT_MESSAGE_MARKERS = (
 )
 
 
+def _prefer_order_row(rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Page 50 returns one row per document type. Vendor Order No. belongs
+    on the Order row when Document_Type is present."""
+    if not rows:
+        return None
+    for row in rows:
+        doc_type = row.get("Document_Type")
+        if doc_type is None:
+            return row
+        if str(doc_type).lower() in ("order", "1"):
+            return row
+    return rows[0]
+
+
 def _is_transient_bc_error(exc: Exception) -> bool:
     response = getattr(exc, "response", None)
     if response is None:
@@ -966,6 +980,92 @@ class BusinessCentralClient:
         )
         rows = result.get("value", [])
         return rows[0] if rows else None
+
+    def set_purchase_order_vendor_order_no(
+        self,
+        po_number: str,
+        vendor_order_no: str,
+        company_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Write Vendor Order No. onto a purchase order.
+
+        That is Purchase Header field 66 — the value purchasers see on the
+        PO card. The api/v2.0 ``purchaseOrders`` entity does not expose it
+        (there is no header PATCH helper for this field on BCClient), so the
+        write goes through the published OData page. Default service name is
+        ``PurchaseOrder`` (BC page 50) and the field is ``Vendor_Order_No``.
+        Override with VENDOR_ACK_BC_ODATA_ENTITY / VENDOR_ACK_BC_ODATA_FIELD
+        if the web service was published under another name.
+
+        Raises LookupError when that page has no row for the PO number, and
+        requests.HTTPError when the PATCH is rejected. Callers log the
+        failure and keep the acknowledgement.
+        """
+        if not self.odata_url:
+            raise RuntimeError("BC OData URL is not configured")
+        if not po_number or not vendor_order_no:
+            raise ValueError("po_number and vendor_order_no are required")
+
+        token = self._get_access_token()
+        company_segment = self._odata_v4_company_segment(company_id)
+        entity = settings.VENDOR_ACK_BC_ODATA_ENTITY or "PurchaseOrder"
+        field = settings.VENDOR_ACK_BC_ODATA_FIELD or "Vendor_Order_No"
+        safe_no = po_number.replace("'", "''")
+        list_url = (
+            f"{self.odata_url}/{company_segment}/{entity}"
+            f"?$filter=No eq '{safe_no}'&$top=5"
+        )
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        response = requests.get(list_url, headers=headers, timeout=60)
+        if response.status_code >= 400:
+            raise requests.HTTPError(
+                f"{response.status_code} reading {entity} for {po_number}: {response.text[:500]}",
+                response=response,
+            )
+        rows = (response.json() or {}).get("value") or []
+        row = _prefer_order_row(rows)
+        if row is None:
+            raise LookupError(
+                f"OData {entity} has no purchase order {po_number}. "
+                f"Publish BC page 50 as web service '{entity}'."
+            )
+
+        edit = row.get("@odata.editLink") or row.get("@odata.id")
+        if edit and edit.startswith("http"):
+            patch_url = edit
+        elif edit:
+            patch_url = f"{self.odata_url}/{str(edit).lstrip('/')}"
+        else:
+            patch_url = (
+                f"{self.odata_url}/{company_segment}/{entity}(No='{safe_no}')"
+            )
+        patch_headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "If-Match": row.get("@odata.etag") or "*",
+        }
+        patched = requests.patch(
+            patch_url,
+            json={field: vendor_order_no},
+            headers=patch_headers,
+            timeout=60,
+        )
+        if patched.status_code >= 400:
+            raise requests.HTTPError(
+                f"{patched.status_code} setting {field} on {po_number}: {patched.text[:500]}",
+                response=patched,
+            )
+        logger.info(
+            "Set %s=%s on purchase order %s via OData %s",
+            field, vendor_order_no, po_number, entity,
+        )
+        if patched.content:
+            try:
+                return patched.json()
+            except ValueError:
+                pass
+        return {"number": po_number, field: vendor_order_no}
 
     def get_purchase_order_pdf(self, po_id: str, company_id: Optional[str] = None
                                 ) -> bytes:
