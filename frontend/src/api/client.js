@@ -709,6 +709,9 @@ export const purchasingApi = {
   assignVendor: (data) => apiClient.put('/api/admin/purchasing/vendor-map', data),
   sendReport: (data = {}) => apiClient.post('/api/admin/purchasing/send-report', data),
   generatePO: (data) => apiClient.post('/api/admin/purchasing/generate-po', data),
+  listDraftPOs: (params = {}) => apiClient.get('/api/admin/purchasing/draft-pos', { params }),
+  createDraftPoReviewDraft: (poNumber, data = {}) =>
+    apiClient.post(`/api/admin/purchasing/draft-pos/${encodeURIComponent(poNumber)}/review-draft`, data),
   // Morning brief (the narrative the digest email and planning workbook share)
   getBrief: () => apiClient.get('/api/admin/purchasing/brief'),
   runBrief: (params = {}) => apiClient.post('/api/admin/purchasing/brief/run', null, { params }),

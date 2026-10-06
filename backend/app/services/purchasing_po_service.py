@@ -7,6 +7,10 @@ download), and saves an Outlook draft in the portal mailbox
 (`NOTIFICATION_SENDER_EMAIL`) with that PDF attached. The draft is
 pre-addressed to the BC vendor so a person can review it and hit Send.
 
+The same Outlook draft can be saved later for a purchase order that
+already exists in BC (`create_review_draft_for_existing`). Each call
+creates a new Drafts message. Nothing is deduped.
+
 This service does not email the vendor. Graph sendMail is not used.
 BC has no native send on purchaseOrder. The portal fpdf2 table is not
 attached.
@@ -17,6 +21,7 @@ import logging
 from datetime import datetime
 from typing import List, Optional
 
+import requests
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -139,6 +144,95 @@ class PurchasingPOService:
             "pdf_error": pdf_error,
             "pdf_source": pdf_source,
         }
+
+    def create_review_draft_for_existing(
+        self,
+        *,
+        kind: str,
+        value: str,
+        notes: Optional[str] = None,
+        cc: Optional[List[str]] = None,
+    ) -> dict:
+        """Save an unsent Outlook review draft for a purchase order already in BC.
+
+        `kind` is ``guid`` or ``number`` (see ``normalize_staff_po_ref``).
+        The PO must be status Draft. Downloads ``get_purchase_order_pdf`` and
+        saves a Graph draft in ``settings.NOTIFICATION_SENDER_EMAIL``, To the
+        BC vendor email, with the same subject and body as generate-po.
+
+        Does not call sendMail, and does not release or rewrite the PO.
+        A failed PDF download or Graph save is returned on the dict
+        (``pdf_error`` / ``draft_error``) and does not raise.
+
+        Not idempotent. Each call creates another Drafts message so a fresh
+        copy can be saved for the same PO. There is no stored draft id.
+
+        Raises KeyError when BC has no such purchase order, ValueError when
+        it is not Draft, and requests.HTTPError when the lookup itself fails
+        for a reason other than 404.
+        """
+        po = self._load_existing_purchase_order(kind, value)
+        status = po.get("status") or ""
+        number = po.get("number") or value
+        if status != "Draft":
+            raise ValueError(f"{number} is status {status!r}, not Draft")
+
+        bc_po_id = po.get("id")
+        if not bc_po_id:
+            raise RuntimeError(
+                f"Business Central returned purchase order {number} without an id"
+            )
+
+        vendor_no = (po.get("vendorNumber") or "").strip() or None
+        vendor_name = (
+            (po.get("vendorName") or "").strip()
+            or (po.get("payToVendorName") or "").strip()
+            or vendor_no
+            or "Vendor"
+        )
+        mailbox = settings.NOTIFICATION_SENDER_EMAIL
+        (
+            draft_to,
+            draft_id,
+            draft_web_link,
+            draft_warning,
+            draft_error,
+            pdf_error,
+            pdf_source,
+        ) = self._save_review_draft(
+            bc_po_id, number, vendor_no, vendor_name, notes, cc, mailbox,
+        )
+        return {
+            "success": True,
+            "bc_po_id": bc_po_id,
+            "bc_po_number": number,
+            "email_sent": False,
+            "emailed_to": None,
+            "review_draft_created": bool(draft_id),
+            "review_mailbox": mailbox,
+            "draft_id": draft_id,
+            "draft_web_link": draft_web_link,
+            "draft_to": draft_to if draft_id else None,
+            "draft_warning": draft_warning,
+            "draft_error": draft_error,
+            "pdf_error": pdf_error,
+            "pdf_source": pdf_source,
+        }
+
+    def _load_existing_purchase_order(self, kind: str, value: str) -> dict:
+        try:
+            if kind == "guid":
+                po = bc_client.get_purchase_order(value)
+            else:
+                po = bc_client.get_purchase_order_by_number(value)
+        except requests.HTTPError as exc:
+            bc_status = getattr(getattr(exc, "response", None), "status_code", None)
+            if bc_status == 404:
+                raise KeyError(value) from exc
+            raise
+        if not po:
+            raise KeyError(value)
+        return po
 
     # ─── helpers ───────────────────────────────────────────────
 
