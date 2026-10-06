@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { Fragment, useState, useEffect } from 'react';
 import { purchasingApi } from '../../api/client';
 
 const UNASSIGNED = 'Unassigned';
@@ -14,6 +14,7 @@ export default function PurchasingDashboard() {
   const [message, setMessage] = useState(null);
   const [horizon, setHorizon] = useState(5);     // delivery horizon in weeks (0 = all)
   const [draftReload, setDraftReload] = useState(0);
+  const [poNotes, setPoNotes] = useState({});
 
   useEffect(() => { load(); }, [horizon]);
 
@@ -109,6 +110,10 @@ export default function PurchasingDashboard() {
         quantity: sel[r.item_no].qty,
         unit_cost: r.unit_cost,
       }));
+    const note = (poNotes[group.vendor_name] || '').trim();
+    if (note) {
+      lines.unshift({ line_type: 'Comment', description: note, quantity: 0, unit_cost: 0 });
+    }
     if (lines.length === 0) {
       setMessage({ type: 'error', text: 'Select at least one item with a quantity.' });
       return;
@@ -246,6 +251,19 @@ export default function PurchasingDashboard() {
 
             {open && (
               <div className="border-t overflow-x-auto">
+                {!isUnassigned && (
+                  <label className="block px-3 pt-3 text-sm text-gray-600">
+                    Note on the PO
+                    <input
+                      value={poNotes[group.vendor_name] || ''}
+                      maxLength={100}
+                      placeholder="Five wall required"
+                      onChange={(e) => setPoNotes((n) => ({ ...n, [group.vendor_name]: e.target.value }))}
+                      className="mt-1 block w-full max-w-lg px-2 py-1.5 border rounded text-sm"
+                    />
+                    <span className="text-xs text-gray-400">Prints as a comment line on the purchase order (100 characters).</span>
+                  </label>
+                )}
                 <table className="min-w-full text-sm">
                   <thead className="bg-gray-50 text-gray-500 text-xs">
                     <tr>
@@ -641,11 +659,400 @@ function PreviewLines({ title, lines }) {
   );
 }
 
+function apiDetail(e) {
+  const detail = e.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (detail) return JSON.stringify(detail);
+  return e.message;
+}
+
+const PANEL_CLASS_LABEL = {
+  insulated: 'insulated panel',
+  glass: 'glass / glazing',
+  rest: 'other',
+  comment: 'comment',
+};
+
+/**
+ * Edit one Draft PO's lines. Writes go to Business Central only when the
+ * staff member saves, deletes, reorders, or applies a normalize. Preview
+ * does not write.
+ */
+function DraftPoLineEditor({ poNumber, onChanged }) {
+  const [data, setData] = useState(null);
+  const [edits, setEdits] = useState({});
+  const [busy, setBusy] = useState(null);
+  const [notice, setNotice] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [addItem, setAddItem] = useState({ item_no: '', description: '', quantity: '1', unit_cost: '0' });
+  const [addComment, setAddComment] = useState('');
+
+  useEffect(() => { refresh(); }, [poNumber]);
+
+  async function refresh() {
+    setBusy('load');
+    try {
+      const res = await purchasingApi.getDraftPoLines(poNumber);
+      const lines = res.data.lines || [];
+      setData(res.data);
+      const next = {};
+      lines.forEach((ln) => {
+        next[ln.id] = {
+          item_no: ln.item_number || '',
+          description: ln.description || '',
+          quantity: ln.quantity ?? '',
+          unit_cost: ln.unit_cost ?? '',
+        };
+      });
+      setEdits(next);
+      setPreview(null);
+    } catch (e) {
+      setNotice({ type: 'error', text: apiDetail(e) });
+    }
+    setBusy(null);
+  }
+
+  function setField(id, field, value) {
+    setEdits((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
+  }
+
+  async function saveLine(line) {
+    const edit = edits[line.id] || {};
+    const body = { description: edit.description };
+    if (line.line_type !== 'Comment') {
+      body.quantity = Number(edit.quantity);
+      body.unit_cost = Number(edit.unit_cost);
+      body.item_no = edit.item_no;
+    }
+    setBusy(line.id);
+    setNotice(null);
+    try {
+      const res = await purchasingApi.updateDraftPoLine(poNumber, line.id, body);
+      setNotice({ type: 'success', text: `Saved a line on ${res.data.bc_po_number || poNumber}.` });
+      await refresh();
+      if (onChanged) onChanged();
+    } catch (e) {
+      setNotice({ type: 'error', text: apiDetail(e) });
+    }
+    setBusy(null);
+  }
+
+  async function removeLine(line) {
+    const label = line.item_number || line.description || 'this line';
+    if (!window.confirm(`Delete ${label} from ${poNumber}? This changes the Draft in Business Central.`)) return;
+    setBusy(line.id);
+    setNotice(null);
+    try {
+      await purchasingApi.deleteDraftPoLine(poNumber, line.id);
+      setNotice({ type: 'success', text: `Deleted a line on ${poNumber}.` });
+      await refresh();
+      if (onChanged) onChanged();
+    } catch (e) {
+      setNotice({ type: 'error', text: apiDetail(e) });
+    }
+    setBusy(null);
+  }
+
+  async function move(index, direction) {
+    const lines = data?.lines || [];
+    const target = index + direction;
+    if (target < 0 || target >= lines.length) return;
+    const ids = lines.map((ln) => ln.id);
+    const [moved] = ids.splice(index, 1);
+    ids.splice(target, 0, moved);
+    if (!window.confirm(
+      `Rewrite the line order on ${poNumber} in Business Central?\n\n`
+      + 'Lines are deleted and re-added so the order changes. The PO stays a Draft.',
+    )) return;
+    setBusy('reorder');
+    setNotice(null);
+    try {
+      await purchasingApi.reorderDraftPoLines(poNumber, ids);
+      setNotice({ type: 'success', text: `Reordered lines on ${poNumber}.` });
+      await refresh();
+      if (onChanged) onChanged();
+    } catch (e) {
+      setNotice({ type: 'error', text: apiDetail(e) });
+    }
+    setBusy(null);
+  }
+
+  async function addItemLine() {
+    const item = addItem.item_no.trim();
+    if (!item) {
+      setNotice({ type: 'error', text: 'Enter an item number.' });
+      return;
+    }
+    setBusy('add-item');
+    setNotice(null);
+    try {
+      await purchasingApi.addDraftPoLine(poNumber, {
+        line_type: 'Item',
+        item_no: item,
+        description: addItem.description,
+        quantity: Number(addItem.quantity),
+        unit_cost: Number(addItem.unit_cost),
+      });
+      setAddItem({ item_no: '', description: '', quantity: '1', unit_cost: '0' });
+      setNotice({ type: 'success', text: `Added ${item} to ${poNumber}.` });
+      await refresh();
+      if (onChanged) onChanged();
+    } catch (e) {
+      setNotice({ type: 'error', text: apiDetail(e) });
+    }
+    setBusy(null);
+  }
+
+  async function addCommentLine() {
+    const description = addComment.trim();
+    if (!description) {
+      setNotice({ type: 'error', text: 'Enter the comment text.' });
+      return;
+    }
+    setBusy('add-comment');
+    setNotice(null);
+    try {
+      await purchasingApi.addDraftPoLine(poNumber, { line_type: 'Comment', description });
+      setAddComment('');
+      setNotice({ type: 'success', text: `Added a comment on ${poNumber}.` });
+      await refresh();
+      if (onChanged) onChanged();
+    } catch (e) {
+      setNotice({ type: 'error', text: apiDetail(e) });
+    }
+    setBusy(null);
+  }
+
+  async function previewOrder() {
+    setBusy('preview');
+    setNotice(null);
+    try {
+      const res = await purchasingApi.normalizeDraftPoLines(poNumber, true);
+      setPreview(res.data);
+      if (!res.data.changed) {
+        setNotice({ type: 'success', text: `${poNumber} is already in panels-first order. Nothing was written.` });
+      }
+    } catch (e) {
+      setNotice({ type: 'error', text: apiDetail(e) });
+    }
+    setBusy(null);
+  }
+
+  async function applyOrder() {
+    if (!window.confirm(
+      `Apply panels-first order on ${poNumber}?\n\n`
+      + 'Insulated panels, then glass, then the rest of each door. '
+      + 'Lines are deleted and re-added. The PO stays a Draft. Nothing is released or emailed.',
+    )) return;
+    setBusy('apply');
+    setNotice(null);
+    try {
+      const res = await purchasingApi.normalizeDraftPoLines(poNumber, false);
+      setPreview(null);
+      const text = res.data.changed
+        ? `Applied panels-first order on ${res.data.bc_po_number || poNumber}.`
+        : `${poNumber} was already in panels-first order.`;
+      setNotice({ type: 'success', text });
+      await refresh();
+      if (onChanged) onChanged();
+    } catch (e) {
+      setNotice({ type: 'error', text: apiDetail(e) });
+    }
+    setBusy(null);
+  }
+
+  const noticeClass = {
+    success: 'bg-green-50 text-green-800',
+    error: 'bg-red-50 text-red-800',
+    warn: 'bg-yellow-50 text-yellow-800',
+  };
+  const lines = data?.lines || [];
+
+  return (
+    <div className="bg-gray-50 border-t px-3 py-3 space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={previewOrder}
+          disabled={!!busy}
+          className="px-3 py-1.5 bg-white border rounded text-sm hover:bg-gray-100 disabled:opacity-50"
+        >
+          {busy === 'preview' ? 'Previewing…' : 'Preview panels-first order'}
+        </button>
+        <button
+          onClick={applyOrder}
+          disabled={!!busy}
+          className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+        >
+          {busy === 'apply' ? 'Applying…' : 'Apply panels-first order'}
+        </button>
+        <span className="text-xs text-gray-500">Preview does not write to Business Central.</span>
+      </div>
+
+      {notice && <div className={`p-2 rounded text-sm ${noticeClass[notice.type]}`}>{notice.text}</div>}
+
+      {preview?.changed && (
+        <div className="text-sm">
+          <div className="text-xs uppercase tracking-wide text-gray-500">Proposed order</div>
+          <ol className="mt-1 list-decimal pl-5 text-gray-700">
+            {(preview.lines || []).map((ln) => (
+              <li key={`proposed-${ln.id}-${ln.sequence}`}>
+                <span className="font-mono">{ln.item_number || 'comment'}</span>
+                {' · '}{ln.description}
+                {' · '}{PANEL_CLASS_LABEL[ln.panel_class] || ln.panel_class}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {busy === 'load' && !data && <div className="text-sm text-gray-500">Loading lines…</div>}
+
+      {lines.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm bg-white">
+            <thead className="text-xs text-gray-500">
+              <tr>
+                <th className="p-2 text-left">Item</th>
+                <th className="p-2 text-left">Description</th>
+                <th className="p-2 text-right">Qty</th>
+                <th className="p-2 text-right">Unit cost</th>
+                <th className="p-2 text-left">Class</th>
+                <th className="p-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map((line, index) => {
+                const edit = edits[line.id] || {};
+                const comment = line.line_type === 'Comment';
+                return (
+                  <tr key={line.id || index} className="border-t border-gray-100">
+                    <td className="p-2">
+                      {comment ? (
+                        <span className="text-gray-400">comment</span>
+                      ) : (
+                        <input
+                          value={edit.item_no ?? ''}
+                          onChange={(e) => setField(line.id, 'item_no', e.target.value)}
+                          className="w-36 border rounded px-1 py-0.5 font-mono"
+                        />
+                      )}
+                    </td>
+                    <td className="p-2">
+                      <input
+                        value={edit.description ?? ''}
+                        maxLength={100}
+                        onChange={(e) => setField(line.id, 'description', e.target.value)}
+                        className="w-full min-w-48 border rounded px-1 py-0.5"
+                      />
+                    </td>
+                    <td className="p-2 text-right">
+                      {comment ? '—' : (
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={edit.quantity ?? ''}
+                          onChange={(e) => setField(line.id, 'quantity', e.target.value)}
+                          className="w-20 border rounded px-1 py-0.5 text-right"
+                        />
+                      )}
+                    </td>
+                    <td className="p-2 text-right">
+                      {comment ? '—' : (
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={edit.unit_cost ?? ''}
+                          onChange={(e) => setField(line.id, 'unit_cost', e.target.value)}
+                          className="w-24 border rounded px-1 py-0.5 text-right"
+                        />
+                      )}
+                    </td>
+                    <td className="p-2 text-xs text-gray-500">{PANEL_CLASS_LABEL[line.panel_class] || line.panel_class}</td>
+                    <td className="p-2 text-right whitespace-nowrap">
+                      <button onClick={() => move(index, -1)} disabled={!!busy || index === 0} className="px-1.5 py-1 text-xs border rounded mr-1 disabled:opacity-40">Up</button>
+                      <button onClick={() => move(index, 1)} disabled={!!busy || index === lines.length - 1} className="px-1.5 py-1 text-xs border rounded mr-1 disabled:opacity-40">Down</button>
+                      <button onClick={() => saveLine(line)} disabled={!!busy} className="px-2 py-1 text-xs bg-gray-800 text-white rounded mr-1 disabled:opacity-40">Save</button>
+                      <button onClick={() => removeLine(line)} disabled={!!busy} className="px-2 py-1 text-xs border border-red-300 text-red-700 rounded disabled:opacity-40">Delete</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2 items-end">
+        <label className="text-xs text-gray-600">
+          Item
+          <input
+            value={addItem.item_no}
+            onChange={(e) => setAddItem((s) => ({ ...s, item_no: e.target.value }))}
+            className="mt-1 block w-36 border rounded px-2 py-1 font-mono"
+          />
+        </label>
+        <label className="text-xs text-gray-600">
+          Description
+          <input
+            value={addItem.description}
+            maxLength={100}
+            onChange={(e) => setAddItem((s) => ({ ...s, description: e.target.value }))}
+            className="mt-1 block w-48 border rounded px-2 py-1"
+          />
+        </label>
+        <label className="text-xs text-gray-600">
+          Qty
+          <input
+            type="number"
+            min="0"
+            step="any"
+            value={addItem.quantity}
+            onChange={(e) => setAddItem((s) => ({ ...s, quantity: e.target.value }))}
+            className="mt-1 block w-20 border rounded px-2 py-1 text-right"
+          />
+        </label>
+        <label className="text-xs text-gray-600">
+          Cost
+          <input
+            type="number"
+            min="0"
+            step="any"
+            value={addItem.unit_cost}
+            onChange={(e) => setAddItem((s) => ({ ...s, unit_cost: e.target.value }))}
+            className="mt-1 block w-24 border rounded px-2 py-1 text-right"
+          />
+        </label>
+        <button onClick={addItemLine} disabled={!!busy} className="px-3 py-1.5 bg-white border rounded text-sm disabled:opacity-50">
+          Add item
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-2 items-end">
+        <label className="text-xs text-gray-600 flex-1 min-w-48">
+          Comment (Type blank)
+          <input
+            value={addComment}
+            maxLength={100}
+            placeholder="Five wall required"
+            onChange={(e) => setAddComment(e.target.value)}
+            className="mt-1 block w-full border rounded px-2 py-1"
+          />
+        </label>
+        <button onClick={addCommentLine} disabled={!!busy} className="px-3 py-1.5 bg-white border rounded text-sm disabled:opacity-50">
+          Add comment
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function DraftPurchaseOrders({ reloadToken = 0 }) {
   const [rows, setRows] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [busy, setBusy] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [openLines, setOpenLines] = useState(null);
 
   useEffect(() => { load(); }, [reloadToken]);
 
@@ -706,7 +1113,7 @@ function DraftPurchaseOrders({ reloadToken = 0 }) {
         <div>
           <div className="text-xs uppercase tracking-wide text-gray-500">Unsent draft purchase orders</div>
           <div className="text-sm text-gray-600 mt-1">
-            Save an Outlook review draft with the Business Central PDF. It stays in Drafts and is not sent to the vendor.
+            Edit Draft lines here, or save an Outlook review draft with the Business Central PDF. The review draft stays in Drafts and is not sent to the vendor. Released POs cannot be edited.
           </div>
         </div>
         <button onClick={load} className="shrink-0 px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm">
@@ -739,20 +1146,35 @@ function DraftPurchaseOrders({ reloadToken = 0 }) {
             </thead>
             <tbody>
               {rows.map((po) => (
-                <tr key={po.id || po.number} className="border-t border-gray-100">
-                  <td className="p-2 font-mono">{po.number}</td>
-                  <td className="p-2 text-gray-700">{po.vendor_name || po.vendor_number || '—'}</td>
-                  <td className="p-2 text-right text-gray-500">{po.item_line_count ?? po.line_count ?? '—'}</td>
-                  <td className="p-2 text-right">
-                    <button
-                      onClick={() => saveReviewDraft(po)}
-                      disabled={busy === po.number}
-                      className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      {busy === po.number ? 'Saving draft…' : 'Outlook review draft'}
-                    </button>
-                  </td>
-                </tr>
+                <Fragment key={po.id || po.number}>
+                  <tr className="border-t border-gray-100">
+                    <td className="p-2 font-mono">{po.number}</td>
+                    <td className="p-2 text-gray-700">{po.vendor_name || po.vendor_number || '—'}</td>
+                    <td className="p-2 text-right text-gray-500">{po.item_line_count ?? po.line_count ?? '—'}</td>
+                    <td className="p-2 text-right whitespace-nowrap">
+                      <button
+                        onClick={() => setOpenLines(openLines === po.number ? null : po.number)}
+                        className="px-3 py-1.5 mr-2 bg-white border rounded text-sm hover:bg-gray-50"
+                      >
+                        {openLines === po.number ? 'Hide lines' : 'Lines'}
+                      </button>
+                      <button
+                        onClick={() => saveReviewDraft(po)}
+                        disabled={busy === po.number}
+                        className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {busy === po.number ? 'Saving draft…' : 'Outlook review draft'}
+                      </button>
+                    </td>
+                  </tr>
+                  {openLines === po.number && (
+                    <tr>
+                      <td colSpan={4} className="p-0">
+                        <DraftPoLineEditor poNumber={po.number} onChanged={load} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>
