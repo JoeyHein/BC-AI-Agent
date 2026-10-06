@@ -93,8 +93,8 @@ Open, Released) — unlike `/validate`, this is not limited to unsent Drafts:
 
 This is **read-only**. It does not release, email, send, or rewrite a PO.
 There is no bulk-PDF endpoint; CoS should loop this single-PO call (see
-curl below). This is BC's built-in `pdfDocument`, not the portal-rendered
-fpdf2 attachment from `POST /api/admin/purchasing/generate-po`.
+curl below). This is BC's built-in `pdfDocument` — the same report
+`POST /api/admin/purchasing/generate-po` attaches to the Outlook review draft.
 
 ## Example curl
 
@@ -143,8 +143,36 @@ curl -fsS -o PO-000962.pdf \
   https://portal.opendc.ca/api/admin/purchasing/draft-pos/PO-000962/pdf
 ```
 
+## Outlook review draft (`generate-po`)
+
+`POST /api/admin/purchasing/generate-po` creates the Draft PO in BC. It does
+**not** email the vendor. There is no send-to-vendor flag.
+
+When `create_review_draft` is true (the default, including the purchasing
+screen), the API then:
+
+1. Downloads the BC report with `BCClient.get_purchase_order_pdf` (same
+   `pdfDocument` as the GET above). The homemade fpdf2 table is not attached.
+2. Saves an **unsent** Outlook message with Graph createMessage:
+   `POST /users/{NOTIFICATION_SENDER_EMAIL}/mailFolders/drafts/messages`.
+   In production that mailbox is joey@opendc.ca. The draft is pre-addressed
+   To: the BC vendor email, with the PO subject/body and the BC PDF attached,
+   so a person can open Drafts and hit Send.
+
+| | |
+|---|---|
+| Default | `create_review_draft` omitted or `true` — save the Outlook draft, do not send |
+| PO only | `create_review_draft: false` — no `pdfDocument` call and no Graph. Download the Draft with the GET above and compare it to BC Print. |
+| Old flag | `send_email` is a deprecated alias for `create_review_draft`. It does **not** send. `create_review_draft` wins if both are set. |
+| BC PDF fetch fails | The PO create still succeeds. Nothing is saved in Outlook. Response includes `pdf_error` and `draft_error` (the purchasing screen shows them). |
+| Graph save fails | The PO stays in BC. `draft_error` explains why. `email_sent` is always `false`. |
+| Vendor has no email | The draft is still saved, with no To address, and `draft_warning` is set. |
+
+Do not click Send on that draft while checking layout, and do not aim a test
+at a real vendor address unless you intend to leave a draft in Drafts.
+
 ## Related (do not use for CoS Draft-PO inventory)
 
 - `GET /api/admin/purchasing/requirements` — demand netted vs stock/open POs; not a Draft-PO list.
 - `GET /api/admin/purchasing/so-po-links` — tool-created POs only (`POAgentLog`); misses hand-keyed BC Drafts.
-- `POST /api/admin/purchasing/generate-po` / `auto-po/run` — writes Draft POs; not for review. The PDF it emails is a portal fpdf2 render, not BC `pdfDocument`.
+- `POST /api/admin/purchasing/generate-po` / `auto-po/run` — writes Draft POs; not for CoS inventory. `generate-po` can also save an unsent Outlook review draft with the BC PDF. It does not email the vendor. `auto-po/run` drafts in BC and does not email.

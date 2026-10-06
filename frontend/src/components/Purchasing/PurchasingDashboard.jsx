@@ -112,7 +112,7 @@ export default function PurchasingDashboard() {
       setMessage({ type: 'error', text: 'Select at least one item with a quantity.' });
       return;
     }
-    if (!window.confirm(`Create a PO in Business Central for ${group.vendor_name} with ${lines.length} line(s) and email it to the vendor?`)) return;
+    if (!window.confirm(`Create a PO in Business Central for ${group.vendor_name} with ${lines.length} line(s)? A review draft will be saved in Outlook Drafts (not sent to the vendor).`)) return;
 
     setBusy(`po-${group.vendor_name}`);
     setMessage(null);
@@ -121,12 +121,22 @@ export default function PurchasingDashboard() {
         vendor_no: group.vendor_no,
         vendor_name: group.vendor_name,
         lines,
+        create_review_draft: true,
       });
       const d = res.data;
-      const emailMsg = d.emailed_to
-        ? `emailed to ${d.emailed_to}`
-        : `NOT emailed (${d.email_error || 'no vendor email'})`;
-      setMessage({ type: d.emailed_to ? 'success' : 'warn', text: `PO ${d.bc_po_number} created in BC — ${emailMsg}.` });
+      let text;
+      if (d.review_draft_created) {
+        const to = d.draft_to ? ` addressed to ${d.draft_to}` : ' with no To address';
+        text = `PO ${d.bc_po_number} created in BC. Review draft saved in ${d.review_mailbox || 'Outlook'} Drafts${to}. Not sent to the vendor.`;
+        if (d.draft_warning) text += ` ${d.draft_warning}.`;
+      } else {
+        const why = d.draft_error || d.pdf_error || 'review draft was not saved';
+        text = `PO ${d.bc_po_number} created in BC. Outlook draft not saved (${why}). Not sent to the vendor.`;
+      }
+      setMessage({
+        type: d.review_draft_created && !d.draft_warning && !d.pdf_error ? 'success' : 'warn',
+        text,
+      });
       await load();
     } catch (e) {
       setMessage({ type: 'error', text: `PO failed: ${e.response?.data?.detail || e.message}` });
