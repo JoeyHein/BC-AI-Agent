@@ -14,7 +14,11 @@ Behavior (see app/services/production_schedule_service.py for the real logic):
 - Box-in/box-out layout: one row per SO — Fulfillment (Buy Complete /
   Emergency Build), whole-order Order Status from the linked Upwardor PO,
   Operators, Window Kits (the only default in-house work), Emergency Build.
+- Upwardor Ack #, Upwardor Status, Recon Flag / Note, and Pull from stock
+  (Yes is read back). See docs/PRODUCTION_SCHEDULE_RECON.md.
 - SOs no longer open in BC move to an "Archived" sheet instead of vanishing.
+- --local still reads Business Central. It writes only the local path.
+  --sharepoint overwrites the live SharePoint file. Do not use it to preview.
 """
 
 import sys
