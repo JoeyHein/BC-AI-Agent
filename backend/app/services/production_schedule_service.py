@@ -49,7 +49,11 @@ also shows a read-only "Picking Remaining" summary from the Upwardor picking
 extension (blank until deployed — see bc-extension/picking-api/README.md).
 
 "Purchase Orders" sheet — read-only, one row per (open SO, BC purchase
-order) from the same PO linkage, with receipt progress.
+order) from the same PO linkage, with receipt progress. Vendor Ack #,
+Ack Status, Ack Received, and Completion Date come from Upwardor
+acknowledgements (vendor_order_acks), joined on the normalized PO.
+A split ack (PO-000960(2)) is shown on the base PO and labeled with
+its suffix; it does not replace the primary ack number.
 
 "SO-PO Log" sheet — the permanent record of which sales order is linked to
 which purchase order, and when each link was last touched. Unlike the other
@@ -81,6 +85,7 @@ from app.config import settings
 from app.integrations.bc.client import bc_client
 from app.integrations.email.client import graph_client
 from app.services.bc_production_service import bc_production_service, ODATA_ENDPOINTS
+from app.services.vendor_ack_parser import ack_cells_for_po
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +167,8 @@ LOCAL_TZ = "America/Edmonton"
 
 PO_LINKS_SHEET_NAME = "Purchase Orders"
 PO_LINKS_HEADERS = ["SO Number", "Customer", "PO Number", "Vendor", "PO Status",
-                     "Lines", "Received", "Expected Receipt"]
+                     "Lines", "Received", "Expected Receipt",
+                     "Vendor Ack #", "Ack Status", "Ack Received", "Completion Date"]
 
 RED_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 RED_FONT = Font(color="9C0006")
@@ -703,17 +709,37 @@ class ProductionScheduleService:
         for col_idx, w in enumerate(widths, start=1):
             ws.column_dimensions[get_column_letter(col_idx)].width = w
 
+    def _load_vendor_acks(self) -> List[dict]:
+        """Upwardor acknowledgements for the Purchase Orders sheet.
+
+        A database or migration problem must not block the schedule refresh,
+        so a failure here yields an empty join (ack columns stay blank)."""
+        try:
+            from app.db.database import SessionLocal
+            from app.services.vendor_ack_intake_service import load_schedule_acks
+            db = SessionLocal()
+            try:
+                return load_schedule_acks(db)
+            finally:
+                db.close()
+        except Exception as exc:
+            logger.warning("[ProductionSchedule] Vendor ack lookup skipped: %s", exc)
+            return []
+
     def _write_po_links_sheet(
         self,
         wb: Workbook,
         po_lines_by_so: Optional[Dict[str, List[dict]]],
         so_customer_map: Optional[Dict[str, str]] = None,
+        vendor_acks: Optional[List[dict]] = None,
     ) -> None:
         """Add/replace the read-only "Purchase Orders" sheet — one row per
         (open SO, BC purchase order) that references it, with receipt
-        progress. Rebuilt from scratch every refresh; nothing hand-edited."""
+        progress and any Upwardor acknowledgement joined on the PO.
+        Rebuilt from scratch every refresh; nothing hand-edited."""
         po_lines_by_so = po_lines_by_so or {}
         so_customer_map = so_customer_map or {}
+        vendor_acks = vendor_acks or []
         if PO_LINKS_SHEET_NAME in wb.sheetnames:
             del wb[PO_LINKS_SHEET_NAME]
         ws = wb.create_sheet(PO_LINKS_SHEET_NAME)
@@ -762,8 +788,15 @@ class ProductionScheduleService:
             ws.cell(row=i, column=7, value=r["received"])
             ex = ws.cell(row=i, column=8, value=r["expected"])
             ex.number_format = DATE_FORMAT
+            ack = ack_cells_for_po(r["po_number"], vendor_acks)
+            ws.cell(row=i, column=9, value=ack["vendor_ack"])
+            ws.cell(row=i, column=10, value=ack["ack_status"])
+            received = ws.cell(row=i, column=11, value=ack["ack_received"])
+            received.number_format = DATE_FORMAT
+            completion = ws.cell(row=i, column=12, value=ack["completion_date"])
+            completion.number_format = DATE_FORMAT
 
-        widths = [14, 24, 14, 22, 10, 8, 10, 16]
+        widths = [14, 24, 14, 22, 10, 8, 10, 16, 28, 22, 16, 18]
         for col_idx, w in enumerate(widths, start=1):
             ws.column_dimensions[get_column_letter(col_idx)].width = w
 
@@ -1014,6 +1047,7 @@ class ProductionScheduleService:
         po_lines_by_so: Optional[Dict[str, List[dict]]] = None,
         po_log_prior: Optional[Dict[Tuple[str, str], dict]] = None,
         now: Optional[datetime] = None,
+        vendor_acks: Optional[List[dict]] = None,
     ) -> Tuple[bytes, int, int]:
         open_so_numbers = {o.get("number", "") for o in orders}
         so_facts = so_facts or {}
@@ -1065,7 +1099,7 @@ class ProductionScheduleService:
             wb, prod_orders or [], assignment_records or {}, prod_so_map, so_customer_map,
             picking_remaining, so_work,
         )
-        self._write_po_links_sheet(wb, po_lines_by_so, so_customer_map)
+        self._write_po_links_sheet(wb, po_lines_by_so, so_customer_map, vendor_acks)
         self.last_po_log = self.build_po_log(
             po_log_prior or {}, so_customer_map, po_lines_by_so or {}, now or _local_now(),
         )
@@ -1103,11 +1137,15 @@ class ProductionScheduleService:
             po_log_prior = self.parse_po_log_from_bytes(existing)
 
         orders = bc["orders"]
+        vendor_acks = bc.get("vendor_acks")
+        if vendor_acks is None:
+            vendor_acks = self._load_vendor_acks()
         xlsx, open_count, archived_count = self.build_workbook_bytes(
             orders, records, bc["so_facts"],
             prod_orders=bc["prod_orders"], assignment_records=assignment_records,
             prod_so_map=bc["prod_so_map"], picking_remaining=bc["picking_remaining"],
             po_lines_by_so=bc["po_lines_by_so"], po_log_prior=po_log_prior,
+            vendor_acks=vendor_acks,
         )
         return xlsx, {
             "open_orders": open_count,

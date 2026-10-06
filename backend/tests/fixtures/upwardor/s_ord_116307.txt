@@ -1,0 +1,14 @@
+UPWARDOR
+ORDER ACKNOWLEDGEMENT
+
+S-ORD116307
+
+Order No.        S-ORD116307
+Order Date       10/01/2026
+P.O. No.:        000956
+Completion Date: 11/20/2026
+
+TAG:SO-001450
+
+Qty  Item            Description
+4    PN45-24400-1400 Panel

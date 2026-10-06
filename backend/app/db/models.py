@@ -2305,3 +2305,83 @@ class IncomingInvoice(Base):
             f"<IncomingInvoice(id={self.id}, vendor='{self.vendor_number}', "
             f"status='{self.status}', bc_invoice='{self.bc_invoice_number}')>"
         )
+
+
+class VendorOrderAck(Base):
+    """Latest Upwardor (UPW) order acknowledgement for one vendor order number.
+
+    One row per (vendor_no, vendor_order_no). A revised confirmation updates
+    that row in place (latest email wins). Idempotency for a mailbox
+    attachment lives on VendorOrderAckSource — the ack row's
+    source_email_id / attachment_filename are the latest source only, so
+    they cannot also be the unique intake key.
+
+    status: confirmed | revised | cancelled | pending | error
+    pending = parsed an order number but no our PO number (held for review).
+    our_po_number is normalized (PO-000956, or PO-000960(2) for a split).
+    A split suffix must not be written onto the primary PO's Vendor Order No.
+    """
+
+    __tablename__ = "vendor_order_acks"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    source_email_id = Column(String(300), nullable=False, index=True)
+    attachment_filename = Column(String(255), nullable=False)
+    mailbox = Column(String(255), nullable=True)
+    sender_email = Column(String(255), nullable=True)
+
+    vendor_no = Column(String(20), nullable=False, default="UPW", index=True)
+    vendor_order_no = Column(String(40), nullable=False, index=True)
+    our_po_number = Column(String(40), nullable=True, index=True)
+    our_so_numbers = Column(JSON, nullable=True)
+
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    completion_date = Column(Date, nullable=True)
+    received_at = Column(DateTime, nullable=True)
+    parsed_json = Column(JSON, nullable=True)
+
+    bc_po_id = Column(String(100), nullable=True)
+    bc_write_status = Column(String(20), nullable=True)  # written | failed | skipped | dry_run
+    bc_write_error = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("vendor_no", "vendor_order_no", name="uq_vendor_order_ack_vendor_order"),
+    )
+
+    def __repr__(self):
+        return (
+            f"<VendorOrderAck(id={self.id}, vendor_order_no='{self.vendor_order_no}', "
+            f"po='{self.our_po_number}', status='{self.status}')>"
+        )
+
+
+class VendorOrderAckSource(Base):
+    """One processed mailbox attachment. Unique on email id + filename so a
+    poll over the same lookback window never parses the PDF twice."""
+
+    __tablename__ = "vendor_order_ack_sources"
+
+    id = Column(Integer, primary_key=True, index=True)
+    source_email_id = Column(String(300), nullable=False)
+    attachment_filename = Column(String(255), nullable=False)
+    mailbox = Column(String(255), nullable=True)
+    outcome = Column(String(20), nullable=False, default="parsed")  # parsed | skipped | error
+    detail = Column(Text, nullable=True)
+    ack_id = Column(Integer, ForeignKey("vendor_order_acks.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "source_email_id", "attachment_filename", name="uq_vendor_order_ack_source"
+        ),
+    )
+
+    def __repr__(self):
+        return (
+            f"<VendorOrderAckSource(email='{self.source_email_id}', "
+            f"file='{self.attachment_filename}', outcome='{self.outcome}')>"
+        )

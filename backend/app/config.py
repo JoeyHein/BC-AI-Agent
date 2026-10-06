@@ -103,6 +103,23 @@ class Settings(BaseSettings):
     INVOICE_INTAKE_MAILBOX: Optional[str] = None  # falls back to EMAIL_INBOX_1 if unset
     INVOICE_INTAKE_LOOKBACK_HOURS: int = 24
 
+    # Upwardor (UPW) order-acknowledgement intake. Polls joey@ and Finance@
+    # on an interval (not a Graph subscription), parses confirmation PDFs,
+    # and writes Vendor Order No. onto the BC purchase order. Default OFF
+    # so a deploy does not touch BC until the flag is flipped. Set
+    # VENDOR_ACK_DRY_RUN=true to store rows and skip the BC PATCH.
+    VENDOR_ACK_INTAKE_ENABLED: bool = False
+    VENDOR_ACK_INTAKE_MAILBOXES: str = "joey@opendc.ca,Finance@opendc.ca"
+    VENDOR_ACK_INTAKE_LOOKBACK_HOURS: int = 72
+    VENDOR_ACK_INTAKE_INTERVAL_MINUTES: int = 20
+    VENDOR_ACK_VENDOR_NO: str = "UPW"
+    VENDOR_ACK_BC_WRITEBACK: bool = True
+    VENDOR_ACK_DRY_RUN: bool = False
+    # Page 50 published as an OData web service. v2.0 purchaseOrders does
+    # not expose Vendor Order No. (Purchase Header field 66).
+    VENDOR_ACK_BC_ODATA_ENTITY: str = "PurchaseOrder"
+    VENDOR_ACK_BC_ODATA_FIELD: str = "Vendor_Order_No"
+
     # Nightly auto-PO — drafts POs straight into BC (Draft, never emailed) for
     # new preferred-vendor demand. The runtime on/off switch is the AppSettings
     # key 'auto_po_enabled' (default OFF); this only tunes the demand horizon,

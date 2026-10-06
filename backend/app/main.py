@@ -20,6 +20,7 @@ from app.api import inventory_agent
 from app.api import po_agent
 from app.api import purchasing
 from app.api import invoice_intake
+from app.api import vendor_acks
 from app.api import public
 from app.api import email_agent
 from app.api import metrics
@@ -324,6 +325,9 @@ app.include_router(purchasing.router)
 # AI invoice intake router (OPENDC)
 logger.info(f"Including invoice_intake router: {invoice_intake.router.prefix}")
 app.include_router(invoice_intake.router)
+
+logger.info(f"Including vendor_acks router: {vendor_acks.router.prefix}")
+app.include_router(vendor_acks.router)
 
 # Project / Lot Manager router (customer portal)
 logger.info(f"Including projects router: {projects.router.prefix}")

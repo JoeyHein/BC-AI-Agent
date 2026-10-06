@@ -16,6 +16,15 @@ from app.db.database import SessionLocal
 logger = logging.getLogger(__name__)
 
 
+def vendor_ack_interval_minutes(raw) -> int:
+    """Poll interval for Upwardor ack intake, clamped to 15–30 minutes."""
+    try:
+        minutes = int(raw or 20)
+    except (TypeError, ValueError):
+        minutes = 20
+    return min(30, max(15, minutes))
+
+
 class SchedulerService:
     """
     Manages background scheduled tasks
@@ -173,6 +182,22 @@ class SchedulerService:
             replace_existing=True,
         )
         logger.info("✓ Scheduled: Invoice intake every 30 minutes")
+
+        # Upwardor order-ack intake — same idea as invoice intake (poll, not
+        # a Graph subscription). 15–30 minutes; default 20. No-op until
+        # VENDOR_ACK_INTAKE_ENABLED is set. Watches joey@ and Finance@.
+        from app.config import settings as _ack_settings
+        ack_every = vendor_ack_interval_minutes(
+            getattr(_ack_settings, "VENDOR_ACK_INTAKE_INTERVAL_MINUTES", 20)
+        )
+        self.scheduler.add_job(
+            func=self._vendor_ack_intake_job,
+            trigger=IntervalTrigger(minutes=ack_every),
+            id='vendor_ack_intake',
+            name='Upwardor order-ack intake — parse confirmations, write Vendor Order No.',
+            replace_existing=True,
+        )
+        logger.info(f"✓ Scheduled: Upwardor order-ack intake every {ack_every} minutes")
 
         # Start scheduler
         self.scheduler.start()
@@ -426,6 +451,32 @@ class SchedulerService:
             logger.info(f"Invoice intake complete: {result}")
         except Exception as e:
             logger.error(f"Invoice intake job failed: {e}", exc_info=True)
+        finally:
+            if db is not None:
+                try:
+                    db.close()
+                except Exception:
+                    pass
+
+    def _vendor_ack_intake_job(self):
+        """Poll joey@ and Finance@ for Upwardor order acknowledgements.
+
+        No-op when VENDOR_ACK_INTAKE_ENABLED is off. Dry-run
+        (VENDOR_ACK_DRY_RUN) stores rows and skips the BC Vendor Order No.
+        write. See vendor_ack_intake_service.
+        """
+        db = None
+        try:
+            from app.config import settings
+            if not settings.VENDOR_ACK_INTAKE_ENABLED:
+                logger.info("Vendor ack intake disabled, skipping")
+                return
+            db = SessionLocal()
+            from app.services.vendor_ack_intake_service import vendor_ack_intake_service
+            result = vendor_ack_intake_service.process_new_acks(db)
+            logger.info(f"Vendor ack intake complete: {result}")
+        except Exception as e:
+            logger.error(f"Vendor ack intake job failed: {e}", exc_info=True)
         finally:
             if db is not None:
                 try:
