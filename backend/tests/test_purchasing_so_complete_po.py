@@ -286,7 +286,7 @@ class TestCreate:
         assert data["review_draft_created"] is True
         assert data["review_mailbox"] == "joey@opendc.ca"
         assert data["draft_id"] == "draft-1"
-        assert data["draft_to"] == "buyer@upwardor.example"
+        assert data["draft_to"] == "mpadda@upwardor.com, mviljoen@upwardor.com"
         assert data["pdf_source"] == "bc"
         assert data["pdf_error"] is None
         assert data["draft_error"] is None
@@ -309,7 +309,7 @@ class TestCreate:
         assert len(graph.drafts) == 1
         draft = graph.drafts[0]
         assert draft["mailbox"] == "joey@opendc.ca"
-        assert draft["to"] == "buyer@upwardor.example"
+        assert draft["to"] == ["mpadda@upwardor.com", "mviljoen@upwardor.com"]
         assert draft["cc"] == ["buyer@opendc.ca"]
         assert "PO-000100" in draft["subject"]
         assert "Open Distribution Company Inc." in draft["subject"]
@@ -437,7 +437,9 @@ class TestCreate:
     def test_missing_vendor_email_still_saves_unaddressed_draft(self, client, bc_graph):
         bc, graph = bc_graph
         bc.email = ""
-        res = self._post(client)
+        # UPW has configured buyers, so a blank card still gets those addresses.
+        # A vendor without an override keeps the old "no To" behavior.
+        res = self._post(client, vendor_no="LYNX", vendor_name="LYNX")
         assert res.status_code == 200, res.text
         data = res.json()
         assert data["review_draft_created"] is True

@@ -39,6 +39,7 @@ from typing import Dict, List, Optional, Tuple
 from app.integrations.bc.client import bc_client
 from app.services.bc_production_service import bc_production_service
 from app.services.purchasing_demand_service import NON_STOCK_ITEMS, _buy_complete
+from app.services.po_line_order import order_item_rows
 
 logger = logging.getLogger(__name__)
 
@@ -568,29 +569,30 @@ def _write_plan_lines(po_id: str, plan: dict, so_number: str) -> int:
 
     by_door = plan["by_door"]
     shared = plan["shared"]
+    # Panels-first inside each door (and inside the shared / flat buckets).
+    # The door comment stays the first line of the group. See po_line_order.
     if plan["has_doors"]:
         # Same shape as the sales order: one heading per door, its items
-        # underneath, in SO order — Joey, 2026-09-09.
+        # underneath — Joey, 2026-09-09 — then panels-first within the door.
         for group in by_door:
             _add_comment(group["label"])
-            for row in group["included"]:
-                _add_item(row)
-            for row in group["component_shortfall"]:
+            door_rows = list(group["included"]) + list(group["component_shortfall"])
+            for row in order_item_rows(door_rows):
                 _add_item(row)
         if shared["included"] or shared["component_shortfall"]:
             _add_comment("ITEMS SHARED ACROSS MULTIPLE DOORS ON THIS ORDER")
-            for row in shared["included"]:
-                _add_item(row)
-            for row in shared["component_shortfall"]:
+            shared_rows = list(shared["included"]) + list(shared["component_shortfall"])
+            for row in order_item_rows(shared_rows):
                 _add_item(row)
     else:
         # No door-header structure on this SO (e.g. not built through the
-        # configurator) — flat layout, unchanged from before.
-        for row in plan["included"]:
+        # configurator) — flat layout. The raw-material banner stays where
+        # it is; each item bucket is still panels-first.
+        for row in order_item_rows(plan["included"]):
             _add_item(row)
         if plan["component_shortfall"]:
             _add_comment("Raw materials for in-house manufactured items (BOM-exploded, netted vs stock)")
-            for row in plan["component_shortfall"]:
+            for row in order_item_rows(plan["component_shortfall"]):
                 _add_item(row)
 
     return item_count

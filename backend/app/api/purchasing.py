@@ -33,6 +33,7 @@ from app.services.so_coverage_service import (
 from app.services.so_master_crosscheck_service import so_master_crosscheck_service
 from app.integrations.bc.client import bc_client
 from app.services.draft_po_review_service import draft_po_review_service
+from app.services.draft_po_lines_service import DraftPoEditError, draft_po_lines_service
 
 router = APIRouter(prefix="/api/admin/purchasing", tags=["purchasing"])
 logger = logging.getLogger(__name__)
@@ -80,10 +81,16 @@ class SendReportRequest(BaseModel):
 
 
 class POLineIn(BaseModel):
-    item_no: str
+    """One generate-po line. Item is the default. ``line_type`` Comment or blank
+    writes a note on the PO (description only, 100 characters) — for example
+    "Five wall required". Item number and quantity are not used on comments.
+    """
+    item_no: Optional[str] = None
     description: Optional[str] = ""
-    quantity: float
+    quantity: float = 0
     unit_cost: float = 0
+    line_type: Optional[str] = None
+    unit_of_measure: Optional[str] = None
 
 
 class GeneratePORequest(BaseModel):
@@ -115,6 +122,34 @@ class CompleteSoPoRequest(BaseModel):
     create_review_draft: bool = True
     notes: Optional[str] = None
     cc: Optional[List[str]] = None
+
+
+class DraftPoLineUpdate(BaseModel):
+    """Fields to change on one Draft PO line. Omit a field to leave it."""
+    quantity: Optional[float] = None
+    description: Optional[str] = None
+    unit_cost: Optional[float] = None
+    item_no: Optional[str] = None
+
+
+class DraftPoLineCreate(BaseModel):
+    """Add an Item line or a Comment / blank note on a Draft PO."""
+    line_type: str = "Item"
+    item_no: Optional[str] = None
+    description: Optional[str] = ""
+    quantity: float = 0
+    unit_cost: float = 0
+    unit_of_measure: Optional[str] = None
+
+
+class DraftPoReorderRequest(BaseModel):
+    """Every current line id, in the order the PO should end up in."""
+    line_ids: List[str]
+
+
+class DraftPoNormalizeRequest(BaseModel):
+    """Panels-first reorder. Defaults to a preview that does not write."""
+    dry_run: bool = True
 
 
 class ExistingPOReviewDraftRequest(BaseModel):
@@ -327,10 +362,15 @@ async def generate_po(
 ):
     """Create a PO in BC and save an unsent Outlook review draft.
 
+    Item lines are ordered panels-first within each door group. A line with
+    `line_type` Comment or blank is written on the PO as a comment (100
+    characters), for example "Five wall required".
+
     The draft is created in `NOTIFICATION_SENDER_EMAIL` (production:
     joey@opendc.ca) via Graph createMessage in Drafts, with the BC
     purchase-order PDF attached (`get_purchase_order_pdf`) and To set to the
-    vendor email. The API does not send mail to the vendor. A failed PDF
+    configured review-draft recipients for that vendor, or the BC vendor
+    email when none are configured. The API does not send mail to the vendor. A failed PDF
     download or Graph save is returned on the JSON (`pdf_error`, `draft_error`)
     and does not roll back the BC PO. `create_review_draft=false` (or the
     deprecated `send_email=false`) skips the PDF fetch and Graph.
@@ -570,7 +610,8 @@ async def so_po_links(
 
 # ==================== Draft PO review (CoS) ====================
 # List, validate, and PDF download are read-only. review-draft saves an
-# unsent Outlook message; it does not send, release, or rewrite the PO.
+# unsent Outlook message; it does not send or release the PO. Line routes
+# under /draft-pos/{po}/lines edit a Draft PO only.
 
 @router.get("/draft-pos")
 async def list_draft_pos(
@@ -747,8 +788,9 @@ async def create_existing_po_review_draft(
     Resolves the purchase order (PO number, bare digits, or GUID), requires
     status Draft, downloads ``BCClient.get_purchase_order_pdf``, and saves a
     Graph message in ``NOTIFICATION_SENDER_EMAIL`` Drafts (production:
-    joey@opendc.ca). To is the BC vendor email. Subject and body match
-    generate-po. Does not call sendMail.
+    joey@opendc.ca). To is the configured review-draft list for that vendor
+    (UPW: the Upwardor buyers) or, when none is configured, the BC vendor
+    email. Subject and body match generate-po. Does not call sendMail.
 
     A second call for the same PO creates another draft. PDF or Graph
     failure is HTTP 200 with ``pdf_error`` / ``draft_error`` — the PO is
@@ -797,6 +839,138 @@ async def create_existing_po_review_draft(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(e),
         ) from e
+
+
+def _draft_line_call(action, po_number: str, admin: User):
+    """Run a Draft-PO line edit and map service errors to HTTP."""
+    kind, value = normalize_staff_po_ref(po_number)
+    actor = getattr(admin, "email", None) or "staff"
+    try:
+        return action(kind, value, actor)
+    except DraftPoEditError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    except requests.HTTPError as exc:
+        logger.error("BC draft-PO line edit failed for %s: %s", value, exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Business Central rejected the purchase-order line change: {exc}",
+        ) from exc
+
+
+@router.get("/draft-pos/{po_number}/lines")
+async def get_draft_po_lines(
+    po_number: str,
+    admin: User = Depends(get_current_admin),
+):
+    """Lines on one Draft purchase order, in BC sequence order.
+
+    404 if BC has no such document. 422 if it is not Draft, or if any
+    quantity has already been received. Does not write.
+    """
+    return _draft_line_call(
+        lambda kind, value, actor: draft_po_lines_service.get_lines(kind, value),
+        po_number,
+        admin,
+    )
+
+
+@router.patch("/draft-pos/{po_number}/lines/{line_id}")
+async def update_draft_po_line(
+    po_number: str,
+    line_id: str,
+    body: DraftPoLineUpdate,
+    admin: User = Depends(get_current_admin),
+):
+    """Edit quantity, description (max 100 characters), unit cost, or item number.
+
+    Comment lines accept a description only. Returns the PO's lines after the write.
+    """
+    changes = body.model_dump(exclude_unset=True)
+    return _draft_line_call(
+        lambda kind, value, actor: draft_po_lines_service.update_line(
+            kind, value, line_id, changes, actor=actor,
+        ),
+        po_number,
+        admin,
+    )
+
+
+@router.delete("/draft-pos/{po_number}/lines/{line_id}")
+async def delete_draft_po_line(
+    po_number: str,
+    line_id: str,
+    admin: User = Depends(get_current_admin),
+):
+    """Delete one line from a Draft purchase order. Returns the remaining lines."""
+    return _draft_line_call(
+        lambda kind, value, actor: draft_po_lines_service.delete_line(
+            kind, value, line_id, actor=actor,
+        ),
+        po_number,
+        admin,
+    )
+
+
+@router.post("/draft-pos/{po_number}/lines")
+async def add_draft_po_line(
+    po_number: str,
+    body: DraftPoLineCreate,
+    admin: User = Depends(get_current_admin),
+):
+    """Append an Item line or a Comment (Type blank) note. Returns the lines."""
+    return _draft_line_call(
+        lambda kind, value, actor: draft_po_lines_service.add_line(
+            kind, value, body.model_dump(), actor=actor,
+        ),
+        po_number,
+        admin,
+    )
+
+
+@router.post("/draft-pos/{po_number}/lines/reorder")
+async def reorder_draft_po_lines(
+    po_number: str,
+    body: DraftPoReorderRequest,
+    admin: User = Depends(get_current_admin),
+):
+    """Rebuild the Draft PO's lines in ``line_ids`` order.
+
+    Business Central does not renumber lines. The current lines are
+    snapshotted, deleted, and re-added. Item, quantity, unit of measure,
+    cost, description, location, and any linked sales-order / special-order
+    / drop-shipment fields already on the line are copied. If the rewrite
+    or the check afterwards fails, the snapshot is written back.
+    """
+    return _draft_line_call(
+        lambda kind, value, actor: draft_po_lines_service.reorder_lines(
+            kind, value, body.line_ids, actor=actor,
+        ),
+        po_number,
+        admin,
+    )
+
+
+@router.post("/draft-pos/{po_number}/lines/normalize-order")
+async def normalize_draft_po_lines(
+    po_number: str,
+    body: Optional[DraftPoNormalizeRequest] = None,
+    admin: User = Depends(get_current_admin),
+):
+    """Put each door group into panels-first order.
+
+    ``dry_run`` defaults to true: the response ``lines`` are the proposed
+    order and Business Central is not written. ``current_lines`` is the
+    order on the PO now. Pass ``{"dry_run": false}`` to apply, which uses
+    the same snapshot / rewrite / restore path as reorder.
+    """
+    dry_run = True if body is None else body.dry_run
+    return _draft_line_call(
+        lambda kind, value, actor: draft_po_lines_service.normalize_order(
+            kind, value, dry_run=dry_run, actor=actor,
+        ),
+        po_number,
+        admin,
+    )
 
 
 # ==================== Cut work orders (yay/nay approval) ====================

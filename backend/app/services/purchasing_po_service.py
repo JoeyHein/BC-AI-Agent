@@ -34,10 +34,47 @@ from app.config import settings
 from app.db.models import POAgentLog
 from app.integrations.bc.client import bc_client
 from app.integrations.email.client import graph_client
+from app.services.po_line_order import BC_DESCRIPTION_MAX, order_item_rows, order_request_lines
 
 logger = logging.getLogger(__name__)
 
 COMPANY_NAME = "Open Distribution Company Inc."
+
+
+def _is_comment_request(ln: dict) -> bool:
+    """generate-po comment / blank line. Item is the default when line_type is omitted."""
+    raw = ln.get("line_type", ln.get("lineType"))
+    if raw is None:
+        return False
+    return str(raw).strip().lower() in ("", "comment", "blank")
+
+
+def configured_review_recipients(vendor_no: Optional[str]) -> Optional[List[str]]:
+    """To addresses from ``PO_REVIEW_DRAFT_RECIPIENTS`` for this vendor.
+
+    Format: ``VENDOR=addr1|addr2;VENDOR2=addr``. None means use the BC vendor card.
+    """
+    if not vendor_no:
+        return None
+    raw = settings.PO_REVIEW_DRAFT_RECIPIENTS or ""
+    table: dict = {}
+    for part in raw.split(";"):
+        part = part.strip()
+        if "=" not in part:
+            continue
+        vendor, addrs = part.split("=", 1)
+        emails = [addr.strip() for addr in addrs.split("|") if addr.strip()]
+        if vendor.strip() and emails:
+            table[vendor.strip().upper()] = emails
+    return table.get(vendor_no.strip().upper())
+
+
+def _recipient_label(to) -> Optional[str]:
+    if not to:
+        return None
+    if isinstance(to, (list, tuple)):
+        return ", ".join(str(addr) for addr in to if addr) or None
+    return str(to)
 
 
 def _empty_review_fields() -> dict:
@@ -68,8 +105,12 @@ class PurchasingPOService:
     ) -> dict:
         """Create the PO in BC and, by default, an unsent Outlook review draft.
 
-        `lines`: [{item_no, description, quantity, unit_cost}]. Quantity must be
-        > 0. Raises on BC creation failure.
+        `lines`: item rows ``{item_no, description, quantity, unit_cost}`` and
+        optional comment rows ``{line_type: "Comment"|"blank", description}``.
+        Item quantity must be > 0. Comment text is written on the PO itself
+        (BC description, 100 characters). Lines are ordered panels-first
+        within each door group before they are posted. Raises on BC creation
+        failure.
 
         `create_review_draft` true (the purchasing-dashboard default) downloads
         `get_purchase_order_pdf` and saves a Graph draft in
@@ -80,9 +121,30 @@ class PurchasingPOService:
         skips both the PDF fetch and Graph so a Draft can be created without
         touching a mailbox.
         """
-        clean = [ln for ln in lines if float(ln.get("quantity") or 0) > 0]
-        if not clean:
+        ordered = order_request_lines(lines)
+        clean = [ln for ln in ordered if not _is_comment_request(ln)]
+        comments = [ln for ln in ordered if _is_comment_request(ln)]
+        for ln in comments:
+            text = str(ln.get("description") or "").strip()
+            if not text:
+                raise ValueError("Comment lines need a description")
+            if len(text) > BC_DESCRIPTION_MAX:
+                raise ValueError(
+                    f"Comment description is {len(text)} characters. "
+                    f"Business Central allows {BC_DESCRIPTION_MAX}."
+                )
+        positive = [ln for ln in clean if float(ln.get("quantity") or 0) > 0]
+        if not positive:
             raise ValueError("No lines with positive quantity to order")
+        for ln in positive:
+            if not (ln.get("item_no") or "").strip():
+                raise ValueError("Item lines need an item number")
+            desc = str(ln.get("description") or "")
+            if len(desc) > BC_DESCRIPTION_MAX:
+                raise ValueError(
+                    f"Description is {len(desc)} characters. "
+                    f"Business Central allows {BC_DESCRIPTION_MAX}."
+                )
 
         # 1. Create PO header in BC. vendorName is read-only in api/v2.0 (BC
         # 400s if it's in the body) — set vendorNumber only.
@@ -92,17 +154,32 @@ class PurchasingPOService:
         if not bc_po_id:
             raise RuntimeError(f"BC did not return a PO id: {bc_po}")
 
-        # 2. Add lines.
-        for ln in clean:
-            line_data = {
-                "lineType": "Item",
-                "lineObjectNumber": ln["item_no"],
-                "quantity": float(ln["quantity"]),
-                "directUnitCost": float(ln.get("unit_cost") or 0),
-            }
-            if ln.get("description"):
-                line_data["description"] = str(ln["description"])[:100]
-            bc_client.add_purchase_order_line(bc_po_id, line_data)
+        # 2. Add lines in panels-first order, including comment notes.
+        sequence = 10000
+        for ln in ordered:
+            if _is_comment_request(ln):
+                bc_client.add_purchase_order_line(bc_po_id, {
+                    "sequence": sequence,
+                    "lineType": "Comment",
+                    "description": str(ln.get("description") or "").strip()[:BC_DESCRIPTION_MAX],
+                })
+            else:
+                if float(ln.get("quantity") or 0) <= 0:
+                    continue
+                line_data = {
+                    "sequence": sequence,
+                    "lineType": "Item",
+                    "lineObjectNumber": ln["item_no"],
+                    "quantity": float(ln["quantity"]),
+                    "directUnitCost": float(ln.get("unit_cost") or 0),
+                }
+                if ln.get("description"):
+                    line_data["description"] = str(ln["description"])[:BC_DESCRIPTION_MAX]
+                uom = ln.get("unit_of_measure") or ln.get("uom")
+                if uom:
+                    line_data["unitOfMeasureCode"] = uom
+                bc_client.add_purchase_order_line(bc_po_id, line_data)
+            sequence += 10000
 
         # 3. BC PDF + Outlook draft. Never sendMail.
         mailbox = settings.NOTIFICATION_SENDER_EMAIL
@@ -121,7 +198,7 @@ class PurchasingPOService:
             )
 
         # 4. Record for audit. emailed_* stay empty: the vendor was not emailed.
-        total = round(sum(float(l["quantity"]) * float(l.get("unit_cost") or 0) for l in clean), 2)
+        total = round(sum(float(l["quantity"]) * float(l.get("unit_cost") or 0) for l in positive), 2)
         log = POAgentLog(
             vendor_id=vendor_no,
             vendor_name=vendor_name,
@@ -129,12 +206,13 @@ class PurchasingPOService:
             total_amount=total,
             currency="CAD",
             line_items=[{
-                "bc_item_number": l["item_no"],
+                "bc_item_number": l.get("item_no") or "",
                 "description": l.get("description", ""),
-                "quantity": float(l["quantity"]),
+                "quantity": float(l.get("quantity") or 0),
                 "unit_cost": float(l.get("unit_cost") or 0),
-                "line_total": round(float(l["quantity"]) * float(l.get("unit_cost") or 0), 2),
-            } for l in clean],
+                "line_total": round(float(l.get("quantity") or 0) * float(l.get("unit_cost") or 0), 2),
+                "line_type": "Comment" if _is_comment_request(l) else "Item",
+            } for l in ordered if _is_comment_request(l) or float(l.get("quantity") or 0) > 0],
             bc_po_id=bc_po_id,
             bc_po_number=bc_po_number,
             approved_by=user_id,
@@ -368,7 +446,7 @@ class PurchasingPOService:
 
         def written_lines(group: dict) -> List[dict]:
             rows = list(group.get("included") or []) + list(group.get("component_shortfall") or [])
-            return [line(row) for row in rows]
+            return [line(row) for row in order_item_rows(rows)]
 
         has_doors = bool(plan.get("has_doors"))
         doors: List[dict] = []
@@ -476,7 +554,7 @@ class PurchasingPOService:
 
         Returns (draft_to, draft_id, web_link, warning, draft_error, pdf_error, pdf_source).
         """
-        vendor_email = self._vendor_email(vendor_no) if vendor_no else None
+        vendor_email = _review_draft_to(vendor_no) if vendor_no else None
         try:
             pdf_bytes = bc_client.get_purchase_order_pdf(bc_po_id)
             if not pdf_bytes:
@@ -526,7 +604,7 @@ class PurchasingPOService:
                 bc_po_number, mailbox, exc,
                 exc_info=True,
             )
-            return vendor_email, None, None, warning, str(exc), None, "bc"
+            return _recipient_label(vendor_email), None, None, warning, str(exc), None, "bc"
 
         draft_id = draft.get("id")
         if not draft_id:
@@ -534,14 +612,14 @@ class PurchasingPOService:
                 "[PurchasingPO] Graph did not return a draft id for PO %s (mailbox %s)",
                 bc_po_number, mailbox,
             )
-            return vendor_email, None, None, warning, "Graph did not return a draft id", None, "bc"
+            return _recipient_label(vendor_email), None, None, warning, "Graph did not return a draft id", None, "bc"
 
         logger.info(
             "[PurchasingPO] Saved Outlook review draft %s in %s for PO %s "
             "(not sent; to=%s)",
-            draft_id, mailbox, bc_po_number, vendor_email or "(none)",
+            draft_id, mailbox, bc_po_number, _recipient_label(vendor_email) or "(none)",
         )
-        return vendor_email, draft_id, draft.get("webLink"), warning, None, None, "bc"
+        return _recipient_label(vendor_email), draft_id, draft.get("webLink"), warning, None, None, "bc"
 
     @staticmethod
     def _vendor_email(vendor_no: str) -> Optional[str]:
@@ -567,6 +645,18 @@ class PurchasingPOService:
         {notes_html}
         <p>Kindly confirm receipt and expected ship date. Reply to this email with any questions.</p>
         <p>Thank you,<br>{COMPANY_NAME}</p></div>"""
+
+
+def _review_draft_to(vendor_no: str):
+    """Graph To for a review draft: configured buyers, otherwise the BC vendor email."""
+    configured = configured_review_recipients(vendor_no)
+    if configured:
+        logger.info(
+            "[PurchasingPO] vendor %s review draft To is the configured list: %s",
+            vendor_no, ", ".join(configured),
+        )
+        return configured
+    return PurchasingPOService._vendor_email(vendor_no)
 
 
 purchasing_po_service = PurchasingPOService()

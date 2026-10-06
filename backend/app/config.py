@@ -120,6 +120,12 @@ class Settings(BaseSettings):
     VENDOR_ACK_BC_ODATA_ENTITY: str = "PurchaseOrder"
     VENDOR_ACK_BC_ODATA_FIELD: str = "Vendor_Order_No"
 
+    # Outlook review-draft To addresses, by BC vendor number, used instead of
+    # the vendor card email. Format: VENDOR=addr1|addr2;VENDOR2=addr
+    # UPW's card is AR@Upwardor.com; purchasing drafts go to the two buyers.
+    # Set empty to fall back to the BC vendor email for every vendor.
+    PO_REVIEW_DRAFT_RECIPIENTS: str = "UPW=mpadda@upwardor.com|mviljoen@upwardor.com"
+
     # Nightly auto-PO — drafts POs straight into BC (Draft, never emailed) for
     # new preferred-vendor demand. The runtime on/off switch is the AppSettings
     # key 'auto_po_enabled' (default OFF); this only tunes the demand horizon,

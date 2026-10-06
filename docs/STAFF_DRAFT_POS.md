@@ -8,9 +8,13 @@ can save an Outlook review draft for one of them; it is not a second
 source of truth.
 
 List, validate, and PDF download are **read-only**. They do not release,
-email, send, or rewrite a PO. `POST .../review-draft` is the exception: it
-saves an **unsent** Outlook message in joey@opendc.ca Drafts (BC PDF
-attached, To: the vendor). It does not call sendMail. A human still sends.
+email, send, or rewrite a PO. `POST .../review-draft` saves an **unsent**
+Outlook message in joey@opendc.ca Drafts (BC PDF attached). It does not
+call sendMail. A human still sends.
+
+`/draft-pos/{po}/lines` edits a **Draft** PO: change a line, delete a line,
+add an item or comment, reorder, or apply panels-first order. Released and
+Open POs are refused. Those routes do not release, email, or send.
 
 After review, the finance email can still be drafted in Outlook from the
 JSON; that is separate from the vendor review draft.
@@ -137,10 +141,15 @@ What it does, same helpers as generate-po (`purchasing_po_service._save_review_d
 
 1. Resolve the PO (`number eq 'PO-…'` or `purchaseOrders({guid})`). Status must be `Draft`.
 2. Download the BC report with `BCClient.get_purchase_order_pdf`. The homemade fpdf2 table is not attached.
-3. Look up the vendor email on the BC vendor card (`vendorNumber`).
+3. Look up who the draft is addressed to. Vendor **UPW** (Upwardor) uses
+   `PO_REVIEW_DRAFT_RECIPIENTS` (default `mpadda@upwardor.com` and
+   `mviljoen@upwardor.com`) instead of the vendor-card address
+   `AR@Upwardor.com`. Any other vendor uses the BC vendor card email.
+   Format: `VENDOR=addr1|addr2;VENDOR2=addr`. Set the variable empty to
+   use the card email for every vendor, including UPW.
 4. Save an **unsent** Outlook message with Graph createMessage:
    `POST /users/{NOTIFICATION_SENDER_EMAIL}/mailFolders/drafts/messages`.
-   In production that mailbox is joey@opendc.ca. To: the BC vendor email.
+   In production that mailbox is joey@opendc.ca. To: the addresses from step 3.
    Subject `Purchase Order {number} — Open Distribution Company Inc.` and
    the same HTML body as generate-po. Attachment name `PO_{number}.pdf`.
 
@@ -220,6 +229,199 @@ curl -fsS -X POST \
 3. In joey@opendc.ca Outlook, open **Drafts**. The new message is To the BC vendor email, subject `Purchase Order {number} — Open Distribution Company Inc.`, body the same as a generate-po review draft, and the attachment is the BC purchase-order PDF (same report as `GET .../pdf`).
 4. **Sent** does not contain that message. Do not click Send while checking.
 5. POST again. A second draft appears in Drafts. Sent is still empty.
+
+## Edit Draft PO lines
+
+Staff admin JWT, same as the other purchasing routes. The purchase order
+must be status **Draft** and must have no received quantity. Anything else
+(Released, Open, already received) is **422** with the status in the
+message. The portal does not reopen a released PO.
+
+Every write returns the PO's lines afterwards (`lines`). A line object
+includes `id`, `sequence`, `line_type`, `item_number`, `description`,
+`quantity`, `unit_cost`, `unit_of_measure`, `location_id`,
+`received_quantity`, linkage fields when BC returned them
+(`drop_shipment`, `special_order`, `sales_order_id`,
+`sales_order_line_id`), and `panel_class` (`insulated`, `glass`, `rest`,
+or `comment`).
+
+| | |
+|---|---|
+| Not signed in / not admin | `401` / `403` |
+| Missing PO or missing line | `404` |
+| Not Draft, or something already received | `422` |
+| Bad description, quantity, or reorder list | `400` |
+| BC failure | `502` |
+
+Description is limited to **100 characters**, which is BC's line description.
+A longer value is `400` and is not written.
+
+### Read lines
+
+```
+GET /api/admin/purchasing/draft-pos/{po_number}/lines
+```
+
+`{po_number}` is `PO-000962`, bare digits (`962`), or the BC GUID. Does
+not write. `changed` is false.
+
+### Edit one line
+
+```
+PATCH /api/admin/purchasing/draft-pos/{po_number}/lines/{line_id}
+```
+
+```json
+{ "quantity": 6, "description": "TX450 section", "unit_cost": 12.5, "item_no": "PN45-24405-1000" }
+```
+
+Send only the fields to change. Comment lines accept `description` only.
+
+### Delete one line
+
+```
+DELETE /api/admin/purchasing/draft-pos/{po_number}/lines/{line_id}
+```
+
+### Add an item or a comment
+
+```
+POST /api/admin/purchasing/draft-pos/{po_number}/lines
+```
+
+Item:
+
+```json
+{ "line_type": "Item", "item_no": "PL10-00141-00", "description": "RETAINER", "quantity": 4, "unit_cost": 1.25, "unit_of_measure": "EA" }
+```
+
+Comment (BC line type Comment — the blank type on the PO page):
+
+```json
+{ "line_type": "Comment", "description": "Five wall required" }
+```
+
+`line_type` `blank` is the same as `Comment`. The line is appended.
+
+### Reorder
+
+```
+POST /api/admin/purchasing/draft-pos/{po_number}/lines/reorder
+```
+
+```json
+{ "line_ids": ["<id of first line>", "<id of second line>"] }
+```
+
+`line_ids` must be every current line id, once each. Business Central has
+no line-renumber API. The portal snapshots the lines, deletes them, and
+re-adds them in this order. Each re-added line keeps item, quantity, unit
+of measure, direct unit cost, description, description2, and `locationId`.
+Drop shipment, special order, and linked sales-order fields are copied
+when they are already on the line. api/v2.0 `purchaseOrderLines` does not
+normally return those linkage fields; if a write-back of one is rejected,
+the rewrite fails and the snapshot is posted back. The server log contains
+the snapshot either way.
+
+On failure the response is `502`. When the restore worked, the detail says
+the previous lines were restored. When the restore also failed, the detail
+says so — do not release that PO until someone checks the lines against
+the log.
+
+### Panels-first order (normalize)
+
+```
+POST /api/admin/purchasing/draft-pos/{po_number}/lines/normalize-order
+```
+
+```json
+{ "dry_run": true }
+```
+
+`dry_run` defaults to **true**. True returns the proposed `lines` and
+`current_lines` and does not call BC write APIs. `changed` is false when
+the PO is already in this order.
+
+```json
+{ "dry_run": false }
+```
+
+False applies the order with the same snapshot / delete / re-add / verify
+/ restore path as reorder.
+
+Within each door group:
+
+1. The comment that introduces the group stays at the top. That is the
+   configurator door header (`(1) 18'0" x 8'0" …`, same pattern as the
+   sales-order writer) or a section banner (`ITEMS SHARED ACROSS…`,
+   `RAW MATERIALS…`). Comments before the first item of the group stay
+   with that header. Customer name and "Built from SO-…" comments before
+   the first door stay above door 1.
+2. Insulated sections.
+3. Glass sections and glazing.
+4. Everything else, in the order it already had. A comment between items
+   stays with the item that follows it.
+
+Classification is by item-number prefix, from `sku_geometry` and
+`part_number_service` (see `backend/app/services/po_line_order.py`):
+
+| Class | Prefixes |
+|---|---|
+| Insulated sections | Residential `PN65`, `PN95`. Commercial finished sections in `sku_geometry.COMMERCIAL_PANEL_PREFIXES`: `PN45` / `PN46` (TX450), `PN55` / `PN56` (TX500), `PN35` (TX380), and the other prefixes in that set. |
+| Not insulated | `PN40` and `PN50` are bulk cores from an exploded section BOM, so they stay with the rest of the door. |
+| Glass | Full-view / aluminum sections `PN10` / `PN12` (V130G / V230G), `PN97` (AL976), `PN80` (Panorama), `PN20` (Solalite), `PN70` (AL-SWD). Glazing `GK15` / `GK16` / `GK17`. Glass sheet `GL12` / `GL17` / `GL18`. |
+| Rest | `HK` hardware kits, `FH` struts, `PL` retainer / astragal, `TR` track, `SP` springs, and anything else. |
+
+`generate-po` and `so-complete-po` apply this order when they create a PO.
+`generate-po` also accepts comment lines (`line_type` `Comment` or `blank`,
+description up to 100 characters) so a note such as "Five wall required"
+is on the PO, not only in the Outlook body. The purchasing screen has a
+"Note on the PO" field that sends that comment, and a Lines editor on each
+Draft row (save, delete, add, reorder, preview / apply panels-first).
+
+### Verify on one Draft PO without surprising writes
+
+Use a staff admin JWT. Do not release the PO. Do not click Send on any
+Outlook draft. Start with dry-run, which does not write lines.
+
+```bash
+BASE="${PORTAL_BASE_URL:-https://portal.opendc.ca}"
+PO=PO-000962   # a live Draft you mean to inspect. Not a Released PO.
+
+# Proposed order only. Business Central is not changed.
+curl -fsS -X POST \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"dry_run": true}' \
+  "$BASE/api/admin/purchasing/draft-pos/${PO}/lines/normalize-order" \
+  | python3 -m json.tool
+
+# Apply only after the proposal looks right. This deletes and re-adds lines.
+curl -fsS -X POST \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"dry_run": false}' \
+  "$BASE/api/admin/purchasing/draft-pos/${PO}/lines/normalize-order" \
+  | python3 -m json.tool
+
+# Read back. Compare item, qty, and description to the dry-run proposal.
+curl -fsS -H "Authorization: Bearer ${TOKEN}" \
+  "$BASE/api/admin/purchasing/draft-pos/${PO}/lines" | python3 -m json.tool
+```
+
+On `/purchasing`, open **Lines** on that Draft, choose **Preview panels-first
+order** (no write), then **Apply panels-first order** only if the proposal
+is the order you want. A Released PO returns 422 and is left alone.
+
+Add a note the same way:
+
+```bash
+curl -fsS -X POST \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"line_type":"Comment","description":"Five wall required"}' \
+  "$BASE/api/admin/purchasing/draft-pos/${PO}/lines" | python3 -m json.tool
+```
 
 ## Outlook review draft (`generate-po`)
 

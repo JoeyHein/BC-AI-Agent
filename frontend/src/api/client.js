@@ -714,6 +714,18 @@ export const purchasingApi = {
   listDraftPOs: (params = {}) => apiClient.get('/api/admin/purchasing/draft-pos', { params }),
   createDraftPoReviewDraft: (poNumber, data = {}) =>
     apiClient.post(`/api/admin/purchasing/draft-pos/${encodeURIComponent(poNumber)}/review-draft`, data),
+  getDraftPoLines: (poNumber) =>
+    apiClient.get(`/api/admin/purchasing/draft-pos/${encodeURIComponent(poNumber)}/lines`),
+  updateDraftPoLine: (poNumber, lineId, data) =>
+    apiClient.patch(`/api/admin/purchasing/draft-pos/${encodeURIComponent(poNumber)}/lines/${encodeURIComponent(lineId)}`, data),
+  deleteDraftPoLine: (poNumber, lineId) =>
+    apiClient.delete(`/api/admin/purchasing/draft-pos/${encodeURIComponent(poNumber)}/lines/${encodeURIComponent(lineId)}`),
+  addDraftPoLine: (poNumber, data) =>
+    apiClient.post(`/api/admin/purchasing/draft-pos/${encodeURIComponent(poNumber)}/lines`, data),
+  reorderDraftPoLines: (poNumber, lineIds) =>
+    apiClient.post(`/api/admin/purchasing/draft-pos/${encodeURIComponent(poNumber)}/lines/reorder`, { line_ids: lineIds }),
+  normalizeDraftPoLines: (poNumber, dryRun = true) =>
+    apiClient.post(`/api/admin/purchasing/draft-pos/${encodeURIComponent(poNumber)}/lines/normalize-order`, { dry_run: dryRun }),
   // Morning brief (the narrative the digest email and planning workbook share)
   getBrief: () => apiClient.get('/api/admin/purchasing/brief'),
   runBrief: (params = {}) => apiClient.post('/api/admin/purchasing/brief/run', null, { params }),
