@@ -602,6 +602,10 @@ def build_upwardor_po(so_number: str, vendor_no: str = "UPW", vendor_name: str =
     for one sales order. mode="complete" (default) copies the SO in full per
     compute_complete_po_lines; mode="netted" is the older stock-netted plan.
     Never emails — matches the existing "Draft in BC, human reviews" pattern.
+
+    The staff purchasing API calls this (complete mode only) from
+    purchasing_po_service.preview_complete_so_po / create_complete_so_po.
+    Outlook review drafts are saved there, not here.
     """
     plan = _compute_plan(so_number, mode)
     result = {**plan, "vendor_no": vendor_no, "vendor_name": vendor_name, "dry_run": dry_run}

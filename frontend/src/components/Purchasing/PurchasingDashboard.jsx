@@ -13,6 +13,7 @@ export default function PurchasingDashboard() {
   const [busy, setBusy] = useState(null);        // action label currently running
   const [message, setMessage] = useState(null);
   const [horizon, setHorizon] = useState(5);     // delivery horizon in weeks (0 = all)
+  const [draftReload, setDraftReload] = useState(0);
 
   useEffect(() => { load(); }, [horizon]);
 
@@ -185,7 +186,13 @@ export default function PurchasingDashboard() {
 
       <MorningBrief data={brief} busy={busy === 'brief'} onRefresh={refreshBrief} />
 
-      <DraftPurchaseOrders />
+      <CompleteSalesOrderPo
+        vendors={vendors}
+        soOptions={salesOrderOptions(data)}
+        onCreated={() => setDraftReload((n) => n + 1)}
+      />
+
+      <DraftPurchaseOrders reloadToken={draftReload} />
 
       {!data?.production_included && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-lg text-sm">
@@ -394,13 +401,253 @@ function MorningBrief({ data, busy, onRefresh }) {
  * message in the portal mailbox (BC PDF attached, To: the vendor). It does
  * not send. Each click creates another draft.
  */
-function DraftPurchaseOrders() {
+function salesOrderOptions(data) {
+  const nums = new Set();
+  (data?.items || []).forEach((row) => {
+    (row.jobs || []).forEach((job) => {
+      if (job && job !== '?') nums.add(job);
+    });
+  });
+  return [...nums].sort();
+}
+
+/**
+ * Complete SO→PO. Preview calls the existing complete builder (dry run).
+ * Create writes one Draft PO. The Outlook checkbox saves an unsent review
+ * draft with the BC PDF. It does not send.
+ */
+function CompleteSalesOrderPo({ vendors, soOptions, onCreated }) {
+  const [soNumber, setSoNumber] = useState('');
+  const [vendorNo, setVendorNo] = useState('UPW');
+  const [reviewDraft, setReviewDraft] = useState(true);
+  const [preview, setPreview] = useState(null);
+  const [previewed, setPreviewed] = useState('');
+  const [busy, setBusy] = useState(null);
+  const [notice, setNotice] = useState(null);
+
+  const vendorChoices = (vendors || []).some((v) => v.number === 'UPW')
+    ? vendors
+    : [{ number: 'UPW', name: 'UPWARDOR' }, ...(vendors || [])];
+  const vendor = vendorChoices.find((v) => v.number === vendorNo) || vendorChoices[0];
+
+  function onSoChange(value) {
+    setSoNumber(value);
+    setPreview(null);
+    setPreviewed('');
+    setNotice(null);
+  }
+
+  async function runPreview() {
+    const number = soNumber.trim();
+    if (!number) {
+      setNotice({ type: 'error', text: 'Enter a sales order number.' });
+      return;
+    }
+    setBusy('preview');
+    setNotice(null);
+    setPreview(null);
+    try {
+      const res = await purchasingApi.previewCompleteSoPo({
+        so_number: number,
+        vendor_no: vendor?.number || 'UPW',
+        vendor_name: vendor?.name || 'UPWARDOR',
+      });
+      setPreview(res.data);
+      setPreviewed(number);
+    } catch (e) {
+      setNotice({ type: 'error', text: `Preview failed: ${e.response?.data?.detail || e.message}` });
+    }
+    setBusy(null);
+  }
+
+  async function createDraft() {
+    if (!preview || previewed !== soNumber.trim()) return;
+    const vendorName = vendor?.name || 'UPWARDOR';
+    const vendorNumber = vendor?.number || 'UPW';
+    const draftNote = reviewDraft
+      ? 'A review draft will be saved in Outlook Drafts (not sent to the vendor).'
+      : 'No Outlook draft will be saved, and nothing is sent to the vendor.';
+    if (!window.confirm(
+      `Create a Draft purchase order in Business Central for ${preview.so_number} (${vendorName})?\n\n`
+      + `${draftNote}\n\nThis creates a new Draft every time.`,
+    )) return;
+
+    setBusy('create');
+    setNotice(null);
+    try {
+      const res = await purchasingApi.createCompleteSoPo({
+        so_number: preview.so_number,
+        vendor_no: vendorNumber,
+        vendor_name: vendorName,
+        create_review_draft: reviewDraft,
+      });
+      const d = res.data;
+      let text;
+      let type = 'success';
+      if (!d.created) {
+        type = 'warn';
+        text = d.note || `${d.so_number} has nothing to order. No purchase order was created.`;
+      } else if (!reviewDraft) {
+        text = `PO ${d.bc_po_number} created in BC for ${d.so_number}. No Outlook draft was saved. Not sent to the vendor.`;
+      } else if (d.review_draft_created) {
+        const to = d.draft_to ? ` addressed to ${d.draft_to}` : ' with no To address';
+        text = `PO ${d.bc_po_number} created in BC. Review draft saved in ${d.review_mailbox || 'Outlook'} Drafts${to}. Not sent to the vendor.`;
+        if (d.draft_warning) {
+          text += ` ${d.draft_warning}.`;
+          type = 'warn';
+        }
+      } else {
+        const why = d.draft_error || d.pdf_error || 'review draft was not saved';
+        text = `PO ${d.bc_po_number} created in BC. Outlook draft not saved (${why}). Not sent to the vendor.`;
+        type = 'warn';
+      }
+      setNotice({ type, text });
+      if (d.created && onCreated) onCreated();
+    } catch (e) {
+      setNotice({ type: 'error', text: `PO failed: ${e.response?.data?.detail || e.message}` });
+    }
+    setBusy(null);
+  }
+
+  const noticeClass = {
+    success: 'bg-green-50 text-green-800',
+    error: 'bg-red-50 text-red-800',
+    warn: 'bg-yellow-50 text-yellow-800',
+  };
+  const canCreate = preview && previewed === soNumber.trim() && (preview.item_line_count || 0) > 0 && !busy;
+
+  return (
+    <div className="bg-white rounded-lg border p-4">
+      <div className="text-xs uppercase tracking-wide text-gray-500">Complete sales order</div>
+      <div className="text-sm text-gray-600 mt-1">
+        Preview the complete purchase order for one sales order (by door, operators and wrapping left off), then create a Draft. The Outlook review draft stays in Drafts and is not sent to the vendor.
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2 items-end">
+        <label className="text-sm text-gray-600">
+          Sales order
+          <input
+            value={soNumber}
+            onChange={(e) => onSoChange(e.target.value)}
+            placeholder="SO-001299"
+            className="mt-1 block w-40 px-2 py-2 border rounded-lg text-sm font-mono"
+          />
+        </label>
+        {soOptions.length > 0 && (
+          <label className="text-sm text-gray-600">
+            Or pick
+            <select
+              value=""
+              onChange={(e) => { if (e.target.value) onSoChange(e.target.value); }}
+              className="mt-1 block px-2 py-2 border rounded-lg text-sm"
+            >
+              <option value="">Sales orders on this list…</option>
+              {soOptions.map((num) => <option key={num} value={num}>{num}</option>)}
+            </select>
+          </label>
+        )}
+        <label className="text-sm text-gray-600">
+          Vendor
+          <select
+            value={vendor?.number || 'UPW'}
+            onChange={(e) => setVendorNo(e.target.value)}
+            className="mt-1 block px-2 py-2 border rounded-lg text-sm max-w-xs"
+          >
+            {vendorChoices.map((v) => (
+              <option key={v.number} value={v.number}>{v.name || v.number} ({v.number})</option>
+            ))}
+          </select>
+        </label>
+        <button
+          onClick={runPreview}
+          disabled={busy === 'preview' || !soNumber.trim()}
+          className="px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm disabled:opacity-50"
+        >
+          {busy === 'preview' ? 'Previewing…' : 'Preview'}
+        </button>
+      </div>
+
+      <label className="mt-3 flex items-center gap-2 text-sm text-gray-700">
+        <input
+          type="checkbox"
+          checked={reviewDraft}
+          onChange={(e) => setReviewDraft(e.target.checked)}
+        />
+        Save an Outlook review draft with the Business Central PDF (not sent)
+      </label>
+
+      {notice && <div className={`mt-3 p-3 rounded-lg text-sm ${noticeClass[notice.type]}`}>{notice.text}</div>}
+
+      {preview && (
+        <div className="mt-3 space-y-3">
+          <div className="text-sm text-gray-700">
+            <span className="font-medium">{preview.so_number}</span>
+            {preview.customer_name ? ` — ${preview.customer_name}` : ''}
+            {' · '}
+            {preview.item_line_count || 0} item line{(preview.item_line_count || 0) === 1 ? '' : 's'}
+            {preview.note ? ` · ${preview.note}` : ''}
+          </div>
+          {preview.has_doors && preview.doors.map((door) => (
+            <PreviewLines key={door.door_index} title={door.label} lines={door.lines} />
+          ))}
+          {preview.has_doors && preview.shared_lines?.length > 0 && (
+            <PreviewLines title="Shared across doors" lines={preview.shared_lines} />
+          )}
+          {!preview.has_doors && <PreviewLines title="Lines" lines={preview.lines} />}
+          {preview.skipped?.length > 0 && (
+            <div className="text-sm">
+              <div className="text-xs uppercase tracking-wide text-amber-700">Skipped</div>
+              <ul className="mt-1 text-amber-900">
+                {preview.skipped.map((row) => (
+                  <li key={row.item_no}>
+                    <span className="font-mono">{row.item_no}</span>
+                    {' · qty '}{row.quantity}
+                    {row.reason ? ` · ${row.reason}` : ''}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <button
+            onClick={createDraft}
+            disabled={!canCreate}
+            className="px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          >
+            {busy === 'create' ? 'Creating…' : 'Create Draft PO'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PreviewLines({ title, lines }) {
+  if (!lines || lines.length === 0) return null;
+  return (
+    <div>
+      <div className="text-xs uppercase tracking-wide text-gray-500">{title}</div>
+      <table className="mt-1 min-w-full text-sm">
+        <tbody>
+          {lines.map((row, i) => (
+            <tr key={`${title}-${i}-${row.item_no}`} className="border-t border-gray-100">
+              <td className="py-1 pr-3 font-mono">{row.item_no}</td>
+              <td className="py-1 pr-3 text-gray-600">{row.description}</td>
+              <td className="py-1 text-right">{row.quantity} {row.uom || ''}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function DraftPurchaseOrders({ reloadToken = 0 }) {
   const [rows, setRows] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [busy, setBusy] = useState(null);
   const [notice, setNotice] = useState(null);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [reloadToken]);
 
   async function load() {
     setLoadError(null);

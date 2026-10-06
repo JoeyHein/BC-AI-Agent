@@ -253,8 +253,116 @@ The same Outlook draft, for a PO that already exists, is
 `POST /api/admin/purchasing/draft-pos/{po_number}/review-draft` (above).
 generate-po creates the PO; review-draft does not.
 
+## Complete sales order → Draft PO
+
+Staff purchasing can turn one sales order into a complete Upwardor (or other
+vendor) Draft PO. Line selection is `build_upwardor_po` in `mode="complete"`
+(`so_po_generation_service`). This screen does not reimplement buy-complete,
+netting, or the operator/wrapping skip list.
+
+Complete mode copies purchasable SO lines at full quantity, grouped under
+the same door-header comments as the sales order. It skips:
+
+- `OP*` — operators, bought direct from the manufacturer
+- `WRAP*` — wrapping, done in-house
+- non-stock charges already excluded by the service (`FREIGHT`, and the
+  rest of `NON_STOCK_ITEMS`)
+
+It does not net against stock and does not explode BOMs.
+
+### Preview (no write)
+
+```
+GET /api/admin/purchasing/so-complete-po/preview?so_number=SO-001299
+GET /api/admin/purchasing/so-complete-po/preview?so_number=1299&vendor_no=UPW&vendor_name=UPWARDOR
+```
+
+| | |
+|---|---|
+| `so_number` | `SO-001299` (any case) or bare digits (`1299` → `SO-001299`) |
+| Vendor | Optional. Defaults `UPW` / `UPWARDOR`. Preview does not create a PO, so the vendor is only echoed. |
+| Success | `200` JSON. `dry_run` is true. `bc_po_number` is null. `doors` are the door groups (label + lines with `quantity`). `skipped` lists `OP*` / `WRAP*` with `quantity` and `reason`. `lines` is the flat item list. `item_line_count` is how many Item lines the create would write. |
+| Unknown SO | `404` |
+| Bad number | `400` |
+| BC failure | `502` |
+| Not signed in / not admin | `401` / `403` |
+
+Does not call `create_purchase_order` and does not call Graph.
+
+### Create the Draft
+
+```
+POST /api/admin/purchasing/so-complete-po
+```
+
+```json
+{
+  "so_number": "SO-001299",
+  "vendor_no": "UPW",
+  "vendor_name": "UPWARDOR",
+  "create_review_draft": false
+}
+```
+
+| | |
+|---|---|
+| `create_review_draft` | Optional. Default `true`. `false` creates the BC Draft only: no `pdfDocument` call and no Graph. |
+| `notes`, `cc` | Optional. Same Outlook draft extras as generate-po. Ignored when `create_review_draft` is false. |
+| PO created | `200`. `created` is true. `bc_po_number` is the new Draft. `email_sent` is always `false`. `emailed_to` is always `null`. |
+| Nothing to order | `200`. `created` is false. `note` explains why (operators, wrapping, or service lines only). No PO, no PDF, no Graph. |
+| Review draft saved | `200`. `review_draft_created` is true. `review_mailbox` is `NOTIFICATION_SENDER_EMAIL` (production: joey@opendc.ca). `draft_to` is the BC vendor email. |
+| Draft, no vendor email | `200`. The draft is still saved, with no To address, and `draft_warning` is set. |
+| BC PDF fetch fails | `200`. The PO stays in BC. Nothing is saved in Outlook. `pdf_error` and `draft_error` are set. |
+| Graph save fails | `200`. The PO stays in BC. `draft_error` explains why. `pdf_source` is `bc` when the PDF downloaded. |
+| Unknown SO | `404` |
+| Bad number | `400` |
+| BC create failure | `502` |
+| Not signed in / not admin | `401` / `403` |
+
+What create does:
+
+1. `build_upwardor_po(so_number, vendor_no, vendor_name, dry_run=False, mode="complete")` — one new BC Draft, door comments, full quantities.
+2. When `create_review_draft` is true and a PO number came back: `purchasing_po_service._save_review_draft` (same helper as generate-po and `POST .../draft-pos/{po}/review-draft`). Graph `createMessage` in Drafts. No `sendMail`.
+
+**Not idempotent.** A second POST for the same sales order creates another Draft PO (and, when the flag is true, another Outlook draft). Check Sent after a test; it should stay empty. Do not click Send.
+
+The purchasing screen (`/purchasing`) has a **Complete sales order** card: type or pick an SO, Preview, then Create Draft PO. The checkbox defaults to on and posts `create_review_draft`.
+
+### Verify
+
+Use a staff admin JWT. Do not click Send. Each create writes a real Draft in production BC, so pick an SO you mean to draft (or stop after preview).
+
+1. Preview. `GET /api/admin/purchasing/so-complete-po/preview?so_number=SO-00xxxx`. Confirm `doors` (or flat `lines`), `skipped` contains the `OP*` and `WRAP*` lines with quantities, and `bc_po_number` is null. Business Central has no new PO.
+2. Create without a mailbox write. `POST /api/admin/purchasing/so-complete-po` with `"create_review_draft": false`. Confirm `created` is true, `email_sent` is false, and `review_draft_created` is false. The new number is a Draft in BC. joey@opendc.ca Drafts and Sent are unchanged.
+3. Create with the review draft. POST again with `"create_review_draft": true` (or omit it — that is the default; it creates a **second** PO). In joey@opendc.ca Outlook, open **Drafts**. The new message is To the BC vendor email, subject `Purchase Order {number} — Open Distribution Company Inc.`, and the attachment is the BC purchase-order PDF. **Sent** does not contain that message.
+4. On `/purchasing`, the same three steps are Preview, then Create Draft PO with the checkbox off, then (for a PO you mean to review) with the checkbox on.
+
+```bash
+BASE="${PORTAL_BASE_URL:-https://portal.opendc.ca}"
+SO=SO-001299   # replace with an order you intend to preview
+
+curl -fsS -H "Authorization: Bearer ${TOKEN}" \
+  "$BASE/api/admin/purchasing/so-complete-po/preview?so_number=${SO}" \
+  | python3 -m json.tool
+
+# Draft in BC only. No Outlook message.
+curl -fsS -X POST \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d "{\"so_number\":\"${SO}\",\"create_review_draft\":false}" \
+  "$BASE/api/admin/purchasing/so-complete-po" | python3 -m json.tool
+
+# Second Draft, plus an unsent Outlook review draft. Do not click Send.
+curl -fsS -X POST \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d "{\"so_number\":\"${SO}\",\"create_review_draft\":true}" \
+  "$BASE/api/admin/purchasing/so-complete-po" | python3 -m json.tool
+```
+
 ## Related (do not use for CoS Draft-PO inventory)
 
 - `GET /api/admin/purchasing/requirements` — demand netted vs stock/open POs; not a Draft-PO list.
 - `GET /api/admin/purchasing/so-po-links` — tool-created POs only (`POAgentLog`); misses hand-keyed BC Drafts.
 - `POST /api/admin/purchasing/generate-po` / `auto-po/run` — writes Draft POs; not for CoS inventory. `generate-po` can also save an unsent Outlook review draft with the BC PDF. It does not email the vendor. `auto-po/run` drafts in BC and does not email. For a Draft that already exists, use `POST /draft-pos/{po_number}/review-draft` instead of generate-po.
+- `GET /api/admin/purchasing/so-complete-po/preview` and `POST /api/admin/purchasing/so-complete-po` — preview or create one complete Draft PO from a sales order (`build_upwardor_po`, mode complete). Preview does not write. POST creates a new Draft and, by default, an unsent Outlook review draft. Not a Draft-PO inventory.

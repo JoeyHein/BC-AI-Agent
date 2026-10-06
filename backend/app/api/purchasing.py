@@ -2,7 +2,8 @@
 Purchasing tool API (Admin).
 
 Live purchasing requirements (demand netted against stock + open POs),
-vendor mapping management, daily-report trigger, and per-vendor PO generation.
+vendor mapping management, daily-report trigger, per-vendor PO generation,
+and complete sales-order → Draft PO (preview, then create).
 """
 
 import logging
@@ -98,6 +99,21 @@ class GeneratePORequest(BaseModel):
     # create_review_draft is omitted, true saves the Outlook draft and false
     # skips Graph. Prefer create_review_draft.
     send_email: Optional[bool] = None
+    cc: Optional[List[str]] = None
+
+
+class CompleteSoPoRequest(BaseModel):
+    """Create one complete Draft PO from a sales order.
+
+    Lines come from so_po_generation_service.build_upwardor_po (mode
+    complete). create_review_draft saves an unsent Outlook draft after the
+    PO exists. It does not send mail.
+    """
+    so_number: str
+    vendor_no: Optional[str] = "UPW"
+    vendor_name: Optional[str] = "UPWARDOR"
+    create_review_draft: bool = True
+    notes: Optional[str] = None
     cc: Optional[List[str]] = None
 
 
@@ -337,6 +353,131 @@ async def generate_po(
     except Exception as e:
         logger.error(f"PO generation failed: {e}")
         raise HTTPException(status_code=502, detail=f"PO generation failed: {e}")
+
+
+def normalize_staff_so_ref(raw: str) -> str:
+    """Parse a staff-supplied sales order number into ``SO-XXXXXX``.
+
+    Accepts ``SO-001299`` (any case) or bare digits (``1299`` → ``SO-001299``).
+    """
+    value = (raw or "").strip()
+    if not value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Sales order number is required",
+        )
+    upper = value.upper()
+    if upper.startswith("SO-"):
+        rest = upper[3:]
+        if rest.isdigit() and int(rest) > 0:
+            return f"SO-{int(rest):06d}"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid sales order number '{raw}'",
+        )
+    if value.isdigit() and int(value) > 0:
+        return f"SO-{int(value):06d}"
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"Invalid sales order number '{raw}'",
+    )
+
+
+def _raise_complete_so_po_error(exc: ValueError) -> None:
+    msg = str(exc)
+    if "not found" in msg.lower():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=msg)
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+
+
+@router.get("/so-complete-po/preview")
+async def preview_complete_so_po(
+    so_number: str = Query(..., description="SO-001299 or bare digits (1299)"),
+    vendor_no: str = Query("UPW", description="BC vendor number. Default UPW (Upwardor)."),
+    vendor_name: str = Query("UPWARDOR"),
+    admin: User = Depends(get_current_admin),
+):
+    """Preview complete SO→PO lines without creating a purchase order.
+
+    Calls ``build_upwardor_po(..., dry_run=True, mode="complete")``. The
+    response includes door groups, quantities, and lines skipped because
+    they are operators (``OP*``) or wrapping (``WRAP*``). Does not write a
+    PO and does not call Graph.
+    """
+    number = normalize_staff_so_ref(so_number)
+    logger.info(
+        "Admin %s previewing complete SO→PO for %s",
+        getattr(admin, "email", "?"),
+        number,
+    )
+    try:
+        return purchasing_po_service.preview_complete_so_po(number, vendor_no, vendor_name)
+    except ValueError as e:
+        _raise_complete_so_po_error(e)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Complete SO→PO preview failed for %s: %s", number, e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Complete SO→PO preview failed: {e}",
+        )
+
+
+@router.post("/so-complete-po")
+async def create_complete_so_po(
+    body: CompleteSoPoRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Create a Draft PO from one sales order via ``build_upwardor_po``.
+
+    Mode is complete: door-grouped comments, full SO quantity, ``OP*`` and
+    ``WRAP*`` left off. Does not email the vendor.
+
+    ``create_review_draft`` defaults to true. When true, and a PO was
+    created, the API downloads ``get_purchase_order_pdf`` and saves an
+    unsent Outlook draft in ``NOTIFICATION_SENDER_EMAIL`` (production:
+    joey@opendc.ca), same subject, body, and attachment as generate-po.
+    ``create_review_draft=false`` skips the PDF fetch and Graph. A failed
+    PDF or Graph save is returned on the JSON (``pdf_error``, ``draft_error``)
+    and does not roll back the BC PO.
+
+    Each call creates another Draft PO. It is not idempotent.
+    """
+    number = normalize_staff_so_ref(body.so_number)
+    logger.info(
+        "Admin %s creating complete SO→PO for %s (review_draft=%s)",
+        getattr(admin, "email", "?"),
+        number,
+        body.create_review_draft,
+    )
+    try:
+        result = purchasing_po_service.create_complete_so_po(
+            db,
+            so_number=number,
+            user_id=admin.id,
+            vendor_no=body.vendor_no or "UPW",
+            vendor_name=body.vendor_name or "UPWARDOR",
+            notes=body.notes,
+            create_review_draft=body.create_review_draft,
+            cc=body.cc,
+        )
+        db.commit()
+        return result
+    except ValueError as e:
+        db.rollback()
+        _raise_complete_so_po_error(e)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error("Complete SO→PO create failed for %s: %s", number, e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Complete SO→PO create failed: {e}",
+        )
 
 
 # ==================== Nightly auto-PO ====================
