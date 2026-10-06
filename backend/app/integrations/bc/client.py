@@ -922,6 +922,33 @@ class BusinessCentralClient:
         )
         return result
 
+    def update_purchase_order_line(self, po_id: str, line_id: str, line_data: Dict[str, Any],
+                                    company_id: Optional[str] = None) -> Dict[str, Any]:
+        """PATCH one purchase-order line. ``line_data`` is the api/v2.0 field set
+        (quantity, description, directUnitCost, lineObjectNumber, …).
+
+        If-Match * — staff edits target the current Draft line, and a stale
+        etag should not block a correction the purchaser just confirmed.
+        """
+        cid = company_id or self.company_id
+        return self._make_request(
+            "PATCH",
+            f"companies({cid})/purchaseOrders({po_id})/purchaseOrderLines({line_id})",
+            json=line_data,
+            headers={"If-Match": "*"},
+        )
+
+    def delete_purchase_order_line(self, po_id: str, line_id: str,
+                                    company_id: Optional[str] = None) -> bool:
+        """DELETE one purchase-order line. Draft lines only; callers check status."""
+        cid = company_id or self.company_id
+        self._make_request(
+            "DELETE",
+            f"companies({cid})/purchaseOrders({po_id})/purchaseOrderLines({line_id})",
+            headers={"If-Match": "*"},
+        )
+        return True
+
     def get_open_purchase_orders_with_lines(self, company_id: Optional[str] = None,
                                              top: int = 100) -> List[Dict[str, Any]]:
         """All open purchase orders with their lines expanded. Used by the
@@ -964,6 +991,18 @@ class BusinessCentralClient:
         """Get a purchase order by system ID (GUID)."""
         cid = company_id or self.company_id
         return self._make_request("GET", f"companies({cid})/purchaseOrders({po_id})")
+
+    def get_purchase_order_with_lines(self, po_id: str, company_id: Optional[str] = None
+                                       ) -> Dict[str, Any]:
+        """One purchase order by system ID, lines expanded.
+
+        ``get_purchase_order`` does not expand lines. Line edits need them.
+        """
+        cid = company_id or self.company_id
+        return self._make_request(
+            "GET",
+            f"companies({cid})/purchaseOrders({po_id})?$expand=purchaseOrderLines",
+        )
 
     def get_purchase_order_by_number(self, po_number: str,
                                       company_id: Optional[str] = None

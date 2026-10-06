@@ -476,3 +476,36 @@ class TestGeneratePoEndpoint:
         assert data["review_draft_created"] is False
         assert graph.sent == []
         assert graph.drafts == []
+
+
+class TestCommentLinesAndOrder:
+    def test_comment_line_is_written_and_panels_come_first(self, db, bc_graph):
+        bc, graph = bc_graph
+        result = _create(
+            db,
+            lines=[
+                {"item_no": "HK02-14120-RC", "description": "HARDWARE", "quantity": 1, "unit_cost": 3},
+                {"line_type": "Comment", "description": "Five wall required"},
+                {"item_no": "PN45-24400-0900", "description": "SECTION", "quantity": 4, "unit_cost": 8},
+                {"item_no": "PN12-24300820-1602", "description": "GLASS", "quantity": 2, "unit_cost": 9},
+            ],
+            create_review_draft=False,
+        )
+        assert result["success"] is True
+        assert graph.drafts == []
+        posted = [(body["lineType"], body.get("lineObjectNumber"), body.get("description")) for _, body in bc.lines]
+        # The comment sits with the insulated section it precedes. Glass follows, hardware last.
+        assert posted == [
+            ("Comment", None, "Five wall required"),
+            ("Item", "PN45-24400-0900", "SECTION"),
+            ("Item", "PN12-24300820-1602", "GLASS"),
+            ("Item", "HK02-14120-RC", "HARDWARE"),
+        ]
+
+    def test_upw_review_draft_uses_configured_buyers_not_ar(self, db, bc_graph):
+        bc, graph = bc_graph
+        bc.email = "AR@Upwardor.com"
+        result = _create(db, vendor_no="UPW", vendor_name="UPWARDOR", create_review_draft=True)
+        assert result["draft_to"] == "mpadda@upwardor.com, mviljoen@upwardor.com"
+        assert graph.drafts[0]["to"] == ["mpadda@upwardor.com", "mviljoen@upwardor.com"]
+        assert graph.sent == []

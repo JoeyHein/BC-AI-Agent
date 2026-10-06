@@ -25,6 +25,7 @@ from app.services.purchasing_demand_service import (
     _BUY_COMPLETE_PREFIXES,
     _buy_complete,
 )
+from app.services.po_line_order import classify_line
 from app.services.so_po_generation_service import (
     _ALWAYS_FULL_QTY_KEYWORDS,
     _always_full_qty,
@@ -97,14 +98,23 @@ def summarize_po(po: dict) -> dict:
     raw_lines = po.get("purchaseOrderLines") or []
     lines = []
     for ln in raw_lines:
+        item_number = ln.get("lineObjectNumber") or None
+        line_type = ln.get("lineType")
         lines.append({
+            "id": ln.get("id"),
             "sequence": ln.get("sequence"),
-            "line_type": ln.get("lineType"),
-            "item_number": ln.get("lineObjectNumber") or None,
+            "line_type": line_type,
+            "item_number": item_number,
             "description": ln.get("description") or "",
             "quantity": _f(ln.get("quantity")),
+            "unit_cost": _f(ln.get("directUnitCost")),
             "received_quantity": _f(ln.get("receivedQuantity")),
             "unit_of_measure": ln.get("unitOfMeasureCode") or None,
+            "panel_class": classify_line({
+                "lineType": line_type,
+                "lineObjectNumber": item_number or "",
+                "description": ln.get("description") or "",
+            }),
         })
     item_count = sum(1 for ln in lines if ln["line_type"] == "Item" and ln["item_number"])
     return {

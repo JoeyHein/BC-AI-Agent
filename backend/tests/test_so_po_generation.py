@@ -906,3 +906,27 @@ class TestCompleteMode:
         items = [b["lineObjectNumber"] for _, b in bc.lines if b["lineType"] == "Item"]
         assert sorted(items) == ["PN45-24405-1200", "SH12-11810-00"]
         assert "(complete order)" in bc.lines[1][1]["description"]
+
+    def test_panels_are_written_before_glass_and_hardware(self, monkeypatch):
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": [
+            _door_header('(1) 10\'0" x 8\'0" TX450, BLACK, UDC', 10000),
+            _line("HK02-14120-RC", 1, seq=20000),
+            _line("PN12-24300820-1602", 2, seq=30000),
+            _line("GK17-10000-00", 1, seq=40000),
+            _line("PN45-24400-0900", 4, seq=50000),
+            _line("FH17-00100-00", 2, seq=60000),
+        ]}
+        bc, _ = _setup(monkeypatch, so, [])
+        svc.build_upwardor_po("SO-TEST", dry_run=False)
+        items = [b.get("lineObjectNumber") for _, b in bc.lines if b["lineType"] == "Item"]
+        # Complete mode aggregates by item number before the door writer, so
+        # within a band that existing order is kept. Panels still lead.
+        assert items == [
+            "PN45-24400-0900",
+            "GK17-10000-00",
+            "PN12-24300820-1602",
+            "FH17-00100-00",
+            "HK02-14120-RC",
+        ]
+        comments = [b["description"] for _, b in bc.lines if b["lineType"] == "Comment"]
+        assert any(text.startswith('(1) 10\'0"') for text in comments)
