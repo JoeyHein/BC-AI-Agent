@@ -224,6 +224,12 @@ cd backend
 pytest
 ```
 
+## Internal Quote Accuracy API
+
+Read-only lookup of a production BC sales quote by document number for accuracy review (API key, not browser login). See [`docs/QUOTE_ACCURACY_API.md`](docs/QUOTE_ACCURACY_API.md).
+
+## Security
+
 Run frontend tests:
 ```bash
 cd frontend

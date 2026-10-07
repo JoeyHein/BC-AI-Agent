@@ -2181,12 +2181,12 @@ class ExternalPurchaseOrder(Base):
 
 
 class ExternalCallLog(Base):
-    """Audit/observability log of every `/api/external/*` request (TD-QOC-A8).
+    """Audit/observability log of `/api/external/*` and `/api/internal/*` requests.
 
-    Recorded by the external-call middleware (see main.py): method, path,
-    HTTP status, latency, and the X-Service-AI-Key PREFIX (never the full key)
-    for attribution. Useful for billing, rate-limit tuning, and debugging the
-    Service.AI ↔ BC AI Agent integration.
+    Recorded by the call-log middleware (see main.py): method, path, HTTP
+    status, latency, and the API-key PREFIX (never the full key) for
+    attribution. Useful for billing, rate-limit tuning, and debugging
+    Service.AI / quote-accuracy integrations.
     """
 
     __tablename__ = "external_call_log"
