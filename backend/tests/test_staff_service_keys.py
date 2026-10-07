@@ -356,12 +356,6 @@ def client(db_factory, monkeypatch):
     def links(admin: User = Depends_user(purchasing.get_current_admin)):
         return _who(admin)
 
-    class _GeneratePO(BaseModel):
-        vendor_name: str = "UPW"
-        lines: list = []
-        send_email: Optional[bool] = None
-        create_review_draft: Optional[bool] = None
-
     @test_app.post("/api/admin/purchasing/generate-po")
     def generate_po(
         payload: _GeneratePO,
@@ -391,6 +385,13 @@ def client(db_factory, monkeypatch):
     test_app.dependency_overrides[auth.get_db] = _override
     test_app.dependency_overrides[purchasing.get_db] = _override
     return TestClient(test_app)
+
+
+class _GeneratePO(BaseModel):
+    vendor_name: str = "UPW"
+    lines: list = []
+    send_email: Optional[bool] = None
+    create_review_draft: Optional[bool] = None
 
 
 def Depends_user(dependency):
