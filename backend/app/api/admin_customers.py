@@ -6,13 +6,14 @@ Manage customer portal accounts from the admin interface
 import logging
 import secrets
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 
+from app.api.staff_principal import service_user_if_key
 from app.db.database import SessionLocal
 from app.db.models import User, UserRole, BCCustomer, SavedQuoteConfig, SalesOrder, CustomerInstallPricing, CustomerNote
 from app.services.auth_service import auth_service
@@ -40,10 +41,14 @@ def get_db():
 
 # Dependency to get current admin user
 def get_current_admin(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ) -> User:
-    """Get current authenticated admin user from JWT token"""
+    """Get current authenticated admin user from JWT token or a staff service key."""
+    service_user = service_user_if_key(request, credentials, db)
+    if service_user is not None:
+        return service_user
     token = credentials.credentials
 
     payload = auth_service.decode_token(token)

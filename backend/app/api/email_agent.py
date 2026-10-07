@@ -8,11 +8,12 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Request, status, UploadFile, File
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
+from app.api.staff_principal import service_user_if_key
 from app.db.database import SessionLocal
 from app.db.models import User, UserRole, EmailCampaign
 from app.services.auth_service import auth_service
@@ -37,9 +38,13 @@ def get_db():
 
 
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ) -> User:
+    service_user = service_user_if_key(request, credentials, db)
+    if service_user is not None:
+        return service_user
     token = credentials.credentials
     payload = auth_service.decode_token(token)
     if not payload:

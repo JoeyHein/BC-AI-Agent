@@ -7,9 +7,12 @@ import InstallPricingSettings from './InstallPricingSettings'
 import CatalogBuilder from './CatalogBuilder'
 import InventoryDashboard from '../InventoryAgent/InventoryDashboard'
 import POAgentDashboard from '../POAgent/POAgentDashboard'
+import ServiceKeysSettings from './ServiceKeysSettings'
+import { useAuth } from '../../contexts/AuthContext'
 
 function SettingsPage() {
   const [activeTab, setActiveTab] = useState('springs')
+  const { isAdmin } = useAuth()
 
   const tabs = [
     { id: 'springs', name: 'Spring Inventory', icon: 'cog' },
@@ -22,6 +25,9 @@ function SettingsPage() {
     { id: 'email', name: 'Email', icon: 'envelope' },
     { id: 'general', name: 'General', icon: 'adjustments' },
   ]
+  if (isAdmin) {
+    tabs.push({ id: 'service-keys', name: 'Service keys', icon: 'adjustments' })
+  }
 
   const getTabIcon = (iconName) => {
     switch (iconName) {
@@ -99,6 +105,7 @@ function SettingsPage() {
           {activeTab === 'po-agent' && <POAgentDashboard />}
           {activeTab === 'email' && <EmailSettingsTab />}
           {activeTab === 'general' && <GeneralSettings />}
+          {activeTab === 'service-keys' && isAdmin && <ServiceKeysSettings />}
         </div>
       </div>
     </div>

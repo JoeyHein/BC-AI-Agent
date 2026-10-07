@@ -90,6 +90,13 @@ class AuthService:
             logger.warning(f"Login attempt for inactive user: {email}")
             return None
 
+        # The automation identity is not a person. Access is the service key,
+        # which an admin can revoke. Reject password login with the same
+        # failure as a bad password so this account cannot be used in the UI.
+        if getattr(user, "user_type", None) == "SERVICE":
+            logger.warning("Login rejected for service identity: %s", email)
+            return None
+
         if not AuthService.verify_password(password, user.password_hash):
             logger.warning(f"Invalid password for user: {email}")
             return None

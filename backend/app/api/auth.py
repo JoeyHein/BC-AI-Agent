@@ -4,13 +4,14 @@ Login, register, logout, and user management
 """
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from datetime import datetime
 
+from app.api.staff_principal import service_user_if_key
 from app.db.database import SessionLocal
 from app.db.models import User, UserRole
 from app.services.auth_service import auth_service
@@ -33,10 +34,20 @@ def get_db():
 
 # Dependency to get current user from JWT token
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ) -> User:
-    """Get current authenticated user from JWT token"""
+    """Get current authenticated user from a JWT, or from a staff service key.
+
+    Service keys (prefix ``osk_``) resolve to the automation identity when
+    the route is in the key's scopes. Any other bearer token follows the
+    JWT checks below, unchanged.
+    """
+    service_user = service_user_if_key(request, credentials, db)
+    if service_user is not None:
+        return service_user
+
     token = credentials.credentials
 
     # Decode token

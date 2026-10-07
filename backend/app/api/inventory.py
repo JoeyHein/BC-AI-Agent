@@ -13,6 +13,10 @@ from datetime import date
 from app.services.bc_inventory_service import bc_inventory_service
 
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
+# portal.opendc.ca nginx only proxies /api/. These are the same read
+# handlers. reserve / production-order stay on `router` only, so they are
+# not published on the public site.
+portal_router = APIRouter(prefix="/api/inventory", tags=["Inventory"])
 
 
 # ==================== Request/Response Models ====================
@@ -44,6 +48,7 @@ class InventoryLevelResponse(BaseModel):
 
 # ==================== Endpoints ====================
 
+@portal_router.post("/check-availability")
 @router.post("/check-availability")
 async def check_availability(request: AvailabilityCheckRequest):
     """
@@ -66,6 +71,7 @@ async def check_availability(request: AvailabilityCheckRequest):
         raise HTTPException(status_code=500, detail=f"Error checking availability: {str(e)}")
 
 
+@portal_router.get("/levels")
 @router.get("/levels")
 async def get_inventory_levels(
     itemNumbers: Optional[str] = Query(None, description="Comma-separated item numbers"),
@@ -101,6 +107,7 @@ async def get_inventory_levels(
         raise HTTPException(status_code=500, detail=f"Error getting inventory levels: {str(e)}")
 
 
+@portal_router.get("/item/{item_number}")
 @router.get("/item/{item_number}")
 async def get_item_inventory(item_number: str):
     """
@@ -135,6 +142,7 @@ async def get_item_inventory(item_number: str):
         raise HTTPException(status_code=500, detail=f"Error getting item: {str(e)}")
 
 
+@portal_router.get("/item/{item_number}/movements")
 @router.get("/item/{item_number}/movements")
 async def get_item_movements(
     item_number: str,
@@ -158,6 +166,7 @@ async def get_item_movements(
         raise HTTPException(status_code=500, detail=f"Error getting movements: {str(e)}")
 
 
+@portal_router.get("/categories")
 @router.get("/categories")
 async def get_item_categories():
     """
@@ -187,6 +196,7 @@ async def get_item_categories():
         raise HTTPException(status_code=500, detail=f"Error getting categories: {str(e)}")
 
 
+@portal_router.get("/locations")
 @router.get("/locations")
 async def get_locations():
     """
