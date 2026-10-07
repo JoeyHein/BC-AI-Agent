@@ -47,7 +47,16 @@ export default function CutWorkOrders() {
 
   const money = (n) => `$${(n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  if (loading) return <div className="p-6 text-gray-500">Loading cut proposals…</div>;
+  if (loading) {
+    return (
+      <div className="p-6 text-gray-500">
+        <p>Loading cut proposals…</p>
+        <p className="mt-2 max-w-xl text-sm text-gray-400">
+          Checking live inventory in Business Central. This often takes a minute, and the list appears when that check finishes.
+        </p>
+      </div>
+    );
+  }
 
   const totalAvoided = wos.reduce((s, w) => s + (w.purchase_avoided || 0), 0);
 
@@ -62,16 +71,25 @@ export default function CutWorkOrders() {
         Approve to generate the inventory move; reject to teach the engine why not.
       </p>
 
-      {message && (
+      {message && !(message.type === 'error' && wos.length === 0) && (
         <div className={`mb-4 rounded p-3 text-sm ${message.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
           {message.text}
         </div>
       )}
 
       {wos.length === 0 ? (
-        <div className="rounded border border-dashed p-8 text-center text-gray-400">
-          No cut proposals right now — nothing shippable from cuttable stock.
-        </div>
+        message?.type === 'error' ? (
+          <div className="rounded border border-red-200 bg-red-50 p-8 text-center">
+            <p className="text-sm text-red-700">{message.text}</p>
+            <button type="button" onClick={load} className="mt-3 text-sm font-medium text-red-800 underline">
+              Try again
+            </button>
+          </div>
+        ) : (
+          <div className="rounded border border-dashed p-8 text-center text-gray-400">
+            No cut proposals right now — nothing shippable from cuttable stock.
+          </div>
+        )
       ) : (
         <>
           <div className="mb-4 text-sm text-gray-600">
