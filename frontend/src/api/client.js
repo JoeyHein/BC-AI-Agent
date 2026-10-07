@@ -800,4 +800,12 @@ export const emailAgentApi = {
     apiClient.get('/api/email-agent/history'),
 };
 
+// Staff service keys (Settings → Service keys). Admin JWT only.
+export const serviceKeysApi = {
+  list: () => apiClient.get('/api/admin/service-keys'),
+  create: (body) => apiClient.post('/api/admin/service-keys', body),
+  revoke: (id) => apiClient.post(`/api/admin/service-keys/${id}/revoke`),
+  audit: (limit = 50) => apiClient.get('/api/admin/service-keys/audit', { params: { limit } }),
+};
+
 export default apiClient;

@@ -2385,3 +2385,73 @@ class VendorOrderAckSource(Base):
             f"<VendorOrderAckSource(email='{self.source_email_id}', "
             f"file='{self.attachment_filename}', outcome='{self.outcome}')>"
         )
+
+
+class StaffServiceKey(Base):
+    """Long-lived key for the staff API (automation jobs).
+
+    Plaintext is shown once at creation. The database stores a bcrypt hash
+    and the first 12 characters (``key_prefix``) so Settings can label a key
+    without keeping the secret. Revoking sets ``status`` and ``revoked_at``;
+    the next request is rejected. ``expires_at`` is optional.
+    """
+
+    __tablename__ = "staff_service_keys"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    key_prefix = Column(String(12), nullable=False, index=True)
+    key_hash = Column(String(255), nullable=False)
+    # JSON list of scope names, e.g. ["orders:read", "purchasing:read"].
+    # Missing a scope means that route is denied.
+    scopes = Column(JSON, nullable=False)
+    status = Column(String(20), nullable=False, default="active", index=True)
+    created_by_user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_used_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    revoked_by_user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    creator = relationship("User", foreign_keys=[created_by_user_id])
+    revoker = relationship("User", foreign_keys=[revoked_by_user_id])
+
+    def __repr__(self):
+        return (
+            f"<StaffServiceKey(id={self.id}, name='{self.name}', "
+            f"prefix='{self.key_prefix}', status='{self.status}')>"
+        )
+
+
+class StaffServiceKeyAudit(Base):
+    """One row per staff-service-key request: who (key name), where, when.
+
+    ``decision`` is ``allowed`` when the key was accepted, or
+    ``denied`` / ``revoked`` / ``expired`` / ``invalid`` when it was not.
+    ``status_code`` is the HTTP status the caller actually received.
+    The key secret is never stored here.
+    """
+
+    __tablename__ = "staff_service_key_audit"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key_id = Column(
+        Integer, ForeignKey("staff_service_keys.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    key_name = Column(String(200), nullable=True)
+    key_prefix = Column(String(12), nullable=True)
+    method = Column(String(10), nullable=False)
+    path = Column(String(300), nullable=False)
+    decision = Column(String(20), nullable=False)
+    status_code = Column(Integer, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    def __repr__(self):
+        return (
+            f"<StaffServiceKeyAudit({self.key_name} {self.method} {self.path} "
+            f"{self.decision} {self.status_code})>"
+        )

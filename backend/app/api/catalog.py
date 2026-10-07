@@ -5,12 +5,13 @@ Also handles special order management.
 
 import logging
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
 
+from app.api.staff_principal import service_user_if_key
 from app.db.database import SessionLocal
 from app.db.models import User, UserRole, Part, SpecialOrderRequest, AppSettings
 from app.services.auth_service import auth_service
@@ -31,10 +32,14 @@ def get_db():
 
 
 def get_current_admin(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ) -> User:
     """Get current authenticated admin user."""
+    service_user = service_user_if_key(request, credentials, db)
+    if service_user is not None:
+        return service_user
     token = credentials.credentials
     payload = auth_service.decode_token(token)
     if not payload:

@@ -34,6 +34,8 @@ from app.api import external_quotes
 from app.api import external_inventory
 from app.api import external_purchase_orders
 from app.api import external_door_config
+from app.api import staff_service_keys
+from app.api.staff_service_key_middleware import staff_service_key_middleware
 
 # Import services
 from app.services.scheduler_service import get_scheduler
@@ -231,6 +233,12 @@ async def external_call_log_middleware(request, call_next):
     return response
 
 
+@app.middleware("http")
+async def _staff_service_keys(request, call_next):
+    """Staff service keys (osk_...) on existing staff routes. JWTs pass through."""
+    return await staff_service_key_middleware(request, call_next)
+
+
 # Include API routers
 # Mounting authentication and email connection routers
 logger.info(f"Including auth router: {auth.router.prefix}")
@@ -278,6 +286,10 @@ app.include_router(external_purchase_orders.router)
 logger.info(f"Including external_door_config router: {external_door_config.router.prefix}")
 app.include_router(external_door_config.router)
 
+# Staff service keys — long-lived automation access to scoped staff routes.
+logger.info(f"Including staff_service_keys router: {staff_service_keys.router.prefix}")
+app.include_router(staff_service_keys.router)
+
 # Admin Quote Search router (global cross-customer quote lookup)
 logger.info(f"Including admin_quotes router: {admin_quotes.router.prefix}")
 app.include_router(admin_quotes.router)
@@ -285,6 +297,10 @@ app.include_router(admin_quotes.router)
 # Inventory Management router
 logger.info(f"Including inventory router: {inventory.router.prefix}")
 app.include_router(inventory.router)
+# Read-only copy under /api/inventory. nginx only proxies /api/, and the
+# reserve / production-order routes stay off this mount.
+logger.info(f"Including inventory portal router: {inventory.portal_router.prefix}")
+app.include_router(inventory.portal_router)
 
 # Production Management router
 logger.info(f"Including production router: {production.router.prefix}")
