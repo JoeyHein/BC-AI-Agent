@@ -259,6 +259,11 @@ def list_customers(
     return result
 
 
+def is_quotable_bc_customer(c: BCCustomer) -> bool:
+    meta = c.customer_metadata or {}
+    return not meta.get("removed_from_bc") and meta.get("blocked") != "All"
+
+
 @router.get("/bc-customers", response_model=List[BCCustomerSearchResponse])
 def search_bc_customers(
     q: Optional[str] = None,
@@ -275,6 +280,9 @@ def search_bc_customers(
         .filter(~BCCustomer.bc_customer_id.like("TEMP-%"))
         .all()
     )
+    # Also hide customers deleted in BC (kept only for linked users / notes)
+    # and customers BC blocks outright: neither can be quoted.
+    bc_customers = [c for c in bc_customers if is_quotable_bc_customer(c)]
 
     # Filter by search query if provided
     if q:

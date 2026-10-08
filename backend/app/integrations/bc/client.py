@@ -218,6 +218,8 @@ class BusinessCentralClient:
             })
             if resp.status_code >= 400:
                 logger.error(f"BC API error {resp.status_code}: {resp.text[:300]}")
+                if strict:
+                    raise RuntimeError(f"BC customers fetch failed ({resp.status_code}) after {len(all_customers)} rows")
                 break
             data = resp.json()
             all_customers.extend(data.get("value", []))
@@ -246,10 +248,12 @@ class BusinessCentralClient:
     # ==================== Customers with Price Multiplier ====================
 
     def get_customers_with_multiplier(self, company_id: Optional[str] = None,
-                                       top: int = 1000) -> List[Dict[str, Any]]:
+                                       top: int = 1000, strict: bool = False) -> List[Dict[str, Any]]:
         """
         Get all customers including priceMultiplierPercent field.
         Follows @odata.nextLink to paginate through all results.
+        strict=True raises on a failed page instead of returning a partial list
+        (callers that prune the local cache must never act on a partial read).
         """
         cid = company_id or self.company_id
         all_customers: List[Dict[str, Any]] = []
@@ -263,6 +267,8 @@ class BusinessCentralClient:
             })
             if resp.status_code >= 400:
                 logger.error(f"BC API error {resp.status_code}: {resp.text[:300]}")
+                if strict:
+                    raise RuntimeError(f"BC customers fetch failed ({resp.status_code}) after {len(all_customers)} rows")
                 break
             data = resp.json()
             all_customers.extend(data.get("value", []))
@@ -750,6 +756,53 @@ class BusinessCentralClient:
         )
         return True
 
+    def _set_line_output(self, entity: str, key: str, doc_number: str, line_no: int,
+                          output: bool, max_retries: int = 2) -> None:
+        """Shared GET-etag-then-PATCH implementation for the Output flag on a
+        quote or order line via OData (the v2.0 API doesn't expose 'Output').
+        Retries transient BC errors on both the GET and the PATCH — same
+        errors _make_request retries, but these calls bypass it because they
+        need raw etag handling. Unretried, a transient BC error here used to
+        fail silently (just a warning log) and permanently drop the Output
+        flag; see get_quote_output_map / set_order_line_output for the
+        quote-to-order fallback path this was found to break."""
+        url = f"{self.odata_url}/{entity}({key})"
+        backoff_seconds = 0.5
+
+        for attempt in range(max_retries + 1):
+            token = self._get_access_token()
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+            get_resp = requests.get(url, headers=headers, timeout=30)
+            if get_resp.status_code >= 400:
+                if attempt < max_retries and get_resp.status_code in _TRANSIENT_STATUS_CODES:
+                    logger.warning(f"Transient error GETting {doc_number} line {line_no} for Output "
+                                   f"(attempt {attempt + 1}/{max_retries + 1}): {get_resp.status_code}")
+                    time.sleep(backoff_seconds)
+                    backoff_seconds *= 2
+                    continue
+                logger.warning(f"Could not GET OData line for Output flag: {get_resp.status_code}")
+                return
+            etag = get_resp.json().get("@odata.etag", "*")
+
+            patch_headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "If-Match": etag,
+            }
+            resp = requests.patch(url, json={"Output": output}, headers=patch_headers, timeout=30)
+            if resp.status_code < 300:
+                logger.info(f"Set Output={output} on {doc_number} line {line_no}")
+                return
+            if attempt < max_retries and resp.status_code in _TRANSIENT_STATUS_CODES:
+                logger.warning(f"Transient error PATCHing {doc_number} line {line_no} for Output "
+                               f"(attempt {attempt + 1}/{max_retries + 1}): {resp.status_code}")
+                time.sleep(backoff_seconds)
+                backoff_seconds *= 2
+                continue
+            logger.warning(f"Failed to set Output on {doc_number} line {line_no}: {resp.status_code}")
+            return
+
     def set_quote_line_output(self, quote_number: str, line_no: int, output: bool = True) -> None:
         """
         Set the Output flag on a sales quote line via OData.
@@ -759,30 +812,47 @@ class BusinessCentralClient:
         When Output=True on a Comment line, BC shows it on printed quotes
         and subtotals the items below it.
         """
-        token = self._get_access_token()
         key = f"Document_Type='Quote',Document_No='{quote_number}',Line_No={line_no}"
-        url = f"{self.odata_url}/Sales_QuoteSalesLines_Excel({key})"
+        self._set_line_output("Sales_QuoteSalesLines_Excel", key, quote_number, line_no, output)
 
-        # GET the current etag first
-        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-        get_resp = requests.get(url, headers=headers, timeout=30)
-        if get_resp.status_code >= 400:
-            logger.warning(f"Could not GET OData line for Output flag: {get_resp.status_code}")
-            return
-        etag = get_resp.json().get("@odata.etag", "*")
+    def set_order_line_output(self, order_number: str, line_no: int, output: bool = True) -> None:
+        """
+        Set the Output flag on a sales order line via OData — the order-side
+        counterpart to set_quote_line_output. Needed because BC's native
+        salesQuotes-to-salesOrders makeOrder action sometimes fails (e.g.
+        "Requested delivery date must be populated" — the v2.0 quote entity
+        never sets that field) and _manual_quote_to_order then rebuilds the
+        order's lines from scratch, which does NOT carry the quote lines'
+        Output flag along. Without this, every door-package header loses its
+        subtotal grouping and the printed order comes out fully itemized.
+        """
+        key = f"Document_Type='Order',Document_No='{order_number}',Line_No={line_no}"
+        self._set_line_output("Sales_Order_Line_Excel", key, order_number, line_no, output)
 
-        # PATCH to set Output
-        patch_headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "If-Match": etag,
-        }
-        resp = requests.patch(url, json={"Output": output}, headers=patch_headers, timeout=30)
-        if resp.status_code < 300:
-            logger.info(f"Set Output={output} on {quote_number} line {line_no}")
-        else:
-            logger.warning(f"Failed to set Output on {quote_number} line {line_no}: {resp.status_code}")
+    def get_quote_output_map(self, quote_number: str, company_id: Optional[str] = None) -> Dict[int, bool]:
+        """Bulk-fetch the Output flag for every line on a quote, keyed by
+        Line_No. Used to carry Output flags across when a quote's lines are
+        copied onto a manually-created order (see _manual_quote_to_order) —
+        fetch this BEFORE the source quote is deleted."""
+        safe_no = quote_number.replace("'", "''")
+        url = (
+            f"{self.odata_url}/Sales_QuoteSalesLines_Excel"
+            f"?$filter=Document_No eq '{safe_no}'&$select=Line_No,Output"
+        )
+        try:
+            token = self._get_access_token()
+            resp = requests.get(
+                url,
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+                timeout=30,
+            )
+            if resp.status_code >= 400:
+                logger.warning(f"get_quote_output_map({quote_number}) HTTP {resp.status_code}: {resp.text[:200]}")
+                return {}
+            return {row["Line_No"]: bool(row.get("Output")) for row in resp.json().get("value", [])}
+        except Exception as e:
+            logger.warning(f"get_quote_output_map({quote_number}) failed: {e}")
+            return {}
 
     # ==================== Quote PDF (BC built-in) ====================
 
@@ -1401,6 +1471,7 @@ class BusinessCentralClient:
 
         # 1. Get the quote header
         quote = self.get_sales_quote(quote_id, company_id)
+        quote_number = quote.get("number", "")
 
         # 2. Create order with delivery date (6 weeks out)
         delivery_date = (datetime.utcnow() + timedelta(weeks=6)).strftime("%Y-%m-%d")
@@ -1410,11 +1481,15 @@ class BusinessCentralClient:
             "requestedDeliveryDate": delivery_date,
         }
         order = self.create_sales_order(order_data, company_id)
-        order_id = order["id"]
-        logger.info(f"Created sales order {order.get('number')} with delivery date {delivery_date}")
+        order_id, order_number = order["id"], order.get("number", "")
+        logger.info(f"Created sales order {order_number} with delivery date {delivery_date}")
 
-        # 3. Copy quote lines to order
-        quote_lines = self.get_quote_lines(quote_id, company_id)
+        # 3. Copy quote lines to order, carrying over each line's Output flag
+        # (door-package headers etc.) — fetched before the quote is deleted.
+        # Without this, every rebuilt order loses its door-package subtotal
+        # grouping and prints fully itemized (see set_order_line_output).
+        output_map = self.get_quote_output_map(quote_number, company_id) if quote_number else {}
+        quote_lines = sorted(self.get_quote_lines(quote_id, company_id), key=lambda l: l.get("sequence") or 0)
         for ql in quote_lines:
             line_data = {}
             if ql.get("lineType") == "Comment":
@@ -1433,9 +1508,16 @@ class BusinessCentralClient:
                     line_data["unitPrice"] = ql["unitPrice"]
 
             try:
-                self.add_order_line(order_id, line_data, company_id)
+                added_line = self.add_order_line(order_id, line_data, company_id)
             except Exception as line_err:
                 logger.warning(f"Failed to copy quote line to order: {line_err}")
+                continue
+
+            if output_map.get(ql.get("sequence")) and added_line.get("sequence"):
+                try:
+                    self.set_order_line_output(order_number, added_line["sequence"], output=True)
+                except Exception as out_err:
+                    logger.warning(f"Failed to carry Output flag onto order line: {out_err}")
 
         # 4. Delete the original quote (it's been converted)
         try:

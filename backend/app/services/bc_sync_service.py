@@ -18,7 +18,7 @@ from app.integrations.bc.client import bc_client
 from app.config import settings
 from app.db.models import (
     SalesOrder, SalesOrderLineItem, ProductionOrder,
-    OrderStatus, ProductionStatus, BCCustomer, AppSettings
+    OrderStatus, ProductionStatus, BCCustomer, AppSettings, User
 )
 from app.services.pricing_service import BC_GROUP_MAPPING_KEY
 
@@ -620,11 +620,13 @@ class BCSyncService:
         results = {
             "customers_synced": 0,
             "customers_updated": 0,
+            "customers_removed": 0,
+            "customers_flagged_removed": 0,
             "errors": []
         }
 
         try:
-            bc_customers = self.client.get_customers_with_multiplier()
+            bc_customers = self.client.get_customers_with_multiplier(strict=True)
 
             # api/v2.0 omits customerPriceGroup. Pull the real assignments
             # from OData V4 CustomerList in bulk and merge by customer number.
@@ -643,10 +645,14 @@ class BCSyncService:
                 except Exception as e:
                     results["errors"].append(f"Error syncing customer {bc_cust.get('displayName', '?')}: {e}")
 
+            self._prune_removed_customers(db, bc_customers, results)
+
             db.commit()
             logger.info(
                 f"Customer sync complete: {results['customers_synced']} new, "
-                f"{results['customers_updated']} updated"
+                f"{results['customers_updated']} updated, "
+                f"{results['customers_removed']} removed, "
+                f"{results['customers_flagged_removed']} flagged removed"
             )
 
         except Exception as e:
@@ -697,6 +703,45 @@ class BCSyncService:
         if setting and setting.setting_value:
             return setting.setting_value
         return {}
+
+    # Refuse to prune more than this share of the cache in one sync: a sudden
+    # mass disappearance means a bad BC read, not real deletions.
+    PRUNE_MAX_FRACTION = 0.25
+
+    def _prune_removed_customers(self, db: Session, bc_customers: List[Dict[str, Any]],
+                                 results: Dict[str, Any]):
+        """Drop cached customers that no longer exist in BC.
+
+        Unreferenced rows are deleted. Rows a portal user is linked to, or that
+        carry CRM notes, are kept but flagged removed_from_bc so they drop out
+        of the customer pickers without losing history.
+        """
+        live_ids = {c.get("id") for c in bc_customers if c.get("id")}
+        if not live_ids:
+            results["errors"].append("BC returned no customers; skipped pruning")
+            return
+        cached = db.query(BCCustomer).filter(~BCCustomer.bc_customer_id.like("TEMP-%")).all()
+        stale = [c for c in cached if c.bc_customer_id not in live_ids]
+        if not stale:
+            return
+        if len(stale) > len(cached) * self.PRUNE_MAX_FRACTION:
+            results["errors"].append(
+                f"{len(stale)}/{len(cached)} cached customers missing from BC; skipped pruning as unsafe"
+            )
+            return
+
+        linked = {
+            r[0] for r in db.query(User.bc_customer_id)
+            .filter(User.bc_customer_id.in_([c.bc_customer_id for c in stale]))
+        }
+        for c in stale:
+            if c.bc_customer_id in linked or c.notes:
+                c.customer_metadata = {**(c.customer_metadata or {}), "removed_from_bc": True}
+                results["customers_flagged_removed"] += 1
+            else:
+                db.delete(c)
+                results["customers_removed"] += 1
+            logger.info(f"Customer {c.company_name} ({c.bc_customer_id}) no longer in BC")
 
     def _upsert_customer(
         self,
@@ -761,7 +806,16 @@ class BCSyncService:
             BCCustomer.bc_customer_id == bc_id
         ).first()
 
+        # BC "blocked": "" / "Ship" / "Invoice" / "All". Seen in BC again means
+        # it isn't removed, whatever an earlier sync flagged.
+        metadata = {
+            **((existing.customer_metadata or {}) if existing else {}),
+            "blocked": (bc_cust.get("blocked") or "").strip(),
+            "removed_from_bc": False,
+        }
+
         if existing:
+            existing.customer_metadata = metadata
             existing.company_name = bc_cust.get("displayName")
             existing.contact_name = bc_cust.get("contactName") or bc_cust.get("displayName")
             existing.email = bc_cust.get("email")
@@ -786,6 +840,7 @@ class BCSyncService:
                 bc_price_group=bc_price_group,
                 pricing_tier=mapped_tier,
                 address=address,
+                customer_metadata=metadata,
                 last_synced=datetime.utcnow()
             )
             db.add(new_customer)
