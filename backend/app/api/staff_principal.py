@@ -5,12 +5,16 @@ and the caller keeps its existing JWT checks, unchanged.
 """
 from typing import Optional
 
-from fastapi import HTTPException, Request
-from fastapi.security import HTTPAuthorizationCredentials
+from fastapi import Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from app.db.database import get_db
 from app.db.models import User
+from app.services.auth_service import auth_service
 from app.services.staff_service_keys_service import evaluate, is_staff_service_key
+
+_bearer = HTTPBearer(auto_error=False)
 
 
 def service_user_if_key(
@@ -35,3 +39,59 @@ def service_user_if_key(
     if not decision.ok:
         raise HTTPException(status_code=decision.status_code, detail=decision.detail)
     return decision.user
+
+
+def require_staff(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    db: Session = Depends(get_db),
+) -> User:
+    """A logged-in staff person, or a staff service key.
+
+    No token is 401. A customer-portal login is 403. A service key is
+    accepted only when the key is allowed to call this route.
+    """
+    if credentials is None or not (credentials.credentials or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    service_user = service_user_if_key(request, credentials, db)
+    if service_user is not None:
+        return service_user
+
+    payload = auth_service.decode_token(credentials.credentials)
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if payload.get("user_type") == "customer":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Staff access required",
+        )
+
+    try:
+        user_id = int(payload.get("sub"))
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+        )
+
+    user = auth_service.get_user_by_id(db, user_id=user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+        )
+    if (getattr(user, "user_type", None) or "").upper() == "CUSTOMER":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Staff access required",
+        )
+    return user

@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from datetime import datetime
 import logging
 
+from app.api.staff_principal import require_staff
 from app.db.database import get_db
 from app.db.models import AppSettings
 from app.services.spring_data_service import get_spring_data_service
@@ -32,7 +33,11 @@ from app.services.freight_service import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/settings", tags=["settings"])
+router = APIRouter(
+    prefix="/api/settings",
+    tags=["settings"],
+    dependencies=[Depends(require_staff)],
+)
 
 
 # ============================================================================

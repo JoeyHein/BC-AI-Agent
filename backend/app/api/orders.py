@@ -14,10 +14,17 @@ from app.db.models import SalesOrder, OrderStatus, ProductionOrder, Shipment, In
 from app.services.order_lifecycle_service import order_lifecycle_service
 from app.integrations.bc.client import bc_client
 from app.api.auth import get_current_user
+from app.api.staff_principal import require_staff
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/orders", tags=["orders"])
+# Every order route is staff-only. The list pages were reachable with no
+# login at all. Customer order history lives under /api/customer/portal/orders.
+router = APIRouter(
+    prefix="/api/orders",
+    tags=["orders"],
+    dependencies=[Depends(require_staff)],
+)
 
 
 # ==================== Pydantic Models ====================

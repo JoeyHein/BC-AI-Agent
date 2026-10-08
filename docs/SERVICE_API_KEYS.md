@@ -43,9 +43,11 @@ To rotate: revoke the old key, create a new one, and update the automation.
 
 A new key is limited to the automation’s work:
 
-- Read sales orders
+- Read sales orders. Those pages now ask for a staff login or this key. They are no longer open to anyone on the internet
 - Read inventory and catalog items
 - Read purchasing requirements and which sales orders already have a purchase order
+- Look at the lines on a new sales order before a purchase order is made. This is a preview only. It does not create the purchase order and it does not send email
+- Read the list of vendors
 - List and validate Draft purchase orders, including the PDF
 - Read and edit Draft PO lines (change, add, delete a line, reorder, normalize order)
 - Create a Draft purchase order with **send_email set to false** (this does not email the vendor and does not save an Outlook draft)
@@ -61,6 +63,7 @@ Anything not in the list above is refused. That includes:
 - Changing settings (pricing, springs, freight, and the rest)
 - Approving or rejecting quotes, or creating quotes in Business Central
 - Shipping orders, posting invoices, or converting quotes to orders
+- Creating the purchase order from that sales-order preview
 - Releasing or deleting a Business Central document
 - Sending email
 - Creating a purchase order that also saves an Outlook draft. That call must set `send_email` to false. Saving a draft is a separate step (`review-draft`) and does not send mail.

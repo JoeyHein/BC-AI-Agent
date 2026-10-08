@@ -93,6 +93,11 @@ _RULES: list[tuple[str, re.Pattern[str], str, Optional[str]]] = [
     ("GET", re.compile(r"^/api/admin/purchasing/draft-pos/validate$"), PURCHASING_READ, None),
     ("GET", re.compile(r"^/api/admin/purchasing/draft-pos/[^/]+/validate$"), PURCHASING_READ, None),
     ("GET", re.compile(r"^/api/admin/purchasing/draft-pos/[^/]+/pdf$"), PURCHASING_READ, None),
+    # Read-only look at a new sales order's lines, and the vendor list.
+    # Creating the PO (POST so-complete-po) stays denied: that writes a
+    # Draft and can save an Outlook review draft.
+    ("GET", re.compile(r"^/api/admin/purchasing/so-complete-po/preview$"), PURCHASING_READ, None),
+    ("GET", re.compile(r"^/api/admin/purchasing/vendors$"), PURCHASING_READ, None),
     # Draft PO lines: read, edit, add, delete, reorder, normalize-order.
     ("GET", re.compile(r"^/api/admin/purchasing/draft-pos/[^/]+/lines$"), DRAFT_PO_LINES, None),
     ("PATCH", re.compile(r"^/api/admin/purchasing/draft-pos/[^/]+/lines/[^/]+$"), DRAFT_PO_LINES, None),

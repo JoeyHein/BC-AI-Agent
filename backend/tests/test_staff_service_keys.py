@@ -205,6 +205,12 @@ class TestScopeRules:
         assert route_allowed("GET", "/inventory/item/PN10", b"", granted)[0] is True
         assert route_allowed("GET", "/api/admin/purchasing/so-po-links", b"", granted)[0] is True
         assert route_allowed("GET", "/api/admin/purchasing/requirements", b"", granted)[0] is True
+        assert route_allowed("GET", "/api/admin/purchasing/so-complete-po/preview", b"", granted)[0] is True
+        assert route_allowed("GET", "/api/admin/purchasing/vendors", b"", granted)[0] is True
+        assert route_allowed("POST", "/api/admin/purchasing/so-complete-po", b"{}", granted)[0] is False
+        assert route_allowed("POST", "/api/admin/purchasing/send-report", b"{}", granted)[0] is False
+        assert route_allowed("POST", "/api/admin/purchasing/refresh-vendors", b"", granted)[0] is False
+        assert route_allowed("PUT", "/api/admin/purchasing/vendor-map", b"{}", granted)[0] is False
         assert route_allowed("DELETE", "/api/admin/purchasing/draft-pos/PO-000962/lines/10", b"", granted)[0] is True
         assert route_allowed("POST", "/api/admin/purchasing/draft-pos/PO-000962/lines/normalize-order", b"", granted)[0] is True
         assert route_allowed("POST", "/api/admin/vendor-acks/run", b"", granted)[0] is True
@@ -226,6 +232,8 @@ class TestScopeRules:
         granted = {"orders:read"}
         assert route_allowed("GET", "/api/orders", b"", granted)[0] is True
         assert route_allowed("GET", "/api/admin/purchasing/so-po-links", b"", granted)[0] is False
+        assert route_allowed("GET", "/api/admin/purchasing/so-complete-po/preview", b"", granted)[0] is False
+        assert route_allowed("GET", "/api/admin/purchasing/vendors", b"", granted)[0] is False
 
 
 class TestHumanLoginUnchanged:
