@@ -19,8 +19,13 @@ from app.services.memory_service import get_memory_service
 from app.services.upwardor_service import generate_upwardor_quote_from_request, UpwardorAPIError
 from app.services.bc_quote_service import bc_quote_service
 from app.api.auth import get_current_user
+from app.api.staff_principal import require_staff
 
-router = APIRouter(prefix="/api/quotes", tags=["feedback"])
+router = APIRouter(
+    prefix="/api/quotes",
+    tags=["feedback"],
+    dependencies=[Depends(require_staff)],
+)
 logger = logging.getLogger(__name__)
 
 

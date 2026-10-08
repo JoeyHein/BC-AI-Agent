@@ -8,13 +8,18 @@ from typing import Optional
 import logging
 from sqlalchemy.orm import Session
 
+from app.api.staff_principal import require_staff
 from app.services.quote_analysis_service import quote_analysis_service
 from app.services.memory_service import get_memory_service
 from app.db.database import get_db
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/analytics", tags=["analytics"])
+router = APIRouter(
+    prefix="/api/analytics",
+    tags=["analytics"],
+    dependencies=[Depends(require_staff)],
+)
 
 
 # ==================== Item Analysis ====================

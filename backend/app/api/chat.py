@@ -10,10 +10,15 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 
+from app.api.staff_principal import require_staff
 from app.db.database import get_db
 from app.services.agent_service import bc_agent_service
 
-router = APIRouter(prefix="/api/chat", tags=["AI Chat"])
+router = APIRouter(
+    prefix="/api/chat",
+    tags=["AI Chat"],
+    dependencies=[Depends(require_staff)],
+)
 
 
 # ==================== Request/Response Models ====================

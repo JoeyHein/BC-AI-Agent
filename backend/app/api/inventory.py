@@ -5,18 +5,21 @@ Provides inventory visibility and availability checking via REST API.
 Integrates with Business Central for real-time inventory data.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import date
 
+from app.api.staff_principal import require_staff
 from app.services.bc_inventory_service import bc_inventory_service
 
-router = APIRouter(prefix="/inventory", tags=["Inventory"])
+_staff = [Depends(require_staff)]
+
+router = APIRouter(prefix="/inventory", tags=["Inventory"], dependencies=_staff)
 # portal.opendc.ca nginx only proxies /api/. These are the same read
 # handlers. reserve / production-order stay on `router` only, so they are
 # not published on the public site.
-portal_router = APIRouter(prefix="/api/inventory", tags=["Inventory"])
+portal_router = APIRouter(prefix="/api/inventory", tags=["Inventory"], dependencies=_staff)
 
 
 # ==================== Request/Response Models ====================
