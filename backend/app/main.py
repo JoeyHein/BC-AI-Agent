@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 # Import API routers
 from app.api import feedback, auth, email_connections, email_feedback, quotes, orders, analytics, door_configurator
-from app.api import customer_auth, customer_portal, admin_customers, admin_quotes, inventory, production, production_tasks
+from app.api import customer_auth, customer_portal, admin_customers, admin_quotes, admin_sales, inventory, production, production_tasks
 from app.api import chat, quote_review, projects, install_referrals
 from app.api import settings as settings_api
 from app.api import catalog
@@ -293,6 +293,10 @@ app.include_router(staff_service_keys.router)
 # Admin Quote Search router (global cross-customer quote lookup)
 logger.info(f"Including admin_quotes router: {admin_quotes.router.prefix}")
 app.include_router(admin_quotes.router)
+
+# Staff sales analysis (posted invoice lines + item categories). Read-only.
+logger.info(f"Including admin_sales router: {admin_sales.router.prefix}")
+app.include_router(admin_sales.router)
 
 # Inventory Management router
 logger.info(f"Including inventory router: {inventory.router.prefix}")
