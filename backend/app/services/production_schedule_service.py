@@ -1,22 +1,29 @@
 """
-Production schedule workbook — BOX IN, BOX OUT model (2026-10-02).
+Production schedule workbook — BOX IN, BOX OUT model (2026-10-02),
+Partial Build added 2026-10-08.
 
-OPENDC is a distributor now: every sales order is bought COMPLETE from
+OPENDC is a distributor now: most sales orders are bought COMPLETE from
 Upwardor on a PO that mirrors the SO 1:1 (so_po_generation_service,
-mode="complete"). The only in-house work by default is installing window
-kits. Building doors in-house is the exception — an "Emergency Build" for a
-customer who can't wait. So the Schedule sheet is one row per open SO:
+mode="complete"). In-house work is the exception: window kits on any
+order, aluminum sections on a Partial Build (built here; the rest of that
+order still bought complete), and an Emergency Build when the whole door
+can't wait. The Schedule sheet is one row per open SO:
 
   SO Number | Customer Name | Customer Tag / External Doc # | Order Date |
   PO Date | Fulfillment | Upwardor PO # | Order Status | Expected Receipt |
-  Operators | Window Kits | Emergency Build | Shipping Status |
+  Operators | Window Kits | Emergency Build | In-house Build | Shipping Status |
   Upwardor Ack # (S-ORD) | Upwardor Status | Recon Flag | Recon Note |
   Pull from stock
 
-- Fulfillment: "Buy Complete" (default) or "Emergency Build" — hand-set.
-  BC still auto-creates production orders for most SOs (190 released prod
-  orders linked to 40/54 open SOs on 2026-10-02), so a production order is
-  NOT a reliable emergency signal; a person flips this.
+- Fulfillment: "Buy Complete" (default), "Partial Build", or "Emergency
+  Build". Partial Build is seeded when the SO has an in-house aluminum
+  section (is_inhouse_aluminum_line) and the cell is still the untouched
+  default Buy Complete. A hand-set value is never overwritten — Emergency
+  Build stays, and once this workbook already has the In-house Build
+  column, a Buy Complete a person left in place stays too. BC still
+  auto-creates production orders for most SOs (190 released prod orders
+  linked to 40/54 open SOs on 2026-10-02), so a production order is NOT a
+  reliable emergency or partial-build signal; the aluminum lines are.
 - Upwardor PO # / Expected Receipt: read-only, refreshed every run from the
   BC purchase orders that reference the SO ("Built from SO-…" comment lines
   or externalDocumentNumber — draft_po_review_service._sales_orders_from_po).
@@ -32,12 +39,21 @@ customer who can't wait. So the Schedule sheet is one row per open SO:
   when it does, then hand-edited (In Progress / Complete).
 - Emergency Build: blank unless Fulfillment is "Emergency Build"; seeded
   "Not Started" when flipped, then hand-edited (In Production / Complete).
+- In-house Build: blank unless Fulfillment is "Partial Build"; seeded
+  "Not Started", then hand-edited with the same states as Emergency Build
+  (In Production / Complete). A refresh never puts Not Started back over
+  a status already filled in. Order Status keeps tracking the bought
+  half from the Upwardor PO; this column tracks the aluminum half.
 
 Every rebuild reads back the current SharePoint file FIRST and carries edits
 forward keyed by SO number, then overwrites the file in place. Read-back is
 by HEADER NAME (not position) so adding a column later can't silently wipe
-rows — see parse_records_from_bytes. It also migrates the two previous
-layouts (v3: 7 components × Purchasing/Production; legacy: 1-row header).
+rows — see parse_records_from_bytes. It also migrates earlier layouts
+(v3: 7 components × Purchasing/Production; legacy: 1-row header; v4: the
+box-in/box-out sheet from before the In-house Build column). On a v4
+sheet, Fulfillment Buy Complete is the untouched default and an aluminum
+SO is upgraded to Partial Build. The SO-PO Log sheet is read back on its
+own and is not rebuilt from scratch.
 SOs that drop out of BC's open set move to an "Archived" sheet.
 
 Ack # and Upwardor Status are refreshed from vendor_order_acks (vendor ack
@@ -53,8 +69,9 @@ that is why Pull from stock lives in SCHEDULE_HEADERS.
 "Assignments" sheet — Joey's curated, prioritized shop queue, keyed by SALES
 ORDER. Paste an SO # onto a MAIN line; Customer auto-fills and the SO's
 in-house work lists as read-only SUB-LINES beneath it (Excel outline
-grouping): one line per window-kit item, plus — for Emergency Build SOs only
-— each BC production order linked to it. Priority/Assigned To/Complete By
+grouping): one line per window-kit item, plus — for Partial Build SOs —
+one line per in-house aluminum section, plus — for Emergency Build SOs
+only — each BC production order linked to it. Priority/Assigned To/Complete By
 are typed once on the main line. Auto-closes once BC no longer reports the
 SO open; an SO # that never matched stays flagged "NOT FOUND". A main line
 also shows a read-only "Picking Remaining" summary from the Upwardor picking
@@ -95,6 +112,7 @@ from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.comments import Comment
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.formatting.rule import CellIsRule, FormulaRule
@@ -130,8 +148,9 @@ logger = logging.getLogger(__name__)
 
 # ── states ──────────────────────────────────────────────────────────────
 BUY_COMPLETE = "Buy Complete"
+PARTIAL_BUILD = "Partial Build"
 EMERGENCY_BUILD = "Emergency Build"
-FULFILLMENT_STATES = [BUY_COMPLETE, EMERGENCY_BUILD]
+FULFILLMENT_STATES = [BUY_COMPLETE, PARTIAL_BUILD, EMERGENCY_BUILD]
 
 WAITING_TO_ORDER = "Waiting to Order"
 PO_DRAFTED = "PO Drafted"
@@ -153,16 +172,75 @@ NOT_APPLICABLE = ""  # blank — that kind of work isn't on this order
 SHIPPING_STATES = ["Not Ready", "Ready to Ship", "Shipped"]
 DEFAULT_SHIPPING_STATE = "Not Ready"
 
-# Window kits are the one thing still done in-house on a buy-complete order.
+# Window kits are still done in-house on a buy-complete order.
 WINDOW_KIT_PREFIXES = ("GK",)
 # Operators never ride on the Upwardor PO — bought direct from the maker.
 OPERATOR_PREFIXES = ("OP",)
+
+# In-house aluminum sections (Joey, 2026-10-08).
+#
+# A sales order with any of these lines is a Partial Build: OpenDC
+# manufactures the aluminum sections, and everything else on the order
+# (insulated/polycarb panels, hardware, track, springs) ships complete
+# from Upwardor. Confirmed against the BC item catalog
+# (backend/data/bc_analysis/bc_items.json, generalProductPostingGroup ALUM):
+# the finished sections are exactly these six families. Raw aluminium
+# (AL10 coil, AL91 stiles, extrusions) shares that posting group but is
+# not the section on the sales order, so it is NOT matched by item number.
+# Bare "ALUMINUM" / "ALUMINIUM" in a description is also not enough —
+# astragal and retainer copy says aluminium and those parts are bought.
+#
+# Edit the tuples below to change what counts. A line matches when ANY
+# of these is true:
+#   1. Item number family is one of INHOUSE_ALUMINUM_SECTION_PREFIXES
+#      (PN80-21100-1002 matches PN80; PN100 does not match PN10).
+#        PN10  V130G full-view aluminum section
+#        PN12  V230G full-view aluminum section
+#        PN20  Solalite
+#        PN70  AL-SWD
+#        PN80  Panorama
+#        PN97  AL976
+#   2. Item category (when the line carries one) is PANORAMA / V130G /
+#      V230G, or starts with AL976, ALSOL, ALSWD, ALV13 (the catalog
+#      categories on those same sections, e.g. AL97621CA, ALV1324WH).
+#   3. Description names a series: PANORAMA, V130G, V230G, SOLALITE,
+#      AL-SWD. Catches a custom item number on a panorama section.
+#   4. Description is a SECTION that also says AL976 or ALUMINUM/ALUMINIUM
+#      ("SECTION, AL976, …"). A stile whose text merely contains AL976
+#      does not match.
+INHOUSE_BUILD_HEADER = "In-house Build"
+INHOUSE_ALUMINUM_SECTION_PREFIXES = ("PN10", "PN12", "PN20", "PN70", "PN80", "PN97")
+INHOUSE_ALUMINUM_CATEGORY_EXACT = ("PANORAMA", "V130G", "V230G")
+INHOUSE_ALUMINUM_CATEGORY_PREFIXES = ("AL976", "ALSOL", "ALSWD", "ALV13")
+_ALUMINUM_SERIES_RE = re.compile(r"PANORAMA|V130G|V230G|SOLALITE|AL-SWD|ALSWD", re.IGNORECASE)
+_SECTION_AND_ALUMINUM_RE = re.compile(
+    r"(?=.*\bSECTION\b)(?=.*\b(?:AL976|ALUMINUM|ALUMINIUM)\b)",
+    re.IGNORECASE,
+)
+
+FULFILLMENT_HEADER_NOTE = (
+    "Buy Complete: the whole order comes from Upwardor (default).\n"
+    "Partial Build: aluminum sections (Panorama, V130G/V230G, AL976, "
+    "Solalite, AL-SWD) are built at OpenDC. Everything else on the order "
+    "still comes from Upwardor. Order Status tracks the bought half; "
+    "In-house Build tracks the aluminum half.\n"
+    "Emergency Build: the whole door is built here.\n"
+    "A refresh fills Partial Build only when this cell is still the "
+    "untouched default Buy Complete. Emergency Build, Partial Build, and "
+    "a Buy Complete you set yourself are left as you left them."
+)
+INHOUSE_BUILD_HEADER_NOTE = (
+    "Shop status for the aluminum sections on a Partial Build.\n"
+    "Not Started, In Production, or Complete.\n"
+    "Blank on Buy Complete and Emergency Build.\n"
+    "A refresh will not replace a status you already set."
+)
 
 # ── Schedule column layout (1-indexed) ──────────────────────────────────
 SCHEDULE_HEADERS = [
     "SO Number", "Customer Name", "Customer Tag / External Doc #", "Order Date", "PO Date",
     "Fulfillment", "Upwardor PO #", "Order Status", "Expected Receipt",
-    "Operators", "Window Kits", "Emergency Build", "Shipping Status",
+    "Operators", "Window Kits", "Emergency Build", INHOUSE_BUILD_HEADER, "Shipping Status",
 ] + SCHEDULE_RECON_HEADERS
 COL = {name: i for i, name in enumerate(SCHEDULE_HEADERS, start=1)}
 TOTAL_COLUMNS = len(SCHEDULE_HEADERS)
@@ -176,7 +254,7 @@ _COLUMN_WIDTHS = {
     "SO Number": 14, "Customer Name": 28, "Customer Tag / External Doc #": 26,
     "Order Date": 12, "PO Date": 12, "Fulfillment": 16, "Upwardor PO #": 16,
     "Order Status": 18, "Expected Receipt": 13, "Operators": 18, "Window Kits": 14,
-    "Emergency Build": 16, "Shipping Status": 15,
+    "Emergency Build": 16, INHOUSE_BUILD_HEADER: 16, "Shipping Status": 15,
     ACK_HEADER: 28, STATUS_HEADER: 42, FLAG_HEADER: 22, NOTE_HEADER: 46, PULL_HEADER: 16,
 }
 
@@ -279,6 +357,67 @@ def _has_prefix(item_no: str, prefixes: Tuple[str, ...]) -> bool:
     return (item_no or "").upper().startswith(prefixes)
 
 
+def _aluminum_section_prefix(item_no: str) -> bool:
+    """Family match with a boundary, so PN10 matches PN10-… and not PN100."""
+    item = (item_no or "").upper().strip()
+    if not item:
+        return False
+    for prefix in INHOUSE_ALUMINUM_SECTION_PREFIXES:
+        if not item.startswith(prefix):
+            continue
+        rest = item[len(prefix):]
+        if rest == "" or not rest[0].isalnum():
+            return True
+    return False
+
+
+def _aluminum_section_category(category: str) -> bool:
+    cat = (category or "").upper().strip()
+    if not cat:
+        return False
+    if cat in INHOUSE_ALUMINUM_CATEGORY_EXACT:
+        return True
+    return cat.startswith(INHOUSE_ALUMINUM_CATEGORY_PREFIXES)
+
+
+def is_inhouse_aluminum_line(item_no: str = "", description: str = "", category: str = "") -> bool:
+    """True when this line is an aluminum section OpenDC builds in-house.
+
+    The rule lives in INHOUSE_ALUMINUM_SECTION_PREFIXES and the category /
+    description backstops next to it. Purchasing and PO generation do not
+    use this — it only decides Partial Build on the production schedule.
+    """
+    if _aluminum_section_prefix(item_no):
+        return True
+    if _aluminum_section_category(category):
+        return True
+    text = description or ""
+    if _ALUMINUM_SERIES_RE.search(text):
+        return True
+    if _SECTION_AND_ALUMINUM_RE.search(text):
+        return True
+    return False
+
+
+def _fulfillment_is_hand_set(raw_value, workbook_has_inhouse_column: bool) -> bool:
+    """True when a refresh must not replace this Fulfillment cell.
+
+    v4 sheets (no In-house Build header yet) wrote Buy Complete on every
+    row that nobody had flipped to Emergency Build. That Buy Complete is
+    the untouched default and may be upgraded to Partial Build. Once the
+    In-house Build column is in the file, Buy Complete is a real choice —
+    the previous refresh already had the chance to write Partial Build, or
+    a person set it back — and it is left alone. A blank cell is never
+    hand-set.
+    """
+    text = str(raw_value).strip() if raw_value else ""
+    if not text:
+        return False
+    if workbook_has_inhouse_column:
+        return True
+    return text != BUY_COMPLETE
+
+
 def _advance(current: str, computed: Optional[str]) -> str:
     """Order Status / Operators only ever move FORWARD on refresh — a hand-set
     later state (e.g. Shipped by Vendor, which BC can't tell us) is never
@@ -355,8 +494,8 @@ class _SORecord:
 
     __slots__ = (
         "so_number", "customer_name", "customer_tag", "order_date", "po_date",
-        "fulfillment", "po_numbers", "order_status", "expected_receipt",
-        "operators", "window_kits", "emergency_build", "shipping_status",
+        "fulfillment", "fulfillment_explicit", "po_numbers", "order_status", "expected_receipt",
+        "operators", "window_kits", "emergency_build", "inhouse_build", "shipping_status",
         "ack_numbers", "upwardor_status", "recon_flag", "recon_note", "pull_from_stock",
     )
 
@@ -367,12 +506,16 @@ class _SORecord:
         self.order_date: Optional[date] = None
         self.po_date: Optional[date] = None
         self.fulfillment = BUY_COMPLETE
+        # False until read back from a sheet where the value was a real
+        # choice. New rows and v4 Buy Complete stay eligible for Partial Build.
+        self.fulfillment_explicit = False
         self.po_numbers = ""
         self.order_status = WAITING_TO_ORDER
         self.expected_receipt: Optional[date] = None
         self.operators = NOT_APPLICABLE
         self.window_kits = NOT_APPLICABLE
         self.emergency_build = NOT_APPLICABLE
+        self.inhouse_build = NOT_APPLICABLE
         self.shipping_status = DEFAULT_SHIPPING_STATE
         self.ack_numbers = ""
         self.upwardor_status = ""
@@ -384,7 +527,8 @@ class _SORecord:
         return [
             self.so_number, self.customer_name, self.customer_tag, self.order_date, self.po_date,
             self.fulfillment, self.po_numbers, self.order_status, self.expected_receipt,
-            self.operators, self.window_kits, self.emergency_build, self.shipping_status,
+            self.operators, self.window_kits, self.emergency_build, self.inhouse_build,
+            self.shipping_status,
             self.ack_numbers or None, self.upwardor_status or None,
             self.recon_flag or None, self.recon_note or None, self.pull_from_stock or None,
         ]
@@ -434,8 +578,10 @@ class ProductionScheduleService:
     ) -> Dict[str, dict]:
         """Per-SO auto-derived facts for the Schedule + Assignments sheets:
         {so_number: {po_numbers, order_status, expected_receipt, operators,
-        window_kit_lines}}. order_status/operators are None when there's
-        nothing on the SO to buy in that group."""
+        window_kit_lines, aluminum_lines}}. order_status/operators are None
+        when there's nothing on the SO to buy in that group. aluminum_lines
+        are the in-house sections (see is_inhouse_aluminum_line); they do
+        not change Order Status, which still follows the linked PO."""
         from app.services.purchasing_demand_service import NON_STOCK_ITEMS
         from app.services.so_po_generation_service import _complete_mode_exclusion
 
@@ -444,10 +590,13 @@ class ProductionScheduleService:
             so = order.get("number", "")
             needs_main = needs_operator = False
             window_kit_lines = []
+            aluminum_lines = []
             for ln in order.get("salesOrderLines", []):
                 item = ln.get("lineObjectNumber") or ""
                 if ln.get("lineType") != "Item" or not item or item.upper() in NON_STOCK_ITEMS:
                     continue
+                description = ln.get("description") or ""
+                category = ln.get("itemCategoryCode") or ln.get("itemCategory") or ""
                 if _has_prefix(item, OPERATOR_PREFIXES):
                     needs_operator = True
                 elif not _complete_mode_exclusion(item):
@@ -455,7 +604,13 @@ class ProductionScheduleService:
                 if _has_prefix(item, WINDOW_KIT_PREFIXES):
                     window_kit_lines.append({
                         "item": item,
-                        "description": ln.get("description") or "",
+                        "description": description,
+                        "qty": float(ln.get("quantity") or 0),
+                    })
+                if is_inhouse_aluminum_line(item, description, category):
+                    aluminum_lines.append({
+                        "item": item,
+                        "description": description,
                         "qty": float(ln.get("quantity") or 0),
                     })
 
@@ -479,6 +634,7 @@ class ProductionScheduleService:
                 "expected_receipt": max(outstanding_dates) if outstanding_dates else None,
                 "operators": operators,
                 "window_kit_lines": window_kit_lines,
+                "aluminum_lines": aluminum_lines,
             }
         return facts
 
@@ -488,8 +644,12 @@ class ProductionScheduleService:
         """Return {so_number: _SORecord} read from an existing workbook's
         Schedule + Archived sheets. Detects the header generation:
 
-        - v4 (this version, row 1 has "Fulfillment"): read by HEADER NAME, so
-          a sheet written before/after a column was added still parses.
+        - v4/v5 (row 1 has "Fulfillment"): read by HEADER NAME, so a sheet
+          written before or after a column was added still parses. v5 is
+          the same sheet plus the In-house Build column. A v4 file (that
+          header missing) migrates Buy Complete as the untouched default;
+          see _fulfillment_is_hand_set. Hand-set cells and the SO-PO Log
+          are not part of this sheet parser.
         - v3 (2 header rows, 7 components × Purchasing/Production): migrated.
           Per-component production status is dropped (not tracked anymore);
           only a hand-set "Shipped by Vendor" carries into Order Status — the
@@ -518,6 +678,9 @@ class ProductionScheduleService:
 
     def _parse_v4_sheet(self, ws, header_row, records: Dict[str, _SORecord]):
         col_by_name = {str(v).strip(): i for i, v in enumerate(header_row) if v}
+        # v5 migration: this header means Partial Build already existed when
+        # the file was written, so Buy Complete is a choice, not the default.
+        workbook_has_inhouse_column = INHOUSE_BUILD_HEADER in col_by_name
         so_idx = col_by_name.get("SO Number", 0)
 
         def get(row, name):
@@ -532,13 +695,20 @@ class ProductionScheduleService:
             rec.customer_tag = get(row, "Customer Tag / External Doc #") or ""
             rec.order_date = _parse_date_value(get(row, "Order Date"))
             rec.po_date = _parse_date_value(get(row, "PO Date"))
-            rec.fulfillment = _normalize_choice(get(row, "Fulfillment"), FULFILLMENT_STATES, BUY_COMPLETE)
+            raw_fulfillment = get(row, "Fulfillment")
+            rec.fulfillment = _normalize_choice(raw_fulfillment, FULFILLMENT_STATES, BUY_COMPLETE)
+            rec.fulfillment_explicit = _fulfillment_is_hand_set(
+                raw_fulfillment, workbook_has_inhouse_column,
+            )
             rec.po_numbers = get(row, "Upwardor PO #") or ""
             rec.order_status = _normalize_choice(get(row, "Order Status"), ORDER_STATES, WAITING_TO_ORDER)
             rec.expected_receipt = _parse_date_value(get(row, "Expected Receipt"))
             rec.operators = _normalize_choice(get(row, "Operators"), ORDER_STATES, NOT_APPLICABLE)
             rec.window_kits = _normalize_choice(get(row, "Window Kits"), WINDOW_KIT_STATES, NOT_APPLICABLE)
             rec.emergency_build = _normalize_choice(get(row, "Emergency Build"), BUILD_STATES, NOT_APPLICABLE)
+            rec.inhouse_build = _normalize_choice(
+                get(row, INHOUSE_BUILD_HEADER), BUILD_STATES, NOT_APPLICABLE,
+            )
             rec.shipping_status = _normalize_choice(get(row, "Shipping Status"), SHIPPING_STATES, DEFAULT_SHIPPING_STATE)
             # Pull from stock is the hand edit that must survive. Ack / flag /
             # note are recomputed for open SOs; archived rows keep whatever
@@ -682,12 +852,15 @@ class ProductionScheduleService:
 
         - one "Window Kit" line per GK item on the SO (status = the SO's
           Window Kits status from the Schedule sheet);
+        - for Partial Build SOs, one "In-house Build" line per aluminum
+          section (status = the SO's In-house Build status);
         - for Emergency Build SOs only, every BC production order linked to
-          it via `prod_so_map`. Buy-complete SOs' production orders are BC
-          noise (it still auto-creates them) and are not shown.
+          it via `prod_so_map`. Buy-complete and Partial Build SOs'
+          production orders are BC noise (it still auto-creates them) and
+          are not shown.
 
         `so_work` is {so_number: {"fulfillment", "window_kits",
-        "window_kit_lines"}}.
+        "window_kit_lines", "inhouse_build", "aluminum_lines"}}.
 
         Auto-close: a main line that previously had a confirmed customer
         match but whose SO is no longer open in BC is dropped. An SO # that
@@ -724,6 +897,7 @@ class ProductionScheduleService:
             customer = fresh_customer if not not_found else "NOT FOUND"
             work = so_work.get(so_no, {})
             emergency = work.get("fulfillment") == EMERGENCY_BUILD
+            partial = work.get("fulfillment") == PARTIAL_BUILD
 
             sub_rows = [{
                 "work": "Window Kit",
@@ -733,6 +907,16 @@ class ProductionScheduleService:
                 "status": work.get("window_kits") or NOT_STARTED,
                 "due_date": None,
             } for wk in work.get("window_kit_lines", [])]
+
+            if partial:
+                sub_rows += [{
+                    "work": INHOUSE_BUILD_HEADER,
+                    "item": al["item"],
+                    "description": al["description"],
+                    "qty": al["qty"],
+                    "status": work.get("inhouse_build") or NOT_STARTED,
+                    "due_date": None,
+                } for al in work.get("aluminum_lines", [])]
 
             if emergency:
                 build_rows = []
@@ -760,6 +944,7 @@ class ProductionScheduleService:
                 "customer": customer,
                 "not_found": not_found,
                 "emergency": emergency,
+                "partial": partial,
                 "assigned_to": rec.get("assigned_to", ""),
                 "complete_by": rec.get("complete_by"),
                 "picking_display": picking_display,
@@ -783,6 +968,8 @@ class ProductionScheduleService:
             ws.cell(row=row_i, column=COL_A_PICKING_REMAINING, value=g["picking_display"])
             if g["emergency"]:
                 ws.cell(row=row_i, column=COL_A_WORK, value=EMERGENCY_BUILD)
+            elif g["partial"]:
+                ws.cell(row=row_i, column=COL_A_WORK, value=PARTIAL_BUILD)
             for col in range(1, len(ASSIGN_HEADERS) + 1):
                 ws.cell(row=row_i, column=col).font = main_font
             if g["not_found"]:
@@ -793,6 +980,10 @@ class ProductionScheduleService:
                     work_cell = ws.cell(row=row_i, column=COL_A_WORK)
                     work_cell.fill = ORANGE_FILL
                     work_cell.font = ORANGE_FONT
+                elif g["partial"]:
+                    work_cell = ws.cell(row=row_i, column=COL_A_WORK)
+                    work_cell.fill = PURPLE_FILL
+                    work_cell.font = Font(color="60497A", bold=True)
                 if not g["assigned_to"]:
                     assigned_cell.fill = AMBER_FILL
             row_i += 1
@@ -1125,8 +1316,9 @@ class ProductionScheduleService:
         def color(rng, value, fill, font):
             ws.conditional_formatting.add(rng, CellIsRule(operator="equal", formula=[f'"{value}"'], fill=fill, font=font))
 
-        # The anomaly should jump off the page.
+        # Partial Build and Emergency Build should jump off the page.
         rng = add_dropdown("Fulfillment", FULFILLMENT_STATES)
+        color(rng, PARTIAL_BUILD, PURPLE_FILL, PURPLE_FONT)
         color(rng, EMERGENCY_BUILD, ORANGE_FILL, ORANGE_FONT)
 
         order_colors = [
@@ -1143,7 +1335,8 @@ class ProductionScheduleService:
                 color(rng, value, fill, font)
 
         for name, states, middle in (("Window Kits", WINDOW_KIT_STATES, IN_PROGRESS),
-                                     ("Emergency Build", BUILD_STATES, IN_PRODUCTION)):
+                                     ("Emergency Build", BUILD_STATES, IN_PRODUCTION),
+                                     (INHOUSE_BUILD_HEADER, BUILD_STATES, IN_PRODUCTION)):
             rng = add_dropdown(name, states, allow_blank_entry=True)
             color(rng, NOT_STARTED, RED_FILL, RED_FONT)
             color(rng, middle, AMBER_FILL, AMBER_FONT)
@@ -1173,6 +1366,13 @@ class ProductionScheduleService:
     def _write_schedule_sheet(self, ws, rows: List[list], archived: bool = False):
         for c, title in enumerate(SCHEDULE_HEADERS, start=1):
             ws.cell(row=1, column=c, value=title)
+        if not archived:
+            ws.cell(row=1, column=COL["Fulfillment"]).comment = Comment(
+                FULFILLMENT_HEADER_NOTE, "OpenDC", width=320, height=140,
+            )
+            ws.cell(row=1, column=COL[INHOUSE_BUILD_HEADER]).comment = Comment(
+                INHOUSE_BUILD_HEADER_NOTE, "OpenDC", width=280, height=90,
+            )
         flag_idx = COL[FLAG_HEADER]
         pull_col = get_column_letter(COL[PULL_HEADER])
         for r_i, row in enumerate(rows, start=DATA_START_ROW):
@@ -1210,6 +1410,7 @@ class ProductionScheduleService:
 
         rows = []
         so_work: Dict[str, dict] = {}
+        partial_builds = 0
         for order in orders:
             so_number = order.get("number", "")
             rec = records.get(so_number) or _SORecord(so_number)
@@ -1230,10 +1431,19 @@ class ProductionScheduleService:
                     rec.window_kits = NOT_APPLICABLE
                 elif not rec.window_kits:
                     rec.window_kits = NOT_STARTED
+                # Untouched Buy Complete on an aluminum SO becomes Partial
+                # Build. Emergency Build and an explicit Buy Complete stay.
+                if (facts.get("aluminum_lines") and rec.fulfillment == BUY_COMPLETE
+                        and not rec.fulfillment_explicit):
+                    rec.fulfillment = PARTIAL_BUILD
             if rec.fulfillment != EMERGENCY_BUILD:
                 rec.emergency_build = NOT_APPLICABLE
             elif not rec.emergency_build:
                 rec.emergency_build = NOT_STARTED
+            if rec.fulfillment != PARTIAL_BUILD:
+                rec.inhouse_build = NOT_APPLICABLE
+            elif not rec.inhouse_build:
+                rec.inhouse_build = NOT_STARTED
             recon = schedule_recon(
                 rec.po_numbers,
                 vendor_acks,
@@ -1252,12 +1462,17 @@ class ProductionScheduleService:
                 self.last_recon["missed"] += 1
             elif recon.flag == FLAG_CHECK:
                 self.last_recon["check"] += 1
+            if rec.fulfillment == PARTIAL_BUILD:
+                partial_builds += 1
             rows.append(rec.to_row())
             so_work[so_number] = {
                 "fulfillment": rec.fulfillment,
                 "window_kits": rec.window_kits,
                 "window_kit_lines": (facts or {}).get("window_kit_lines", []),
+                "inhouse_build": rec.inhouse_build,
+                "aluminum_lines": (facts or {}).get("aluminum_lines", []),
             }
+        self.last_partial_builds = partial_builds
         self._write_schedule_sheet(ws, rows)
 
         archived_so = sorted((so for so in records if so not in open_so_numbers), key=_sort_key)
@@ -1336,6 +1551,7 @@ class ProductionScheduleService:
                 1 for o in orders
                 if (records.get(o.get("number")) or _SORecord("")).fulfillment == EMERGENCY_BUILD
             ),
+            "partial_builds": getattr(self, "last_partial_builds", 0),
             "assigned": len(assignment_records),
             "sos_without_po": sum(1 for r in self.last_po_log if r.get("PO Status") == NO_PO_YET),
             "po_log_changes": sum(1 for r in self.last_po_log if r.get("_touched")),
