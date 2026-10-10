@@ -15,7 +15,10 @@ import {
 import {
   lookupSeries,
   getDimensionValidation,
+  collectDoorsDimensionValidation,
   collectDoorsDimensionErrors,
+  STAFF_MAX_WIDTH_IN,
+  STAFF_MAX_HEIGHT_IN,
 } from '../utils/doorDimensions'
 
 const STEPS = [
@@ -267,7 +270,9 @@ function DoorConfigurator() {
         return !!door.doorSeries
       case 'dimensions': {
         const series = lookupSeries(config, door)
-        const { errors: dimErrors } = getDimensionValidation(series, door.doorWidth, door.doorHeight)
+        const { errors: dimErrors } = getDimensionValidation(
+          series, door.doorWidth, door.doorHeight, { strict: false }
+        )
         return door.doorWidth > 0 && door.doorHeight > 0 && door.doorCount > 0 && dimErrors.length === 0
       }
       case 'design':
@@ -284,7 +289,7 @@ function DoorConfigurator() {
   }
 
   async function handleGenerateQuote(force = false) {
-    const dimErrors = collectDoorsDimensionErrors(doors, config)
+    const dimErrors = collectDoorsDimensionErrors(doors, config, { strict: false })
     if (dimErrors.length) {
       setGenerateError(dimErrors.join(' '))
       return
@@ -781,13 +786,17 @@ function DimensionsStep({ door, onChange, series }) {
     if (inches > 0) onChange({ doorHeight: inches })
   }
 
-  const { errors: dimErrors, widthInvalid, heightInvalid } = getDimensionValidation(
-    series, door.doorWidth, door.doorHeight
+  const { errors: dimErrors, warnings: dimWarnings, widthInvalid, heightInvalid } = getDimensionValidation(
+    series, door.doorWidth, door.doorHeight, { strict: false }
   )
   const snapWarningWidth = specs.snapWarningWidth
   const widthInSnapGap = snapWarningWidth && door.doorWidth > snapWarningWidth && !widthInvalid
   const invalidInputClass = 'border-red-400 focus:ring-red-500 focus:border-red-500'
+  const warningInputClass = 'border-amber-400 focus:ring-amber-500 focus:border-amber-500'
   const validInputClass = 'border-gray-300 focus:ring-odc-500 focus:border-odc-500'
+  const fieldInvalidClass = dimErrors.length > 0 ? invalidInputClass : warningInputClass
+  const inputMaxWidthFt = Math.ceil(STAFF_MAX_WIDTH_IN / 12)
+  const inputMaxHeightFt = Math.ceil(STAFF_MAX_HEIGHT_IN / 12)
 
   // Common door sizes — hide combinations this series does not stock (Craft).
   const commonSizes = [
@@ -874,8 +883,8 @@ function DimensionsStep({ door, onChange, series }) {
                   onChange({ doorWidth: feet * 12 + inches })
                 }}
                 min={Math.floor((specs.minWidth || 60) / 12)}
-                max={Math.ceil((specs.maxWidth || 288) / 12)}
-                className={`w-full border rounded-md shadow-sm px-3 py-2 ${widthInvalid ? invalidInputClass : validInputClass}`}
+                max={inputMaxWidthFt}
+                className={`w-full border rounded-md shadow-sm px-3 py-2 ${widthInvalid ? fieldInvalidClass : validInputClass}`}
               />
               <p className="mt-1 text-xs text-gray-500">feet</p>
             </div>
@@ -890,7 +899,7 @@ function DimensionsStep({ door, onChange, series }) {
                 }}
                 min={0}
                 max={11}
-                className={`w-full border rounded-md shadow-sm px-3 py-2 ${widthInvalid ? invalidInputClass : validInputClass}`}
+                className={`w-full border rounded-md shadow-sm px-3 py-2 ${widthInvalid ? fieldInvalidClass : validInputClass}`}
               />
               <p className="mt-1 text-xs text-gray-500">inches</p>
             </div>
@@ -910,8 +919,8 @@ function DimensionsStep({ door, onChange, series }) {
                   onChange({ doorHeight: feet * 12 + inches })
                 }}
                 min={Math.floor((specs.minHeight || 72) / 12)}
-                max={Math.ceil((specs.maxHeight || 384) / 12)}
-                className={`w-full border rounded-md shadow-sm px-3 py-2 ${heightInvalid ? invalidInputClass : validInputClass}`}
+                max={inputMaxHeightFt}
+                className={`w-full border rounded-md shadow-sm px-3 py-2 ${heightInvalid ? fieldInvalidClass : validInputClass}`}
               />
               <p className="mt-1 text-xs text-gray-500">feet</p>
             </div>
@@ -926,7 +935,7 @@ function DimensionsStep({ door, onChange, series }) {
                 }}
                 min={0}
                 max={11}
-                className={`w-full border rounded-md shadow-sm px-3 py-2 ${heightInvalid ? invalidInputClass : validInputClass}`}
+                className={`w-full border rounded-md shadow-sm px-3 py-2 ${heightInvalid ? fieldInvalidClass : validInputClass}`}
               />
               <p className="mt-1 text-xs text-gray-500">inches</p>
             </div>
@@ -963,9 +972,9 @@ function DimensionsStep({ door, onChange, series }) {
             value={mmWidth}
             onChange={(e) => handleMmWidthChange(parseInt(e.target.value) || 0)}
             min={Math.round((specs.minWidth || 60) * 25.4)}
-            max={Math.round((specs.maxWidth || 288) * 25.4)}
+            max={Math.round(STAFF_MAX_WIDTH_IN * 25.4)}
             step={1}
-            className={`w-full border rounded-md shadow-sm px-3 py-2 ${widthInvalid ? invalidInputClass : validInputClass}`}
+            className={`w-full border rounded-md shadow-sm px-3 py-2 ${widthInvalid ? fieldInvalidClass : validInputClass}`}
           />
           <p className="mt-1 text-xs text-gray-400">= {Math.floor(door.doorWidth / 12)}' {door.doorWidth % 12}" ({door.doorWidth}" total)</p>
         </div>
@@ -976,9 +985,9 @@ function DimensionsStep({ door, onChange, series }) {
             value={mmHeight}
             onChange={(e) => handleMmHeightChange(parseInt(e.target.value) || 0)}
             min={Math.round((specs.minHeight || 72) * 25.4)}
-            max={Math.round((specs.maxHeight || 384) * 25.4)}
+            max={Math.round(STAFF_MAX_HEIGHT_IN * 25.4)}
             step={1}
-            className={`w-full border rounded-md shadow-sm px-3 py-2 ${heightInvalid ? invalidInputClass : validInputClass}`}
+            className={`w-full border rounded-md shadow-sm px-3 py-2 ${heightInvalid ? fieldInvalidClass : validInputClass}`}
           />
           <p className="mt-1 text-xs text-gray-400">= {Math.floor(door.doorHeight / 12)}' {door.doorHeight % 12}" ({door.doorHeight}" total)</p>
         </div>
@@ -1014,6 +1023,7 @@ function DimensionsStep({ door, onChange, series }) {
             {specs.availableWidths && specs.availableHeights && ';'}
             {specs.availableHeights && ` available heights ${specs.availableHeights.map((h) => `${Math.floor(h / 12)}'`).join(', ')}`}
             {specs.sectionHeights && `. Section heights: ${specs.sectionHeights.join('", ')}"`}
+            <span className="block mt-1 text-blue-600">Staff may override catalog sizes for custom quotes.</span>
           </p>
         </div>
       )}
@@ -1025,6 +1035,7 @@ function DimensionsStep({ door, onChange, series }) {
             {specs.maxWidth && specs.maxHeight && ','}
             {specs.maxHeight && ` Max height ${specs.maxHeight}" (${Math.floor(specs.maxHeight / 12)}')`}
             {specs.sectionHeights && `, Section heights: ${specs.sectionHeights.join('", ')}`}
+            <span className="block mt-1 text-blue-600">Staff may override catalog limits for custom quotes.</span>
           </p>
         </div>
       )}
@@ -1032,6 +1043,16 @@ function DimensionsStep({ door, onChange, series }) {
         <div className="bg-red-50 border border-red-300 rounded-lg p-3">
           {dimErrors.map((msg) => (
             <p key={msg} className="text-sm text-red-700 font-medium">{msg}</p>
+          ))}
+        </div>
+      )}
+      {dimWarnings.length > 0 && (
+        <div className="bg-amber-50 border border-amber-300 rounded-lg p-3">
+          <p className="text-sm text-amber-800 font-medium mb-1">
+            Catalog size limit exceeded — you can override this on the internal portal. Confirm the custom size is intended before quoting.
+          </p>
+          {dimWarnings.map((msg) => (
+            <p key={msg} className="text-sm text-amber-800">{msg}</p>
           ))}
         </div>
       )}
@@ -3104,7 +3125,9 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
   const [showReviewPanel, setShowReviewPanel] = useState(false)
   const [freightConfig, setFreightConfig] = useState(null)
   const [downloadingPdf, setDownloadingPdf] = useState(false)
-  const dimensionErrors = collectDoorsDimensionErrors(doors, config)
+  const { errors: dimensionErrors, warnings: dimensionWarnings } = collectDoorsDimensionValidation(
+    doors, config, { strict: false }
+  )
 
   const handleDownloadPdf = async () => {
     const sq = quoteResult?.data?.bc_quote_number
@@ -3832,6 +3855,16 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
         <div className="bg-red-50 border border-red-200 rounded-lg p-3">
           {dimensionErrors.map((msg) => (
             <p key={msg} className="text-sm text-red-700">{msg}</p>
+          ))}
+        </div>
+      )}
+      {dimensionWarnings.length > 0 && (
+        <div className="bg-amber-50 border border-amber-300 rounded-lg p-3">
+          <p className="text-sm text-amber-800 font-medium mb-1">
+            Catalog size limit exceeded — you can override this on the internal portal. Confirm the custom size is intended before quoting.
+          </p>
+          {dimensionWarnings.map((msg) => (
+            <p key={msg} className="text-sm text-amber-800">{msg}</p>
           ))}
         </div>
       )}
