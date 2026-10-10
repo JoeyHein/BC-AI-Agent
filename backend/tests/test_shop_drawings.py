@@ -153,6 +153,29 @@ class TestPdfExport:
             )
 
 
+class TestStampColumns:
+    """SHXL/BCXL long stamps: 4 rectangles through 16'11" (incl. 16'2"); 5 at 17'."""
+
+    def test_sixteen_two_stays_four(self):
+        from app.services.shop_drawings.framing import _stamp_columns
+        assert _stamp_columns(192, "long", False, "SHXL") == 4   # 16'0"
+        assert _stamp_columns(194, "long", False, "SHXL") == 4   # 16'2"
+        assert _stamp_columns(194, "long", False, "BCXL") == 4
+        assert _stamp_columns(203, "long", False, "SHXL") == 4   # 16'11"
+
+    def test_seventeen_foot_is_five(self):
+        from app.services.shop_drawings.framing import _stamp_columns
+        assert _stamp_columns(204, "long", False, "SHXL") == 5   # 17'0"
+        assert _stamp_columns(216, "long", False, "BCXL") == 5   # 18'0"
+
+    def test_narrower_long_stamp_buckets(self):
+        from app.services.shop_drawings.framing import _stamp_columns
+        assert _stamp_columns(96, "long", False, "SHXL") == 2    # 8'
+        assert _stamp_columns(122, "long", False, "SHXL") == 2   # 10'2"
+        assert _stamp_columns(144, "long", False, "SHXL") == 3   # 12'
+        assert _stamp_columns(168, "long", False, "SHXL") == 3   # 14'
+
+
 class TestSizeFormatting:
     def test_multi_door_prefix(self):
         from app.services.shop_drawings.framing import _fmt_size

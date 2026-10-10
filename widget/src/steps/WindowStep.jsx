@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import DoorPreview from '../DoorPreview'
+import { getStampColumns } from '../stampColumns'
 
 const GLASS_PANE_TYPES = [
   { id: 'INSULATED', name: 'Insulated', description: 'Double-pane for energy efficiency' },
@@ -31,46 +32,14 @@ function getGridDimensions(width, height, panelDesign, doorSeries) {
     sections = Math.round(height / sectionHeight)
   }
 
-  // Columns — must match DoorPreview getStampColumns exactly
-  const widthFeet = width / 12
-  let longCols
-  if (widthFeet <= 10) longCols = 2
-  else if (widthFeet <= 12) longCols = 3
-  else if (widthFeet <= 16) longCols = 4
-  else if (widthFeet <= 19) longCols = 5
-  else longCols = 6
-
-  if (isCraft) return { sections, cols: longCols }
-
+  // Columns — same table as DoorPreview / shop drawings
   const stampPatterns = {
     SHXL: 'long', SH: 'standard', BCXL: 'long', BC: 'standard',
     TRAFALGAR: 'long', FLUSH: 'long', UDC: 'long',
     MUSKOKA: 'long', DENISON: 'long', GRANVILLE: 'long',
   }
   const stampType = stampPatterns[panelDesign] || 'long'
-
-  if (stampType === 'long') return { sections, cols: longCols }
-
-  // Standard (short) stamps — exact counts per design
-  const isBronte = panelDesign === 'BC'
-  let cols
-  if (isBronte) {
-    // BC: always pairs of 2
-    if (widthFeet <= 10) cols = 4
-    else if (widthFeet <= 14) cols = 6
-    else if (widthFeet <= 16) cols = 8
-    else if (widthFeet <= 18) cols = 8
-    else cols = 10
-  } else {
-    // SH
-    if (widthFeet <= 9) cols = 4
-    else if (widthFeet <= 10) cols = 5
-    else if (widthFeet <= 12) cols = 6
-    else if (widthFeet <= 14) cols = 7
-    else if (widthFeet <= 16) cols = 8
-    else if (widthFeet <= 18) cols = 9
-    else cols = 10
-  }
+  const cols = getStampColumns(width, stampType, isCraft, panelDesign)
   return { sections, cols }
 }
 

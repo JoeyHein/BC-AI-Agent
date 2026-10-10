@@ -14,6 +14,7 @@ import {
   getCurrentPocketCount,
   buildPocketsForCount,
 } from '../../utils/glassPockets'
+import { getStampColumns as stampColumnCount } from '../../utils/stampColumns'
 import {
   lookupSeries,
   getDimensionValidation,
@@ -1473,22 +1474,10 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, commercialWindow
   }
   const panelCount = getPanelCount(door.doorHeight, door.doorSeries)
 
-  // Calculate stamp columns based on door width and panel design (same logic as DoorPreview)
+  // Stamp columns — same table as DoorPreview (16'2" SHXL/BCXL stays 4 until 17')
   const isCraft = door.doorSeries === 'CRAFT'
-  const getStampColumns = (widthInches, panelDesign) => {
-    const widthFeet = widthInches / 12
-    let longCols
-    if (widthFeet <= 9) longCols = 2
-    else if (widthFeet <= 12) longCols = 3
-    else if (widthFeet <= 16) longCols = 4
-    else if (widthFeet <= 19) longCols = 5
-    else longCols = 6
-    // Craft series: all stamps use same count (no doubling for short stamps)
-    if (isCraft) return longCols
-    if (['SH', 'BC'].includes(panelDesign)) return longCols * 2
-    return longCols
-  }
-  const stampColumns = getStampColumns(door.doorWidth, door.panelDesign)
+  const stampType = ['SH', 'BC'].includes(door.panelDesign) ? 'standard' : 'long'
+  const stampColumns = stampColumnCount(door.doorWidth, stampType, isCraft, door.panelDesign)
 
   // Long windows on SH/BC span 2 stamp columns each — grid shows half as many cells
   const isLongOnStandard = (door.windowSize || 'long') === 'long' && ['SH', 'BC'].includes(door.panelDesign)
