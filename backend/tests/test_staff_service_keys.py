@@ -216,6 +216,14 @@ class TestScopeRules:
         assert route_allowed("POST", "/api/admin/vendor-acks/run", b"", granted)[0] is True
         assert route_allowed("GET", "/api/admin/quote-review/reviews", b"", granted)[0] is True
         assert route_allowed("POST", "/api/admin/purchasing/draft-pos/PO-000962/review-draft", b"", granted)[0] is True
+        assert route_allowed(
+            "POST", "/api/admin/purchasing/draft-pos/PO-000962/requested-receipt",
+            b'{"recompute": true}', granted,
+        )[0] is True
+        assert route_allowed(
+            "POST", "/api/admin/purchasing/draft-pos/requested-receipt/backfill",
+            b'{"dry_run": false}', granted,
+        )[0] is True
 
     def test_generate_po_requires_send_email_false(self):
         granted = set(AUTOMATION_SCOPES)
@@ -234,6 +242,14 @@ class TestScopeRules:
         assert route_allowed("GET", "/api/admin/purchasing/so-po-links", b"", granted)[0] is False
         assert route_allowed("GET", "/api/admin/purchasing/so-complete-po/preview", b"", granted)[0] is False
         assert route_allowed("GET", "/api/admin/purchasing/vendors", b"", granted)[0] is False
+        assert route_allowed(
+            "POST", "/api/admin/purchasing/draft-pos/PO-000962/requested-receipt",
+            b'{"recompute": true}', granted,
+        )[0] is False
+        assert route_allowed(
+            "POST", "/api/admin/purchasing/draft-pos/requested-receipt/backfill",
+            b"{}", granted,
+        )[0] is False
 
 
 class TestHumanLoginUnchanged:

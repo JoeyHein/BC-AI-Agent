@@ -50,6 +50,7 @@ A new key is limited to the automation’s work:
 - Read the list of vendors
 - List and validate Draft purchase orders, including the PDF
 - Read and edit Draft PO lines (change, add, delete a line, reorder, normalize order)
+- Set or recompute the requested receipt date on a Draft purchase order, and run the Draft-only backfill (`dry_run` defaults to true). Open and Released purchase orders are refused
 - Create a Draft purchase order with **send_email set to false** (this does not email the vendor and does not save an Outlook draft)
 - Save an unsent Outlook review draft for a Draft PO that already exists
 - Read quotes and quote reviews

@@ -16,6 +16,10 @@ call sendMail. A human still sends.
 add an item or comment, reorder, or apply panels-first order. Released and
 Open POs are refused. Those routes do not release, email, or send.
 
+`/draft-pos/{po}/requested-receipt` sets the header requested receipt date
+on a **Draft** PO only. `/draft-pos/requested-receipt/backfill` recomputes
+that date on every Draft from today. Open and Released POs are not written.
+
 After review, the finance email can still be drafted in Outlook from the
 JSON; that is separate from the vendor review draft.
 
@@ -428,6 +432,10 @@ curl -fsS -X POST \
 `POST /api/admin/purchasing/generate-po` creates the Draft PO in BC. It does
 **not** email the vendor. There is no send-to-vendor flag.
 
+The create also sets the purchase-order header **requested receipt date**
+from the vendor lead-time rule (see below). That is separate from the
+sales-order requested delivery date, which this call does not change.
+
 When `create_review_draft` is true (the default, including the purchasing
 screen), the API then:
 
@@ -561,6 +569,112 @@ curl -fsS -X POST \
   -d "{\"so_number\":\"${SO}\",\"create_review_draft\":true}" \
   "$BASE/api/admin/purchasing/so-complete-po" | python3 -m json.tool
 ```
+
+## Requested receipt date
+
+New Drafts from `POST /api/admin/purchasing/generate-po`,
+`POST /api/admin/purchasing/so-complete-po`, and the nightly auto-PO job
+write `requestedReceiptDate` on
+the Business Central purchase-order header. The offset is calendar days from
+the PO order date. When Business Central has not returned an order date yet,
+the base is today in America/Edmonton.
+
+The vendor email (the unsent Outlook review draft) states the requirement.
+Edit the table in `backend/app/services/vendor_receipt_lead_time.py`
+(`VENDOR_LEAD_RULES`) when a vendor number or lead time changes. Match is
+the BC vendor number first, then the vendor name.
+
+| Vendor | How it matches | Header date | Email line |
+|---|---|---|---|
+| Upwardor | number `UPW`, or a name containing Upwardor / UPW | PO date + 21 days | `Required in our warehouse by <date>.` |
+| Elton Manufacturing | number `ELT`, or a name containing Elton / ELT | PO date + 14 days | `Required in our warehouse by <date>.` |
+| Lynx | number `LYNX`, or a name containing Lynx | PO date + 14 days | `Required in our warehouse by <date>.` |
+| Nice Canada, including Micanan / Nice | name contains Nice Canada, Micanan, or the word Nice. Add the BC vendor number on that row when the card number is confirmed. | PO date + 14 days | `Required in our warehouse by <date>.` |
+| Every other vendor | anything that does not match | PO date + 2 days (so the header is not left on BC's blank date `0001-01-01`) | `Please ship when ready.` |
+
+Sales-order requested delivery (the customer 6-week default) is not part of
+this rule and is not written by these calls.
+
+### Set or recompute one Draft
+
+```
+POST /api/admin/purchasing/draft-pos/{po_number}/requested-receipt
+```
+
+Staff admin JWT, or a service key with scope `purchasing:draft_po_lines`.
+`{po_number}` is `PO-000962`, bare digits, or the BC GUID.
+
+Recompute from the PO order date (today, when that order date is blank):
+
+```json
+{ "recompute": true }
+```
+
+Recompute from a chosen base date:
+
+```json
+{ "recompute": true, "as_of": "2026-10-13" }
+```
+
+Or set a date directly:
+
+```json
+{ "requested_receipt_date": "2026-12-01" }
+```
+
+| | |
+|---|---|
+| Draft | `200` with `requested_receipt_date`, `receipt_rule`, `email_line`, `changed`, `applied` |
+| Not Draft (Open or Released) | `422`. Business Central is not patched |
+| Missing PO | `404` |
+| Both a date and `recompute`, neither, or a blank date (`0001-01-01`) | `400` |
+| Not signed in / key without the scope | `401` / `403` |
+
+A second recompute that already matches does not patch again (`changed` false).
+
+### Backfill every existing Draft
+
+Existing Drafts were left on `0001-01-01`. This recomputes **all** of them
+from **today** (America/Edmonton), not from each PO's original order date,
+so an old draft does not get a receipt date that has already passed.
+`dry_run` defaults to **true**.
+
+```
+POST /api/admin/purchasing/draft-pos/requested-receipt/backfill
+```
+
+Preview (no write):
+
+```bash
+BASE="${PORTAL_BASE_URL:-https://portal.opendc.ca}"
+
+curl -fsS -X POST \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"dry_run": true}' \
+  "$BASE/api/admin/purchasing/draft-pos/requested-receipt/backfill" \
+  | python3 -m json.tool
+```
+
+Apply after the preview looks right. Only Draft rows are patched. A Released
+or Open row that slips through the Draft filter is skipped and left unchanged.
+One Business Central failure is recorded on that row (`failed`) and the rest
+still run. Run it again after a partial failure; a PO that already has the
+computed date is left alone.
+
+```bash
+curl -fsS -X POST \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"dry_run": false}' \
+  "$BASE/api/admin/purchasing/draft-pos/requested-receipt/backfill" \
+  | python3 -m json.tool
+```
+
+The response includes `as_of`, `updated`, `would_update` (dry run), `unchanged`,
+`skipped`, `failed`, and one `results` row per PO (`receipt_rule`,
+`requested_receipt_date`, `email_line`). A service key with
+`purchasing:draft_po_lines` can call the same URLs.
 
 ## Related (do not use for CoS Draft-PO inventory)
 

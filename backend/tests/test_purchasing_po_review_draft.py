@@ -209,6 +209,12 @@ class TestCreateWithReviewDraft:
         assert "PO-000100" in draft["subject"]
         assert "Open Distribution Company Inc." in draft["subject"]
         assert "ship dock 2" in draft["html_body"]
+        assert "Please ship when ready." in draft["html_body"]
+        assert "Required in our warehouse by" not in draft["html_body"]
+        assert "Kindly confirm receipt and expected ship date." in draft["html_body"]
+        assert result["ship_when_ready"] is True
+        assert result["receipt_lead_days"] == 2
+        assert bc.created[0]["requestedReceiptDate"] == result["requested_receipt_date"]
         att = _attachment(graph)
         assert att["content_bytes"] == BC_PDF
         assert att["content_type"] == "application/pdf"
@@ -310,6 +316,22 @@ class TestCreateWithReviewDraft:
         assert "&lt;script&gt;" in body
         assert "<script>" not in body
         assert "A&amp;B &lt;Doors&gt;" in body
+
+    def test_upwardor_email_states_the_warehouse_date(self, db, bc_graph):
+        from app.services.vendor_receipt_lead_time import (
+            format_warehouse_date,
+            receipt_plan_for_new_po,
+        )
+
+        _, graph = bc_graph
+        result = _create(db, vendor_no="UPW", vendor_name="UPWARDOR")
+        plan = receipt_plan_for_new_po("UPW", "UPWARDOR")
+        body = graph.drafts[0]["html_body"]
+        assert result["receipt_rule"] == "upwardor"
+        assert result["receipt_lead_days"] == 21
+        assert result["requested_receipt_date"] == plan.requested_receipt_date.isoformat()
+        assert f"Required in our warehouse by {format_warehouse_date(plan.requested_receipt_date)}." in body
+        assert "Please ship when ready." not in body
 
 
 class TestGraphCreateDraft:

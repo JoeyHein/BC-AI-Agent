@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db.models import AutoPoSnapshot, POAgentLog
 from app.integrations.bc.client import bc_client
+from app.services.vendor_receipt_lead_time import create_purchase_order_with_receipt
 from app.services.bc_production_service import bc_production_service
 from app.services.purchasing_demand_service import (
     purchasing_demand_service,
@@ -356,7 +357,10 @@ class AutoPoService:
         today = date.today().isoformat()
         # api/v2.0 purchaseOrders: set vendorNumber only — vendorName is a
         # read-only computed field and BC 400s if it's in the POST body.
-        bc_po = bc_client.create_purchase_order({"vendorNumber": plan["vendor_no"]})
+        # requestedReceiptDate comes from the vendor lead-time rule.
+        bc_po, _receipt = create_purchase_order_with_receipt(
+            bc_client, plan["vendor_no"], plan.get("vendor_name"),
+        )
         bc_po_id = bc_po.get("id")
         bc_po_number = bc_po.get("number")
         bc_status = bc_po.get("status") or "Draft"

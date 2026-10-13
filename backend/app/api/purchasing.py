@@ -35,6 +35,7 @@ from app.services.so_master_crosscheck_service import so_master_crosscheck_servi
 from app.integrations.bc.client import bc_client
 from app.services.draft_po_review_service import draft_po_review_service
 from app.services.draft_po_lines_service import DraftPoEditError, draft_po_lines_service
+from app.services.draft_po_receipt_service import draft_po_receipt_service
 
 router = APIRouter(prefix="/api/admin/purchasing", tags=["purchasing"])
 logger = logging.getLogger(__name__)
@@ -155,6 +156,28 @@ class DraftPoReorderRequest(BaseModel):
 class DraftPoNormalizeRequest(BaseModel):
     """Panels-first reorder. Defaults to a preview that does not write."""
     dry_run: bool = True
+
+
+class DraftPoReceiptRequest(BaseModel):
+    """Set a requested receipt date, or recompute it from the vendor lead-time rule.
+
+    Send one of ``requested_receipt_date`` or ``recompute``. ``as_of`` is the
+    base date for recompute (YYYY-MM-DD). Omit it to use the PO order date,
+    or today when that order date is blank.
+    """
+    requested_receipt_date: Optional[str] = None
+    recompute: bool = False
+    as_of: Optional[str] = None
+
+
+class DraftPoReceiptBackfillRequest(BaseModel):
+    """Recompute requested receipt on every Draft PO from today.
+
+    ``dry_run`` defaults to true and does not write. ``as_of`` overrides today
+    (America/Edmonton) when the backfill should count from another date.
+    """
+    dry_run: bool = True
+    as_of: Optional[str] = None
 
 
 class ExistingPOReviewDraftRequest(BaseModel):
@@ -616,7 +639,8 @@ async def so_po_links(
 # ==================== Draft PO review (CoS) ====================
 # List, validate, and PDF download are read-only. review-draft saves an
 # unsent Outlook message; it does not send or release the PO. Line routes
-# under /draft-pos/{po}/lines edit a Draft PO only.
+# under /draft-pos/{po}/lines edit a Draft PO only. requested-receipt sets
+# the header date on Draft POs only.
 
 @router.get("/draft-pos")
 async def list_draft_pos(
@@ -643,6 +667,33 @@ async def validate_all_draft_pos(
     except Exception as e:
         logger.error(f"Draft PO validate-all failed: {e}", exc_info=True)
         raise HTTPException(status_code=502, detail=f"Failed to validate draft POs: {e}")
+
+
+@router.post("/draft-pos/requested-receipt/backfill")
+async def backfill_draft_po_requested_receipt(
+    body: Optional[DraftPoReceiptBackfillRequest] = None,
+    admin: User = Depends(get_current_admin),
+):
+    """Recompute requested receipt on every Draft PO from today.
+
+    Counts from today in America/Edmonton (or ``as_of``), not from each PO's
+    original order date. ``dry_run`` defaults to true and does not write.
+    Open and Released POs are not in this list; a non-Draft row is skipped
+    and not patched. Staff admin JWT or a service key with
+    ``purchasing:draft_po_lines``.
+    """
+    dry_run = True if body is None else body.dry_run
+    as_of = None if body is None else body.as_of
+    logger.info(
+        "Admin %s backfilling Draft PO requested receipt dates (dry_run=%s as_of=%s)",
+        getattr(admin, "email", "?"),
+        dry_run,
+        as_of,
+    )
+    return _receipt_call(
+        lambda actor: draft_po_receipt_service.backfill(dry_run=dry_run, as_of=as_of, actor=actor),
+        admin,
+    )
 
 
 @router.get("/draft-pos/{po_number}/validate")
@@ -846,6 +897,21 @@ async def create_existing_po_review_draft(
         ) from e
 
 
+def _receipt_call(action, admin: User):
+    """Run a Draft-PO receipt change and map service errors to HTTP."""
+    actor = getattr(admin, "email", None) or "staff"
+    try:
+        return action(actor)
+    except DraftPoEditError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    except requests.HTTPError as exc:
+        logger.error("BC draft-PO receipt update failed: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Business Central rejected the requested receipt date: {exc}",
+        ) from exc
+
+
 def _draft_line_call(action, po_number: str, admin: User):
     """Run a Draft-PO line edit and map service errors to HTTP."""
     kind, value = normalize_staff_po_ref(po_number)
@@ -860,6 +926,39 @@ def _draft_line_call(action, po_number: str, admin: User):
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Business Central rejected the purchase-order line change: {exc}",
         ) from exc
+
+
+@router.post("/draft-pos/{po_number}/requested-receipt")
+async def set_draft_po_requested_receipt(
+    po_number: str,
+    body: DraftPoReceiptRequest,
+    admin: User = Depends(get_current_admin),
+):
+    """Set or recompute requested receipt on one Draft purchase order.
+
+    Open and Released POs return 422 and are not written. ``recompute`` applies
+    the vendor lead-time rule from the PO order date (or ``as_of``, or today
+    when the order date is blank). ``requested_receipt_date`` writes that date
+    instead. Staff admin JWT or a service key with ``purchasing:draft_po_lines``.
+    """
+    kind, value = normalize_staff_po_ref(po_number)
+    logger.info(
+        "Admin %s updating requested receipt on %s (recompute=%s)",
+        getattr(admin, "email", "?"),
+        value,
+        body.recompute,
+    )
+    return _receipt_call(
+        lambda actor: draft_po_receipt_service.set_or_recompute(
+            kind,
+            value,
+            requested_receipt_date=body.requested_receipt_date,
+            recompute=body.recompute,
+            as_of=body.as_of,
+            actor=actor,
+        ),
+        admin,
+    )
 
 
 @router.get("/draft-pos/{po_number}/lines")

@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.api.purchasing import get_current_admin, get_db, router as purchasing_router
 from app.db.models import POAgentLog, User, UserRole
 from app.services import so_po_generation_service as so_po
+from app.services.vendor_receipt_lead_time import receipt_plan_for_new_po
 
 
 BC_PDF = b"%PDF-1.4 bc-purchase-order-report\n%%EOF\n"
@@ -209,6 +210,14 @@ def _qty_map(lines):
     return {row["item_no"]: row["quantity"] for row in lines}
 
 
+def _header(vendor_no, vendor_name):
+    plan = receipt_plan_for_new_po(vendor_no, vendor_name)
+    return {
+        "vendorNumber": vendor_no,
+        "requestedReceiptDate": plan.requested_receipt_date.isoformat(),
+    }
+
+
 class TestPreview:
     def test_door_groups_skipped_operators_and_no_create(self, client, bc_graph):
         bc, graph = bc_graph
@@ -224,6 +233,10 @@ class TestPreview:
         assert data["bc_po_number"] is None
         assert data["bc_po_id"] is None
         assert data["vendor_no"] == "UPW"
+        assert data["receipt_rule"] == "upwardor"
+        assert data["receipt_lead_days"] == 21
+        assert data["ship_when_ready"] is False
+        assert data["requested_receipt_date"] == _header("UPW", "UPWARDOR")["requestedReceiptDate"]
         assert data["has_doors"] is True
         assert data["item_line_count"] == 3
         assert [door["label"] for door in data["doors"]] == [DOOR_1, DOOR_2]
@@ -293,7 +306,8 @@ class TestCreate:
         assert _qty_map(data["lines"]) == {"PN45-24405-1200": 29, "SH12-11810-00": 1}
         assert {row["item_no"] for row in data["skipped"]} == {"OP20-01056-00", "WRAPALU"}
 
-        assert bc.created == [{"vendorNumber": "UPW"}]
+        assert bc.created == [_header("UPW", "UPWARDOR")]
+        assert "requestedDeliveryDate" not in bc.created[0]
         assert bc.pdf_calls == [PO_GUID]
         item_nos = [body.get("lineObjectNumber") for _, body in bc.lines if body["lineType"] == "Item"]
         assert item_nos == ["PN45-24405-1200", "SH12-11810-00", "PN45-24405-1200"]
@@ -314,6 +328,11 @@ class TestCreate:
         assert "PO-000100" in draft["subject"]
         assert "Open Distribution Company Inc." in draft["subject"]
         assert "ship dock 2" in draft["html_body"]
+        assert "Required in our warehouse by" in draft["html_body"]
+        assert "Please ship when ready." not in draft["html_body"]
+        assert "Kindly confirm receipt and expected ship date." in draft["html_body"]
+        assert data["receipt_rule"] == "upwardor"
+        assert data["ship_when_ready"] is False
         assert "sendMail" not in draft["subject"]
         att = draft["attachments"][0]
         assert att["content_bytes"] == BC_PDF
@@ -345,7 +364,7 @@ class TestCreate:
         assert data["pdf_source"] is None
         assert data["pdf_error"] is None
         assert data["draft_error"] is None
-        assert bc.created == [{"vendorNumber": "UPW"}]
+        assert bc.created == [_header("UPW", "UPWARDOR")]
         assert bc.pdf_calls == []
         assert graph.drafts == []
         assert graph.sent == []
@@ -363,7 +382,10 @@ class TestCreate:
         data = res.json()
         assert data["vendor_no"] == "VEND9"
         assert data["vendor_name"] == "Other Vendor"
-        assert bc.created == [{"vendorNumber": "VEND9"}]
+        assert data["receipt_rule"] == "ship_when_ready"
+        assert data["receipt_lead_days"] == 2
+        assert data["ship_when_ready"] is True
+        assert bc.created == [_header("VEND9", "Other Vendor")]
         assert graph.sent == []
         assert graph.drafts == []
 
@@ -447,4 +469,7 @@ class TestCreate:
         assert data["email_sent"] is False
         assert "no To address" in data["draft_warning"]
         assert graph.drafts[0]["to"] is None
+        assert "Required in our warehouse by" in graph.drafts[0]["html_body"]
+        assert data["receipt_rule"] == "lynx"
+        assert data["receipt_lead_days"] == 14
         assert graph.sent == []

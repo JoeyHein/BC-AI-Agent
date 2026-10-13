@@ -105,6 +105,10 @@ _RULES: list[tuple[str, re.Pattern[str], str, Optional[str]]] = [
     ("POST", re.compile(r"^/api/admin/purchasing/draft-pos/[^/]+/lines$"), DRAFT_PO_LINES, None),
     ("POST", re.compile(r"^/api/admin/purchasing/draft-pos/[^/]+/lines/reorder$"), DRAFT_PO_LINES, None),
     ("POST", re.compile(r"^/api/admin/purchasing/draft-pos/[^/]+/lines/normalize-order$"), DRAFT_PO_LINES, None),
+    # Draft PO header: set or recompute requested receipt, and the one-off backfill.
+    # Open / Released POs are refused by the route. Same scope as line edits.
+    ("POST", re.compile(r"^/api/admin/purchasing/draft-pos/requested-receipt/backfill$"), DRAFT_PO_LINES, None),
+    ("POST", re.compile(r"^/api/admin/purchasing/draft-pos/[^/]+/requested-receipt$"), DRAFT_PO_LINES, None),
     ("POST", re.compile(r"^/api/admin/purchasing/generate-po$"), GENERATE_PO, "generate_po"),
     ("POST", re.compile(r"^/api/admin/purchasing/draft-pos/[^/]+/review-draft$"), REVIEW_DRAFT, None),
     # Vendor acknowledgement intake.
