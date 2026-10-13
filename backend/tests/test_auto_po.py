@@ -11,6 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.db.models import AutoPoSnapshot, POAgentLog
+from app.services.vendor_receipt_lead_time import receipt_plan_for_new_po
 from app.services.auto_po_service import (
     AutoPoService,
     SKIP_MANUFACTURED,
@@ -102,6 +103,9 @@ def test_new_line_drafts_a_po_for_preferred_vendor(monkeypatch):
     assert result["drafted_po_count"] == 1
     assert len(bc.created) == 1
     assert bc.created[0]["vendorNumber"] == "UPW"
+    assert bc.created[0]["requestedReceiptDate"] == (
+        receipt_plan_for_new_po("UPW", "UPWARDOR").requested_receipt_date.isoformat()
+    )
     log = db.query(POAgentLog).one()
     assert log.is_auto is True
     assert log.so_allocations == {"SO-1001": [{"item_no": "PL10-16203-00", "qty": 4.0}]}

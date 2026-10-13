@@ -363,5 +363,24 @@ class TestExistingPoReviewDraft:
         )
         assert draft["html_body"] == purchasing_po_service._email_body(
             PO_NUMBER, "Acme Doors", "dock 2",
+            vendor_no="VEND1",
         )
+        assert "Please ship when ready." in draft["html_body"]
+        assert "Kindly confirm receipt and expected ship date." in draft["html_body"]
         assert bc_graph[1].sent == []
+
+    def test_named_vendor_email_uses_the_header_date(self, bc_graph):
+        bc, graph = bc_graph
+        bc.by_number[PO_NUMBER] = _po(
+            vendorNumber="UPW",
+            vendorName="UPWARDOR",
+            orderDate="2026-09-01",
+            requestedReceiptDate="2026-09-22",
+        )
+        purchasing_po_service.create_review_draft_for_existing(
+            kind="number", value=PO_NUMBER,
+        )
+        body = graph.drafts[0]["html_body"]
+        assert "Required in our warehouse by September 22, 2026." in body
+        assert "Please ship when ready." not in body
+        assert graph.sent == []

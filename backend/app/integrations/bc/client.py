@@ -981,6 +981,23 @@ class BusinessCentralClient:
         )
         return result
 
+    def update_purchase_order(self, po_id: str, po_data: Dict[str, Any],
+                               company_id: Optional[str] = None) -> Dict[str, Any]:
+        """PATCH a purchase-order header (api/v2.0).
+
+        If-Match * — staff corrections target the current Draft header, and a
+        stale etag should not block a date the purchaser just confirmed.
+        ``po_data`` is the purchaseOrders field set, for example
+        ``{"requestedReceiptDate": "2026-11-03"}``.
+        """
+        cid = company_id or self.company_id
+        return self._make_request(
+            "PATCH",
+            f"companies({cid})/purchaseOrders({po_id})",
+            json=po_data,
+            headers={"If-Match": "*"},
+        )
+
     def add_purchase_order_line(self, po_id: str, line_data: Dict[str, Any],
                                  company_id: Optional[str] = None) -> Dict[str, Any]:
         """Add a line item to a purchase order"""
@@ -1053,6 +1070,21 @@ class BusinessCentralClient:
             f"{self.base_url}/companies({cid})/purchaseOrders"
             f"?$filter=status eq 'Draft'"
             f"&$expand=purchaseOrderLines"
+        )
+        return self._paginate_v2(url, "draft purchase orders")
+
+    def get_draft_purchase_orders(self, company_id: Optional[str] = None
+                                   ) -> List[Dict[str, Any]]:
+        """Draft purchase-order headers, without lines.
+
+        Same status filter as get_draft_purchase_orders_with_lines. Used when
+        the caller only needs the header (requested receipt date, vendor).
+        Callers should still ignore a non-Draft row if the filter is loose.
+        """
+        cid = company_id or self.company_id
+        url = (
+            f"{self.base_url}/companies({cid})/purchaseOrders"
+            f"?$filter=status eq 'Draft'"
         )
         return self._paginate_v2(url, "draft purchase orders")
 

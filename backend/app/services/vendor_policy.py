@@ -10,6 +10,7 @@ preferred-vendor history at all.
 """
 
 # Vendor numbers (BC) — keep in sync with BC vendor cards.
+# Requested-receipt lead times for these vendors live in vendor_receipt_lead_time.py.
 PREFERRED_VENDORS = {"UPW", "LYNX", "ELT"}      # Upwardor, Lynx, Elton Manufacturing
 EXPEDITE_VENDORS = {"DEK", "UPAM"}              # Dek Canada, Upwardor Amazon — <1wk only
 

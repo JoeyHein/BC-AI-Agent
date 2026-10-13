@@ -35,6 +35,10 @@ from app.db.models import POAgentLog
 from app.integrations.bc.client import bc_client
 from app.integrations.email.client import graph_client
 from app.services.po_line_order import BC_DESCRIPTION_MAX, order_item_rows, order_request_lines
+from app.services.vendor_receipt_lead_time import (
+    create_purchase_order_with_receipt,
+    sentence_for_vendor,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -147,8 +151,9 @@ class PurchasingPOService:
                 )
 
         # 1. Create PO header in BC. vendorName is read-only in api/v2.0 (BC
-        # 400s if it's in the body) — set vendorNumber only.
-        bc_po = bc_client.create_purchase_order({"vendorNumber": vendor_no or ""})
+        # 400s if it's in the body) — set vendorNumber only, plus the
+        # requested receipt date from the vendor lead-time rule.
+        bc_po, receipt = create_purchase_order_with_receipt(bc_client, vendor_no, vendor_name)
         bc_po_id = bc_po.get("id")
         bc_po_number = bc_po.get("number")
         if not bc_po_id:
@@ -194,6 +199,8 @@ class PurchasingPOService:
             draft_to, draft_id, draft_web_link, draft_warning, draft_error, pdf_error, pdf_source = (
                 self._save_review_draft(
                     bc_po_id, bc_po_number, vendor_no, vendor_name, notes, cc, mailbox,
+                    requested_receipt_date=receipt.requested_receipt_date.isoformat(),
+                    order_date=receipt.po_date.isoformat(),
                 )
             )
 
@@ -241,6 +248,7 @@ class PurchasingPOService:
             "draft_error": draft_error,
             "pdf_error": pdf_error,
             "pdf_source": pdf_source,
+            **receipt.public_dict(),
         }
 
     def create_review_draft_for_existing(
@@ -299,6 +307,8 @@ class PurchasingPOService:
             pdf_source,
         ) = self._save_review_draft(
             bc_po_id, number, vendor_no, vendor_name, notes, cc, mailbox,
+            requested_receipt_date=po.get("requestedReceiptDate"),
+            order_date=po.get("orderDate"),
         )
         return {
             "success": True,
@@ -392,6 +402,8 @@ class PurchasingPOService:
                 notes,
                 cc,
                 mailbox,
+                requested_receipt_date=view.get("requested_receipt_date"),
+                order_date=view.get("receipt_base_date"),
             )
             review = {
                 "review_draft_created": bool(draft_id),
@@ -477,7 +489,7 @@ class PurchasingPOService:
             "reason": row.get("reason"),
         } for row in (plan.get("excluded") or [])]
 
-        return {
+        view = {
             "so_number": plan.get("so_number"),
             "customer_name": plan.get("customer_name"),
             "mode": plan.get("mode") or "complete",
@@ -494,6 +506,16 @@ class PurchasingPOService:
             "item_line_count": item_line_count,
             "note": plan.get("note"),
         }
+        for key in (
+            "requested_receipt_date",
+            "receipt_base_date",
+            "receipt_lead_days",
+            "receipt_rule",
+            "ship_when_ready",
+        ):
+            if key in plan:
+                view[key] = plan[key]
+        return view
 
     @staticmethod
     def _log_complete_so_po(db: Session, plan: dict, user_id: int) -> int:
@@ -549,6 +571,8 @@ class PurchasingPOService:
         notes: Optional[str],
         cc: Optional[List[str]],
         mailbox: str,
+        requested_receipt_date: Optional[str] = None,
+        order_date: Optional[str] = None,
     ):
         """Download the BC report and save an unsent Outlook draft.
 
@@ -590,7 +614,14 @@ class PurchasingPOService:
                 mailbox=mailbox,
                 to=vendor_email,
                 subject=f"Purchase Order {bc_po_number} — {COMPANY_NAME}",
-                html_body=self._email_body(bc_po_number, vendor_name, notes),
+                html_body=self._email_body(
+                    bc_po_number,
+                    vendor_name,
+                    notes,
+                    vendor_no=vendor_no,
+                    requested_receipt_date=requested_receipt_date,
+                    order_date=order_date,
+                ),
                 attachments=[{
                     "name": f"PO_{bc_po_number}.pdf",
                     "content_bytes": pdf_bytes,
@@ -635,13 +666,27 @@ class PurchasingPOService:
             return None
 
     @staticmethod
-    def _email_body(po_number: str, vendor_name: str, notes: Optional[str] = None) -> str:
+    def _email_body(
+        po_number: str,
+        vendor_name: str,
+        notes: Optional[str] = None,
+        vendor_no: Optional[str] = None,
+        requested_receipt_date: Optional[str] = None,
+        order_date: Optional[str] = None,
+    ) -> str:
         notes_html = ""
         if notes:
             notes_html = f"<p><strong>Notes:</strong> {html.escape(str(notes))}</p>"
+        requirement = html.escape(sentence_for_vendor(
+            vendor_no,
+            vendor_name,
+            requested_receipt_date,
+            order_date,
+        ))
         return f"""<div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;color:#111827">
         <p>Hello {html.escape(vendor_name)},</p>
         <p>Please find attached our Purchase Order <strong>{html.escape(str(po_number or ''))}</strong>.</p>
+        <p><strong>{requirement}</strong></p>
         {notes_html}
         <p>Kindly confirm receipt and expected ship date. Reply to this email with any questions.</p>
         <p>Thank you,<br>{COMPANY_NAME}</p></div>"""

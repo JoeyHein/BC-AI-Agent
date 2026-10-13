@@ -38,6 +38,10 @@ from typing import Dict, List, Optional, Tuple
 
 from app.integrations.bc.client import bc_client
 from app.services.bc_production_service import bc_production_service
+from app.services.vendor_receipt_lead_time import (
+    create_purchase_order_with_receipt,
+    receipt_plan_for_new_po,
+)
 from app.services.purchasing_demand_service import NON_STOCK_ITEMS, _buy_complete
 from app.services.po_line_order import order_item_rows
 
@@ -604,6 +608,8 @@ def build_upwardor_po(so_number: str, vendor_no: str = "UPW", vendor_name: str =
     for one sales order. mode="complete" (default) copies the SO in full per
     compute_complete_po_lines; mode="netted" is the older stock-netted plan.
     Never emails — matches the existing "Draft in BC, human reviews" pattern.
+    The header requested receipt date follows the vendor lead-time rule
+    (see vendor_receipt_lead_time). Sales-order delivery dates are not changed.
 
     The staff purchasing API calls this (complete mode only) from
     purchasing_po_service.preview_complete_so_po / create_complete_so_po.
@@ -619,11 +625,17 @@ def build_upwardor_po(so_number: str, vendor_no: str = "UPW", vendor_name: str =
                           "Nothing to order — fully covered by stock/other open POs, or all items manufactured in-house.")
         return result
 
+    receipt = receipt_plan_for_new_po(vendor_no, vendor_name)
+    result.update(receipt.public_dict())
+
     if dry_run:
         result["bc_po_number"] = None
         return result
 
-    bc_po = bc_client.create_purchase_order({"vendorNumber": vendor_no})
+    bc_po, applied = create_purchase_order_with_receipt(
+        bc_client, vendor_no, vendor_name, plan=receipt,
+    )
+    result.update(applied.public_dict())
     po_id, po_number = bc_po["id"], bc_po["number"]
     _write_plan_lines(po_id, plan, so_number)
 
