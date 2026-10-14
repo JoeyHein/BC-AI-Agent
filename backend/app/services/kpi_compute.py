@@ -566,6 +566,10 @@ def _sales(bundle: dict, start: date, end: date, product_map: ProductMap, errors
     month["label"] = bounds["month_start"].strftime("%B %Y")
     month["from"] = bounds["month_start"].isoformat()
     month["to"] = bounds["month_end"].isoformat()
+    month["prior_from"] = bounds["prev_month_start"].isoformat()
+    month["prior_to"] = bounds["prev_month_end"].isoformat()
+    month["year_ago_from"] = bounds["month_year_start"].isoformat()
+    month["year_ago_to"] = bounds["month_year_end"].isoformat()
 
     weekly_series = []
     cursor = start - timedelta(days=start.weekday())
@@ -636,7 +640,7 @@ def _sales(bundle: dict, start: date, end: date, product_map: ProductMap, errors
         posted = parse_date(invoice.get("posting_date"))
         if _in_range(posted, start, end):
             accumulate(invoice, mix_current, item_current, operator_current, True)
-        elif _in_range(posted, bounds["prior_start"], bounds["prior_end"]):
+        elif _in_range(posted, bounds["prev_month_start"], bounds["prev_month_end"]):
             accumulate(invoice, mix_prior, item_prior, operator_prior, False)
 
     mix_total = sum(mix_current.values())

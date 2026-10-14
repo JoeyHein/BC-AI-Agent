@@ -33,7 +33,7 @@ These need all four read scopes together: `orders:read`, `purchasing:read`, `quo
 
 | Scope | Route | What it returns |
 | --- | --- | --- |
-| `orders:read`, `purchasing:read`, `quotes:read`, and `inventory:read` | `GET /api/kpi/dashboard` | Financial and operations KPIs for a date range (`from`, `to`). |
+| `orders:read`, `purchasing:read`, `quotes:read`, and `inventory:read` | `GET /api/kpi/dashboard` | Saved financial and operations KPIs for one month (`month` as `YYYY-MM`, or the current month). |
 | `orders:read`, `purchasing:read`, `quotes:read`, and `inventory:read` | `GET /api/kpi/dashboard/purchasing` | Purchasing and vendor KPIs only. |
 | `orders:read`, `purchasing:read`, `quotes:read`, and `inventory:read` | `GET /api/kpi/dashboard/sales` | Sales KPIs only. |
 | `orders:read`, `purchasing:read`, `quotes:read`, and `inventory:read` | `GET /api/kpi/dashboard/financial` | Financial KPIs only. |
@@ -128,3 +128,4 @@ These stay off the key:
 - `POST /api/admin/customers/sync-bc-customers`
 - `PUT /api/settings/pricing-tiers`
 - `GET /api/auth/users` and any user-management route
+- `POST /api/kpi/recalculate` (admin sign-in only; the saved snapshot is what the key can read)

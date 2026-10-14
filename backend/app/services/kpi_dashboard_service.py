@@ -61,7 +61,25 @@ class KpiDashboardService:
         self._cache[key] = (now + CACHE_SECONDS, payload)
         return dict(payload)
 
+    def build_with_trace(self, db, start: date, end: date, today: Optional[date] = None):
+        """Live Business Central read used by the nightly job and the validation script.
+
+        The staff page does not call this. It reads the stored snapshot.
+        """
+        from app.services.kpi_validation import collect_trace
+
+        today = today or end
+        product_map = load_product_map()
+        bundle = self._assemble(db, start, end, today, product_map)
+        payload = build_kpi_dashboard(bundle, start, end, today, product_map)
+        return payload, collect_trace(bundle, start, end, payload)
+
     def _build(self, db, start: date, end: date, today: date, product_map) -> dict:
+        bundle = self._assemble(db, start, end, today, product_map)
+        logger.info("KPI dashboard computed for %s to %s", start.isoformat(), end.isoformat())
+        return build_kpi_dashboard(bundle, start, end, today, product_map)
+
+    def _assemble(self, db, start: date, end: date, today: date, product_map) -> dict:
         errors: dict[str, str] = {}
         window_start = _fetch_start(start, end, today, product_map.slow_mover_days)
         invoices = self._try("sales_invoices", lambda: self._invoices(window_start, end), errors, [])
@@ -87,8 +105,7 @@ class KpiDashboardService:
         sends, acks = self._portal(db, errors)
         bundle["po_sends"] = sends
         bundle["acks"] = acks
-        logger.info("KPI dashboard computed for %s to %s", start.isoformat(), end.isoformat())
-        return build_kpi_dashboard(bundle, start, end, today, product_map)
+        return bundle
 
     def _try(self, name: str, fn, errors: dict, default):
         try:

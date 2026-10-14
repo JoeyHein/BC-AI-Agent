@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Bar,
@@ -18,6 +18,31 @@ import {
   YAxis,
 } from 'recharts'
 import { kpiApi } from '../api/client'
+import { useAuth } from '../contexts/AuthContext'
+
+const HELP = {
+  soToPo: 'Average days from the sales order date to the day the purchase order was sent. The sent date is the portal email time when that was recorded, otherwise the purchase order date once the order is open.',
+  ack: 'Average days from the sent date to the Upwardor acknowledgement. A promised receipt date in Business Central is not an acknowledgement.',
+  unacked: 'Purchase orders that have been sent, are not fully received, and have no Upwardor acknowledgement. This is the open list as of the snapshot, not only this month.',
+  onTime: 'Share of purchase orders whose first receipt in the month was on or before the required receipt date.',
+  sales: 'Posted sales invoices before tax. The arrows compare the same days of the prior month, and the same dates last year.',
+  week: 'Posted sales invoices in the week that contains the last day of this snapshot, compared with the week before.',
+  quotes: 'Orders in the month whose external document is a quote that is no longer open, divided by those orders plus quotes still open from the same dates. The open amount is every quote still in Business Central.',
+  margin: 'Invoice amount before tax, minus quantity times the unit cost on the item card. Orders under the cutoff in the product-line file are flagged.',
+  variance: 'Posted purchase invoice total minus the purchase order total, before tax.',
+  ar: 'Customer-card balances. The bar splits open sales invoices by due date. Deposits are open customer payments when Business Central returns that list.',
+  backlog: 'Open sales orders, the part not yet shipped, before tax.',
+  ship: 'Days from the sales order date to the shipment date.',
+  inventory: 'Quantity on hand times the item unit cost.',
+  reorder: 'Items whose quantity on hand is under the reorder point, when Business Central includes that field.',
+  freight: 'Invoice lines that match the freight words in the product-line file, divided by sales before tax.',
+  gauge: 'The gauge is the average sales-order to purchase-order days. The count is orders over the late-day line.',
+  vendorBars: 'Average acknowledgement days by vendor. The dashed line is the late-day cutoff.',
+  trend: 'Posted sales invoices. Weekly is kept for the open month. Last year is the same week or the same month.',
+  mix: 'Invoice lines grouped into commercial, residential, and aluminum from the product-line list. Anything else is Other.',
+  brands: 'Invoice lines that name LiftMaster, Micanan or McKinnon, or Guardian. The arrow is the change versus the same days of the prior month.',
+  marginBars: 'Gross margin percent by product line. The dashed line is the low-margin cutoff.',
+}
 
 const TONE = {
   good: { bar: 'bg-emerald-500', text: 'text-emerald-700', pill: 'bg-emerald-100 text-emerald-800', dot: 'bg-emerald-500', fill: '#059669' },
@@ -47,47 +72,6 @@ const AGING = {
 }
 
 const TIP = { borderRadius: 12, border: '1px solid #e5e7eb', fontSize: 12, boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)' }
-
-function formatDay(date) {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
-}
-
-function lastDays(count) {
-  const end = new Date()
-  const start = new Date()
-  start.setDate(end.getDate() - (count - 1))
-  return { from: formatDay(start), to: formatDay(end) }
-}
-
-function thisMonth() {
-  const end = new Date()
-  const start = new Date(end.getFullYear(), end.getMonth(), 1)
-  return { from: formatDay(start), to: formatDay(end) }
-}
-
-function lastMonth() {
-  const today = new Date()
-  const start = new Date(today.getFullYear(), today.getMonth() - 1, 1)
-  const end = new Date(today.getFullYear(), today.getMonth(), 0)
-  return { from: formatDay(start), to: formatDay(end) }
-}
-
-function thisYear() {
-  const end = new Date()
-  const start = new Date(end.getFullYear(), 0, 1)
-  return { from: formatDay(start), to: formatDay(end) }
-}
-
-const PRESETS = [
-  { id: '7', label: 'Last 7 days', range: () => lastDays(7) },
-  { id: '30', label: 'Last 30 days', range: () => lastDays(30) },
-  { id: 'month', label: 'This month', range: thisMonth },
-  { id: 'last', label: 'Last month', range: lastMonth },
-  { id: 'year', label: 'This year', range: thisYear },
-]
 
 function money(value) {
   if (value == null || Number.isNaN(Number(value))) return '—'
@@ -130,7 +114,7 @@ function noteState(coverage, id) {
   return (coverage || []).find((note) => note.id === id)?.state
 }
 
-function Trend({ delta, kind = 'upGood', compact = false }) {
+function Trend({ delta, kind = 'upGood', compact = false, suffix = 'vs prior' }) {
   if (delta == null || Number.isNaN(Number(delta))) return null
   const value = Number(delta)
   const up = value > 0
@@ -141,7 +125,30 @@ function Trend({ delta, kind = 'upGood', compact = false }) {
   return (
     <span className={`inline-flex items-center gap-0.5 text-sm font-semibold tabular-nums ${color}`}>
       <span aria-hidden="true">{arrow}</span>
-      <span>{Math.abs(value).toFixed(1)}%{compact ? '' : ' vs prior'}</span>
+      <span>{Math.abs(value).toFixed(1)}%{compact ? '' : ` ${suffix}`}</span>
+    </span>
+  )
+}
+
+function HelpTip({ text }) {
+  const [open, setOpen] = useState(false)
+  if (!text) return null
+  return (
+    <span className="inline-flex flex-col items-end">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label="How this is calculated"
+        onClick={() => setOpen((value) => !value)}
+        className="inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold text-gray-400 ring-1 ring-gray-200 hover:bg-gray-50"
+      >
+        i
+      </button>
+      {open && (
+        <span className="mt-1 max-w-[16rem] rounded-xl bg-odc-900 px-3 py-2 text-left text-xs font-normal normal-case leading-snug tracking-normal text-white shadow-lg">
+          {text}
+        </span>
+      )}
     </span>
   )
 }
@@ -168,25 +175,27 @@ function PartialMark({ flag }) {
   )
 }
 
-function KpiTile({ label, value, unit, delta, deltaKind, status, flag, sub }) {
+function KpiTile({ label, value, unit, delta, deltaSuffix = 'vs prior', deltaKind, yearAgo, status, flag, sub, help }) {
   const tone = toneOf(status)
   return (
-    <article className="relative min-w-0 overflow-hidden rounded-2xl bg-white p-3.5 shadow-sm ring-1 ring-gray-200 sm:p-5">
-      <div className={`absolute inset-y-0 left-0 w-1.5 ${tone.bar}`} />
+    <article className="relative min-w-0 rounded-2xl bg-white p-3.5 shadow-sm ring-1 ring-gray-200 sm:p-5">
+      <div className={`absolute inset-y-0 left-0 w-1.5 rounded-l-2xl ${tone.bar}`} />
       <div className="flex items-start justify-between gap-2 pl-2">
         <p className="min-w-0 truncate text-[11px] font-semibold uppercase tracking-wide text-gray-500 sm:text-xs">{label}</p>
         <span className="flex items-center gap-1">
           <PartialMark flag={flag} />
           <StatusMark status={status} />
+          <HelpTip text={help} />
         </span>
       </div>
       <p className={`mt-2 pl-2 text-3xl font-semibold leading-none tracking-tight tabular-nums sm:text-4xl ${tone.text}`}>
         {value}
         {unit && value !== '—' && <span className="ml-1 text-sm font-medium text-gray-400">{unit}</span>}
       </p>
-      {(delta != null || sub) && (
+      {(delta != null || yearAgo != null || sub) && (
         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-2">
-          <Trend delta={delta} kind={deltaKind} />
+          <Trend delta={delta} kind={deltaKind} suffix={deltaSuffix} />
+          <Trend delta={yearAgo} suffix="vs last year" />
           {sub && <p className="text-sm font-medium text-gray-500">{sub}</p>}
         </div>
       )}
@@ -203,12 +212,15 @@ function Section({ title, children }) {
   )
 }
 
-function ChartCard({ title, action, children, className = '' }) {
+function ChartCard({ title, action, help, children, className = '' }) {
   return (
     <div className={`min-w-0 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-5 ${className}`}>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
         <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
-        {action}
+        <span className="flex items-center gap-2">
+          {action}
+          <HelpTip text={help} />
+        </span>
       </div>
       {children}
     </div>
@@ -351,14 +363,14 @@ function Purchasing({ data, coverage, lateDays }) {
   return (
     <Section title="Purchasing">
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <KpiTile label="SO to PO" value={daysLabel(card.average_days)} unit="days" status={card.status} flag={noteState(coverage, 'so_to_po')} />
-        <KpiTile label="Vendor ack" value={daysLabel(acks.average_days)} unit="days" status={acks.status} flag={noteState(coverage, 'po_ack')} />
-        <KpiTile label="Unacked POs" value={unacked.count == null ? '—' : unacked.count} status={unacked.status} flag={noteState(coverage, 'unacknowledged')} />
-        <KpiTile label="On time" value={pctLabel(onTime.rate_pct)} status={onTime.status} flag={noteState(coverage, 'vendor_ontime')} />
+        <KpiTile label="SO to PO" value={daysLabel(card.average_days)} unit="days" status={card.status} flag={noteState(coverage, 'so_to_po')} help={HELP.soToPo} />
+        <KpiTile label="Vendor ack" value={daysLabel(acks.average_days)} unit="days" status={acks.status} flag={noteState(coverage, 'po_ack')} help={HELP.ack} />
+        <KpiTile label="Unacked POs" value={unacked.count == null ? '—' : unacked.count} status={unacked.status} flag={noteState(coverage, 'unacknowledged')} help={HELP.unacked} />
+        <KpiTile label="On time" value={pctLabel(onTime.rate_pct)} status={onTime.status} flag={noteState(coverage, 'vendor_ontime')} help={HELP.onTime} />
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-5">
-        <ChartCard title="SO to PO" className="lg:col-span-2">
+        <ChartCard title="SO to PO" className="lg:col-span-2" help={HELP.gauge}>
           <div className="flex items-end gap-3">
             <div className="min-w-0 flex-1">
               <DaysGauge days={card.average_days} status={card.status} max={Math.max(lateDays * 2, 10)} />
@@ -371,7 +383,7 @@ function Purchasing({ data, coverage, lateDays }) {
             </div>
           </div>
         </ChartCard>
-        <ChartCard title="Vendor acknowledgement days" className="lg:col-span-3">
+        <ChartCard title="Vendor acknowledgement days" className="lg:col-span-3" help={HELP.vendorBars}>
           <VendorAckChart vendors={acks.vendors} lateDays={lateDays} />
         </ChartCard>
       </div>
@@ -480,8 +492,8 @@ function Donut({ slices }) {
   )
 }
 
-function SalesTrend({ weekly, monthly }) {
-  const [grain, setGrain] = useState('week')
+function SalesTrend({ weekly, monthly, defaultGrain = 'week' }) {
+  const [grain, setGrain] = useState(defaultGrain)
   const series = grain === 'week' ? weekly : monthly
   const toggle = (
     <div className="inline-flex rounded-full bg-gray-100 p-0.5">
@@ -498,7 +510,7 @@ function SalesTrend({ weekly, monthly }) {
     </div>
   )
   return (
-    <ChartCard title="Sales trend" action={toggle}>
+    <ChartCard title="Sales trend" action={toggle} help={HELP.trend}>
       {series.length === 0 ? <EmptyChart /> : (
         <div className="h-56 sm:h-72">
           <ResponsiveContainer width="100%" height="100%">
@@ -518,7 +530,7 @@ function SalesTrend({ weekly, monthly }) {
   )
 }
 
-function Sales({ data, coverage }) {
+function Sales({ data, coverage, showWeek = true }) {
   const mix = data?.product_mix || {}
   const mixRows = [
     ...(mix.lines || []).map((line) => ({ ...line, fill: SLICE[line.id] || '#94a3b8' })),
@@ -538,42 +550,48 @@ function Sales({ data, coverage }) {
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <KpiTile
           label="Sales"
-          value={money(data?.range_total?.amount)}
-          delta={data?.range_total?.prior_delta_pct}
-          status={data?.range_total?.status}
-          flag={noteState(coverage, 'sales')}
-        />
-        <KpiTile
-          label={data?.week?.label || 'This week'}
-          value={money(data?.week?.amount)}
-          delta={data?.week?.prior_delta_pct}
-          status={data?.week?.status}
-          flag={noteState(coverage, 'sales')}
-        />
-        <KpiTile
-          label={data?.month?.label || 'This month'}
-          value={money(data?.month?.amount)}
+          value={money(data?.month?.amount ?? data?.range_total?.amount)}
           delta={data?.month?.prior_delta_pct}
+          deltaSuffix="vs prior month"
+          yearAgo={data?.month?.year_ago_delta_pct}
           status={data?.month?.status}
           flag={noteState(coverage, 'sales')}
+          help={HELP.sales}
         />
+        {showWeek && (
+          <KpiTile
+            label={data?.week?.label || 'This week'}
+            value={money(data?.week?.amount)}
+            delta={data?.week?.prior_delta_pct}
+            deltaSuffix="vs prior week"
+            status={data?.week?.status}
+            flag={noteState(coverage, 'sales')}
+            help={HELP.week}
+          />
+        )}
         <KpiTile
           label="Quotes won"
           value={pctLabel(data?.quotes?.conversion_pct)}
           status={data?.quotes?.status}
           flag={noteState(coverage, 'quotes')}
           sub={data?.quotes?.open_quote_value != null ? `${money(data.quotes.open_quote_value)} open` : null}
+          help={HELP.quotes}
         />
       </div>
 
-      <SalesTrend weekly={data?.weekly_series || []} monthly={data?.monthly_series || []} />
+      <SalesTrend
+        key={showWeek ? 'week' : 'month'}
+        weekly={data?.weekly_series || []}
+        monthly={data?.monthly_series || []}
+        defaultGrain={showWeek ? 'week' : 'month'}
+      />
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <ChartCard title="Product mix">
+        <ChartCard title="Product mix" help={HELP.mix}>
           <Donut slices={mixRows} />
           <SliceLegend rows={mixRows} />
         </ChartCard>
-        <ChartCard title="Operator brands">
+        <ChartCard title="Operator brands" help={HELP.brands}>
           <Donut slices={brands} />
           <SliceLegend rows={brands} deltaKey="delta_pct" />
         </ChartCard>
@@ -609,14 +627,14 @@ function Financial({ data, coverage }) {
   return (
     <Section title="Financial">
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <KpiTile label="Margin" value={pctLabel(margin.margin_pct)} status={margin.status} flag={noteState(coverage, 'margin')} sub={margin.margin_amount != null ? money(margin.margin_amount) : null} />
-        <KpiTile label="Invoice vs PO" value={moneyExact(variance.variance_amount)} status={variance.status} flag={noteState(coverage, 'po_variance')} />
-        <KpiTile label="Receivable" value={money(ar.total)} status={ar.status} flag={noteState(coverage, 'ar')} sub={ar.customer_count ? `${ar.customer_count} customers` : null} />
-        <KpiTile label="Backlog" value={money(backlog.amount)} status={backlog.status} flag={noteState(coverage, 'backlog')} sub={backlog.order_count ? `${backlog.order_count} orders` : null} />
+        <KpiTile label="Margin" value={pctLabel(margin.margin_pct)} status={margin.status} flag={noteState(coverage, 'margin')} sub={margin.margin_amount != null ? money(margin.margin_amount) : null} help={HELP.margin} />
+        <KpiTile label="Invoice vs PO" value={moneyExact(variance.variance_amount)} status={variance.status} flag={noteState(coverage, 'po_variance')} help={HELP.variance} />
+        <KpiTile label="Receivable" value={money(ar.total)} status={ar.status} flag={noteState(coverage, 'ar')} sub={ar.customer_count ? `${ar.customer_count} customers` : null} help={HELP.ar} />
+        <KpiTile label="Backlog" value={money(backlog.amount)} status={backlog.status} flag={noteState(coverage, 'backlog')} sub={backlog.order_count ? `${backlog.order_count} orders` : null} help={HELP.backlog} />
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <ChartCard title="AR aging">
+        <ChartCard title="AR aging" help={HELP.ar}>
           {agingTotal <= 0 ? <EmptyChart label="No open receivables" /> : (
             <div className="h-24">
               <ResponsiveContainer width="100%" height="100%">
@@ -648,7 +666,7 @@ function Financial({ data, coverage }) {
             </p>
           )}
         </ChartCard>
-        <ChartCard title="Margin by product line">
+        <ChartCard title="Margin by product line" help={HELP.marginBars}>
           {lines.length === 0 ? <EmptyChart /> : (
             <div className="h-56 sm:h-64">
               <ResponsiveContainer width="100%" height="100%">
@@ -710,21 +728,23 @@ function Operations({ data, coverage }) {
   return (
     <Section title="Operations">
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <KpiTile label="Order to ship" value={daysLabel(ship.average_days)} unit="days" status={ship.status} flag={noteState(coverage, 'order_to_ship')} />
+        <KpiTile label="Order to ship" value={daysLabel(ship.average_days)} unit="days" status={ship.status} flag={noteState(coverage, 'order_to_ship')} help={HELP.ship} />
         <KpiTile
           label="Inventory"
           value={money(inventory.value)}
           status="neutral"
           flag={noteState(coverage, 'inventory')}
           sub={inventory.item_count ? `${inventory.item_count} items` : null}
+          help={HELP.inventory}
         />
         <KpiTile
           label="Below reorder"
           value={reorderKnown ? below : '—'}
           status={!reorderKnown ? 'neutral' : (below > 0 ? 'bad' : 'good')}
           flag={reorderKnown ? null : 'partial'}
+          help={HELP.reorder}
         />
-        <KpiTile label="Freight" value={pctLabel(freight.percent)} status={freight.status} flag={noteState(coverage, 'freight')} sub={freight.amount != null ? money(freight.amount) : null} />
+        <KpiTile label="Freight" value={pctLabel(freight.percent)} status={freight.status} flag={noteState(coverage, 'freight')} sub={freight.amount != null ? money(freight.amount) : null} help={HELP.freight} />
       </div>
       <div className="space-y-2">
         <Details title="Slow movers" count={inventory.slow_count || 0}>
@@ -759,27 +779,33 @@ function Operations({ data, coverage }) {
 }
 
 function Dashboard() {
-  const initial = useMemo(() => lastDays(30), [])
-  const [preset, setPreset] = useState('30')
-  const [range, setRange] = useState(initial)
-  const [refreshTick, setRefreshTick] = useState(0)
+  const { isAdmin } = useAuth()
+  const [month, setMonth] = useState('')
+  const [recalcError, setRecalcError] = useState('')
 
   const query = useQuery({
-    queryKey: ['kpi-dashboard', range.from, range.to, refreshTick],
-    queryFn: async () => {
-      const response = await kpiApi.dashboard({ from: range.from, to: range.to, refresh: refreshTick > 0 })
-      return response.data
-    },
+    queryKey: ['kpi-dashboard', month],
+    queryFn: async () => (await kpiApi.dashboard({ month: month || undefined })).data,
+    refetchInterval: (q) => (q.state.data?.snapshot?.status === 'running' ? 4000 : false),
   })
 
+  const snapshot = query.data?.snapshot
+  const selected = month || snapshot?.month || ''
+  const running = snapshot?.status === 'running'
+  const showWeek = snapshot ? snapshot.weekly !== false && snapshot.frozen !== true : true
+  const hasSections = Boolean(query.data?.sections)
   const coverage = query.data?.coverage || []
   const attention = coverage.filter((note) => note.state === 'partial' || note.state === 'missing')
   const lateDays = query.data?.thresholds?.so_to_po_late_days ?? 5
 
-  function applyPreset(item) {
-    setPreset(item.id)
-    setRange(item.range())
-    setRefreshTick(0)
+  async function recalculate() {
+    setRecalcError('')
+    try {
+      await kpiApi.recalculate({ month: selected || undefined })
+      query.refetch()
+    } catch (error) {
+      setRecalcError(error?.response?.data?.detail || 'Recalculate could not start.')
+    }
   }
 
   return (
@@ -793,48 +819,39 @@ function Dashboard() {
             <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" />Attention</span>
           </div>
         </div>
-        <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
-          {PRESETS.map((item) => (
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+          <label className="text-xs font-medium text-gray-500">
+            Month
+            <input
+              type="month"
+              value={selected}
+              max={snapshot?.current_month || undefined}
+              onChange={(event) => setMonth(event.target.value)}
+              className="mt-1 block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-base text-gray-900 sm:w-44 sm:text-sm"
+            />
+          </label>
+          {isAdmin && (
             <button
-              key={item.id}
               type="button"
-              onClick={() => applyPreset(item)}
-              className={`min-h-11 shrink-0 rounded-full px-4 text-sm font-medium ${preset === item.id ? 'bg-odc-900 text-white' : 'bg-white text-gray-700 ring-1 ring-gray-200'}`}
+              onClick={recalculate}
+              disabled={running}
+              className="min-h-11 rounded-lg bg-odc-900 px-4 text-sm font-medium text-white disabled:opacity-60"
             >
-              {item.label}
+              {running ? 'Calculating…' : 'Recalculate now'}
             </button>
-          ))}
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
-          <div className="grid grid-cols-2 gap-2 sm:flex">
-            <label className="text-xs font-medium text-gray-500">
-              From
-              <input
-                type="date"
-                value={range.from}
-                onChange={(event) => { setPreset('custom'); setRange({ ...range, from: event.target.value }); setRefreshTick(0) }}
-                className="mt-1 block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-2 text-base text-gray-900 sm:text-sm"
-              />
-            </label>
-            <label className="text-xs font-medium text-gray-500">
-              To
-              <input
-                type="date"
-                value={range.to}
-                onChange={(event) => { setPreset('custom'); setRange({ ...range, to: event.target.value }); setRefreshTick(0) }}
-                className="mt-1 block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-2 text-base text-gray-900 sm:text-sm"
-              />
-            </label>
+          )}
+          <div className="text-sm text-gray-500 sm:mb-2">
+            {snapshot?.as_of_label && <p>{snapshot.as_of_label}</p>}
+            {snapshot?.period_start && (
+              <p>
+                {snapshot.period_start} to {snapshot.period_end}
+                {snapshot.frozen ? ' · closed month' : ' · month to date'}
+              </p>
+            )}
+            {running && <p className="font-medium text-odc-800">Calculating in the background. The numbers will update when it finishes.</p>}
           </div>
-          <button
-            type="button"
-            onClick={() => setRefreshTick((value) => value + 1)}
-            className="min-h-11 rounded-lg bg-white px-4 text-sm font-medium text-gray-700 ring-1 ring-gray-200"
-          >
-            {query.isFetching ? 'Refreshing…' : 'Refresh'}
-          </button>
-          {query.data?.cached && <span className="text-xs text-gray-400 sm:mb-3">Cached</span>}
         </div>
+        {recalcError && <p className="text-sm text-red-700">{recalcError}</p>}
       </div>
 
       {query.isLoading && (
@@ -850,10 +867,25 @@ function Dashboard() {
         </p>
       )}
 
-      {query.data && (
+      {query.data && !hasSections && (
+        <div className="rounded-2xl bg-white px-4 py-8 text-center ring-1 ring-gray-200">
+          <p className="text-sm font-medium text-gray-900">
+            {snapshot?.status === 'failed'
+              ? 'This month could not be calculated.'
+              : running
+                ? 'Calculating this month.'
+                : 'This month has not been calculated yet.'}
+          </p>
+          <p className="mt-1 text-sm text-gray-500">
+            {snapshot?.error || 'The nightly job stores the numbers. An admin can calculate this month now.'}
+          </p>
+        </div>
+      )}
+
+      {hasSections && (
         <>
           <Purchasing data={query.data.sections?.purchasing} coverage={coverage} lateDays={lateDays} />
-          <Sales data={query.data.sections?.sales} coverage={coverage} />
+          <Sales data={query.data.sections?.sales} coverage={coverage} showWeek={showWeek} />
           <Financial data={query.data.sections?.financial} coverage={coverage} />
           <Operations data={query.data.sections?.operations} coverage={coverage} />
           {attention.length > 0 && (

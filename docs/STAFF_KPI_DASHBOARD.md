@@ -1,18 +1,44 @@
 # Staff KPI dashboard
 
-The staff home page is a read-only scorecard. Every figure is calculated from Business Central. Two dates that Business Central does not store are filled in from the portal when the portal already has them: the time a purchase order email was sent, and the time an Upwardor acknowledgement email arrived.
+The staff home page is a read-only scorecard. The page and `GET /api/kpi/*` read a snapshot stored in the database. They do not call Business Central, so the page opens from the saved numbers.
 
-Nothing on this page creates, edits, posts, ships, or emails a Business Central document.
+A scheduled job fills that snapshot. It runs at 00:10 America/Edmonton, inside the backend process, on the same scheduler that already runs the morning purchasing and planning jobs. Nothing new has to be set for it. The job starts when the backend starts, as long as email monitoring is left on (that is the default, and it is what turns the scheduler on). With four backend workers, only the worker that takes `/tmp/bc_scheduler_lock` runs the job. If this month has never been stored, that same worker calculates it once about 30 seconds after startup. The page does not wait for that.
 
-The same numbers are available to the assistant with a staff service key:
+The open month is stored as month-to-date and replaced every night. A finished month is stored once, for the full calendar month, the night it closes (00:10 on the 1st). Later nights leave that closed month alone. An admin can press **Recalculate now** on any month, including a closed one. That starts in the background and the page keeps showing the last saved numbers until the new ones are ready. The button is an admin sign-in only. It is not available to a service key.
 
-- `GET /api/kpi/dashboard?from=YYYY-MM-DD&to=YYYY-MM-DD`
-- `GET /api/kpi/dashboard/purchasing`
-- `GET /api/kpi/dashboard/sales`
-- `GET /api/kpi/dashboard/financial`
-- `GET /api/kpi/dashboard/operations`
+The header shows **As of** with the Edmonton date and time the snapshot was calculated.
 
-The key needs all four read scopes: `orders:read`, `purchasing:read`, `quotes:read`, and `inventory:read`. Results are cached for 10 minutes. `refresh=true` skips the cache.
+The month picker defaults to the current month. Sales arrows compare the same elapsed days of the prior month, and the same dates last year. The weekly sales tile and the weekly chart stay on the open month. A closed month opens on the monthly chart. The weekly toggle is still there.
+
+Each tile and chart has an **i** button. Tap it for where the number comes from and how it is calculated.
+
+To check a month against Business Central, from the backend directory:
+
+```bash
+python scripts/kpi_validation_report.py --month 2026-09
+```
+
+That calls Business Central and prints each KPI with the document numbers and counts behind it. To print the documents already saved with the snapshot, without calling Business Central:
+
+```bash
+python scripts/kpi_validation_report.py --month 2026-09 --snapshot
+```
+
+The database table is `kpi_snapshots`. The migration runs when the backend container starts (`alembic upgrade head` in the image command). Do not run it again from the deploy script.
+
+Every figure was calculated from Business Central when the snapshot was built. Two dates that Business Central does not store are filled in from the portal when the portal already has them: the time a purchase order email was sent, and the time an Upwardor acknowledgement email arrived.
+
+Nothing on this page creates, edits, posts, ships, or emails a Business Central document. The nightly job and Recalculate now only read Business Central.
+
+The same saved numbers are available to the assistant with a staff service key:
+
+- `GET /api/kpi/dashboard?month=YYYY-MM`
+- `GET /api/kpi/dashboard/purchasing?month=YYYY-MM`
+- `GET /api/kpi/dashboard/sales?month=YYYY-MM`
+- `GET /api/kpi/dashboard/financial?month=YYYY-MM`
+- `GET /api/kpi/dashboard/operations?month=YYYY-MM`
+
+Leave `month` off to get the current month in America/Edmonton. The key needs all four read scopes: `orders:read`, `purchasing:read`, `quotes:read`, and `inventory:read`.
 
 Green means on track, amber means have a look, red means it needs attention. A row in the sales-order to purchase-order list is red when it took more than 5 days, or when the purchase order still has not been sent after 5 days.
 
@@ -30,7 +56,7 @@ Green means on track, amber means have a look, red means it needs attention. A r
 
 ### Sales
 
-5. **Weekly and monthly sales.** Posted sales invoices, before tax. Compared with the previous period and with the same dates last year.
+5. **Weekly and monthly sales.** Posted sales invoices, before tax. The headline is this month to date. It is compared with the same elapsed days of the prior month, and with the same dates last year. The weekly number is the week that contains the last day of the open month, compared with the week before. A closed month is the full calendar month and does not show a current-week tile.
 
 6. **Product mix.** Sales split into commercial, residential, and aluminum, with the items that moved the most in each. TX450 and Thermalex are commercial. Kanata, Craft, and anything marked residential are residential. AL976 and aluminum are aluminum. The default file also treats TX380, TX500, and TX760 as commercial, and SWD, Panorama, and Solalite as aluminum, because those are the other series in the catalog. Lines that match nothing are Other.
 

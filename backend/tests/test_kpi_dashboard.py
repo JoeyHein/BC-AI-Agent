@@ -282,7 +282,11 @@ class TestSalesAndMoney:
         assert sales["product_mix"]["other_amount"] == 15
         movers = sales["product_mix"]["top_movers"]["commercial"]
         assert movers[0]["item_number"] == "TX450-1"
-        assert movers[0]["delta"] == 60
+        # Prior month for Oct 1–14 is Sep 1–14. The Sep 20 invoice is outside that.
+        assert movers[0]["delta"] == 100
+        assert sales["month"]["prior_from"] == "2026-09-01"
+        assert sales["month"]["prior_to"] == "2026-09-14"
+        assert sales["month"]["year_ago_amount"] == 80
         brands = {row["id"]: row for row in sales["operators"]["brands"]}
         assert brands["liftmaster"]["amount"] == 10
         assert brands["mckinnon"]["amount"] == 0
@@ -345,6 +349,7 @@ class TestRoute:
         assert route_allowed("GET", "/api/kpi/dashboard/purchasing", b"", granted)[0] is True
         assert route_allowed("GET", "/api/kpi/dashboard/sales", b"", granted)[0] is True
         assert route_allowed("POST", "/api/kpi/dashboard", b"{}", granted)[0] is False
+        assert route_allowed("POST", "/api/kpi/recalculate", b"", granted)[0] is False
         narrow = {"orders:read"}
         ok, reason = route_allowed("GET", "/api/kpi/dashboard", b"", narrow)
         assert ok is False
@@ -380,12 +385,17 @@ class TestRoute:
         })
         assert invoice["lines"][0]["amount"] == 8
 
-    def test_api_returns_dashboard_and_rejects_a_backwards_range(self, monkeypatch):
-        monkeypatch.setattr(
-            kpi_api.kpi_dashboard_service,
-            "get_dashboard",
-            lambda *args, **kwargs: {"sections": {"purchasing": {"ok": True}}, "coverage": [], "range": {}},
-        )
+    def test_api_reads_the_snapshot_and_rejects_an_unknown_section(self, monkeypatch):
+        def _read(db, month=None, today=None):
+            return {
+                "sections": {"sales": {"ok": True}},
+                "coverage": [{"id": "sales", "section": "sales", "state": "ok"}],
+                "snapshot": {"month": month or "2026-10"},
+                "generated_at": "2026-10-14T06:10:00Z",
+                "range": {},
+            }
+
+        monkeypatch.setattr(kpi_api, "read_snapshot", _read)
         app = FastAPI()
         app.include_router(kpi_api.router)
 
@@ -395,15 +405,13 @@ class TestRoute:
         app.dependency_overrides[get_db] = _db
         app.dependency_overrides[require_staff] = lambda: object()
         client = TestClient(app)
-        ok = client.get("/api/kpi/dashboard?from=2026-10-01&to=2026-10-14")
+        ok = client.get("/api/kpi/dashboard?month=2026-10")
         assert ok.status_code == 200, ok.text
-        assert ok.json()["sections"]["purchasing"]["ok"] is True
-        bad = client.get("/api/kpi/dashboard?from=2026-10-14&to=2026-10-01")
-        assert bad.status_code == 400
-        assert "end date" in bad.json()["detail"]
-        section = client.get("/api/kpi/dashboard/sales?from=2026-10-01&to=2026-10-14")
+        assert ok.json()["snapshot"]["month"] == "2026-10"
+        section = client.get("/api/kpi/dashboard/sales?month=2026-10")
         assert section.status_code == 200
         assert section.json()["section"] == "sales"
+        assert section.json()["data"]["ok"] is True
         missing = client.get("/api/kpi/dashboard/nope")
         assert missing.status_code == 404
 

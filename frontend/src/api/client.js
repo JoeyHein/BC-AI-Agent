@@ -773,8 +773,10 @@ export const metricsApi = {
 
 // Staff KPI dashboard. Read-only. from/to are YYYY-MM-DD.
 export const kpiApi = {
-  dashboard: ({ from, to, refresh = false } = {}) =>
-    apiClient.get('/api/kpi/dashboard', { params: { from, to, refresh } }),
+  dashboard: ({ month } = {}) =>
+    apiClient.get('/api/kpi/dashboard', { params: month ? { month } : {} }),
+  recalculate: ({ month } = {}) =>
+    apiClient.post('/api/kpi/recalculate', null, { params: month ? { month } : {} }),
 };
 
 // Weekly Email Agent API
