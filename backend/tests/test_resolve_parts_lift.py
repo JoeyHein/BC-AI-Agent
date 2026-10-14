@@ -11,7 +11,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -143,6 +143,66 @@ class TestLiftMapping:
         snapshot = dict(original)
         _map_widget_config(original)
         assert original == snapshot
+
+
+class TestDoorSeries:
+    @pytest.mark.parametrize("raw", ["kanata", "Kanata", "KANATA"])
+    def test_kanata_alias_uppercases(self, raw):
+        mapped = _map_widget_config({**_DOOR, "familyId": raw, "doorSeries": ""})
+        assert mapped["doorSeries"] == "KANATA"
+        assert mapped["doorType"] == "residential"
+
+    @pytest.mark.parametrize("raw", ["craft", "Craft", "CRAFT"])
+    def test_craft_alias_uppercases(self, raw):
+        mapped = _map_widget_config({**_DOOR, "doorSeries": raw})
+        assert mapped["doorSeries"] == "CRAFT"
+        assert mapped["doorType"] == "residential"
+
+    @pytest.mark.parametrize("raw", ["aluminum", "ALUMINUM", "aluminium", "Aluminium"])
+    def test_aluminum_alias_is_al976_aluminium(self, raw):
+        mapped = _map_widget_config({
+            **_DOOR,
+            "doorSeries": raw,
+            "doorType": "residential",
+        })
+        assert mapped["doorSeries"] == "AL976"
+        assert mapped["doorType"] == "aluminium"
+
+    def test_blank_series_still_defaults_to_kanata(self):
+        mapped = _map_widget_config({"widthInches": 96, "heightInches": 84})
+        assert mapped["doorSeries"] == "KANATA"
+        assert mapped["doorType"] == "residential"
+
+    def test_known_commercial_series_is_uppercased(self):
+        mapped = _map_widget_config({**_DOOR, "doorSeries": "tx450-20", "doorType": "commercial"})
+        assert mapped["doorSeries"] == "TX450-20"
+        assert mapped["doorType"] == "commercial"
+
+    def test_unknown_series_raises_400(self):
+        with pytest.raises(HTTPException) as exc:
+            _map_widget_config({**_DOOR, "doorSeries": "not-a-door"})
+        assert exc.value.status_code == 400
+        error = exc.value.detail["error"]
+        assert error["code"] == "BAD_REQUEST"
+        assert "not-a-door" in error["message"]
+
+    def test_lowercase_kanata_panels_are_not_tx450(self):
+        parts = _resolved({**_DOOR, "familyId": "kanata", "doorSeries": ""})
+        panels = [p for p in parts if p.get("category") == "panel"]
+        assert panels
+        assert all("KANATA" in p["description"] for p in panels)
+        assert all("TX450" not in (p.get("description") or "") for p in panels)
+        assert _comment(parts).startswith("KANATA")
+
+    def test_aluminium_alias_resolves_aluminum_sections(self):
+        parts = _resolved({**_DOOR, "doorSeries": "aluminium", "doorType": "residential"})
+        categories = {p.get("category") for p in parts}
+        assert "aluminum_section" in categories
+        assert "panel" not in categories
+        sections = [p for p in parts if p.get("category") == "aluminum_section"]
+        assert sections
+        assert all("AL976" in p["description"] for p in sections)
+        assert all("TX450" not in (p.get("description") or "") for p in sections)
 
 
 # ── parts the endpoint will price ──────────────────────────────────────────
@@ -339,3 +399,21 @@ class TestResolvePartsEndpoint:
         omitted = _post(client, primary_key, dict(_DOOR))
         explicit = _post(client, primary_key, {**_DOOR, "liftType": "standard", "trackRadius": 15})
         assert omitted == explicit
+
+    def test_unknown_series_is_400_and_does_not_resolve_parts(self, client, primary_key, monkeypatch):
+        def _boom(_cfg):
+            raise AssertionError("unknown series must not reach the part resolver")
+
+        monkeypatch.setattr(external_door_config, "get_parts_for_door_config", _boom)
+        response = client.post(
+            "/api/external/door-config/resolve-parts",
+            headers={"X-Service-AI-Key": primary_key},
+            json={
+                "supplierAccountCode": "ED-001",
+                "doorConfig": {**_DOOR, "doorSeries": "not-a-door"},
+            },
+        )
+        assert response.status_code == 400
+        body = response.json()
+        assert body["detail"]["error"]["code"] == "BAD_REQUEST"
+        assert "not-a-door" in body["detail"]["error"]["message"]
