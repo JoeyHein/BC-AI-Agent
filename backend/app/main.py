@@ -35,6 +35,7 @@ from app.api import external_inventory
 from app.api import external_purchase_orders
 from app.api import external_door_config
 from app.api import bc_read, staff_service_keys
+from app.api import kpi_dashboard
 from app.api.staff_service_key_middleware import staff_service_key_middleware
 
 # Import services
@@ -364,6 +365,8 @@ app.include_router(email_agent.router)
 # Business Metrics router
 logger.info(f"Including metrics router: {metrics.router.prefix}")
 app.include_router(metrics.router)
+logger.info(f"Including kpi dashboard router: {kpi_dashboard.router.prefix}")
+app.include_router(kpi_dashboard.router)
 
 # Integrations router (service-to-service — Donna PA, email agents)
 logger.info(f"Including integrations router: {integrations.router.prefix}")

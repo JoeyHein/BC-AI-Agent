@@ -771,6 +771,12 @@ export const metricsApi = {
     apiClient.get(`/api/metrics/sales-analytics?period=${period}&compare=${compare}`),
 };
 
+// Staff KPI dashboard. Read-only. from/to are YYYY-MM-DD.
+export const kpiApi = {
+  dashboard: ({ from, to, refresh = false } = {}) =>
+    apiClient.get('/api/kpi/dashboard', { params: { from, to, refresh } }),
+};
+
 // Weekly Email Agent API
 export const emailAgentApi = {
   generate: (brief) =>
