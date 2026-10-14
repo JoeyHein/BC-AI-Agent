@@ -370,7 +370,7 @@ class EmailMonitorService:
             input_data={"subject": subject, "body_preview": body[:500]},
             output_data=parsed_data,
             confidence_score=confidence,
-            model_used=parse_result.get("model", "claude-3-5-sonnet-20241022"),
+            model_used=parse_result.get("model", settings.ANTHROPIC_MODEL),
             prompt_tokens=parse_result.get("tokens", {}).get("input", 0),
             completion_tokens=parse_result.get("tokens", {}).get("output", 0),
             created_at=datetime.utcnow()
@@ -663,7 +663,7 @@ class EmailMonitorService:
             },
             output_data=parsed_data,
             confidence_score=confidence,
-            model_used=parse_result.get("model", "claude-3-5-sonnet-20241022"),
+            model_used=parse_result.get("model", settings.ANTHROPIC_MODEL),
             prompt_tokens=parse_result.get("tokens", {}).get("input", 0),
             completion_tokens=parse_result.get("tokens", {}).get("output", 0),
             created_at=datetime.utcnow()

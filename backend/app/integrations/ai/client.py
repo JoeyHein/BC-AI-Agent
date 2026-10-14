@@ -13,11 +13,23 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _response_text(response) -> str:
+    """First text block. Current Sonnet replies can start with a thinking block."""
+    for block in getattr(response, "content", None) or []:
+        if getattr(block, "type", None) == "text" and getattr(block, "text", None):
+            return block.text
+    content = getattr(response, "content", None) or []
+    if content and getattr(content[0], "text", None):
+        return content[0].text
+    return ""
+
+
 class ClaudeAIClient:
     """Claude AI client for email parsing and data extraction"""
 
     def __init__(self):
         self.api_key = settings.ANTHROPIC_API_KEY
+        self.model = settings.ANTHROPIC_MODEL
         self.client: Optional[Anthropic] = None
 
         if self.api_key:
@@ -141,7 +153,7 @@ Analyze the following email and extract structured quote request information.
 
         try:
             response = self.client.messages.create(
-                model="claude-sonnet-4-5-20250929",
+                model=self.model,
                 max_tokens=4000,
                 messages=[{
                     "role": "user",
@@ -150,7 +162,7 @@ Analyze the following email and extract structured quote request information.
             )
 
             # Extract text content
-            content = response.content[0].text
+            content = _response_text(response)
 
             # Try to parse JSON from response
             # Sometimes Claude wraps JSON in markdown code blocks
@@ -170,7 +182,7 @@ Analyze the following email and extract structured quote request information.
                 "success": True,
                 "data": parsed_data,
                 "confidence": parsed_data.get("overall_confidence", 0.5),
-                "model": "claude-sonnet-4-5-20250929",
+                "model": self.model,
                 "tokens": {
                     "input": response.usage.input_tokens,
                     "output": response.usage.output_tokens
@@ -476,11 +488,11 @@ OUTPUT FORMAT — JSON only, no prose:
 
         try:
             response = self.client.messages.create(
-                model="claude-sonnet-4-5-20250929",
+                model=self.model,
                 max_tokens=4000,
                 messages=[{"role": "user", "content": prompt}],
             )
-            content = response.content[0].text
+            content = _response_text(response)
 
             if "```json" in content:
                 json_start = content.find("```json") + 7
@@ -660,12 +672,12 @@ OUTPUT FORMAT — JSON only, no prose:
 
         try:
             response = self.client.messages.create(
-                model="claude-sonnet-4-5-20250929",
+                model=self.model,
                 max_tokens=500,
                 messages=[{"role": "user", "content": prompt}]
             )
 
-            content = response.content[0].text
+            content = _response_text(response)
 
             # Extract JSON
             if "```json" in content:
@@ -759,12 +771,12 @@ Sample requests, color chart requests, and general inquiries are NOT quote reque
 
         try:
             response = self.client.messages.create(
-                model="claude-sonnet-4-5-20250929",
+                model=self.model,
                 max_tokens=500,
                 messages=[{"role": "user", "content": prompt}]
             )
 
-            content = response.content[0].text
+            content = _response_text(response)
 
             # Extract JSON
             if "```json" in content:
@@ -844,7 +856,7 @@ If no item is a reasonable match:
                 max_tokens=100,
                 messages=[{"role": "user", "content": prompt}]
             )
-            result = json.loads(response.content[0].text.strip())
+            result = json.loads(_response_text(response).strip())
 
             if result.get("number"):
                 # Return the full item details if available
@@ -916,12 +928,12 @@ Output JSON only:
 
         try:
             response = self.client.messages.create(
-                model="claude-sonnet-4-5-20250929",
+                model=self.model,
                 max_tokens=4000,
                 messages=[{"role": "user", "content": prompt}],
             )
 
-            content = response.content[0].text
+            content = _response_text(response)
             if "```json" in content:
                 json_start = content.find("```json") + 7
                 json_end = content.find("```", json_start)
@@ -988,12 +1000,12 @@ Output JSON only:
 
         try:
             response = self.client.messages.create(
-                model="claude-sonnet-4-5-20250929",
+                model=self.model,
                 max_tokens=4000,
                 messages=[{"role": "user", "content": prompt}],
             )
 
-            content = response.content[0].text
+            content = _response_text(response)
             if "```json" in content:
                 json_start = content.find("```json") + 7
                 json_end = content.find("```", json_start)

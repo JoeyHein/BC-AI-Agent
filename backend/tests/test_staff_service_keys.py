@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ast
 import os
+import re
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -250,6 +251,84 @@ class TestScopeRules:
             "POST", "/api/admin/purchasing/draft-pos/requested-receipt/backfill",
             b"{}", granted,
         )[0] is False
+
+
+_BC_READS = [
+    ("GET", "/api/bc/sales-quotes"),
+    ("GET", "/api/bc/sales-quotes/SQ-003132"),
+    ("GET", "/api/door-config/load-quote/SQ-003132"),
+    ("GET", "/api/metrics/quoting"),
+    ("GET", "/api/bc/sales-price-lines"),
+    ("GET", "/api/admin/customers/bc-customers"),
+    ("GET", "/api/bc/customers"),
+    ("GET", "/api/bc/customers/ABES"),
+    ("GET", "/api/bc/sales-orders/SO-000857"),
+    ("GET", "/api/bc/sales-invoices/PS-100001"),
+    ("GET", "/api/bc/purchase-orders/PO-000962"),
+    ("GET", "/api/bc/purchase-invoices/PI-100001"),
+    ("GET", "/api/bc/vendors"),
+    ("GET", "/api/bc/items"),
+    ("GET", "/api/bc/items/PN10"),
+]
+
+_BC_WRITES_STILL_DENIED = [
+    ("POST", "/api/bc/sales-quotes"),
+    ("POST", "/api/orders/bc/quotes/abc/convert-to-order"),
+    ("POST", "/api/door-config/generate-quote"),
+    ("POST", "/api/quotes/create-bc-quote"),
+    ("POST", "/api/orders/1/ship"),
+    ("POST", "/api/orders/1/ship-and-invoice"),
+    ("POST", "/api/orders/invoices/9/post"),
+    ("POST", "/api/email-agent/send"),
+    ("DELETE", "/api/bc/sales-quotes/SQ-003132"),
+    ("PATCH", "/api/bc/sales-orders/SO-000857"),
+    ("POST", "/api/admin/customers/sync-bc-customers"),
+]
+
+
+class TestBcReadAllowlist:
+    def test_service_key_can_read_bc_documents(self):
+        granted = set(AUTOMATION_SCOPES)
+        for method, path in _BC_READS:
+            ok, reason = route_allowed(method, path, b"", granted)
+            assert ok, (method, path, reason)
+
+    def test_service_key_still_cannot_write_bc_documents(self):
+        granted = set(AUTOMATION_SCOPES)
+        for method, path in _BC_WRITES_STILL_DENIED:
+            ok, reason = route_allowed(method, path, b"", granted)
+            assert ok is False, (method, path)
+            assert reason == "This service key is not allowed to call this route."
+
+    def test_quote_scope_cannot_read_purchase_orders(self):
+        granted = {"quotes:read"}
+        assert route_allowed("GET", "/api/bc/sales-quotes/SQ-003132", b"", granted)[0] is True
+        assert route_allowed("GET", "/api/bc/purchase-orders/PO-000962", b"", granted)[0] is False
+        assert route_allowed("GET", "/api/bc/sales-orders/SO-000857", b"", granted)[0] is False
+
+    def test_allowlist_doc_matches_every_rule(self):
+        doc = Path(__file__).resolve().parents[2] / "docs" / "STAFF_SERVICE_KEY_ROUTES.md"
+        text = doc.read_text()
+        allowed_part, denied_part = text.split("## Still refused", 1)
+        examples = re.findall(r"`(GET|POST|PATCH|DELETE|PUT) ([^`]+)`", allowed_part)
+        denied = re.findall(r"`(GET|POST|PATCH|DELETE|PUT) ([^`]+)`", denied_part)
+        assert examples, "allowlist doc has no routes"
+        granted = set(AUTOMATION_SCOPES)
+        for method, path in examples:
+            body = b'{"send_email": false}' if path.endswith("generate-po") else b""
+            ok, reason = route_allowed(method, path, body, granted)
+            assert ok, (method, path, reason)
+        for method, path in denied:
+            ok, _reason = route_allowed(method, path, b"", granted)
+            assert ok is False, (method, path)
+        uncovered = []
+        for rule_method, pattern, _scope, _extra in staff_keys._RULES:
+            if not any(
+                method == rule_method and pattern.match(staff_keys.normalize_path(path))
+                for method, path in examples
+            ):
+                uncovered.append(pattern.pattern)
+        assert uncovered == []
 
 
 class TestHumanLoginUnchanged:

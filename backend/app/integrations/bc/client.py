@@ -245,6 +245,20 @@ class BusinessCentralClient:
         )
         return result.get("value", [])
 
+    def get_customer_by_number(self, customer_number: str,
+                                company_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """One customer by BC customer number (for example ``ABES``)."""
+        if not customer_number:
+            return None
+        cid = company_id or self.company_id
+        safe = customer_number.replace("'", "''")
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/customers?$filter=number eq '{safe}'",
+        )
+        rows = result.get("value", [])
+        return rows[0] if rows else None
+
     # ==================== Customers with Price Multiplier ====================
 
     def get_customers_with_multiplier(self, company_id: Optional[str] = None,
@@ -484,6 +498,44 @@ class BusinessCentralClient:
         logger.info(f"search_items_by_prefix('{prefix}'): found {len(all_items)} items")
         return all_items
 
+    def search_items_for_read(self, search_term: str, top: int = 50,
+                               company_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Items matching a number or name, with price, cost, and on-hand qty.
+
+        Exact number match is tried first. ``contains`` on number and display
+        name fills out a search. A failed filter is skipped so one unsupported
+        OData function does not hide the exact match.
+        """
+        cid = company_id or self.company_id
+        safe = (search_term or "").replace("'", "''")
+        if not safe:
+            return []
+        select = (
+            "$select=number,displayName,type,unitCost,unitPrice,inventory,"
+            "baseUnitOfMeasureCode,itemCategoryCode"
+        )
+        found: Dict[str, Dict[str, Any]] = {}
+        for filt in (
+            f"number eq '{safe}'",
+            f"contains(number,'{safe}')",
+            f"contains(displayName,'{safe}')",
+        ):
+            try:
+                result = self._make_request(
+                    "GET",
+                    f"companies({cid})/items?$filter={filt}&{select}&$top={int(top)}",
+                )
+            except Exception as e:
+                logger.warning(f"item search failed for {filt}: {e}")
+                continue
+            for item in result.get("value", []):
+                number = item.get("number")
+                if number and number not in found:
+                    found[number] = item
+            if len(found) >= top:
+                break
+        return list(found.values())[:top]
+
     def search_items_by_name(self, search_term: str, company_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Search items by display name (partial match)"""
         cid = company_id or self.company_id
@@ -668,6 +720,29 @@ class BusinessCentralClient:
         result = self._make_request("GET", f"companies({cid})/salesQuotes?$top={top}")
         return result.get("value", [])
 
+    def list_sales_quotes(self, search: Optional[str] = None, skip: int = 0,
+                           top: int = 50, company_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Sales quotes, newest number first, optional number search, one page.
+
+        ``number desc`` is newest-first: SQ numbers are zero-padded and assigned
+        in order. ``search`` is a substring of the quote number.
+        """
+        cid = company_id or self.company_id
+        parts = [
+            "$orderby=number desc",
+            f"$top={int(top)}",
+            f"$skip={int(skip)}",
+        ]
+        term = (search or "").strip()
+        if term:
+            safe = term.replace("'", "''")
+            parts.append(f"$filter=contains(number,'{safe}')")
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/salesQuotes?{'&'.join(parts)}",
+        )
+        return result.get("value", [])
+
     def get_sales_quote(self, quote_id: str, company_id: Optional[str] = None) -> Dict[str, Any]:
         """Get specific sales quote"""
         cid = company_id or self.company_id
@@ -721,6 +796,33 @@ class BusinessCentralClient:
         cid = company_id or self.company_id
         result = self._make_request("GET", f"companies({cid})/salesQuotes({quote_id})/salesQuoteLines")
         return result.get("value", [])
+
+    def get_document_lines(self, relative_path: str, company_id: Optional[str] = None,
+                            page_size: int = 200) -> List[Dict[str, Any]]:
+        """Every line on a document, including comment lines.
+
+        Pages with ``$skip`` because a single GET stops at BC's page size.
+        ``relative_path`` is the collection under the company, for example
+        ``salesQuotes({id})/salesQuoteLines``.
+        """
+        cid = company_id or self.company_id
+        relative_path = (relative_path or "").lstrip("/")
+        out: List[Dict[str, Any]] = []
+        skip = 0
+        while True:
+            result = self._make_request(
+                "GET",
+                f"companies({cid})/{relative_path}?$top={int(page_size)}&$skip={skip}",
+            )
+            page = result.get("value", [])
+            out.extend(page)
+            if len(page) < page_size:
+                break
+            skip += page_size
+            if skip > 10000:
+                logger.warning("Stopped paging %s at %s lines", relative_path, len(out))
+                break
+        return out
 
     def add_quote_line(self, quote_id: str, line_data: Dict[str, Any], company_id: Optional[str] = None) -> Dict[str, Any]:
         """Add line to sales quote"""
@@ -1403,9 +1505,10 @@ class BusinessCentralClient:
     def get_sales_order_by_number(self, order_number: str, company_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Get sales order by document number"""
         cid = company_id or self.company_id
+        safe = (order_number or "").replace("'", "''")
         result = self._make_request(
             "GET",
-            f"companies({cid})/salesOrders?$filter=number eq '{order_number}'"
+            f"companies({cid})/salesOrders?$filter=number eq '{safe}'"
         )
         orders = result.get("value", [])
         return orders[0] if orders else None
@@ -1641,6 +1744,30 @@ class BusinessCentralClient:
         cid = company_id or self.company_id
         result = self._make_request("GET", f"companies({cid})/salesInvoices({invoice_id})")
         return result
+
+    def get_sales_invoice_by_number(self, invoice_number: str,
+                                     company_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """One sales invoice by document number, any status."""
+        cid = company_id or self.company_id
+        safe = (invoice_number or "").replace("'", "''")
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/salesInvoices?$filter=number eq '{safe}'",
+        )
+        rows = result.get("value", [])
+        return rows[0] if rows else None
+
+    def get_purchase_invoice_by_number(self, invoice_number: str,
+                                        company_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """One purchase invoice by document number, any status."""
+        cid = company_id or self.company_id
+        safe = (invoice_number or "").replace("'", "''")
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/purchaseInvoices?$filter=number eq '{safe}'",
+        )
+        rows = result.get("value", [])
+        return rows[0] if rows else None
 
     def get_invoices_for_order(self, order_number: str, company_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get invoices related to a sales order"""

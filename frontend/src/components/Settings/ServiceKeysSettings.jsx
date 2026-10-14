@@ -100,6 +100,7 @@ function ServiceKeysSettings() {
           <h3 className="text-sm font-medium text-gray-900">What the key can do</h3>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-600">
             <li>Read sales orders, quotes, and quote reviews</li>
+            <li>Read Business Central quotes, orders, purchase orders, customers, items, vendors, posted invoices, and price lists</li>
             <li>Read inventory and catalog items</li>
             <li>Read purchasing needs and which sales orders already have a PO</li>
             <li>List, check, and edit lines on Draft purchase orders</li>

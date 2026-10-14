@@ -34,7 +34,7 @@ from app.api import external_quotes
 from app.api import external_inventory
 from app.api import external_purchase_orders
 from app.api import external_door_config
-from app.api import staff_service_keys
+from app.api import bc_read, staff_service_keys
 from app.api.staff_service_key_middleware import staff_service_key_middleware
 
 # Import services
@@ -289,6 +289,8 @@ app.include_router(external_door_config.router)
 # Staff service keys — long-lived automation access to scoped staff routes.
 logger.info(f"Including staff_service_keys router: {staff_service_keys.router.prefix}")
 app.include_router(staff_service_keys.router)
+logger.info(f"Including bc_read router: {bc_read.router.prefix}")
+app.include_router(bc_read.router)
 
 # Admin Quote Search router (global cross-customer quote lookup)
 logger.info(f"Including admin_quotes router: {admin_quotes.router.prefix}")
