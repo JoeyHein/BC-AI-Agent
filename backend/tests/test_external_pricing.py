@@ -136,6 +136,7 @@ class FakeBcClient:
         # source_type -> list[ {filter_key, response} ]
         self._price_responses: Dict[int, Dict[str, Any]] = {}
         self._items: Dict[str, Dict[str, Any]] = {}
+        self._search_rows: Dict[str, list] = {}
         self.price_calls: list[tuple[int, str, str]] = []
         self.item_calls: list[str] = []
 
@@ -170,11 +171,22 @@ class FakeBcClient:
             {"available": False, "entries": []},
         )
 
-    # bc_client.search_items signature
-    def search_items(self, query: str, limit: int = 25, **_) -> Dict[str, Any]:
-        self.item_calls.append(query)
-        item = self._items.get(query)
-        return {"items": [item]} if item else {"items": []}
+    # BCClient.search_items(search_term, company_id=None) -> list of items.
+    # The old stub accepted query=/limit= and returned {"items": [...]} —
+    # that shape hid the TypeError the real client raises.
+    def search_items(
+        self, search_term: str, company_id: Optional[str] = None,
+    ) -> list:
+        self.item_calls.append(search_term)
+        scripted = self._search_rows.get(search_term)
+        if scripted is not None:
+            return list(scripted)
+        item = self._items.get(search_term)
+        return [item] if item else []
+
+    def set_search_rows(self, search_term: str, rows: list) -> None:
+        """Force the list ``search_items`` returns for an exact-number test."""
+        self._search_rows[search_term] = rows
 
 
 @pytest.fixture
@@ -416,3 +428,80 @@ class TestCache:
             json={"supplierAccountCode": "ED-001", "items": [{"sku": "CACHE-QTY", "quantity": 2}]},
         )
         assert len(fake_bc.item_calls) > before  # qty=2 is a new key
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Item lookup contract (search_items returns a list, exact number match)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestItemLookup:
+    def test_search_items_stub_matches_bc_client_signature(self):
+        import inspect
+
+        from app.integrations.bc.client import BusinessCentralClient
+
+        real = inspect.signature(BusinessCentralClient.search_items)
+        fake = inspect.signature(FakeBcClient.search_items)
+        assert list(fake.parameters) == list(real.parameters)
+        with pytest.raises(TypeError):
+            FakeBcClient().search_items(query="PN10", limit=1)  # type: ignore[call-arg]
+
+    def test_exact_number_in_a_list_is_priced(self, client, api_key, bc_customer, fake_bc):
+        """Regression: search_items returns a list, not {"items": [...]}).
+
+        Taking the first row, or calling .get("items") on that list, either
+        prices the decoy or swallows TypeError and reports the SKU missing.
+        """
+        sku = "PN10-EXACT"
+        fake_bc.set_search_rows(sku, [
+            {
+                "number": "OTHER-SKU",
+                "displayName": "Decoy",
+                "unitCost": 1,
+                "unitPrice": 1,
+                "itemCategoryCode": "DECOY",
+            },
+            {
+                "number": sku,
+                "displayName": "Exact item",
+                "unitCost": 100,
+                "unitPrice": 0,
+                "itemCategoryCode": "ALUMINIUM",
+            },
+        ])
+        fake_bc.set_price(1, sku, "ED-001", [{"Unit_Price": 12.00}])
+
+        res = client.post(
+            "/api/external/price-items",
+            headers={"X-Service-AI-Key": api_key},
+            json={"supplierAccountCode": "ED-001", "items": [{"sku": sku, "quantity": 1}]},
+        )
+        assert res.status_code == 200
+        line = res.json()["data"]["items"][0]
+        assert line["priceSource"] == "customer"
+        assert line["description"] == "Exact item"
+        assert line["unitCostCents"] == 10_000
+        assert line["itemCategory"] == "ALUMINIUM"
+        assert line["unitPriceCents"] == 1_200
+        assert fake_bc.item_calls == [sku]
+
+    def test_list_without_exact_number_is_missing(self, client, api_key, fake_bc):
+        fake_bc.set_search_rows("PN10-MISS", [
+            {
+                "number": "PN10-OTHER",
+                "displayName": "Not the requested SKU",
+                "unitCost": 80,
+                "unitPrice": 90,
+                "itemCategoryCode": "ALUMINIUM",
+            },
+        ])
+        res = client.post(
+            "/api/external/price-items",
+            headers={"X-Service-AI-Key": api_key},
+            json={"supplierAccountCode": "ED-001", "items": [{"sku": "PN10-MISS", "quantity": 1}]},
+        )
+        assert res.status_code == 200
+        line = res.json()["data"]["items"][0]
+        assert line["priceSource"] == "missing"
+        assert line["unitPriceCents"] == 0

@@ -209,20 +209,30 @@ def _query_bc_price(account_code: str, sku: str, qty: float, db: Session) -> Tup
 def _get_item(sku: str) -> Optional[dict]:
     """Pull the BC item record for unitCost + category + display name.
 
-    Wraps the BC client. Tests stub this via monkeypatch.
+    ``BCClient.search_items(search_term)`` filters ``number eq`` and returns
+    a list of item dicts (see ``client.py``). Keyword args ``query=`` /
+    ``limit=`` and a ``{"items": [...]}`` envelope are not that API: every
+    call raised TypeError, the exception was swallowed, and price-items
+    reported ``priceSource="missing"`` for SKUs BC actually stocks.
+
+    ``get_items_by_numbers([sku])`` is the batched exact-number lookup, but
+    its ``$select`` omits ``itemCategoryCode``. ``search_items`` returns the
+    full item, so the external line can still carry a category.
     """
     try:
-        # bc_client exposes a single-item fetch via the search method
-        # plus a batched get; the single fetch is fine for SQB-04.
-        result = bc_client.search_items(query=sku, limit=1)
-        items = result.get("items", []) if isinstance(result, dict) else []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            if item.get("number") == sku:
-                return item
-    except Exception as exc:  # pragma: no cover
+        items = bc_client.search_items(sku)
+    except Exception as exc:  # pragma: no cover — bc transport
         logger.warning("BC item lookup failed for %s: %s", sku, exc)
+        return None
+    if not isinstance(items, list):
+        logger.warning(
+            "BC item lookup for %s returned %s, expected a list",
+            sku, type(items).__name__,
+        )
+        return None
+    for item in items:
+        if isinstance(item, dict) and item.get("number") == sku:
+            return item
     return None
 
 

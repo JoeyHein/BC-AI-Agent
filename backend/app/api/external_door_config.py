@@ -39,6 +39,12 @@ Wraps `part_number_service.get_parts_for_door_config`, mapping the door
 designer widget's config shape (familyId / colorId / designId / widthInches…)
 onto the resolver's expected keys. A read — no idempotency. Lets a Service.AI
 widget lead arrive with concrete SKUs instead of a config blob.
+
+doorSeries (or familyId / family, in that order) is stripped and uppercased.
+Widget ids ``kanata`` and ``craft`` become KANATA and CRAFT. ``aluminum`` and
+``aluminium`` become AL976 and the door is priced as ``doorType='aluminium'``.
+A series the panel resolver does not know is HTTP 400. Leaving it through
+would hit ``model_map.get(..., DoorModel.TX450)`` and price a different door.
 """
 from __future__ import annotations
 
@@ -46,7 +52,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.api.external_auth import assert_account_code, require_external_key
@@ -227,13 +233,79 @@ def _lift_fields(cfg: Dict[str, Any]) -> Dict[str, Any]:
     return extra
 
 
+# Steel / residential series ``_get_panel_parts`` prices as themselves.
+# Anything else in that function becomes DoorModel.TX450.
+_PANEL_SERIES = {
+    "TX380",
+    "TX450",
+    "TX450-20",
+    "TX500",
+    "TX500-20",
+    "TX760",
+    "KANATA",
+    "CRAFT",
+}
+# Aluminum families ``_get_aluminum_section_parts`` prices when doorType is
+# aluminium. On any other door type they fall through to the TX450 panel map.
+_ALUMINUM_SERIES = {
+    "AL976",
+    "SWD",
+    "AL-SWD",
+    "AL_SWD",
+    "ALSWD",
+    "AL976-SWD",
+    "PANORAMA",
+    "SOLALITE",
+}
+_KNOWN_DOOR_SERIES = _PANEL_SERIES | _ALUMINUM_SERIES
+# Identity rows document the widget ids. aluminum/aluminium are the spellings
+# that are not already a catalog code.
+_DOOR_SERIES_ALIASES = {
+    "KANATA": "KANATA",
+    "CRAFT": "CRAFT",
+    "ALUMINUM": "AL976",
+    "ALUMINIUM": "AL976",
+}
+
+
+def _canonical_door_series(raw: Any) -> str:
+    """Uppercase a caller series and apply the widget aliases.
+
+    Blank means the historical default (KANATA). An unrecognized series
+    raises 400 instead of letting the part resolver substitute TX450.
+    """
+    token = "" if raw is None else str(raw).strip().upper()
+    if not token:
+        return "KANATA"
+    series = _DOOR_SERIES_ALIASES.get(token, token)
+    if series not in _KNOWN_DOOR_SERIES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "ok": False,
+                "error": {
+                    "code": "BAD_REQUEST",
+                    "message": f"Unknown door series {raw!r}",
+                },
+            },
+        )
+    return series
+
+
 def _map_widget_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
     """Map the door-designer widget's config shape onto the part resolver's."""
     windows_val = cfg.get("windows")
     has_windows = bool(windows_val) and str(windows_val).lower() != "none"
+    series = _canonical_door_series(_first(cfg, "doorSeries", "familyId", "family"))
+    door_type = _first(cfg, "doorType") or "residential"
+    # Aluminum catalog series (including the aluminum/aluminium aliases, which
+    # canonicalize to AL976) must take the aluminium path. A residential
+    # doorType would skip _get_aluminum_section_parts and price TX450 panels.
+    if series in _ALUMINUM_SERIES:
+        door_type = "aluminium"
     mapped: Dict[str, Any] = {
-        "doorType": _first(cfg, "doorType") or "residential",
-        "doorSeries": _first(cfg, "doorSeries", "familyId", "family") or "KANATA",
+        "doorType": door_type,
+        "doorSeries": series,
         "doorWidth": _first(cfg, "widthInches", "doorWidth") or 96,
         "doorHeight": _first(cfg, "heightInches", "doorHeight") or 84,
         "doorCount": _first(cfg, "doorCount") or 1,
