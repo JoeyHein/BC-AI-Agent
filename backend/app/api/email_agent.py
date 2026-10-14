@@ -243,13 +243,18 @@ async def generate_email(brief: EmailBrief, current_user: User = Depends(require
     try:
         client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=settings.ANTHROPIC_MODEL,
             max_tokens=2000,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}]
         )
 
-        raw_text = response.content[0].text.strip()
+        raw_text = ""
+        for block in response.content:
+            if getattr(block, "type", None) == "text" and getattr(block, "text", None):
+                raw_text = block.text
+                break
+        raw_text = raw_text.strip()
         # Strip markdown code fences if present
         if raw_text.startswith("```"):
             raw_text = raw_text.split("\n", 1)[1] if "\n" in raw_text else raw_text[3:]

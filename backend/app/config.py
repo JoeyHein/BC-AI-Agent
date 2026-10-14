@@ -42,6 +42,11 @@ class Settings(BaseSettings):
 
     # Anthropic Claude AI
     ANTHROPIC_API_KEY: Optional[str] = None
+    # Sonnet used by the BC assistant, the email agent, and other Sonnet calls.
+    # The May 2025 Sonnet 4 snapshot was retired on 2026-06-15 and returns
+    # 404 not_found_error. This default is Anthropic's recommended replacement.
+    # Set ANTHROPIC_MODEL to move every Sonnet call without a code change.
+    ANTHROPIC_MODEL: str = "claude-sonnet-5-5"
 
     # Google Maps — Distance Matrix API for install travel auto-lookup.
     # Resolves any town name to road-km from Medicine Hat. Optional; if

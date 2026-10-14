@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, desc, func
 
+from app.config import settings
 from app.db.models import (
     ParseExample, DomainKnowledge, ParseFeedback, QuoteRequest,
     EmailLog, LearningMetrics, KnowledgeType, FeedbackType
@@ -1145,7 +1146,7 @@ class MemoryService:
             total_examples=total_examples,
             verified_examples=verified_examples,
             total_knowledge_items=total_knowledge,
-            model_used="claude-sonnet-4-5-20250929",
+            model_used=settings.ANTHROPIC_MODEL,
             created_at=datetime.utcnow()
         )
 

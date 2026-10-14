@@ -28,7 +28,7 @@ class BCAgentService:
     def __init__(self):
         self.api_key = settings.ANTHROPIC_API_KEY
         self.client: Optional[Anthropic] = None
-        self.model = "claude-sonnet-4-20250514"
+        self.model = settings.ANTHROPIC_MODEL
 
         # Select tools based on current phase
         if self.CURRENT_PHASE == 1:

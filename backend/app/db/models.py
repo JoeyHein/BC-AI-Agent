@@ -212,7 +212,7 @@ class AIDecision(Base):
     input_data = Column(JSON)
     output_data = Column(JSON)
     confidence_score = Column(Float)
-    model_used = Column(String(100))  # claude-3-5-sonnet-20241022
+    model_used = Column(String(100))  # Anthropic model id, from ANTHROPIC_MODEL
     prompt_tokens = Column(Integer)
     completion_tokens = Column(Integer)
     human_override = Column(Boolean, default=False)
