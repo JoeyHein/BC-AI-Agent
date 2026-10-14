@@ -808,4 +808,13 @@ export const serviceKeysApi = {
   audit: (limit = 50) => apiClient.get('/api/admin/service-keys/audit', { params: { limit } }),
 };
 
+// Partner external API keys (Settings → External API keys). Admin JWT only.
+// Create and rotate return plaintext once; list and revoke never do.
+export const externalKeysApi = {
+  list: () => apiClient.get('/api/external-keys'),
+  create: (body) => apiClient.post('/api/external-keys', body),
+  revoke: (id) => apiClient.post(`/api/external-keys/${id}/revoke`),
+  rotate: (id) => apiClient.post(`/api/external-keys/${id}/rotate`),
+};
+
 export default apiClient;

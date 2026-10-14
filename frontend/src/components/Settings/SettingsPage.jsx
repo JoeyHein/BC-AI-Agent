@@ -8,6 +8,7 @@ import CatalogBuilder from './CatalogBuilder'
 import InventoryDashboard from '../InventoryAgent/InventoryDashboard'
 import POAgentDashboard from '../POAgent/POAgentDashboard'
 import ServiceKeysSettings from './ServiceKeysSettings'
+import ExternalKeysSettings from './ExternalKeysSettings'
 import { useAuth } from '../../contexts/AuthContext'
 
 function SettingsPage() {
@@ -27,6 +28,7 @@ function SettingsPage() {
   ]
   if (isAdmin) {
     tabs.push({ id: 'service-keys', name: 'Service keys', icon: 'adjustments' })
+    tabs.push({ id: 'external-keys', name: 'External API keys', icon: 'adjustments' })
   }
 
   const getTabIcon = (iconName) => {
@@ -106,6 +108,7 @@ function SettingsPage() {
           {activeTab === 'email' && <EmailSettingsTab />}
           {activeTab === 'general' && <GeneralSettings />}
           {activeTab === 'service-keys' && isAdmin && <ServiceKeysSettings />}
+          {activeTab === 'external-keys' && isAdmin && <ExternalKeysSettings />}
         </div>
       </div>
     </div>
