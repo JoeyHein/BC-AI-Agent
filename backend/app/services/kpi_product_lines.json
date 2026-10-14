@@ -1,0 +1,40 @@
+{
+  "low_margin_pct": 20,
+  "so_to_po_late_days": 5,
+  "slow_mover_days": 90,
+  "lines": [
+    {
+      "id": "commercial",
+      "label": "Commercial",
+      "match": ["TX450", "TX380", "TX500", "TX760", "THERMALEX", "THERMAL-EX"]
+    },
+    {
+      "id": "residential",
+      "label": "Residential",
+      "match": ["KANATA", "CRAFT", "RESIDENTIAL"]
+    },
+    {
+      "id": "aluminum",
+      "label": "Aluminum",
+      "match": ["AL976", "SWD", "PANORAMA", "SOLALITE", "ALUMINUM", "ALUMINIUM"]
+    }
+  ],
+  "operators": [
+    {
+      "id": "liftmaster",
+      "label": "LiftMaster",
+      "match": ["LIFTMASTER", "LIFT MASTER"]
+    },
+    {
+      "id": "mckinnon",
+      "label": "McKinnon (Micanan)",
+      "match": ["MICANAN", "MCKINNON", "MC KINNON"]
+    },
+    {
+      "id": "guardian",
+      "label": "Guardian",
+      "match": ["GUARDIAN"]
+    }
+  ],
+  "freight": ["FREIGHT", "SHIPPING CHARGE", "DELIVERY CHARGE"]
+}

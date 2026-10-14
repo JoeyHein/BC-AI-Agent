@@ -27,6 +27,18 @@ Writes that create, convert, post, ship, or email a Business Central document ar
 | `quotes:read` | `GET /api/door-config/load-quote/SQ-003132` | Reload a live quote into the door configurator. |
 | `quotes:read` | `GET /api/metrics/quoting` | Quoting pipeline analytics. |
 
+## KPI dashboard
+
+These need all four read scopes together: `orders:read`, `purchasing:read`, `quotes:read`, and `inventory:read`. A key that has only some of them is refused. The routes are read-only.
+
+| Scope | Route | What it returns |
+| --- | --- | --- |
+| `orders:read`, `purchasing:read`, `quotes:read`, and `inventory:read` | `GET /api/kpi/dashboard` | Financial and operations KPIs for a date range (`from`, `to`). |
+| `orders:read`, `purchasing:read`, `quotes:read`, and `inventory:read` | `GET /api/kpi/dashboard/purchasing` | Purchasing and vendor KPIs only. |
+| `orders:read`, `purchasing:read`, `quotes:read`, and `inventory:read` | `GET /api/kpi/dashboard/sales` | Sales KPIs only. |
+| `orders:read`, `purchasing:read`, `quotes:read`, and `inventory:read` | `GET /api/kpi/dashboard/financial` | Financial KPIs only. |
+| `orders:read`, `purchasing:read`, `quotes:read`, and `inventory:read` | `GET /api/kpi/dashboard/operations` | Operations KPIs only. |
+
 ## Orders
 
 | Scope | Route |

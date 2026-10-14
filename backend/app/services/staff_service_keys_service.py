@@ -46,6 +46,10 @@ REVIEW_DRAFT = "purchasing:review_draft"
 VENDOR_ACKS_RUN = "vendor_acks:run"
 QUOTES_READ = "quotes:read"
 
+# The KPI dashboard reads orders, purchasing, quotes, and inventory.
+# A key needs every one of these. Existing automation keys already have them.
+_KPI_SCOPES = {ORDERS_READ, PURCHASING_READ, QUOTES_READ, INVENTORY_READ}
+
 AUTOMATION_SCOPES = [
     ORDERS_READ,
     INVENTORY_READ,
@@ -142,6 +146,14 @@ _RULES: list[tuple[str, re.Pattern[str], str, Optional[str]]] = [
     ("GET", re.compile(r"^/api/bc/sales-price-lines$"), QUOTES_READ, None),
     ("GET", re.compile(r"^/api/door-config/load-quote/[^/]+$"), QUOTES_READ, None),
     ("GET", re.compile(r"^/api/metrics/quoting$"), QUOTES_READ, None),
+    # Staff KPI dashboard. GET only. All four read scopes are required.
+    ("GET", re.compile(r"^/api/kpi/dashboard$"), ORDERS_READ, "kpi_dashboard"),
+    (
+        "GET",
+        re.compile(r"^/api/kpi/dashboard/(purchasing|sales|financial|operations)$"),
+        ORDERS_READ,
+        "kpi_dashboard",
+    ),
 ]
 
 
@@ -283,6 +295,8 @@ def route_allowed(method: str, path: str, body: bytes, granted: set[str]) -> tup
                 "generate-po is allowed only when send_email is false "
                 "(that skips the Outlook draft). Use review-draft when you want a draft.",
             )
+        if extra == "kpi_dashboard" and not _KPI_SCOPES.issubset(granted):
+            continue
         return True, "allowed"
     if saw_rule:
         return False, "This service key does not include permission for this route."
