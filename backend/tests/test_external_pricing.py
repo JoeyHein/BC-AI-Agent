@@ -439,9 +439,9 @@ class TestItemLookup:
     def test_search_items_stub_matches_bc_client_signature(self):
         import inspect
 
-        from app.integrations.bc.client import BCClient
+        from app.integrations.bc.client import BusinessCentralClient
 
-        real = inspect.signature(BCClient.search_items)
+        real = inspect.signature(BusinessCentralClient.search_items)
         fake = inspect.signature(FakeBcClient.search_items)
         assert list(fake.parameters) == list(real.parameters)
         with pytest.raises(TypeError):
