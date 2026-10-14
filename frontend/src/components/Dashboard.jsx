@@ -1,14 +1,52 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  LabelList,
+  Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import { kpiApi } from '../api/client'
 
 const TONE = {
-  good: { bar: 'border-emerald-500', text: 'text-emerald-700', pill: 'bg-emerald-100 text-emerald-800' },
-  warn: { bar: 'border-amber-500', text: 'text-amber-700', pill: 'bg-amber-100 text-amber-800' },
-  bad: { bar: 'border-red-500', text: 'text-red-700', pill: 'bg-red-100 text-red-800' },
-  neutral: { bar: 'border-slate-300', text: 'text-slate-800', pill: 'bg-slate-100 text-slate-600' },
+  good: { bar: 'bg-emerald-500', text: 'text-emerald-700', pill: 'bg-emerald-100 text-emerald-800', dot: 'bg-emerald-500', fill: '#059669' },
+  warn: { bar: 'bg-amber-500', text: 'text-amber-700', pill: 'bg-amber-100 text-amber-800', dot: 'bg-amber-500', fill: '#d97706' },
+  bad: { bar: 'bg-red-500', text: 'text-red-700', pill: 'bg-red-100 text-red-800', dot: 'bg-red-500', fill: '#dc2626' },
+  neutral: { bar: 'bg-slate-300', text: 'text-slate-900', pill: 'bg-slate-100 text-slate-600', dot: 'bg-slate-400', fill: '#64748b' },
 }
+
+const STATUS_LABEL = { good: 'On track', warn: 'Watch', bad: 'Attention' }
+
+const SLICE = {
+  commercial: '#0C2340',
+  residential: '#3b82c4',
+  aluminum: '#14b8a6',
+  other: '#cbd5e1',
+  liftmaster: '#c2410c',
+  mckinnon: '#1e3a5f',
+  guardian: '#059669',
+}
+
+const AGING = {
+  current: '#059669',
+  '1_30': '#0C2340',
+  '31_60': '#f59e0b',
+  '61_90': '#ea580c',
+  over_90: '#dc2626',
+}
+
+const TIP = { borderRadius: 12, border: '1px solid #e5e7eb', fontSize: 12, boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)' }
 
 function formatDay(date) {
   const y = date.getFullYear()
@@ -63,9 +101,16 @@ function moneyExact(value) {
   return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(value)
 }
 
+function moneyShort(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return ''
+  if (Math.abs(n) >= 1000) return `$${Math.round(n / 1000)}k`
+  return `$${Math.round(n)}`
+}
+
 function daysLabel(value) {
   if (value == null) return '—'
-  return `${Number(value).toFixed(1)} days`
+  return Number(value).toFixed(1)
 }
 
 function pctLabel(value) {
@@ -73,43 +118,121 @@ function pctLabel(value) {
   return `${Number(value).toFixed(1)}%`
 }
 
-function signedPct(value) {
-  if (value == null) return 'No comparison'
-  const arrow = value > 0 ? '▲' : value < 0 ? '▼' : '•'
-  return `${arrow} ${Math.abs(value).toFixed(1)}% vs prior`
-}
-
 function toneOf(status) {
   return TONE[status] || TONE.neutral
 }
 
-function Card({ title, value, detail, status, flag }) {
+function fillOf(status) {
+  return toneOf(status).fill
+}
+
+function noteState(coverage, id) {
+  return (coverage || []).find((note) => note.id === id)?.state
+}
+
+function Trend({ delta, kind = 'upGood', compact = false }) {
+  if (delta == null || Number.isNaN(Number(delta))) return null
+  const value = Number(delta)
+  const up = value > 0
+  const flat = value === 0
+  const favorable = flat || (kind === 'upGood' ? up : !up)
+  const color = flat ? 'text-gray-500' : favorable ? 'text-emerald-700' : 'text-red-700'
+  const arrow = flat ? '→' : up ? '↑' : '↓'
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-sm font-semibold tabular-nums ${color}`}>
+      <span aria-hidden="true">{arrow}</span>
+      <span>{Math.abs(value).toFixed(1)}%{compact ? '' : ' vs prior'}</span>
+    </span>
+  )
+}
+
+function StatusMark({ status }) {
+  const label = STATUS_LABEL[status]
+  if (!label) return null
   const tone = toneOf(status)
   return (
-    <div className={`bg-white rounded-lg shadow-sm border border-gray-200 border-l-4 ${tone.bar} p-4`}>
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-sm text-gray-500">{title}</p>
-        {flag && flag !== 'ok' && (
-          <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
-            {flag === 'missing' ? 'Unavailable' : 'Partial'}
-          </span>
-        )}
+    <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${tone.pill}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
+      {label}
+    </span>
+  )
+}
+
+function PartialMark({ flag }) {
+  if (!flag || flag === 'ok') return null
+  const label = flag === 'missing' ? 'Unavailable' : 'Partial'
+  return (
+    <span title={label} aria-label={label} className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-100 text-xs font-bold text-amber-700">
+      !
+    </span>
+  )
+}
+
+function KpiTile({ label, value, unit, delta, deltaKind, status, flag, sub }) {
+  const tone = toneOf(status)
+  return (
+    <article className="relative min-w-0 overflow-hidden rounded-2xl bg-white p-3.5 shadow-sm ring-1 ring-gray-200 sm:p-5">
+      <div className={`absolute inset-y-0 left-0 w-1.5 ${tone.bar}`} />
+      <div className="flex items-start justify-between gap-2 pl-2">
+        <p className="min-w-0 truncate text-[11px] font-semibold uppercase tracking-wide text-gray-500 sm:text-xs">{label}</p>
+        <span className="flex items-center gap-1">
+          <PartialMark flag={flag} />
+          <StatusMark status={status} />
+        </span>
       </div>
-      <p className={`mt-1 text-2xl font-semibold ${tone.text}`}>{value}</p>
-      {detail && <p className="mt-1 text-xs text-gray-500">{detail}</p>}
+      <p className={`mt-2 pl-2 text-3xl font-semibold leading-none tracking-tight tabular-nums sm:text-4xl ${tone.text}`}>
+        {value}
+        {unit && value !== '—' && <span className="ml-1 text-sm font-medium text-gray-400">{unit}</span>}
+      </p>
+      {(delta != null || sub) && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-2">
+          <Trend delta={delta} kind={deltaKind} />
+          {sub && <p className="text-sm font-medium text-gray-500">{sub}</p>}
+        </div>
+      )}
+    </article>
+  )
+}
+
+function Section({ title, children }) {
+  return (
+    <section className="space-y-3">
+      <h2 className="px-0.5 text-xs font-semibold uppercase tracking-[0.14em] text-odc-800">{title}</h2>
+      {children}
+    </section>
+  )
+}
+
+function ChartCard({ title, action, children, className = '' }) {
+  return (
+    <div className={`min-w-0 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-5 ${className}`}>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+        {action}
+      </div>
+      {children}
     </div>
   )
 }
 
-function Section({ title, lede, children }) {
+function EmptyChart({ label = 'Nothing in this range' }) {
+  return <p className="flex h-36 items-center justify-center text-sm text-gray-400">{label}</p>
+}
+
+function Details({ title, count, children }) {
   return (
-    <section className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
-        {lede && <p className="text-sm text-gray-500">{lede}</p>}
-      </div>
-      {children}
-    </section>
+    <details className="group rounded-2xl bg-white shadow-sm ring-1 ring-gray-200">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-3 px-4 py-3 text-sm font-medium text-gray-800 [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0 flex-1">{title}</span>
+        {count != null && (
+          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-gray-600">{count}</span>
+        )}
+        <svg className="h-4 w-4 shrink-0 text-gray-400 transition-transform group-open:rotate-180" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+          <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+        </svg>
+      </summary>
+      <div className="border-t border-gray-100">{children}</div>
+    </details>
   )
 }
 
@@ -147,81 +270,136 @@ function Table({ columns, rows, rowClass }) {
   )
 }
 
-function Panel({ title, children }) {
+function DaysGauge({ days, status, max }) {
+  const scale = max || 10
+  const clamped = days == null ? 0 : Math.max(0, Math.min(Number(days), scale))
+  const rest = Math.max(scale - clamped, 0)
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-      <div className="border-b border-gray-100 px-4 py-3 text-sm font-medium text-gray-800">{title}</div>
-      {children}
+    <div className="relative h-36 sm:h-40">
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie
+            data={[
+              { name: 'days', value: clamped || 0.0001 },
+              { name: 'rest', value: rest || 0.0001 },
+            ]}
+            cy="100%"
+            startAngle={180}
+            endAngle={0}
+            innerRadius="72%"
+            outerRadius="100%"
+            dataKey="value"
+            stroke="none"
+            isAnimationActive={false}
+          >
+            <Cell fill={days == null ? '#e5e7eb' : fillOf(status)} />
+            <Cell fill="#e5e7eb" />
+          </Pie>
+        </PieChart>
+      </ResponsiveContainer>
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 text-center">
+        <p className={`text-3xl font-semibold leading-none tabular-nums sm:text-4xl ${toneOf(status).text}`}>
+          {daysLabel(days)}
+        </p>
+        <p className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">days</p>
+      </div>
     </div>
   )
 }
 
-function noteState(coverage, id) {
-  return coverage.find((note) => note.id === id)?.state
+function VendorAckChart({ vendors, lateDays }) {
+  const rows = [...(vendors || [])].sort((a, b) => (b.average_days || 0) - (a.average_days || 0))
+  if (rows.length === 0) return <EmptyChart label="No acknowledgements in this range" />
+  return (
+    <div style={{ height: Math.max(132, rows.length * 52) }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 36, left: 4, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e5e7eb" />
+          <XAxis type="number" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+          <YAxis
+            type="category"
+            dataKey="vendor_name"
+            width={96}
+            tick={{ fontSize: 11, fill: '#334155' }}
+            axisLine={false}
+            tickLine={false}
+            tickFormatter={(value) => (String(value).length > 14 ? `${String(value).slice(0, 13)}…` : value)}
+          />
+          <Tooltip
+            contentStyle={TIP}
+            formatter={(value) => [`${Number(value).toFixed(1)} days`, 'Average']}
+          />
+          <ReferenceLine x={lateDays} stroke="#dc2626" strokeDasharray="4 4" />
+          <Bar dataKey="average_days" radius={[0, 6, 6, 0]} barSize={16} isAnimationActive={false}>
+            {rows.map((row) => (
+              <Cell key={row.vendor_number} fill={fillOf(row.status)} />
+            ))}
+            <LabelList dataKey="average_days" position="right" formatter={(value) => Number(value).toFixed(1)} style={{ fontSize: 11, fill: '#334155' }} />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
 }
 
-function Purchasing({ data, coverage }) {
+function Purchasing({ data, coverage, lateDays }) {
   const card = data?.so_to_po || {}
   const acks = data?.acknowledgements || {}
   const unacked = data?.unacknowledged || {}
   const onTime = data?.on_time || {}
+  const late = card.late_count || 0
   return (
-    <Section title="Purchasing and vendors" lede="How fast orders go out to vendors, and whether vendors confirm and deliver on time.">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Card
-          title="SO to PO sent"
-          value={daysLabel(card.average_days)}
-          detail={`${card.sent_count || 0} sent · ${card.late_count || 0} over 5 days`}
-          status={card.status}
-          flag={noteState(coverage, 'so_to_po')}
-        />
-        <Card
-          title="PO to acknowledgement"
-          value={daysLabel(acks.average_days)}
-          detail="Average days, all vendors with an acknowledgement"
-          status={acks.status}
-          flag={noteState(coverage, 'po_ack')}
-        />
-        <Card
-          title="Unacknowledged POs"
-          value={unacked.count == null ? '—' : unacked.count}
-          detail="Open now, any age"
-          status={unacked.status}
-          flag={noteState(coverage, 'unacknowledged')}
-        />
-        <Card
-          title="Vendor on-time"
-          value={pctLabel(onTime.rate_pct)}
-          detail={`${onTime.on_time || 0} on time · ${onTime.late || 0} late · ${onTime.unknown || 0} unknown`}
-          status={onTime.status}
-          flag={noteState(coverage, 'vendor_ontime')}
-        />
+    <Section title="Purchasing">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <KpiTile label="SO to PO" value={daysLabel(card.average_days)} unit="days" status={card.status} flag={noteState(coverage, 'so_to_po')} />
+        <KpiTile label="Vendor ack" value={daysLabel(acks.average_days)} unit="days" status={acks.status} flag={noteState(coverage, 'po_ack')} />
+        <KpiTile label="Unacked POs" value={unacked.count == null ? '—' : unacked.count} status={unacked.status} flag={noteState(coverage, 'unacknowledged')} />
+        <KpiTile label="On time" value={pctLabel(onTime.rate_pct)} status={onTime.status} flag={noteState(coverage, 'vendor_ontime')} />
       </div>
 
-      <Panel title="Every sales order and purchase order pair">
-        <Table
-          columns={[
-            { key: 'sales_order', label: 'Sales order' },
-            { key: 'sales_order_date', label: 'SO date' },
-            { key: 'customer', label: 'Customer' },
-            { key: 'purchase_order', label: 'Purchase order' },
-            { key: 'vendor_name', label: 'Vendor' },
-            { key: 'po_sent_date', label: 'PO sent', render: (row) => row.po_sent_date || 'Not sent' },
-            { key: 'source', label: 'Sent date from', render: (row) => row.sent_source === 'portal_email' ? 'Email sent' : row.sent_source === 'bc_order_date' ? 'PO date' : '—' },
-            { key: 'days', label: 'Days', align: 'right', render: (row) => row.days == null ? `${row.age_days} open` : row.days },
-          ]}
-          rows={(card.pairs || []).map((row) => ({ ...row, key: `${row.sales_order}-${row.purchase_order}` }))}
-          rowClass={(row) => (row.highlight ? 'bg-red-50 text-red-900' : '')}
-        />
-        {card.sales_orders_without_po > 0 && (
-          <p className="px-4 py-3 text-xs text-gray-500">
-            {card.sales_orders_without_po} sales order{card.sales_orders_without_po === 1 ? '' : 's'} in this range {card.sales_orders_without_po === 1 ? 'has' : 'have'} no linked purchase order.
-          </p>
-        )}
-      </Panel>
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-5">
+        <ChartCard title="SO to PO" className="lg:col-span-2">
+          <div className="flex items-end gap-3">
+            <div className="min-w-0 flex-1">
+              <DaysGauge days={card.average_days} status={card.status} max={Math.max(lateDays * 2, 10)} />
+            </div>
+            <div className={`mb-1 flex w-[5.75rem] shrink-0 flex-col items-center justify-center rounded-2xl px-2 py-4 sm:w-28 ${late > 0 ? 'bg-red-50' : 'bg-emerald-50'}`}>
+              <p className={`text-4xl font-semibold leading-none tabular-nums ${late > 0 ? 'text-red-600' : 'text-emerald-700'}`}>{late}</p>
+              <p className={`mt-2 text-center text-[11px] font-semibold uppercase leading-tight tracking-wide ${late > 0 ? 'text-red-700' : 'text-emerald-800'}`}>
+                over {lateDays} days
+              </p>
+            </div>
+          </div>
+        </ChartCard>
+        <ChartCard title="Vendor acknowledgement days" className="lg:col-span-3">
+          <VendorAckChart vendors={acks.vendors} lateDays={lateDays} />
+        </ChartCard>
+      </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Panel title="Acknowledgement days by vendor">
+      <div className="space-y-2">
+        <Details title="Sales orders and purchase orders" count={(card.pairs || []).length}>
+          <Table
+            columns={[
+              { key: 'sales_order', label: 'Sales order' },
+              { key: 'sales_order_date', label: 'SO date' },
+              { key: 'customer', label: 'Customer' },
+              { key: 'purchase_order', label: 'Purchase order' },
+              { key: 'vendor_name', label: 'Vendor' },
+              { key: 'po_sent_date', label: 'PO sent', render: (row) => row.po_sent_date || 'Not sent' },
+              { key: 'source', label: 'Sent date from', render: (row) => row.sent_source === 'portal_email' ? 'Email sent' : row.sent_source === 'bc_order_date' ? 'PO date' : '—' },
+              { key: 'days', label: 'Days', align: 'right', render: (row) => row.days == null ? `${row.age_days} open` : row.days },
+            ]}
+            rows={(card.pairs || []).map((row) => ({ ...row, key: `${row.sales_order}-${row.purchase_order}` }))}
+            rowClass={(row) => (row.highlight ? 'bg-red-50 text-red-900' : '')}
+          />
+          {card.sales_orders_without_po > 0 && (
+            <p className="px-3 py-3 text-xs text-gray-500">
+              {card.sales_orders_without_po} sales order{card.sales_orders_without_po === 1 ? '' : 's'} in this range with no linked purchase order.
+            </p>
+          )}
+        </Details>
+        <Details title="Acknowledgement and on-time by vendor" count={(acks.vendors || []).length + (onTime.vendors || []).length}>
+          <p className="px-3 pt-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Acknowledgement days</p>
           <Table
             columns={[
               { key: 'vendor_name', label: 'Vendor' },
@@ -231,120 +409,189 @@ function Purchasing({ data, coverage }) {
             rows={(acks.vendors || []).map((row) => ({ ...row, key: row.vendor_number }))}
             rowClass={(row) => (row.status === 'bad' ? 'bg-red-50' : row.status === 'warn' ? 'bg-amber-50' : '')}
           />
-        </Panel>
-        <Panel title="On-time rate by vendor">
+          <p className="px-3 pt-3 text-xs font-semibold uppercase tracking-wide text-gray-400">On time</p>
           <Table
             columns={[
               { key: 'vendor_name', label: 'Vendor' },
               { key: 'rate', label: 'On time', align: 'right', render: (row) => pctLabel(row.rate_pct) },
               { key: 'late', label: 'Late', align: 'right' },
             ]}
-            rows={(onTime.vendors || []).map((row) => ({ ...row, key: row.vendor_number }))}
+            rows={(onTime.vendors || []).map((row) => ({ ...row, key: `ot-${row.vendor_number}` }))}
             rowClass={(row) => (row.status === 'bad' ? 'bg-red-50' : row.status === 'warn' ? 'bg-amber-50' : '')}
           />
-        </Panel>
-      </div>
-
-      <Panel title="Unacknowledged purchase orders">
-        {(unacked.vendors || []).length === 0 && <p className="px-4 py-4 text-sm text-gray-400">No sent purchase orders are waiting on an acknowledgement.</p>}
-        {(unacked.vendors || []).map((vendor) => (
-          <div key={vendor.vendor_number} className="border-t border-gray-100 first:border-t-0">
-            <div className="flex items-center justify-between px-4 py-2">
-              <p className="text-sm font-medium text-gray-800">{vendor.vendor_name}</p>
-              <p className="text-xs text-gray-500">{vendor.count} open · oldest {vendor.oldest_days} days</p>
+        </Details>
+        <Details title="Unacknowledged purchase orders" count={unacked.count || 0}>
+          {(unacked.vendors || []).length === 0 && <p className="px-4 py-4 text-sm text-gray-400">No sent purchase orders are waiting on an acknowledgement.</p>}
+          {(unacked.vendors || []).map((vendor) => (
+            <div key={vendor.vendor_number} className="border-t border-gray-100 first:border-t-0">
+              <div className="flex items-center justify-between px-4 py-2">
+                <p className="text-sm font-medium text-gray-800">{vendor.vendor_name}</p>
+                <p className="text-xs text-gray-500">{vendor.count} open · oldest {vendor.oldest_days} days</p>
+              </div>
+              <Table
+                columns={[
+                  { key: 'number', label: 'PO' },
+                  { key: 'sent_date', label: 'Sent' },
+                  { key: 'age_days', label: 'Age (days)', align: 'right' },
+                  { key: 'amount', label: 'Amount', align: 'right', render: (row) => moneyExact(row.amount) },
+                ]}
+                rows={(vendor.purchase_orders || []).map((row) => ({ ...row, key: row.number }))}
+                rowClass={(row) => (row.status === 'bad' ? 'bg-red-50' : row.status === 'warn' ? 'bg-amber-50' : '')}
+              />
             </div>
-            <Table
-              columns={[
-                { key: 'number', label: 'PO' },
-                { key: 'sent_date', label: 'Sent' },
-                { key: 'age_days', label: 'Age (days)', align: 'right' },
-                { key: 'amount', label: 'Amount', align: 'right', render: (row) => moneyExact(row.amount) },
-              ]}
-              rows={(vendor.purchase_orders || []).map((row) => ({ ...row, key: row.number }))}
-              rowClass={(row) => (row.status === 'bad' ? 'bg-red-50' : row.status === 'warn' ? 'bg-amber-50' : '')}
-            />
-          </div>
-        ))}
-      </Panel>
+          ))}
+        </Details>
+      </div>
     </Section>
   )
 }
 
-function Sales({ data, coverage }) {
-  const weekly = data?.weekly_series || []
-  const mix = data?.product_mix || {}
+function SliceLegend({ rows, deltaKey }) {
   return (
-    <Section title="Sales" lede="Posted invoices, before tax.">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Card title="Sales in this range" value={money(data?.range_total?.amount)} detail={signedPct(data?.range_total?.prior_delta_pct)} status={data?.range_total?.status} flag={noteState(coverage, 'sales')} />
-        <Card title={data?.week?.label || 'This week'} value={money(data?.week?.amount)} detail={`${signedPct(data?.week?.prior_delta_pct)} · last year ${money(data?.week?.year_ago_amount)}`} status={data?.week?.status} flag={noteState(coverage, 'sales')} />
-        <Card title={data?.month?.label || 'This month'} value={money(data?.month?.amount)} detail={`${signedPct(data?.month?.prior_delta_pct)} · last year ${money(data?.month?.year_ago_amount)}`} status={data?.month?.status} flag={noteState(coverage, 'sales')} />
-        <Card title="Quote conversion" value={pctLabel(data?.quotes?.conversion_pct)} detail={`Open quotes ${money(data?.quotes?.open_quote_value)} · ${data?.quotes?.open_quote_count || 0} still open`} status={data?.quotes?.status} flag={noteState(coverage, 'quotes')} />
-      </div>
+    <ul className="mt-2 space-y-1.5">
+      {rows.map((row) => (
+        <li key={row.id} className="flex items-center gap-2 text-sm">
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: row.fill }} />
+          <span className="min-w-0 flex-1 truncate text-gray-700">{row.label}</span>
+          <span className="shrink-0 font-semibold tabular-nums text-gray-900">{money(row.amount)}</span>
+          {deltaKey && <Trend delta={row[deltaKey]} compact />}
+        </li>
+      ))}
+    </ul>
+  )
+}
 
-      <Panel title="Weekly sales">
-        <div className="h-64 p-2">
+function Donut({ slices }) {
+  const drawn = slices.filter((row) => Number(row.amount) > 0)
+  if (drawn.length === 0) return <EmptyChart label="No sales in this range" />
+  return (
+    <div className="h-52 sm:h-60">
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie data={drawn} dataKey="amount" nameKey="label" innerRadius="58%" outerRadius="86%" paddingAngle={2} stroke="none">
+            {drawn.map((row) => (
+              <Cell key={row.id} fill={row.fill} />
+            ))}
+          </Pie>
+          <Tooltip contentStyle={TIP} formatter={(value, name) => [money(value), name]} />
+        </PieChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+function SalesTrend({ weekly, monthly }) {
+  const [grain, setGrain] = useState('week')
+  const series = grain === 'week' ? weekly : monthly
+  const toggle = (
+    <div className="inline-flex rounded-full bg-gray-100 p-0.5">
+      {[{ id: 'week', label: 'Weekly' }, { id: 'month', label: 'Monthly' }].map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          onClick={() => setGrain(option.id)}
+          className={`min-h-9 rounded-full px-3 text-xs font-semibold ${grain === option.id ? 'bg-white text-odc-900 shadow-sm' : 'text-gray-500'}`}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  )
+  return (
+    <ChartCard title="Sales trend" action={toggle}>
+      {series.length === 0 ? <EmptyChart /> : (
+        <div className="h-56 sm:h-72">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={weekly}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-              <YAxis tickFormatter={(value) => money(value)} tick={{ fontSize: 12 }} width={70} />
-              <Tooltip formatter={(value) => money(value)} />
-              <Legend />
-              <Bar dataKey="amount" name="This period" fill="#0f766e" />
-              <Bar dataKey="year_ago_amount" name="Same week last year" fill="#cbd5e1" />
-            </BarChart>
+            <LineChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} minTickGap={28} />
+              <YAxis tickFormatter={moneyShort} tick={{ fontSize: 11, fill: '#64748b' }} width={44} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={TIP} formatter={(value, name) => [money(value), name]} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Line type="monotone" dataKey="amount" name="Sales" stroke="#0C2340" strokeWidth={2.5} dot={false} activeDot={{ r: 4 }} connectNulls />
+              <Line type="monotone" dataKey="year_ago_amount" name="Last year" stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 4" dot={false} connectNulls />
+            </LineChart>
           </ResponsiveContainer>
         </div>
-      </Panel>
+      )}
+    </ChartCard>
+  )
+}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Panel title="Product mix">
-          <div className="space-y-3 p-4">
-            {(mix.lines || []).map((line) => (
-              <div key={line.id}>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-700">{line.label}</span>
-                  <span className="tabular-nums text-gray-900">{money(line.amount)} · {pctLabel(line.share_pct)}</span>
-                </div>
-                <div className="mt-1 h-2 rounded bg-gray-100">
-                  <div className="h-2 rounded bg-teal-700" style={{ width: `${Math.min(line.share_pct || 0, 100)}%` }} />
-                </div>
-              </div>
-            ))}
-            <p className="text-sm text-gray-500">Other (not mapped): {money(mix.other_amount)}</p>
-          </div>
-        </Panel>
-        <Panel title="Operator sales">
-          <Table
-            columns={[
-              { key: 'label', label: 'Brand' },
-              { key: 'amount', label: 'Sales', align: 'right', render: (row) => money(row.amount) },
-              { key: 'prior_amount', label: 'Prior period', align: 'right', render: (row) => money(row.prior_amount) },
-            ]}
-            rows={(data?.operators?.brands || []).map((row) => ({ ...row, key: row.id }))}
-          />
-        </Panel>
+function Sales({ data, coverage }) {
+  const mix = data?.product_mix || {}
+  const mixRows = [
+    ...(mix.lines || []).map((line) => ({ ...line, fill: SLICE[line.id] || '#94a3b8' })),
+    ...(mix.other_amount ? [{ id: 'other', label: 'Other', amount: mix.other_amount, fill: SLICE.other }] : []),
+  ]
+  const brands = (data?.operators?.brands || []).map((row) => ({ ...row, fill: SLICE[row.id] || '#94a3b8' }))
+  const movers = ['commercial', 'residential', 'aluminum'].flatMap((id) => {
+    const line = (mix.lines || []).find((row) => row.id === id)
+    return ((mix.top_movers || {})[id] || []).map((row) => ({
+      ...row,
+      key: `${id}-${row.item_number}`,
+      line: line?.label || id,
+    }))
+  })
+  return (
+    <Section title="Sales">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <KpiTile
+          label="Sales"
+          value={money(data?.range_total?.amount)}
+          delta={data?.range_total?.prior_delta_pct}
+          status={data?.range_total?.status}
+          flag={noteState(coverage, 'sales')}
+        />
+        <KpiTile
+          label={data?.week?.label || 'This week'}
+          value={money(data?.week?.amount)}
+          delta={data?.week?.prior_delta_pct}
+          status={data?.week?.status}
+          flag={noteState(coverage, 'sales')}
+        />
+        <KpiTile
+          label={data?.month?.label || 'This month'}
+          value={money(data?.month?.amount)}
+          delta={data?.month?.prior_delta_pct}
+          status={data?.month?.status}
+          flag={noteState(coverage, 'sales')}
+        />
+        <KpiTile
+          label="Quotes won"
+          value={pctLabel(data?.quotes?.conversion_pct)}
+          status={data?.quotes?.status}
+          flag={noteState(coverage, 'quotes')}
+          sub={data?.quotes?.open_quote_value != null ? `${money(data.quotes.open_quote_value)} open` : null}
+        />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {['commercial', 'residential', 'aluminum'].map((id) => {
-          const line = (mix.lines || []).find((row) => row.id === id)
-          const movers = (mix.top_movers || {})[id] || []
-          return (
-            <Panel key={id} title={`Top movers · ${line?.label || id}`}>
-              <Table
-                columns={[
-                  { key: 'item_number', label: 'Item' },
-                  { key: 'delta', label: 'Change', align: 'right', render: (row) => moneyExact(row.delta) },
-                ]}
-                rows={movers.map((row) => ({ ...row, key: row.item_number }))}
-                rowClass={(row) => (row.delta < 0 ? 'bg-red-50' : '')}
-              />
-            </Panel>
-          )
-        })}
+      <SalesTrend weekly={data?.weekly_series || []} monthly={data?.monthly_series || []} />
+
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <ChartCard title="Product mix">
+          <Donut slices={mixRows} />
+          <SliceLegend rows={mixRows} />
+        </ChartCard>
+        <ChartCard title="Operator brands">
+          <Donut slices={brands} />
+          <SliceLegend rows={brands} deltaKey="delta_pct" />
+        </ChartCard>
       </div>
+
+      <Details title="Top movers" count={movers.length}>
+        <Table
+          columns={[
+            { key: 'line', label: 'Line' },
+            { key: 'item_number', label: 'Item' },
+            { key: 'description', label: 'Name' },
+            { key: 'amount', label: 'Sales', align: 'right', render: (row) => moneyExact(row.amount) },
+            { key: 'delta', label: 'Change', align: 'right', render: (row) => moneyExact(row.delta) },
+          ]}
+          rows={movers}
+          rowClass={(row) => (row.delta < 0 ? 'bg-red-50' : '')}
+        />
+      </Details>
     </Section>
   )
 }
@@ -354,42 +601,91 @@ function Financial({ data, coverage }) {
   const variance = data?.po_variance || {}
   const ar = data?.ar || {}
   const backlog = data?.backlog || {}
+  const buckets = ar.buckets || []
+  const agingRow = { name: 'AR' }
+  buckets.forEach((bucket) => { agingRow[bucket.id] = bucket.amount || 0 })
+  const agingTotal = buckets.reduce((sum, bucket) => sum + (Number(bucket.amount) || 0), 0)
+  const lines = margin.by_line || []
   return (
-    <Section title="Financial" lede="Margin, purchase-invoice differences, what customers owe, and orders not yet shipped.">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Card title="Gross margin" value={pctLabel(margin.margin_pct)} detail={`${money(margin.margin_amount)} on ${money(margin.sales)} · under ${margin.threshold_pct ?? 20}% is flagged`} status={margin.status} flag={noteState(coverage, 'margin')} />
-        <Card title="Invoice vs PO" value={moneyExact(variance.variance_amount)} detail={`${variance.compared_count || 0} compared · ${variance.missing_po_count || 0} missing a PO total`} status={variance.status} flag={noteState(coverage, 'po_variance')} />
-        <Card title="Accounts receivable" value={money(ar.total)} detail={`${ar.customer_count || 0} customers with a balance`} status={ar.status} flag={noteState(coverage, 'ar')} />
-        <Card title="Open order backlog" value={money(backlog.amount)} detail={`${backlog.order_count || 0} orders not fully shipped`} status={backlog.status} flag={noteState(coverage, 'backlog')} />
+    <Section title="Financial">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <KpiTile label="Margin" value={pctLabel(margin.margin_pct)} status={margin.status} flag={noteState(coverage, 'margin')} sub={margin.margin_amount != null ? money(margin.margin_amount) : null} />
+        <KpiTile label="Invoice vs PO" value={moneyExact(variance.variance_amount)} status={variance.status} flag={noteState(coverage, 'po_variance')} />
+        <KpiTile label="Receivable" value={money(ar.total)} status={ar.status} flag={noteState(coverage, 'ar')} sub={ar.customer_count ? `${ar.customer_count} customers` : null} />
+        <KpiTile label="Backlog" value={money(backlog.amount)} status={backlog.status} flag={noteState(coverage, 'backlog')} sub={backlog.order_count ? `${backlog.order_count} orders` : null} />
       </div>
 
-      <Panel title="Low-margin orders">
-        <Table
-          columns={[
-            { key: 'invoice', label: 'Invoice' },
-            { key: 'customer', label: 'Customer' },
-            { key: 'sales', label: 'Sales', align: 'right', render: (row) => moneyExact(row.sales) },
-            { key: 'cost', label: 'Cost', align: 'right', render: (row) => moneyExact(row.cost) },
-            { key: 'margin_pct', label: 'Margin', align: 'right', render: (row) => pctLabel(row.margin_pct) },
-          ]}
-          rows={(margin.low_margin_orders || []).map((row) => ({ ...row, key: row.invoice }))}
-          rowClass={() => 'bg-red-50'}
-        />
-      </Panel>
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <ChartCard title="AR aging">
+          {agingTotal <= 0 ? <EmptyChart label="No open receivables" /> : (
+            <div className="h-24">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart layout="vertical" data={[agingRow]} margin={{ top: 12, right: 8, left: 0, bottom: 8 }}>
+                  <XAxis type="number" hide />
+                  <YAxis type="category" dataKey="name" hide />
+                  <Tooltip contentStyle={TIP} formatter={(value, name) => [money(value), name]} />
+                  {buckets.map((bucket) => (
+                    <Bar key={bucket.id} dataKey={bucket.id} stackId="aging" fill={AGING[bucket.id] || '#94a3b8'} name={bucket.label} barSize={28} isAnimationActive={false} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          <ul className="mt-1 flex flex-wrap gap-2">
+            {buckets.map((bucket) => (
+              <li key={bucket.id} className="inline-flex items-center gap-1.5 rounded-full bg-gray-50 px-2.5 py-1 text-xs">
+                <span className="h-2 w-2 rounded-full" style={{ background: AGING[bucket.id] || '#94a3b8' }} />
+                <span className="text-gray-500">{bucket.label}</span>
+                <span className="font-semibold tabular-nums text-gray-900">{money(bucket.amount)}</span>
+              </li>
+            ))}
+          </ul>
+          {(ar.deposits?.amount != null || ar.credit_balances) && (
+            <p className="mt-3 text-sm font-medium text-gray-500">
+              {ar.deposits?.amount != null ? `Deposits ${money(ar.deposits.amount)}` : ''}
+              {ar.deposits?.amount != null && ar.credit_balances ? ' · ' : ''}
+              {ar.credit_balances ? `Credits ${money(ar.credit_balances)}` : ''}
+            </p>
+          )}
+        </ChartCard>
+        <ChartCard title="Margin by product line">
+          {lines.length === 0 ? <EmptyChart /> : (
+            <div className="h-56 sm:h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={lines} margin={{ top: 18, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                  <YAxis tickFormatter={(value) => `${value}%`} tick={{ fontSize: 11, fill: '#64748b' }} width={40} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={TIP} formatter={(value) => [pctLabel(value), 'Margin']} />
+                  {margin.threshold_pct != null && <ReferenceLine y={margin.threshold_pct} stroke="#d97706" strokeDasharray="4 4" />}
+                  <Bar dataKey="margin_pct" radius={[6, 6, 0, 0]} barSize={36} isAnimationActive={false}>
+                    {lines.map((row) => (
+                      <Cell key={row.id} fill={fillOf(row.status)} />
+                    ))}
+                    <LabelList dataKey="margin_pct" position="top" formatter={(value) => (value == null ? '' : `${Number(value).toFixed(0)}%`)} style={{ fontSize: 11, fill: '#334155' }} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </ChartCard>
+      </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Panel title="Margin by product line">
+      <div className="space-y-2">
+        <Details title="Low-margin orders" count={(margin.low_margin_orders || []).length}>
           <Table
             columns={[
-              { key: 'label', label: 'Line' },
+              { key: 'invoice', label: 'Invoice' },
+              { key: 'customer', label: 'Customer' },
+              { key: 'sales', label: 'Sales', align: 'right', render: (row) => moneyExact(row.sales) },
+              { key: 'cost', label: 'Cost', align: 'right', render: (row) => moneyExact(row.cost) },
               { key: 'margin_pct', label: 'Margin', align: 'right', render: (row) => pctLabel(row.margin_pct) },
-              { key: 'sales', label: 'Sales', align: 'right', render: (row) => money(row.sales) },
             ]}
-            rows={(margin.by_line || []).map((row) => ({ ...row, key: row.id }))}
-            rowClass={(row) => (row.status === 'bad' ? 'bg-red-50' : row.status === 'warn' ? 'bg-amber-50' : '')}
+            rows={(margin.low_margin_orders || []).map((row) => ({ ...row, key: row.invoice }))}
+            rowClass={() => 'bg-red-50'}
           />
-        </Panel>
-        <Panel title="Purchase invoice difference by vendor">
+        </Details>
+        <Details title="Purchase invoice difference by vendor" count={(variance.vendors || []).length}>
           <Table
             columns={[
               { key: 'vendor_name', label: 'Vendor' },
@@ -399,23 +695,8 @@ function Financial({ data, coverage }) {
             rows={(variance.vendors || []).map((row) => ({ ...row, key: row.vendor_number }))}
             rowClass={(row) => (row.status === 'bad' ? 'bg-red-50' : row.status === 'warn' ? 'bg-amber-50' : '')}
           />
-        </Panel>
+        </Details>
       </div>
-
-      <Panel title="AR aging">
-        <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-5">
-          {(ar.buckets || []).map((bucket) => (
-            <div key={bucket.id} className={`rounded border px-3 py-2 ${bucket.status === 'bad' ? 'border-red-200 bg-red-50' : bucket.status === 'warn' ? 'border-amber-200 bg-amber-50' : 'border-gray-200'}`}>
-              <p className="text-xs text-gray-500">{bucket.label}</p>
-              <p className="text-lg font-semibold text-gray-900">{money(bucket.amount)}</p>
-            </div>
-          ))}
-        </div>
-        <p className="px-4 pb-4 text-xs text-gray-500">
-          Deposits and prepayments: {ar.deposits?.amount == null ? 'not available from Business Central' : money(ar.deposits.amount)}.
-          {ar.credit_balances ? ` Credit balances on customer cards: ${money(ar.credit_balances)}.` : ''}
-        </p>
-      </Panel>
     </Section>
   )
 }
@@ -424,15 +705,29 @@ function Operations({ data, coverage }) {
   const ship = data?.order_to_ship || {}
   const inventory = data?.inventory || {}
   const freight = data?.freight || {}
+  const reorderKnown = inventory.reorder_state === 'ok'
+  const below = inventory.below_reorder_count || 0
   return (
-    <Section title="Operations" lede="How long orders take to ship, what is sitting in stock, and freight against sales.">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <Card title="Order to ship" value={daysLabel(ship.average_days)} detail={`${ship.with_order_date || 0} shipments with an order date · ${ship.missing_order_date || 0} without`} status={ship.status} flag={noteState(coverage, 'order_to_ship')} />
-        <Card title="Inventory value" value={money(inventory.value)} detail={`${inventory.item_count || 0} items in stock · ${inventory.slow_count || 0} slow movers`} status={inventory.status} flag={noteState(coverage, 'inventory')} />
-        <Card title="Freight % of sales" value={pctLabel(freight.percent)} detail={`${money(freight.amount)} freight on ${money(freight.sales)} sales`} status={freight.status} flag={noteState(coverage, 'freight')} />
+    <Section title="Operations">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <KpiTile label="Order to ship" value={daysLabel(ship.average_days)} unit="days" status={ship.status} flag={noteState(coverage, 'order_to_ship')} />
+        <KpiTile
+          label="Inventory"
+          value={money(inventory.value)}
+          status="neutral"
+          flag={noteState(coverage, 'inventory')}
+          sub={inventory.item_count ? `${inventory.item_count} items` : null}
+        />
+        <KpiTile
+          label="Below reorder"
+          value={reorderKnown ? below : '—'}
+          status={!reorderKnown ? 'neutral' : (below > 0 ? 'bad' : 'good')}
+          flag={reorderKnown ? null : 'partial'}
+        />
+        <KpiTile label="Freight" value={pctLabel(freight.percent)} status={freight.status} flag={noteState(coverage, 'freight')} sub={freight.amount != null ? money(freight.amount) : null} />
       </div>
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Panel title="Slow movers">
+      <div className="space-y-2">
+        <Details title="Slow movers" count={inventory.slow_count || 0}>
           <Table
             columns={[
               { key: 'item_number', label: 'Item' },
@@ -442,9 +737,9 @@ function Operations({ data, coverage }) {
             ]}
             rows={(inventory.slow_movers || []).map((row) => ({ ...row, key: row.item_number }))}
           />
-        </Panel>
-        <Panel title="Below reorder point">
-          {inventory.reorder_state !== 'ok' && (
+        </Details>
+        <Details title="Below reorder point" count={reorderKnown ? below : null}>
+          {!reorderKnown && (
             <p className="px-4 py-3 text-sm text-amber-800">Reorder point is not available from Business Central.</p>
           )}
           <Table
@@ -457,7 +752,7 @@ function Operations({ data, coverage }) {
             rows={(inventory.below_reorder || []).map((row) => ({ ...row, key: row.item_number }))}
             rowClass={() => 'bg-red-50'}
           />
-        </Panel>
+        </Details>
       </div>
     </Section>
   )
@@ -479,6 +774,7 @@ function Dashboard() {
 
   const coverage = query.data?.coverage || []
   const attention = coverage.filter((note) => note.state === 'partial' || note.state === 'missing')
+  const lateDays = query.data?.thresholds?.so_to_po_late_days ?? 5
 
   function applyPreset(item) {
     setPreset(item.id)
@@ -487,87 +783,101 @@ function Dashboard() {
   }
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-900">KPI dashboard</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Figures come from Business Central. Green is on track, amber needs a look, red needs attention.
-          </p>
+    <div className="space-y-8 px-3 pb-10 sm:px-0">
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-xl font-semibold tracking-tight text-gray-900 sm:text-2xl">KPI dashboard</h1>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" />On track</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" />Watch</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" />Attention</span>
+          </div>
         </div>
-        <div className="flex flex-wrap items-end gap-2">
+        <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
           {PRESETS.map((item) => (
             <button
               key={item.id}
               type="button"
               onClick={() => applyPreset(item)}
-              className={`rounded-full px-3 py-1 text-sm ${preset === item.id ? 'bg-teal-800 text-white' : 'bg-white text-gray-700 border border-gray-300'}`}
+              className={`min-h-11 shrink-0 rounded-full px-4 text-sm font-medium ${preset === item.id ? 'bg-odc-900 text-white' : 'bg-white text-gray-700 ring-1 ring-gray-200'}`}
             >
               {item.label}
             </button>
           ))}
         </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
+          <div className="grid grid-cols-2 gap-2 sm:flex">
+            <label className="text-xs font-medium text-gray-500">
+              From
+              <input
+                type="date"
+                value={range.from}
+                onChange={(event) => { setPreset('custom'); setRange({ ...range, from: event.target.value }); setRefreshTick(0) }}
+                className="mt-1 block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-2 text-base text-gray-900 sm:text-sm"
+              />
+            </label>
+            <label className="text-xs font-medium text-gray-500">
+              To
+              <input
+                type="date"
+                value={range.to}
+                onChange={(event) => { setPreset('custom'); setRange({ ...range, to: event.target.value }); setRefreshTick(0) }}
+                className="mt-1 block min-h-11 w-full rounded-lg border border-gray-300 bg-white px-2 text-base text-gray-900 sm:text-sm"
+              />
+            </label>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRefreshTick((value) => value + 1)}
+            className="min-h-11 rounded-lg bg-white px-4 text-sm font-medium text-gray-700 ring-1 ring-gray-200"
+          >
+            {query.isFetching ? 'Refreshing…' : 'Refresh'}
+          </button>
+          {query.data?.cached && <span className="text-xs text-gray-400 sm:mb-3">Cached</span>}
+        </div>
       </div>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="text-sm text-gray-600">
-          From
-          <input
-            type="date"
-            value={range.from}
-            onChange={(event) => { setPreset('custom'); setRange({ ...range, from: event.target.value }); setRefreshTick(0) }}
-            className="mt-1 block rounded border border-gray-300 px-2 py-1"
-          />
-        </label>
-        <label className="text-sm text-gray-600">
-          To
-          <input
-            type="date"
-            value={range.to}
-            onChange={(event) => { setPreset('custom'); setRange({ ...range, to: event.target.value }); setRefreshTick(0) }}
-            className="mt-1 block rounded border border-gray-300 px-2 py-1"
-          />
-        </label>
-        <button
-          type="button"
-          onClick={() => setRefreshTick((value) => value + 1)}
-          className="rounded bg-white px-3 py-2 text-sm text-gray-700 border border-gray-300"
-        >
-          Refresh
-        </button>
-        {query.data?.cached && <span className="text-xs text-gray-400">Cached for about 10 minutes</span>}
-      </div>
-
-      {query.isLoading && <p className="text-sm text-gray-500">Loading KPI dashboard…</p>}
+      {query.isLoading && (
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="h-28 animate-pulse rounded-2xl bg-white ring-1 ring-gray-200" />
+          ))}
+        </div>
+      )}
       {query.isError && (
-        <p className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           {query.error?.response?.data?.detail || 'The KPI dashboard could not be loaded.'}
         </p>
       )}
 
       {query.data && (
         <>
-          <details className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-            <summary className="cursor-pointer text-sm font-medium text-amber-950">
-              Data notes ({attention.length})
-            </summary>
-            <ul className="mt-3 space-y-3">
-              {attention.map((note) => (
-                <li key={note.id}>
-                  <p className="text-sm font-medium text-amber-950">
-                    {note.title}
-                    <span className="ml-2 text-xs font-normal uppercase">{note.state === 'missing' ? 'unavailable' : 'partial'}</span>
-                  </p>
-                  <p className="text-sm text-amber-900">{note.detail}</p>
-                </li>
-              ))}
-            </ul>
-          </details>
-
-          <Purchasing data={query.data.sections?.purchasing} coverage={coverage} />
+          <Purchasing data={query.data.sections?.purchasing} coverage={coverage} lateDays={lateDays} />
           <Sales data={query.data.sections?.sales} coverage={coverage} />
           <Financial data={query.data.sections?.financial} coverage={coverage} />
           <Operations data={query.data.sections?.operations} coverage={coverage} />
+          {attention.length > 0 && (
+            <details className="group rounded-2xl border border-amber-200 bg-amber-50">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center gap-3 px-4 py-3 text-sm font-medium text-amber-950 [&::-webkit-details-marker]:hidden">
+                <span className="min-w-0 flex-1">Data notes</span>
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">{attention.length}</span>
+                <svg className="h-4 w-4 shrink-0 text-amber-700 transition-transform group-open:rotate-180" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                  <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+                </svg>
+              </summary>
+              <ul className="space-y-3 border-t border-amber-200 px-4 py-3">
+                {attention.map((note) => (
+                  <li key={note.id}>
+                    <p className="text-sm font-medium text-amber-950">
+                      {note.title}
+                      <span className="ml-2 text-xs font-normal uppercase">{note.state === 'missing' ? 'unavailable' : 'partial'}</span>
+                    </p>
+                    <p className="text-sm text-amber-900">{note.detail}</p>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </>
       )}
     </div>
