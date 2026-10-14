@@ -2455,3 +2455,30 @@ class StaffServiceKeyAudit(Base):
             f"<StaffServiceKeyAudit({self.key_name} {self.method} {self.path} "
             f"{self.decision} {self.status_code})>"
         )
+
+
+class KpiSnapshot(Base):
+    """One saved KPI dashboard for a calendar month.
+
+    The open month is replaced each night (month to date). A finished month
+    is stored once and left alone until an admin recalculates it.
+    ``payload`` is the dashboard the page reads. ``trace`` is the document
+    list used to check the figures against Business Central.
+    """
+
+    __tablename__ = "kpi_snapshots"
+
+    id = Column(Integer, primary_key=True)
+    month_key = Column(String(7), nullable=False, unique=True, index=True)
+    period_start = Column(Date, nullable=False)
+    period_end = Column(Date, nullable=False)
+    frozen = Column(Boolean, nullable=False, default=False)
+    status = Column(String(20), nullable=False, default="missing")
+    generated_at = Column(DateTime, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    error = Column(Text, nullable=True)
+    payload = Column(JSON, nullable=True)
+    trace = Column(JSON, nullable=True)
+
+    def __repr__(self):
+        return f"<KpiSnapshot({self.month_key} {self.status} frozen={self.frozen})>"

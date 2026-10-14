@@ -199,6 +199,20 @@ class SchedulerService:
         )
         logger.info(f"✓ Scheduled: Upwardor order-ack intake every {ack_every} minutes")
 
+        # KPI dashboard snapshot — 00:10 America/Edmonton, every day. The page
+        # reads this row and does not call Business Central itself. 00:10 is
+        # just after midnight so the Edmonton date has rolled. A missing
+        # current month also gets one catch-up run after startup.
+        self.scheduler.add_job(
+            func=self._kpi_snapshot_job,
+            trigger=CronTrigger(hour=0, minute=10, timezone="America/Edmonton"),
+            id="kpi_snapshot",
+            name="KPI dashboard snapshot — midnight America/Edmonton",
+            replace_existing=True,
+        )
+        logger.info("✓ Scheduled: KPI dashboard snapshot 00:10 America/Edmonton")
+        self._schedule_kpi_catchup()
+
         # Start scheduler
         self.scheduler.start()
         self.is_running = True
@@ -574,6 +588,46 @@ class SchedulerService:
                 logger.warning(f"Sales order sync errors: {stats['errors'][:3]}")
         except Exception as e:
             logger.error(f"Sales order sync job failed: {e}", exc_info=True)
+        finally:
+            if db is not None:
+                try:
+                    db.close()
+                except Exception:
+                    pass
+
+    def _schedule_kpi_catchup(self):
+        """If this month has never been stored, calculate it once after startup.
+
+        The page still does not wait on Business Central. The job runs in the
+        scheduler thread.
+        """
+        try:
+            from datetime import timedelta
+            from app.services.kpi_snapshot_service import current_snapshot_ready
+            if current_snapshot_ready():
+                return
+            self.scheduler.add_job(
+                func=self._kpi_snapshot_job,
+                trigger="date",
+                run_date=datetime.now() + timedelta(seconds=30),
+                id="kpi_snapshot_catchup",
+                name="KPI snapshot catch-up when none is stored",
+                replace_existing=True,
+            )
+            logger.info("KPI snapshot missing — catch-up scheduled")
+        except Exception:
+            logger.exception("Could not check for a stored KPI snapshot")
+
+    def _kpi_snapshot_job(self):
+        """Freeze last month if needed, then refresh the open month."""
+        db = None
+        try:
+            from app.services.kpi_snapshot_service import run_nightly
+            db = SessionLocal()
+            done = run_nightly(db)
+            logger.info("KPI snapshot job stored %s", ", ".join(done) or "nothing new")
+        except Exception as e:
+            logger.error(f"KPI snapshot job failed: {e}", exc_info=True)
         finally:
             if db is not None:
                 try:
