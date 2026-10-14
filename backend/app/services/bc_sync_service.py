@@ -813,6 +813,8 @@ class BCSyncService:
             "blocked": (bc_cust.get("blocked") or "").strip(),
             "removed_from_bc": False,
         }
+        if bc_cust.get("number"):
+            metadata["number"] = bc_cust.get("number")
 
         if existing:
             existing.customer_metadata = metadata

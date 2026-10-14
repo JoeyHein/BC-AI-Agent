@@ -125,6 +125,23 @@ _RULES: list[tuple[str, re.Pattern[str], str, Optional[str]]] = [
     ("GET", re.compile(r"^/api/admin/quote-review/snapshots$"), QUOTES_READ, None),
     ("GET", re.compile(r"^/api/admin/quote-review/reviews$"), QUOTES_READ, None),
     ("GET", re.compile(r"^/api/admin/quote-review/reviews/\d+$"), QUOTES_READ, None),
+    # BC reads for the chief-of-staff assistant. GET only. Writes stay off
+    # this list: create, convert, post, ship, and email are unchanged.
+    ("GET", re.compile(r"^/api/bc/sales-quotes$"), QUOTES_READ, None),
+    ("GET", re.compile(r"^/api/bc/sales-quotes/[^/]+$"), QUOTES_READ, None),
+    ("GET", re.compile(r"^/api/bc/sales-orders/[^/]+$"), ORDERS_READ, None),
+    ("GET", re.compile(r"^/api/bc/purchase-orders/[^/]+$"), PURCHASING_READ, None),
+    ("GET", re.compile(r"^/api/bc/customers$"), QUOTES_READ, None),
+    ("GET", re.compile(r"^/api/bc/customers/[^/]+$"), QUOTES_READ, None),
+    ("GET", re.compile(r"^/api/admin/customers/bc-customers$"), QUOTES_READ, None),
+    ("GET", re.compile(r"^/api/bc/items$"), INVENTORY_READ, None),
+    ("GET", re.compile(r"^/api/bc/items/[^/]+$"), INVENTORY_READ, None),
+    ("GET", re.compile(r"^/api/bc/vendors$"), PURCHASING_READ, None),
+    ("GET", re.compile(r"^/api/bc/sales-invoices/[^/]+$"), ORDERS_READ, None),
+    ("GET", re.compile(r"^/api/bc/purchase-invoices/[^/]+$"), PURCHASING_READ, None),
+    ("GET", re.compile(r"^/api/bc/sales-price-lines$"), QUOTES_READ, None),
+    ("GET", re.compile(r"^/api/door-config/load-quote/[^/]+$"), QUOTES_READ, None),
+    ("GET", re.compile(r"^/api/metrics/quoting$"), QUOTES_READ, None),
 ]
 
 

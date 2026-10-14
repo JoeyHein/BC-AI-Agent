@@ -184,6 +184,9 @@ class BCCustomerSearchResponse(BaseModel):
     phone: Optional[str]
     already_linked: bool
     is_home_builder: bool = False
+    bc_price_group: Optional[str] = None
+    pricing_tier: Optional[str] = None
+    customer_number: Optional[str] = None
 
 
 class PendingCustomerResponse(BaseModel):
@@ -292,7 +295,10 @@ def search_bc_customers(
             if (c.company_name and q_lower in c.company_name.lower()) or
                (c.contact_name and q_lower in c.contact_name.lower()) or
                (c.email and q_lower in c.email.lower()) or
-               (c.bc_customer_id and q_lower in c.bc_customer_id.lower())
+               (c.bc_customer_id and q_lower in c.bc_customer_id.lower()) or
+               (c.bc_price_group and q_lower in c.bc_price_group.lower()) or
+               (str((c.customer_metadata or {}).get("number") or "") and
+                q_lower in str((c.customer_metadata or {}).get("number")).lower())
         ]
 
     # Check which are already linked, and which are home-builder accounts (so
@@ -314,6 +320,9 @@ def search_bc_customers(
             phone=bc.phone,
             already_linked=bc.bc_customer_id in linked_ids,
             is_home_builder=bc.bc_customer_id in hb_ids,
+            bc_price_group=bc.bc_price_group,
+            pricing_tier=bc.pricing_tier,
+            customer_number=(bc.customer_metadata or {}).get("number"),
         ))
 
     return result

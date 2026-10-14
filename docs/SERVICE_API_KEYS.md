@@ -54,7 +54,11 @@ A new key is limited to the automation’s work:
 - Create a Draft purchase order with **send_email set to false** (this does not email the vendor and does not save an Outlook draft)
 - Save an unsent Outlook review draft for a Draft PO that already exists
 - Read quotes and quote reviews
+- Read Business Central: a sales quote by number (header and every line, including comments), a newest-first quote search, a sales order or purchase order by number with lines, customers and their price group, items (price, cost, on-hand), vendors, posted sales and purchase invoices with lines, and sales price list lines
+- Load a quote into the door configurator (`GET /api/door-config/load-quote/...`) and read quoting metrics (`GET /api/metrics/quoting`)
 - List vendor acknowledgements and run the vendor-acknowledgement check
+
+The full route list is in [STAFF_SERVICE_KEY_ROUTES.md](STAFF_SERVICE_KEY_ROUTES.md).
 
 ## What the key cannot do
 
