@@ -149,17 +149,21 @@ class BCMetricsService:
 
         top_accounts = sorted(customer_revenue.values(), key=lambda x: x["revenue"], reverse=True)[:10]
 
-        # Product mix (fetch invoice lines)
+        # Product mix. salesInvoiceLine has no postingDate (and no lineAmount);
+        # filtering the line entity on postingDate is a 400 and used to leave
+        # productMix empty. Filter the invoice header, then read expanded lines.
         try:
-            invoice_lines = self._get_all_pages("salesInvoiceLines", {
-                "$filter": f"postingDate ge {soy}",
-                "$select": "description,lineAmount,itemId",
-                "$top": "5000",
-            })
+            mix_invoices, mix_complete = self.client.get_sales_invoices_with_lines(
+                start_date=soy,
+                end_date=date.today().isoformat(),
+            )
+            if not mix_complete:
+                logger.warning("Product mix invoice pull may be truncated")
             product_revenue = defaultdict(float)
-            for line in invoice_lines:
-                desc = line.get("description", "Other") or "Other"
-                product_revenue[desc] += line.get("lineAmount", 0) or 0
+            for inv in mix_invoices:
+                for line in inv.get("salesInvoiceLines") or []:
+                    desc = line.get("description", "Other") or "Other"
+                    product_revenue[desc] += line.get("amountExcludingTax", 0) or 0
             product_mix = sorted(
                 [{"name": k, "value": round(v, 2)} for k, v in product_revenue.items()],
                 key=lambda x: x["value"], reverse=True
