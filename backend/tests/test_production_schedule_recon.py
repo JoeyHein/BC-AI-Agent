@@ -39,8 +39,13 @@ from app.services.upwardor_reconciliation import (
 ORIGINAL_HEADERS = [
     "SO Number", "Customer Name", "Customer Tag / External Doc #", "Order Date", "PO Date",
     "Fulfillment", "Upwardor PO #", "Order Status", "Expected Receipt",
-    "Operators", "Window Kits", "Emergency Build", "Shipping Status",
+    "Operators", "Window Kits", "Emergency Build", "In-house Build", "Shipping Status",
 ]
+# Formula letters follow the header list, so a new Schedule column does not
+# leave these tests pointing at the previous column.
+PULL_COL = get_column_letter(SCHEDULE_HEADERS.index(PULL_HEADER) + 1)
+FLAG_COL = get_column_letter(SCHEDULE_HEADERS.index(FLAG_HEADER) + 1)
+LAST_COL = get_column_letter(len(SCHEDULE_HEADERS))
 
 
 def _so(number, items, customer="Acme Doors"):
@@ -116,7 +121,7 @@ def test_existing_dropdowns_remain_and_pull_from_stock_is_yes_blank():
     import zipfile
     rows, wb, data = _build([_so("SO-1", [("PN45-24400-1400", 4)])])
     formulas = [str(dv.formula1) for dv in wb["Schedule"].data_validations.dataValidation]
-    assert '"Buy Complete,Emergency Build"' in formulas
+    assert '"Buy Complete,Partial Build,Emergency Build"' in formulas
     assert '"Waiting to Order,PO Drafted,Ordered,Shipped by Vendor,Partially Received,Received,"' in formulas
     assert '"Not Started,In Progress,Complete,"' in formulas
     assert '"Not Started,In Production,Complete,"' in formulas
@@ -128,7 +133,7 @@ def test_existing_dropdowns_remain_and_pull_from_stock_is_yes_blank():
     # Blank cells are valid. openpyxl's reader reports allow_blank False; the file says 1.
     import re
     xml = zipfile.ZipFile(io.BytesIO(data)).read("xl/worksheets/sheet1.xml").decode()
-    pull_dv = re.search(r'<dataValidation sqref="R2"[^>]*>', xml)
+    pull_dv = re.search(rf'<dataValidation sqref="{pull}2"[^>]*>', xml)
     assert pull_dv and 'allowBlank="1"' in pull_dv.group(0)
     assert '<formula1>"Yes"</formula1>' in xml
     assert rows[0][PULL_HEADER] is None
@@ -144,9 +149,9 @@ def test_po_without_ack_is_red_and_purchase_order_row_is_filled():
     assert rows[0][ACK_HEADER] is None
     assert rows[0][STATUS_HEADER] == "Not acknowledged"
     assert rows[0][NOTE_HEADER] == NOTE_RED
-    assert rows[0][FLAG_HEADER] == '=IF($R2="Yes","OK - pull from stock","RED")'
+    assert rows[0][FLAG_HEADER] == f'=IF(${PULL_COL}2="Yes","OK - pull from stock","RED")'
     formulas = [formula for _, formula, _ in _rules(wb["Schedule"])]
-    assert 'AND($R2<>"Yes",$P2="RED")' in formulas
+    assert f'AND(${PULL_COL}2<>"Yes",${FLAG_COL}2="RED")' in formulas
     red = next(rule for _, formula, rule in _rules(wb["Schedule"]) if "RED" in formula and "AND" in formula)
     assert red.dxf.font.bold is True
     assert red.dxf.font.italic is not True
@@ -163,7 +168,7 @@ def test_open_so_with_no_po_and_no_ack_is_missed():
     assert rows[0][NOTE_HEADER] == NOTE_MISSED
     assert "MISSED" in rows[0][FLAG_HEADER]
     formulas = [formula for _, formula, _ in _rules(wb["Schedule"])]
-    assert 'AND($R2<>"Yes",$P2="MISSED")' in formulas
+    assert f'AND(${PULL_COL}2<>"Yes",${FLAG_COL}2="MISSED")' in formulas
     missed = next(rule for _, formula, rule in _rules(wb["Schedule"]) if "MISSED" in formula)
     assert missed.dxf.font.bold is True
     assert missed.dxf.font.italic is True
@@ -171,8 +176,8 @@ def test_open_so_with_no_po_and_no_ack_is_missed():
     assert "833C0B" in str(missed.dxf.font.color.rgb)
     # Distinct from the red rule, and both sit above the column colors (priority 1 and 2).
     listed = [(str(sqref), formula) for sqref, formula, _ in _rules(wb["Schedule"])]
-    assert "A2:R" in listed[0][0] and "RED" in listed[0][1]
-    assert "A2:R" in listed[1][0] and "MISSED" in listed[1][1]
+    assert f"A2:{LAST_COL}" in listed[0][0] and "RED" in listed[0][1]
+    assert f"A2:{LAST_COL}" in listed[1][0] and "MISSED" in listed[1][1]
 
 
 def test_operator_only_and_wrap_only_are_not_missed():
@@ -221,7 +226,7 @@ def test_cancelled_ack_is_check_not_red():
     assert rows[0][FLAG_HEADER].endswith(',"CHECK")')
     assert "cancelled" in rows[0][NOTE_HEADER].lower()
     formulas = [formula for _, formula, _ in _rules(wb["Schedule"])]
-    assert '$P2="CHECK"' in formulas
+    assert f'${FLAG_COL}2="CHECK"' in formulas
 
 
 def test_pull_from_stock_yes_is_not_counted_as_missed_and_formula_suppresses_it():
@@ -229,7 +234,7 @@ def test_pull_from_stock_yes_is_not_counted_as_missed_and_formula_suppresses_it(
     prior.pull_from_stock = "Yes"
     rows, _, _ = _build([_so("SO-1", [("PN45-1", 1)])], records={"SO-1": prior})
     assert rows[0][PULL_HEADER] == "Yes"
-    assert rows[0][FLAG_HEADER] == f'=IF($R2="Yes","{FLAG_PULL}","MISSED")'
+    assert rows[0][FLAG_HEADER] == f'=IF(${PULL_COL}2="Yes","{FLAG_PULL}","MISSED")'
     assert rows[0][NOTE_HEADER] == NOTE_MISSED
     assert svc.last_recon["pull_from_stock"] == 1
     assert svc.last_recon["missed"] == 0
@@ -269,7 +274,7 @@ def test_pull_from_stock_round_trips_by_header_name_not_position():
 
 
 def test_archived_flag_formula_uses_the_archived_row():
-    """A formula read from schedule row 3 must not be replayed as $R3 on archive row 2."""
+    """A formula read from schedule row 3 must not be replayed on archive row 2."""
     orders = [_so("SO-1", [("PN45-1", 1)]), _so("SO-2", [("PN45-1", 1)])]
     _, _, data = _build(orders)
     wb = load_workbook(io.BytesIO(data))
@@ -287,7 +292,7 @@ def test_archived_flag_formula_uses_the_archived_row():
     flag = archived[0][SCHEDULE_HEADERS.index(FLAG_HEADER)]
     pull = archived[0][SCHEDULE_HEADERS.index(PULL_HEADER)]
     assert pull == "Yes"
-    assert flag == f'=IF($R2="Yes","{FLAG_PULL}","MISSED")'
+    assert flag == f'=IF(${PULL_COL}2="Yes","{FLAG_PULL}","MISSED")'
 
 
 def test_open_order_export_annotates_status_and_flags_a_missing_sord():

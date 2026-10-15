@@ -248,6 +248,36 @@ def test_window_kits_list_as_sub_lines_with_schedule_status():
     assert ws.row_dimensions[3].outlineLevel == 1
 
 
+def test_partial_build_lists_aluminum_lines_and_hides_bc_production_orders():
+    """Same shape as window kits: one sub-line per aluminum section, status
+    copied from In-house Build. BC production orders stay hidden — they are
+    not the partial-build signal."""
+    prod_orders = [_prod_order("PRD-001")]
+    prior = {"SO-1328": {"priority": 1, "assigned_to": "Dave", "complete_by": None}}
+    so_work = {"SO-1328": {
+        "fulfillment": "Partial Build",
+        "window_kits": "Not Started",
+        "window_kit_lines": [{"item": "GK17-25100-00", "description": "Glazing kit", "qty": 4.0}],
+        "inhouse_build": "In Production",
+        "aluminum_lines": [
+            {"item": "PN80-21100-1002", "description": "SECTION, PANORAMA, 10'", "qty": 4.0},
+            {"item": "PN80-21200-1002", "description": "SECTION, PANORAMA, bottom", "qty": 2.0},
+        ],
+    }}
+
+    ws = _build_ws(prod_orders, prior, {"PRD-001": "SO-1328"}, {"SO-1328": "GNB Doors"}, so_work=so_work)
+    rows = list(ws.iter_rows(min_row=2, values_only=True))
+
+    assert rows[0][1] == "SO-1328"
+    assert rows[0][6] == "Partial Build"
+    assert [r[6] for r in rows[1:]] == ["Window Kit", "In-house Build", "In-house Build"]
+    assert rows[2][7] == "PN80-21100-1002"
+    assert rows[2][10] == "In Production"
+    assert rows[3][7] == "PN80-21200-1002"
+    assert "PRD-001" not in {r[6] for r in rows}
+    assert ws.row_dimensions[4].outlineLevel == 1
+
+
 def test_parses_rows_written_under_an_older_narrower_schema():
     """Regression: a sheet written before a new trailing column (e.g.
     Picking Remaining) was added is narrower than ASSIGN_TOTAL_COLUMNS.

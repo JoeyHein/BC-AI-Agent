@@ -12,8 +12,9 @@ Behavior (see app/services/production_schedule_service.py for the real logic):
 - Reads back whatever copy already exists (SharePoint or local file) and
   carries forward hand-edited status per SO number — never a blind overwrite.
 - Box-in/box-out layout: one row per SO — Fulfillment (Buy Complete /
-  Emergency Build), whole-order Order Status from the linked Upwardor PO,
-  Operators, Window Kits (the only default in-house work), Emergency Build.
+  Partial Build / Emergency Build), whole-order Order Status from the
+  linked Upwardor PO, Operators, Window Kits, Emergency Build, and
+  In-house Build (aluminum sections on a Partial Build).
 - Upwardor Ack #, Upwardor Status, Recon Flag / Note, and Pull from stock
   (Yes is read back). See docs/PRODUCTION_SCHEDULE_RECON.md.
 - SOs no longer open in BC move to an "Archived" sheet instead of vanishing.

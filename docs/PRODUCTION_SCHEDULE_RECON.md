@@ -6,7 +6,9 @@ This does not download Upwardor's open-order email and it does not write to Busi
 
 ## Schedule columns
 
-Existing columns are unchanged (SO Number through Shipping Status), including their dropdowns.
+Schedule columns through Shipping Status are the box-in/box-out set, plus **In-house Build** (added 2026-10-08, between Emergency Build and Shipping Status). Fulfillment's dropdown is Buy Complete, Partial Build, Emergency Build. Read-back is by header name, so a file from before In-house Build still loads. On that older file, Buy Complete is the untouched default and an aluminum sales order is set to Partial Build. After the column exists, a Buy Complete a person left in place is kept. Emergency Build is always kept. The SO-PO Log sheet is not rebuilt from scratch.
+
+**Partial Build** means the order has an aluminum section OpenDC builds in-house (Panorama `PN80`, V130G `PN10`, V230G `PN12`, AL976 `PN97`, Solalite `PN20`, AL-SWD `PN70`). Order Status still follows the Upwardor PO for the bought half. In-house Build starts at Not Started and uses the same list as Emergency Build (Not Started / In Production / Complete). The matching rule is `is_inhouse_aluminum_line` in `backend/app/services/production_schedule_service.py`.
 
 | Column | Who fills it | What it means |
 |---|---|---|
