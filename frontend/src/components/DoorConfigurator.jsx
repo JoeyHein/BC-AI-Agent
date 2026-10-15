@@ -17,6 +17,7 @@ import {
   getDimensionValidation,
   collectDoorsDimensionErrors,
 } from '../utils/doorDimensions'
+import { getStampColumns as stampColumnCount } from '../utils/stampColumns'
 
 const STEPS = [
   { id: 'type', title: 'Door Type', description: 'Select door category' },
@@ -1364,42 +1365,13 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
   }
   const panelCount = getPanelCount(door.doorHeight, door.doorSeries)
 
-  // Calculate stamp columns based on door width and panel design (same logic as DoorPreview)
+  // Stamp columns — shared table with DoorPreview (16'2" SHXL/BCXL stays 4 until 17')
   const isCraft = door.doorSeries === 'CRAFT'
-  const getStampColumns = (widthInches, panelDesign) => {
-    const widthFeet = widthInches / 12
-    let longCols
-    if (widthFeet < 12) longCols = 2        // up to 10'2"
-    else if (widthFeet <= 14) longCols = 3  // 12'-14'
-    else if (widthFeet <= 16) longCols = 4
-    else if (widthFeet <= 19) longCols = 5
-    else longCols = 6
-    if (isCraft) return longCols
-    const hasFixedStamp = ['SH', 'BC'].includes(panelDesign)
-    // Panels without their own physical stamp shape (FLUSH, TRAFALGAR, SHXL,
-    // BCXL) must follow the door's windowSize choice directly, same as
-    // DoorPreview's overlay grid — otherwise switching to Short Window here
-    // never changes the grid (matches the SH/BC branch's own short-stamp
-    // column counts below).
-    if (!hasFixedStamp && (door.windowSize || 'long') !== 'short') return longCols
-    // Standard (short) stamps — exact counts matching DoorPreview
-    if (panelDesign === 'BC') {
-      if (widthFeet <= 10) return 4
-      if (widthFeet <= 14) return 6
-      if (widthFeet <= 16) return 8
-      if (widthFeet <= 18) return 8
-      return 10
-    }
-    // SH
-    if (widthFeet <= 9) return 4
-    if (widthFeet <= 10) return 5
-    if (widthFeet <= 12) return 6
-    if (widthFeet <= 14) return 7
-    if (widthFeet <= 16) return 8
-    if (widthFeet <= 18) return 9
-    return 10
-  }
-  const stampColumns = getStampColumns(door.doorWidth, door.panelDesign)
+  const hasFixedStamp = ['SH', 'BC'].includes(door.panelDesign)
+  const stampType = (!hasFixedStamp && (door.windowSize || 'long') !== 'short')
+    ? 'long'
+    : 'standard'
+  const stampColumns = stampColumnCount(door.doorWidth, isCraft ? 'long' : stampType, isCraft, door.panelDesign)
 
   // Long windows on SH/BC span 2 stamp columns each — grid shows half as many cells
   const isLongOnStandard = (door.windowSize || 'long') === 'long' && ['SH', 'BC'].includes(door.panelDesign)
