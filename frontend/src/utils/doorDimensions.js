@@ -7,7 +7,18 @@
  *
  * Keep message text in lockstep with backend/app/api/door_configurator.py
  * (format_ft_in / format_ft_in_list / collect_dimension_validation).
+ *
+ * `strict: true` (default, customer portals): catalog max / stocked lists
+ * are hard errors. `strict: false` (staff Door Configurator): those become
+ * warnings so custom/oversize quotes can proceed. Absolute envelope still
+ * errors in both modes.
  */
+
+/** Absolute staff/calculator envelope — matches backend ABSOLUTE_*_IN. */
+export const STAFF_MIN_WIDTH_IN = 60   // 5'
+export const STAFF_MAX_WIDTH_IN = 576  // 48'
+export const STAFF_MIN_HEIGHT_IN = 60  // 5'
+export const STAFF_MAX_HEIGHT_IN = 480 // 40'
 
 export function formatFtIn(totalInches) {
   const inches = Number(totalInches) || 0
@@ -29,53 +40,99 @@ export function lookupSeries(config, door) {
   return config.doorSeries[door.doorType]?.find((s) => s.id === door.doorSeries) || null
 }
 
+function pushConstraint(bucket, errors, warnings, message) {
+  if (bucket === 'error') errors.push(message)
+  else warnings.push(message)
+}
+
 /**
- * @returns {{ errors: string[], widthInvalid: boolean, heightInvalid: boolean }}
+ * @param {object|null} series
+ * @param {number} width
+ * @param {number} height
+ * @param {{ strict?: boolean }} [options] strict defaults true (customer). Staff pass { strict: false }.
+ * @returns {{ errors: string[], warnings: string[], widthInvalid: boolean, heightInvalid: boolean }}
  */
-export function getDimensionValidation(series, width, height) {
+export function getDimensionValidation(series, width, height, options = {}) {
+  const strict = options.strict !== false
   const errors = []
+  const warnings = []
   let widthInvalid = false
   let heightInvalid = false
   const specs = series?.specs || {}
   const name = series?.name || series?.id || 'This series'
   const w = Number(width) || 0
   const h = Number(height) || 0
+  const catalogBucket = strict ? 'error' : 'warning'
 
   const availableWidths = specs.availableWidths
   if (availableWidths?.length && !availableWidths.includes(w)) {
-    errors.push(
+    pushConstraint(
+      catalogBucket,
+      errors,
+      warnings,
       `${name} is not available in width ${formatFtIn(w)}. Available widths: ${formatFtInList(availableWidths)}.`
     )
     widthInvalid = true
   } else if (specs.maxWidth && w > specs.maxWidth) {
-    errors.push(`Door width ${w}" exceeds maximum ${specs.maxWidth}" for ${name}`)
+    pushConstraint(
+      catalogBucket,
+      errors,
+      warnings,
+      `Door width ${w}" exceeds maximum ${specs.maxWidth}" for ${name}`
+    )
     widthInvalid = true
   }
 
   const availableHeights = specs.availableHeights
   if (availableHeights?.length && !availableHeights.includes(h)) {
-    errors.push(
+    pushConstraint(
+      catalogBucket,
+      errors,
+      warnings,
       `${name} is not available in height ${formatFtIn(h)}. Available heights: ${formatFtInList(availableHeights)}.`
     )
     heightInvalid = true
   } else if (specs.maxHeight && h > specs.maxHeight) {
-    errors.push(`Door height ${h}" exceeds maximum ${specs.maxHeight}" for ${name}`)
+    pushConstraint(
+      catalogBucket,
+      errors,
+      warnings,
+      `Door height ${h}" exceeds maximum ${specs.maxHeight}" for ${name}`
+    )
     heightInvalid = true
   }
 
-  return { errors, widthInvalid, heightInvalid }
+  if (w && (w < STAFF_MIN_WIDTH_IN || w > STAFF_MAX_WIDTH_IN)) {
+    errors.push(
+      `Door width must be between ${STAFF_MIN_WIDTH_IN}" and ${STAFF_MAX_WIDTH_IN}" (5' to 48')`
+    )
+    widthInvalid = true
+  }
+  if (h && (h < STAFF_MIN_HEIGHT_IN || h > STAFF_MAX_HEIGHT_IN)) {
+    errors.push(
+      `Door height must be between ${STAFF_MIN_HEIGHT_IN}" and ${STAFF_MAX_HEIGHT_IN}" (5' to 40')`
+    )
+    heightInvalid = true
+  }
+
+  return { errors, warnings, widthInvalid, heightInvalid }
 }
 
-export function collectDoorsDimensionErrors(doors, config) {
-  const out = []
+export function collectDoorsDimensionValidation(doors, config, options = {}) {
+  const errors = []
+  const warnings = []
   const list = doors || []
   for (let i = 0; i < list.length; i++) {
     const door = list[i]
     const series = lookupSeries(config, door)
-    const { errors } = getDimensionValidation(series, door?.doorWidth, door?.doorHeight)
-    for (const msg of errors) {
-      out.push(list.length > 1 ? `Door ${i + 1}: ${msg}` : msg)
-    }
+    const result = getDimensionValidation(series, door?.doorWidth, door?.doorHeight, options)
+    const prefix = list.length > 1 ? `Door ${i + 1}: ` : ''
+    for (const msg of result.errors) errors.push(`${prefix}${msg}`)
+    for (const msg of result.warnings) warnings.push(`${prefix}${msg}`)
   }
-  return out
+  return { errors, warnings }
+}
+
+export function collectDoorsDimensionErrors(doors, config, options = {}) {
+  return collectDoorsDimensionValidation(doors, config, options).errors
 }

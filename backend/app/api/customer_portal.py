@@ -691,7 +691,11 @@ def _format_door_description(door: dict) -> str:
 
 
 def _validate_doors_config(config_data: dict) -> List[dict]:
-    """Validate and extract doors from config_data. Raises HTTPException on failure."""
+    """Validate and extract doors from config_data. Raises HTTPException on failure.
+
+    Customer portals keep catalog size limits as hard errors (strict=True).
+    Staff generate-quote uses collect_dimension_validation(..., strict=False).
+    """
     from app.api.door_configurator import collect_dimension_validation
 
     doors = config_data.get("doors", [])
@@ -718,6 +722,7 @@ def _validate_doors_config(config_data: dict) -> List[dict]:
             door.get("doorSeries"),
             door.get("doorWidth"),
             door.get("doorHeight"),
+            strict=True,
         )
         if dim_errors:
             raise HTTPException(
