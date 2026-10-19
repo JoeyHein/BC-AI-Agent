@@ -11,7 +11,7 @@ import re
 from typing import List, Optional, Tuple
 
 import requests
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Query, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status, Query, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -37,6 +37,7 @@ from app.services.draft_po_review_service import draft_po_review_service
 from app.services.draft_po_lines_service import DraftPoEditError, draft_po_lines_service
 from app.services.draft_po_receipt_service import draft_po_receipt_service
 from app.services.po_receiving_service import PoReceiveError, po_receiving_service
+from app.services.po_release_service import PoReleaseError, po_release_service
 
 router = APIRouter(prefix="/api/admin/purchasing", tags=["purchasing"])
 logger = logging.getLogger(__name__)
@@ -192,6 +193,17 @@ class ReceiveLineIn(BaseModel):
     sequence: Optional[int] = None
     item_number: Optional[str] = None
     qty_to_receive: float
+
+
+class ReleasePurchaseOrderRequest(BaseModel):
+    """Release one unreleased purchase order.
+
+    ``dry_run`` defaults to true and does not write to Business Central.
+    ``po_number``, when sent, must be the same purchase order as the path.
+    There is no bulk release.
+    """
+    dry_run: bool = True
+    po_number: Optional[str] = None
 
 
 class ReceivePurchaseOrderRequest(BaseModel):
@@ -1104,8 +1116,39 @@ async def normalize_draft_po_lines(
     )
 
 
+@router.post("/draft-pos/{po_number}/release")
+async def release_draft_po(
+    po_number: str,
+    request: Request,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+    body: Optional[ReleasePurchaseOrderRequest] = Body(default=None),
+):
+    """Release one unreleased purchase order.
+
+    Business Central's purchase order page shows that order as Open. The
+    API calls it Draft. ``dry_run`` defaults to true and returns the PO
+    number, vendor, lines, totals, ship-to, and current status without
+    writing. Send ``dry_run: false`` to release the purchase order named
+    in the path. An optional ``po_number`` in the body must match. This
+    never invoices, deletes, or reopens, and it never releases a list.
+    """
+    kind, value = normalize_staff_po_ref(po_number)
+    payload = {"dry_run": True, "po_number": None} if body is None else body.model_dump()
+    actor = _receive_actor(request, admin)
+    logger.info(
+        "PO release actor=%s po=%s dry_run=%s",
+        actor.get("actor_name"),
+        value,
+        payload.get("dry_run"),
+    )
+    return _release_call(
+        lambda: po_release_service.release(db, kind, value, payload, actor)
+    )
+
+
 def _receive_actor(request: Request, admin: User) -> dict:
-    """Who is receiving. A service key is recorded by its name, not the secret."""
+    """Who is calling. A service key is recorded by its name, not the secret."""
     key_name = getattr(request.state, "staff_service_key_name", None)
     email = getattr(admin, "email", None)
     return {
@@ -1121,6 +1164,13 @@ def _receive_call(action):
     try:
         return action()
     except PoReceiveError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+def _release_call(action):
+    try:
+        return action()
+    except PoReleaseError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 

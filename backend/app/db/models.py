@@ -2497,6 +2497,46 @@ class PurchaseReceiptAudit(Base):
         )
 
 
+class PurchaseReleaseAudit(Base):
+    """One release attempt against a single unreleased purchase order.
+
+    Written for previews, releases, and rejections. There is no invoice,
+    delete, or reopen outcome. ``released`` is true only after Business
+    Central accepts Microsoft.NAV.release for that one PO.
+    """
+
+    __tablename__ = "purchase_release_audits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    actor_email = Column(String(255), nullable=True)
+    actor_name = Column(String(255), nullable=True)
+    service_key_id = Column(
+        Integer, ForeignKey("staff_service_keys.id", ondelete="SET NULL"), nullable=True
+    )
+    service_key_name = Column(String(200), nullable=True)
+    po_number = Column(String(40), nullable=False, index=True)
+    po_id = Column(String(64), nullable=True)
+    vendor_number = Column(String(40), nullable=True)
+    vendor_name = Column(String(200), nullable=True)
+    status_before = Column(String(40), nullable=True)
+    status_after = Column(String(40), nullable=True)
+    ship_to = Column(JSON, nullable=True)
+    totals = Column(JSON, nullable=True)
+    lines = Column(JSON, nullable=True)
+    dry_run = Column(Boolean, nullable=False, default=True)
+    released = Column(Boolean, nullable=False, default=False)
+    outcome = Column(String(20), nullable=False)
+    error = Column(Text, nullable=True)
+
+    def __repr__(self):
+        return (
+            f"<PurchaseReleaseAudit({self.po_number} {self.outcome} "
+            f"released={self.released})>"
+        )
+
+
 class KpiSnapshot(Base):
     """One saved KPI dashboard for a calendar month.
 

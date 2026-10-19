@@ -133,6 +133,12 @@ class Settings(BaseSettings):
     BC_PO_RECEIVE_VERSION: str = "v1.0"
     BC_PO_RECEIVE_ENTITY: str = "purchaseOrderReceives"
     BC_PO_RECEIVE_ACTION: str = "receive"
+    # Release one unreleased purchase order. The standard purchaseOrders
+    # resource does not document Microsoft.NAV.release. The portal tries that
+    # action first and, only on 404, the custom page below. The action name
+    # must be release. Reopen and invoice are refused before any HTTP call.
+    BC_PO_RELEASE_ENTITY: str = "purchaseOrderReleases"
+    BC_PO_RELEASE_ACTION: str = "release"
     # Purchase Header field 69, on the same published page 50 as Vendor Order No.
     BC_PO_VENDOR_SHIPMENT_FIELD: str = "Vendor_Shipment_No"
 

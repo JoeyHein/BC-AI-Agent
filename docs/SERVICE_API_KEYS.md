@@ -52,7 +52,8 @@ A new key is limited to the automation’s work:
 - Read and edit Draft PO lines (change, add, delete a line, reorder, normalize order)
 - Set or recompute the requested receipt date on a Draft purchase order, and run the Draft-only backfill (`dry_run` defaults to true). Open and Released purchase orders are refused
 - List released purchase orders and read one with ordered, already received, and outstanding quantity
-- Receive a released purchase order (set Qty. to Receive, then post Receive only). `dry_run` defaults to true. This does not invoice, release, or delete. See [STAFF_PO_RECEIVING.md](STAFF_PO_RECEIVING.md)
+- Receive a released purchase order (set Qty. to Receive, then post Receive only). `dry_run` defaults to true. This does not invoice or delete. See [STAFF_PO_RECEIVING.md](STAFF_PO_RECEIVING.md)
+- Release one Draft purchase order (the page shows that order as Open). `dry_run` defaults to true and returns a preview. Send `dry_run` false, with that PO number in the path, to release it. This does not invoice, delete, or reopen. The deploy migration grants `purchasing:release` to existing keys that already have `purchasing:read`
 - Create a Draft purchase order with **send_email set to false** (this does not email the vendor and does not save an Outlook draft)
 - Save an unsent Outlook review draft for a Draft PO that already exists
 - Read quotes and quote reviews
@@ -71,7 +72,7 @@ Anything not in the list above is refused. That includes:
 - Approving or rejecting quotes, or creating quotes in Business Central
 - Shipping orders, posting invoices, or converting quotes to orders
 - Creating the purchase order from that sales-order preview
-- Releasing a purchase order, posting a purchase invoice, or deleting a purchase order
+- Posting a purchase invoice, deleting a purchase order, or reopening a released purchase order
 - Sending email
 - Creating a purchase order that also saves an Outlook draft. That call must set `send_email` to false. Saving a draft is a separate step (`review-draft`) and does not send mail.
 

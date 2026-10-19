@@ -105,6 +105,7 @@ function ServiceKeysSettings() {
             <li>Read purchasing needs and which sales orders already have a PO</li>
             <li>List, check, and edit lines on Draft purchase orders</li>
             <li>List released purchase orders and receive them (Receive only, not an invoice)</li>
+            <li>Release one Draft purchase order (preview first)</li>
             <li>Create a Draft PO when send_email is false (it does not email anyone)</li>
             <li>Save an unsent Outlook draft for a Draft PO that already exists</li>
             <li>Run the vendor acknowledgement check</li>
@@ -114,7 +115,7 @@ function ServiceKeysSettings() {
           <h3 className="text-sm font-medium text-gray-900">What the key cannot do</h3>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-600">
             <li>Manage users or change settings</li>
-            <li>Release, invoice, or delete a purchase order</li>
+            <li>Invoice, delete, or reopen a purchase order</li>
             <li>Approve quotes, send email, or call anything not on the list</li>
           </ul>
           <p className="mt-3 text-sm text-gray-600">

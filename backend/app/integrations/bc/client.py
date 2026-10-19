@@ -1436,6 +1436,109 @@ class BusinessCentralClient:
             "body": body,
         }
 
+    def purchase_order_release_urls(
+        self, po_id: str, company_id: Optional[str] = None,
+    ) -> List[str]:
+        """URLs for Microsoft.NAV.release on one purchase order.
+
+        The standard api/v2.0 purchaseOrders resource does not document this
+        action. The portal tries it first, then the custom page. The action
+        name has to be exactly release. Reopen and invoice are refused here,
+        before any HTTP request.
+        """
+        action = (settings.BC_PO_RELEASE_ACTION or "release").strip()
+        lowered = action.lower()
+        if lowered != "release" or "invoice" in lowered or "reopen" in lowered:
+            raise RuntimeError(
+                "Purchase order release calls Microsoft.NAV.release only. "
+                f"Refusing action {action!r}. "
+                "This portal does not reopen, invoice, or delete a purchase order."
+            )
+        entity = (settings.BC_PO_RELEASE_ENTITY or "purchaseOrderReleases").strip()
+        entity_lower = entity.lower()
+        if (not entity) or ("invoice" in entity_lower) or ("reopen" in entity_lower):
+            raise RuntimeError(f"Refusing purchase release entity {entity!r}")
+        cid = company_id or self.company_id
+        standard = settings.bc_api_url
+        if not standard:
+            raise RuntimeError("BC API URL is not configured")
+        urls = [
+            f"{standard}/companies({cid})/purchaseOrders({po_id})/Microsoft.NAV.release"
+        ]
+        extension = settings.bc_po_receive_api_url
+        if extension:
+            urls.append(
+                f"{extension}/companies({cid})/{entity}({po_id})/Microsoft.NAV.release"
+            )
+        return urls
+
+    def post_purchase_order_release(
+        self, po_id: str, company_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Release one purchase order. One POST per URL, no retry.
+
+        A 404 on the standard purchaseOrders action tries the extension page.
+        Any other error stops. A 5xx is not retried: the release may already
+        have committed. See docs/STAFF_PO_RECEIVING.md.
+        """
+        urls = self.purchase_order_release_urls(po_id, company_id)
+        token = self._get_access_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "If-Match": "*",
+        }
+        last_response = None
+        for index, url in enumerate(urls):
+            response = requests.post(url, headers=headers, json={}, timeout=120)
+            last_response = response
+            if response.status_code == 404 and index + 1 < len(urls):
+                logger.info(
+                    "Microsoft.NAV.release is not on the standard purchase order API; "
+                    "trying the extension page for %s",
+                    po_id,
+                )
+                continue
+            if response.status_code >= 400:
+                message = ""
+                try:
+                    message = (response.json().get("error") or {}).get("message") or ""
+                except Exception:
+                    message = (response.text or "")[:500]
+                hint = ""
+                if response.status_code == 404:
+                    hint = (
+                        " Publish bc-extension/po-receive page 70912 so "
+                        "Microsoft.NAV.release exists. Do not publish a reopen "
+                        "or receiveAndInvoice action for the portal."
+                    )
+                raise requests.HTTPError(
+                    f"{response.status_code} releasing {po_id}: {message}.{hint}",
+                    response=response,
+                )
+            body: Dict[str, Any] = {}
+            if response.content:
+                try:
+                    parsed = response.json()
+                    if isinstance(parsed, dict):
+                        body = parsed
+                except ValueError:
+                    body = {}
+            logger.info("Released purchase order %s via Microsoft.NAV.release", po_id)
+            return {
+                "action": "release",
+                "status_code": response.status_code,
+                "url": url,
+                "body": body,
+            }
+        status = getattr(last_response, "status_code", None) or 404
+        raise requests.HTTPError(
+            f"{status} releasing {po_id}: Microsoft.NAV.release was not found. "
+            "Publish bc-extension/po-receive page 70912.",
+            response=last_response,
+        )
+
     def get_purchase_order_receive_header(
         self, po_id: str, company_id: Optional[str] = None,
     ) -> Dict[str, Any]:

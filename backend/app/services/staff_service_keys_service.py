@@ -42,6 +42,7 @@ INVENTORY_READ = "inventory:read"
 PURCHASING_READ = "purchasing:read"
 DRAFT_PO_LINES = "purchasing:draft_po_lines"
 PURCHASING_RECEIVE = "purchasing:receive"
+PURCHASING_RELEASE = "purchasing:release"
 GENERATE_PO = "purchasing:generate_po"
 REVIEW_DRAFT = "purchasing:review_draft"
 VENDOR_ACKS_RUN = "vendor_acks:run"
@@ -57,6 +58,7 @@ AUTOMATION_SCOPES = [
     PURCHASING_READ,
     DRAFT_PO_LINES,
     PURCHASING_RECEIVE,
+    PURCHASING_RELEASE,
     GENERATE_PO,
     REVIEW_DRAFT,
     VENDOR_ACKS_RUN,
@@ -115,8 +117,12 @@ _RULES: list[tuple[str, re.Pattern[str], str, Optional[str]]] = [
     # Open / Released POs are refused by the route. Same scope as line edits.
     ("POST", re.compile(r"^/api/admin/purchasing/draft-pos/requested-receipt/backfill$"), DRAFT_PO_LINES, None),
     ("POST", re.compile(r"^/api/admin/purchasing/draft-pos/[^/]+/requested-receipt$"), DRAFT_PO_LINES, None),
+    # Release one unreleased purchase order (API status Draft; the page says
+    # Open). The PO number is in the path. There is no bulk release, and no
+    # invoice, delete, or reopen route.
+    ("POST", re.compile(r"^/api/admin/purchasing/draft-pos/[^/]+/release$"), PURCHASING_RELEASE, None),
     # Released purchase orders: read with purchasing:read, receive with
-    # purchasing:receive. There is no release, invoice, or delete route.
+    # purchasing:receive. Invoice and delete stay off this list.
     ("GET", re.compile(r"^/api/admin/purchasing/released-pos$"), PURCHASING_READ, None),
     ("GET", re.compile(r"^/api/admin/purchasing/released-pos/[^/]+$"), PURCHASING_READ, None),
     ("POST", re.compile(r"^/api/admin/purchasing/released-pos/[^/]+/receive$"), PURCHASING_RECEIVE, None),
@@ -241,6 +247,28 @@ def grant_receive_scope(scopes) -> Optional[list[str]]:
     if PURCHASING_RECEIVE in names or PURCHASING_READ not in names:
         return None
     return names + [PURCHASING_RECEIVE]
+
+
+def grant_release_scope(scopes) -> Optional[list[str]]:
+    """Append ``purchasing:release`` when the key already has purchasing reads.
+
+    Returns None when the stored list should be left unchanged (already
+    granted, or this key was never given purchasing). The deploy migration
+    grants this to existing purchasing:read keys, including the assistant
+    key, so a new key does not have to be created.
+    """
+    raw = scopes
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(raw, list):
+        return None
+    names = [str(item) for item in raw]
+    if PURCHASING_RELEASE in names or PURCHASING_READ not in names:
+        return None
+    return names + [PURCHASING_RELEASE]
 
 
 def normalize_scopes(scopes: Optional[list[str]]) -> list[str]:

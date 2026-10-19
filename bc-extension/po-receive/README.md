@@ -22,3 +22,26 @@ POST https://api.businesscentral.dynamics.com/v2.0/{tenant}/Production/api/opend
 `purchaseOrderId` is the same GUID as `purchaseOrders({id})` on api/v2.0.
 
 The action sets **Receive = true** and **Invoice = false**, then runs `Purch.-Post`.
+
+## Release action
+
+`OPENDCPurchaseOrderRelease.API.al` is a separate page. It does not add a procedure to the receive entity.
+
+1. Confirm object IDs **70912** (page) and **70913** (permission set) are free.
+2. Publish `OPENDCPurchaseOrderRelease.API.al` with the receive page.
+3. Assign permission set **OPENDC PO Release** to the same Business Central user. That set executes codeunit **Release Purchase Document**. The user still needs permission to modify purchase headers and lines.
+4. Do not add a `reopen` action. The portal refuses any release action whose name is not `release`, and any name that contains `reopen` or `invoice`, before it sends HTTP.
+
+The portal POSTs the standard action first:
+
+```
+POST .../api/v2.0/companies({companyId})/purchaseOrders({id})/Microsoft.NAV.release
+```
+
+On 404 only, it POSTs this page once:
+
+```
+POST https://api.businesscentral.dynamics.com/v2.0/{tenant}/Production/api/opendc/purchasing/v1.0/companies({companyId})/purchaseOrderReleases({purchaseOrderId})/Microsoft.NAV.release
+```
+
+The procedure calls `Release Purchase Document.PerformManualRelease`. A 500 is not retried. This AL has not been compiled here.

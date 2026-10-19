@@ -264,9 +264,29 @@ curl -s -H "Authorization: Bearer $OPENDC_PORTAL_SERVICE_KEY" \
   https://portal.opendc.ca/api/admin/purchasing/released-pos/PO-000962/receive
 ```
 
-The key can read these routes and post that receipt. It cannot release a PO, post an invoice, or delete a PO. Draft PO edits are unchanged. Every preview and every post is stored in `purchase_receipt_audits` (who, PO, lines, quantities, vendor packing slip).
+The key can read these routes and post that receipt. It can also release one unreleased purchase order. It cannot post an invoice, delete a PO, or reopen a released PO. Draft PO line edits are unchanged. Every receipt preview and every post is stored in `purchase_receipt_audits` (who, PO, lines, quantities, vendor packing slip).
 
-Business Central setup before the first real post: publish page **70910** from `bc-extension/po-receive` (the Receive action). The standard API action `receiveAndInvoice` is not used. Page **50** must stay published as web service `PurchaseOrder` so Vendor Shipment No. can be written. Step-by-step: [docs/STAFF_PO_RECEIVING.md](docs/STAFF_PO_RECEIVING.md).
+## Releasing one draft purchase order
+
+The purchase order page calls an unreleased order Open. The API calls it Draft. This releases that one order. `dry_run` defaults to true.
+
+```bash
+# Preview. Nothing is written in Business Central.
+curl -s -H "Authorization: Bearer $OPENDC_PORTAL_SERVICE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"dry_run":true}' \
+  https://portal.opendc.ca/api/admin/purchasing/draft-pos/PO-000962/release
+
+# Release that PO only. dry_run must be false. po_number, if sent, must match.
+curl -s -H "Authorization: Bearer $OPENDC_PORTAL_SERVICE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"dry_run":false,"po_number":"PO-000962"}' \
+  https://portal.opendc.ca/api/admin/purchasing/draft-pos/PO-000962/release
+```
+
+Scope: `purchasing:release`. A new key gets it with the other automation scopes. The deploy migration also adds it to existing keys that already have `purchasing:read` (the assistant key included). There is no bulk release. Every preview, release, and rejection is stored in `purchase_release_audits`.
+
+Business Central setup before the first real post: publish page **70910** from `bc-extension/po-receive` (the Receive action). The standard API action `receiveAndInvoice` is not used. Page **50** must stay published as web service `PurchaseOrder` so Vendor Shipment No. can be written. Before the first real release, confirm object IDs **70912** and **70913** are free and publish page **70912** (Microsoft.NAV.release via codeunit Release Purchase Document, PerformManualRelease). The portal tries the standard `purchaseOrders` release action first and uses page 70912 only when that returns 404. Do not publish a reopen action. Step-by-step: [docs/STAFF_PO_RECEIVING.md](docs/STAFF_PO_RECEIVING.md).
 
 ## Support
 

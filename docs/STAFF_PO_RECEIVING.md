@@ -1,8 +1,8 @@
-# Receiving a released purchase order
+# Receiving and releasing purchase orders
 
-Joey releases purchase orders in Business Central. After a PO is released, the assistant (the staff service key in `OPENDC_PORTAL_SERVICE_KEY`) can list it, read outstanding quantity, set Qty. to Receive, and post **Receive only**.
+The assistant (the staff service key in `OPENDC_PORTAL_SERVICE_KEY`) can release one unreleased purchase order, then list it, read outstanding quantity, set Qty. to Receive, and post **Receive only**.
 
-The key cannot release a PO, post an invoice, or delete a PO. Draft purchase-order edits and the requested-receipt date routes are unchanged. Those still refuse anything that is not Draft.
+The key cannot post an invoice, delete a PO, or reopen a released PO. Draft purchase-order line edits and the requested-receipt date routes are unchanged. Those still refuse anything that is not Draft.
 
 ## How the assistant calls it
 
@@ -121,6 +121,86 @@ If vendor acknowledgements already patch this page, no second web service is req
 
 ### 3. The service key
 
-A new key gets `purchasing:receive` with the other automation scopes. The deploy migration adds `purchasing:receive` to existing keys that already have `purchasing:read`, including the assistant key. Read routes stay on `purchasing:read`.
+A new key gets `purchasing:receive` and `purchasing:release` with the other automation scopes. The deploy migrations add those scopes to existing keys that already have `purchasing:read`, including the assistant key. That grant is the default. Read routes stay on `purchasing:read`.
 
-There is no release route, no invoice route, and no delete route for these purchase orders.
+There is no invoice route, no delete route, and no reopen route.
+
+## Releasing one draft purchase order
+
+The purchase order page shows an unreleased order as **Open**. The API calls that same order **Draft**. A released order is **Released** on the page and **Open** on the API. This route releases API status Draft only.
+
+```
+POST /api/admin/purchasing/draft-pos/PO-000962/release
+```
+
+Scope: `purchasing:release`.
+
+`962` is accepted as `PO-000962`. A GUID works too. The purchase order number in the path is the one order that can be released. There is no route that releases every draft.
+
+An empty body is a preview. `{}` is a preview. `dry_run` defaults to **true**.
+
+```json
+{ "dry_run": true }
+```
+
+The preview returns `bc_po_number`, `vendor_number`, `vendor_name`, `status`, `bc_page_status` (Draft on the API is Open on the page), `lines` (item, quantity, direct unit cost, amount), `totals`, and `ship_to`. Nothing is written in Business Central.
+
+To release that one order, name it in the path and send `"dry_run": false`. If the body also includes `po_number`, it must be the same order (`962`, `PO-000962`, or that order's GUID). A different number is 400 and does not call Business Central.
+
+```json
+{ "dry_run": false, "po_number": "PO-000962" }
+```
+
+- API status Draft is released. Afterward the API status is Open (the page says Released).
+- API status Open is already released and returns 422. The release action is not called.
+- In Review (pending approval) returns 422.
+- A missing PO is 404.
+- The call is not retried. A 5xx may mean Business Central released the order and the response was lost. Check the order before sending it again.
+
+## Release audit
+
+Every preview, rejection, and release is a row in `purchase_release_audits` (a sibling of `purchase_receipt_audits`):
+
+| Column | What it stores |
+| --- | --- |
+| `actor_name`, `actor_email` | Who. A service key is stored under the key's name. |
+| `service_key_name` | The key name when the caller was the assistant. |
+| `po_number`, `po_id` | The one purchase order named in the path. |
+| `vendor_number`, `vendor_name` | The vendor on that order. |
+| `status_before`, `status_after` | API status before the call, and after a release. |
+| `ship_to`, `totals`, `lines` | The preview that was shown. |
+| `dry_run`, `released`, `outcome` | `dry_run`, `released`, `rejected`, or `bc_error`. |
+
+The key secret is not stored. Invoice, delete, and reopen are not outcomes.
+
+## What has to be turned on in Business Central for release
+
+The portal tries the standard action first:
+
+```
+POST .../api/v2.0/companies({companyId})/purchaseOrders({id})/Microsoft.NAV.release
+```
+
+That action is not in the documented purchaseOrders API (the documented action is `receiveAndInvoice`, which this portal never calls). A 404 tries the extension page once. Any other error stops. A 500 is not retried and does not fall through.
+
+### Publish the Release action
+
+Source: `bc-extension/po-receive/OPENDCPurchaseOrderRelease.API.al`.
+
+1. Confirm object IDs **70912** (page) and **70913** (permission set) are free. 70910 and 70911 are the Receive page and its permission set.
+2. Publish that page to the **production** environment (the portal does not target Sandbox).
+3. Assign permission set **OPENDC PO Release** to the Business Central user for the portal app registration. The user also needs permission to modify purchase headers and lines. The page runs codeunit **Release Purchase Document**, procedure **PerformManualRelease**. It does not publish Reopen.
+
+The page exposes:
+
+```
+POST /api/opendc/purchasing/v1.0/companies({companyId})/purchaseOrderReleases({purchaseOrderId})/Microsoft.NAV.release
+```
+
+`purchaseOrderId` is the same GUID as the standard purchase order `id`.
+
+`BC_PO_RELEASE_ENTITY` defaults to `purchaseOrderReleases`. `BC_PO_RELEASE_ACTION` must be `release`. A name containing `reopen` or `invoice` is refused before any HTTP request.
+
+Until this page is published, a preview still works. A real release returns 502 and names page 70912 when both the standard action and the extension action are missing.
+
+This AL has not been compiled in the portal repo. Compile and publish it from the extension that already deploys to production, after confirming the object IDs.
