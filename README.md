@@ -238,6 +238,36 @@ npm test
 - Full audit trail for all AI actions
 - Data encryption at rest and in transit
 
+## Receiving a released purchase order
+
+Joey releases purchase orders in Business Central. The assistant, using the staff service key (`OPENDC_PORTAL_SERVICE_KEY`, sent as `Authorization: Bearer osk_live_...`), can then list them, set Qty. to Receive, and post **Receive only**.
+
+```bash
+# Released POs. Each line has ordered_quantity, received_quantity, outstanding_quantity.
+curl -s -H "Authorization: Bearer $OPENDC_PORTAL_SERVICE_KEY" \
+  https://portal.opendc.ca/api/admin/purchasing/released-pos
+
+# One PO
+curl -s -H "Authorization: Bearer $OPENDC_PORTAL_SERVICE_KEY" \
+  https://portal.opendc.ca/api/admin/purchasing/released-pos/PO-000962
+
+# Preview (default). Nothing is written in Business Central.
+curl -s -H "Authorization: Bearer $OPENDC_PORTAL_SERVICE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"vendor_shipment_no":"PACK-100","lines":[{"item_number":"PN10","qty_to_receive":2}]}' \
+  https://portal.opendc.ca/api/admin/purchasing/released-pos/PO-000962/receive
+
+# Post Receive only. dry_run must be false. This does not invoice.
+curl -s -H "Authorization: Bearer $OPENDC_PORTAL_SERVICE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"dry_run":false,"vendor_shipment_no":"PACK-100","lines":[{"item_number":"PN10","qty_to_receive":2}]}' \
+  https://portal.opendc.ca/api/admin/purchasing/released-pos/PO-000962/receive
+```
+
+The key can read these routes and post that receipt. It cannot release a PO, post an invoice, or delete a PO. Draft PO edits are unchanged. Every preview and every post is stored in `purchase_receipt_audits` (who, PO, lines, quantities, vendor packing slip).
+
+Business Central setup before the first real post: publish page **70910** from `bc-extension/po-receive` (the Receive action). The standard API action `receiveAndInvoice` is not used. Page **50** must stay published as web service `PurchaseOrder` so Vendor Shipment No. can be written. Step-by-step: [docs/STAFF_PO_RECEIVING.md](docs/STAFF_PO_RECEIVING.md).
+
 ## Support
 
 For issues or questions:

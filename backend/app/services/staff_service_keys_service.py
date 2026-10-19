@@ -41,6 +41,7 @@ ORDERS_READ = "orders:read"
 INVENTORY_READ = "inventory:read"
 PURCHASING_READ = "purchasing:read"
 DRAFT_PO_LINES = "purchasing:draft_po_lines"
+PURCHASING_RECEIVE = "purchasing:receive"
 GENERATE_PO = "purchasing:generate_po"
 REVIEW_DRAFT = "purchasing:review_draft"
 VENDOR_ACKS_RUN = "vendor_acks:run"
@@ -55,6 +56,7 @@ AUTOMATION_SCOPES = [
     INVENTORY_READ,
     PURCHASING_READ,
     DRAFT_PO_LINES,
+    PURCHASING_RECEIVE,
     GENERATE_PO,
     REVIEW_DRAFT,
     VENDOR_ACKS_RUN,
@@ -113,6 +115,11 @@ _RULES: list[tuple[str, re.Pattern[str], str, Optional[str]]] = [
     # Open / Released POs are refused by the route. Same scope as line edits.
     ("POST", re.compile(r"^/api/admin/purchasing/draft-pos/requested-receipt/backfill$"), DRAFT_PO_LINES, None),
     ("POST", re.compile(r"^/api/admin/purchasing/draft-pos/[^/]+/requested-receipt$"), DRAFT_PO_LINES, None),
+    # Released purchase orders: read with purchasing:read, receive with
+    # purchasing:receive. There is no release, invoice, or delete route.
+    ("GET", re.compile(r"^/api/admin/purchasing/released-pos$"), PURCHASING_READ, None),
+    ("GET", re.compile(r"^/api/admin/purchasing/released-pos/[^/]+$"), PURCHASING_READ, None),
+    ("POST", re.compile(r"^/api/admin/purchasing/released-pos/[^/]+/receive$"), PURCHASING_RECEIVE, None),
     ("POST", re.compile(r"^/api/admin/purchasing/generate-po$"), GENERATE_PO, "generate_po"),
     ("POST", re.compile(r"^/api/admin/purchasing/draft-pos/[^/]+/review-draft$"), REVIEW_DRAFT, None),
     # Vendor acknowledgement intake.
@@ -213,6 +220,27 @@ def hash_plaintext(plaintext: str) -> str:
 
 def prefix_for(plaintext: str) -> str:
     return plaintext[:_PREFIX_LEN]
+
+
+def grant_receive_scope(scopes) -> Optional[list[str]]:
+    """Append ``purchasing:receive`` when the key already has purchasing reads.
+
+    Returns None when the stored list should be left unchanged (already
+    granted, or this key was never given purchasing). Used when deploying
+    so the existing assistant key can receive without being recreated.
+    """
+    raw = scopes
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(raw, list):
+        return None
+    names = [str(item) for item in raw]
+    if PURCHASING_RECEIVE in names or PURCHASING_READ not in names:
+        return None
+    return names + [PURCHASING_RECEIVE]
 
 
 def normalize_scopes(scopes: Optional[list[str]]) -> list[str]:

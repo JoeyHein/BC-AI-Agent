@@ -1244,15 +1244,48 @@ class BusinessCentralClient:
         requests.HTTPError when the PATCH is rejected. Callers log the
         failure and keep the acknowledgement.
         """
-        if not self.odata_url:
-            raise RuntimeError("BC OData URL is not configured")
         if not po_number or not vendor_order_no:
             raise ValueError("po_number and vendor_order_no are required")
+        entity = settings.VENDOR_ACK_BC_ODATA_ENTITY or "PurchaseOrder"
+        field = settings.VENDOR_ACK_BC_ODATA_FIELD or "Vendor_Order_No"
+        return self._patch_purchase_order_odata_field(
+            po_number, field, vendor_order_no, entity, company_id=company_id,
+        )
+
+    def set_purchase_order_vendor_shipment_no(
+        self,
+        po_number: str,
+        vendor_shipment_no: str,
+        company_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Write Vendor Shipment No. (the vendor packing slip) onto a PO.
+
+        Purchase Header field 69. The api/v2.0 purchaseOrders entity does not
+        expose it, so this uses the same published page 50 as Vendor Order No.
+        The field name defaults to ``Vendor_Shipment_No``.
+        """
+        if not po_number or not vendor_shipment_no:
+            raise ValueError("po_number and vendor_shipment_no are required")
+        entity = settings.VENDOR_ACK_BC_ODATA_ENTITY or "PurchaseOrder"
+        field = settings.BC_PO_VENDOR_SHIPMENT_FIELD or "Vendor_Shipment_No"
+        return self._patch_purchase_order_odata_field(
+            po_number, field, vendor_shipment_no, entity, company_id=company_id,
+        )
+
+    def _patch_purchase_order_odata_field(
+        self,
+        po_number: str,
+        field: str,
+        value: str,
+        entity: str,
+        company_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """PATCH one field on the published Purchase Order OData page."""
+        if not self.odata_url:
+            raise RuntimeError("BC OData URL is not configured")
 
         token = self._get_access_token()
         company_segment = self._odata_v4_company_segment(company_id)
-        entity = settings.VENDOR_ACK_BC_ODATA_ENTITY or "PurchaseOrder"
-        field = settings.VENDOR_ACK_BC_ODATA_FIELD or "Vendor_Order_No"
         safe_no = po_number.replace("'", "''")
         list_url = (
             f"{self.odata_url}/{company_segment}/{entity}"
@@ -1290,7 +1323,7 @@ class BusinessCentralClient:
         }
         patched = requests.patch(
             patch_url,
-            json={field: vendor_order_no},
+            json={field: value},
             headers=patch_headers,
             timeout=60,
         )
@@ -1301,14 +1334,150 @@ class BusinessCentralClient:
             )
         logger.info(
             "Set %s=%s on purchase order %s via OData %s",
-            field, vendor_order_no, po_number, entity,
+            field, value, po_number, entity,
         )
         if patched.content:
             try:
                 return patched.json()
             except ValueError:
                 pass
-        return {"number": po_number, field: vendor_order_no}
+        return {"number": po_number, field: value}
+
+    def get_released_purchase_orders_with_lines(
+        self, company_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Purchase orders Business Central has released.
+
+        api/v2.0 status ``Open`` is the released document (the BC page says
+        Released). Status ``Draft`` is the unreleased order and is not
+        included. Lines are expanded. A BC error raises instead of returning
+        a short list.
+        """
+        cid = company_id or self.company_id
+        url = (
+            f"{self.base_url}/companies({cid})/purchaseOrders"
+            f"?$filter=status eq 'Open'"
+            f"&$expand=purchaseOrderLines"
+        )
+        return self._paginate_v2(url, "released purchase orders", raise_on_error=True)
+
+    def purchase_order_receive_url(self, po_id: str, company_id: Optional[str] = None) -> str:
+        """URL of the Receive-only bound action. Never receiveAndInvoice."""
+        action = (settings.BC_PO_RECEIVE_ACTION or "receive").strip()
+        if (not action) or ("invoice" in action.lower()):
+            raise RuntimeError(
+                "Purchase receipt posting is Receive only. "
+                f"Refusing action {action!r}. "
+                "The standard purchaseOrders action receiveAndInvoice also invoices, "
+                "and this portal does not call it."
+            )
+        base = settings.bc_po_receive_api_url
+        if not base:
+            raise RuntimeError("BC receive API URL is not configured")
+        entity = (settings.BC_PO_RECEIVE_ENTITY or "purchaseOrderReceives").strip()
+        if not entity or "invoice" in entity.lower():
+            raise RuntimeError(f"Refusing purchase receive entity {entity!r}")
+        cid = company_id or self.company_id
+        return (
+            f"{base}/companies({cid})/{entity}({po_id})/Microsoft.NAV.{action}"
+        )
+
+    def post_purchase_order_receive(
+        self, po_id: str, company_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Post the purchase order as Receive only.
+
+        One request, no retry: a retried post can receive the same quantity
+        twice when the first call committed and the response was lost.
+        A 404 means page 70910 is not published. See docs/STAFF_PO_RECEIVING.md.
+        """
+        url = self.purchase_order_receive_url(po_id, company_id)
+        token = self._get_access_token()
+        response = requests.post(
+            url,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "If-Match": "*",
+            },
+            json={},
+            timeout=120,
+        )
+        if response.status_code >= 400:
+            message = ""
+            try:
+                message = (response.json().get("error") or {}).get("message") or ""
+            except Exception:
+                message = (response.text or "")[:500]
+            hint = ""
+            if response.status_code == 404:
+                hint = (
+                    " Publish bc-extension/po-receive page 70910 so "
+                    "Microsoft.NAV.receive exists. Do not enable receiveAndInvoice."
+                )
+            raise requests.HTTPError(
+                f"{response.status_code} posting Receive on {po_id}: {message}.{hint}",
+                response=response,
+            )
+        body: Dict[str, Any] = {}
+        if response.content:
+            try:
+                parsed = response.json()
+                if isinstance(parsed, dict):
+                    body = parsed
+            except ValueError:
+                body = {}
+        logger.info("Posted purchase order %s as Receive only", po_id)
+        return {
+            "action": "receive",
+            "status_code": response.status_code,
+            "location": response.headers.get("Location") or response.headers.get("location"),
+            "body": body,
+        }
+
+    def get_purchase_order_receive_header(
+        self, po_id: str, company_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Read the custom receive page after a post, for Last Receiving No.
+
+        Returns an empty dict when the page is missing. Callers still have
+        the posted purchase receipt list as a fallback.
+        """
+        base = settings.bc_po_receive_api_url
+        entity = (settings.BC_PO_RECEIVE_ENTITY or "purchaseOrderReceives").strip()
+        if not base or not entity:
+            return {}
+        cid = company_id or self.company_id
+        url = f"{base}/companies({cid})/{entity}({po_id})"
+        token = self._get_access_token()
+        response = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+            timeout=60,
+        )
+        if response.status_code >= 400:
+            logger.warning(
+                "Could not read receive header for %s: %s", po_id, response.status_code,
+            )
+            return {}
+        try:
+            parsed = response.json()
+        except ValueError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    def list_purchase_receipts_for_order(
+        self, order_number: str, company_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Posted purchase receipts for one purchase order number."""
+        cid = company_id or self.company_id
+        safe = (order_number or "").replace("'", "''")
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/purchaseReceipts?$filter=orderNumber eq '{safe}'",
+        )
+        return result.get("value", [])
 
     def get_purchase_order_pdf(self, po_id: str, company_id: Optional[str] = None
                                 ) -> bytes:
@@ -1465,8 +1634,14 @@ class BusinessCentralClient:
         )
         return self._paginate_v2(url, "purchase receipts")
 
-    def _paginate_v2(self, url: str, label: str) -> List[Dict[str, Any]]:
-        """Follow @odata.nextLink through a v2.0 collection, returning all rows."""
+    def _paginate_v2(self, url: str, label: str, raise_on_error: bool = False) -> List[Dict[str, Any]]:
+        """Follow @odata.nextLink through a v2.0 collection, returning all rows.
+
+        Existing callers keep the old behaviour: a failed page is logged and
+        the rows gathered so far are returned. ``raise_on_error`` is for
+        released-PO receiving, where an empty list would look like "nothing
+        to receive" during a Business Central outage.
+        """
         out: List[Dict[str, Any]] = []
         while url:
             token = self._get_access_token()
@@ -1477,6 +1652,11 @@ class BusinessCentralClient:
             )
             if resp.status_code >= 400:
                 logger.error(f"BC API error fetching {label}: {resp.status_code} {resp.text[:300]}")
+                if raise_on_error:
+                    raise requests.HTTPError(
+                        f"{resp.status_code} fetching {label}: {resp.text[:300]}",
+                        response=resp,
+                    )
                 break
             data = resp.json()
             out.extend(data.get("value", []))

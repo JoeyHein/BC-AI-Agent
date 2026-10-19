@@ -51,6 +51,8 @@ A new key is limited to the automation’s work:
 - List and validate Draft purchase orders, including the PDF
 - Read and edit Draft PO lines (change, add, delete a line, reorder, normalize order)
 - Set or recompute the requested receipt date on a Draft purchase order, and run the Draft-only backfill (`dry_run` defaults to true). Open and Released purchase orders are refused
+- List released purchase orders and read one with ordered, already received, and outstanding quantity
+- Receive a released purchase order (set Qty. to Receive, then post Receive only). `dry_run` defaults to true. This does not invoice, release, or delete. See [STAFF_PO_RECEIVING.md](STAFF_PO_RECEIVING.md)
 - Create a Draft purchase order with **send_email set to false** (this does not email the vendor and does not save an Outlook draft)
 - Save an unsent Outlook review draft for a Draft PO that already exists
 - Read quotes and quote reviews
@@ -69,7 +71,7 @@ Anything not in the list above is refused. That includes:
 - Approving or rejecting quotes, or creating quotes in Business Central
 - Shipping orders, posting invoices, or converting quotes to orders
 - Creating the purchase order from that sales-order preview
-- Releasing or deleting a Business Central document
+- Releasing a purchase order, posting a purchase invoice, or deleting a purchase order
 - Sending email
 - Creating a purchase order that also saves an Outlook draft. That call must set `send_email` to false. Saving a draft is a separate step (`review-draft`) and does not send mail.
 

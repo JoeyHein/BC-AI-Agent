@@ -86,10 +86,15 @@ The same inventory paths are also accepted without the `/api` prefix.
 | `purchasing:draft_po_lines` | `POST /api/admin/purchasing/draft-pos/PO-000962/lines/normalize-order` |
 | `purchasing:draft_po_lines` | `POST /api/admin/purchasing/draft-pos/requested-receipt/backfill` |
 | `purchasing:draft_po_lines` | `POST /api/admin/purchasing/draft-pos/PO-000962/requested-receipt` |
+| `purchasing:read` | `GET /api/admin/purchasing/released-pos` |
+| `purchasing:read` | `GET /api/admin/purchasing/released-pos/PO-000962` |
+| `purchasing:receive` | `POST /api/admin/purchasing/released-pos/PO-000962/receive` |
 | `purchasing:generate_po` | `POST /api/admin/purchasing/generate-po` |
 | `purchasing:review_draft` | `POST /api/admin/purchasing/draft-pos/PO-000962/review-draft` |
 
 `POST /api/admin/purchasing/generate-po` is allowed only when the body sets `send_email` to false (or `create_review_draft` to false). That skips the Outlook draft. Open and Released purchase orders are refused by the receipt-date route.
+
+The two released-PO reads above use `purchasing:read`. They show ordered, already received, and outstanding quantity. The receive route uses `purchasing:receive` and posts Receive only. `dry_run` defaults to true. See [STAFF_PO_RECEIVING.md](STAFF_PO_RECEIVING.md).
 
 ## Quotes already on the portal
 
@@ -123,6 +128,9 @@ These stay off the key:
 - `POST /api/orders/1/ship` and `POST /api/orders/1/ship-and-invoice`
 - `POST /api/orders/invoices/9/post`
 - `POST /api/admin/purchasing/so-complete-po`
+- `POST /api/admin/purchasing/released-pos/PO-000962/release`
+- `POST /api/admin/purchasing/released-pos/PO-000962/invoice`
+- `DELETE /api/admin/purchasing/released-pos/PO-000962`
 - `POST /api/admin/purchasing/send-report`
 - `POST /api/email-agent/send`
 - `POST /api/admin/customers/sync-bc-customers`

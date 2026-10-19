@@ -36,6 +36,7 @@ from app.integrations.bc.client import bc_client
 from app.services.draft_po_review_service import draft_po_review_service
 from app.services.draft_po_lines_service import DraftPoEditError, draft_po_lines_service
 from app.services.draft_po_receipt_service import draft_po_receipt_service
+from app.services.po_receiving_service import PoReceiveError, po_receiving_service
 
 router = APIRouter(prefix="/api/admin/purchasing", tags=["purchasing"])
 logger = logging.getLogger(__name__)
@@ -178,6 +179,32 @@ class DraftPoReceiptBackfillRequest(BaseModel):
     """
     dry_run: bool = True
     as_of: Optional[str] = None
+
+
+class ReceiveLineIn(BaseModel):
+    """One line on a released purchase order.
+
+    Identify the line with ``line_id`` (the Business Central line GUID),
+    ``sequence``, or ``item_number``. ``qty_to_receive`` cannot exceed the
+    outstanding quantity. Partial receipts are allowed.
+    """
+    line_id: Optional[str] = None
+    sequence: Optional[int] = None
+    item_number: Optional[str] = None
+    qty_to_receive: float
+
+
+class ReceivePurchaseOrderRequest(BaseModel):
+    """Receive a released purchase order. Receive only — never Invoice.
+
+    ``dry_run`` defaults to true and does not write to Business Central.
+    ``vendor_shipment_no`` is the vendor packing slip (Vendor Shipment No.).
+    ``vendor_packing_slip`` is the same value under the other name.
+    """
+    vendor_shipment_no: Optional[str] = None
+    vendor_packing_slip: Optional[str] = None
+    dry_run: bool = True
+    lines: List[ReceiveLineIn]
 
 
 class ExistingPOReviewDraftRequest(BaseModel):
@@ -1074,6 +1101,88 @@ async def normalize_draft_po_lines(
         ),
         po_number,
         admin,
+    )
+
+
+def _receive_actor(request: Request, admin: User) -> dict:
+    """Who is receiving. A service key is recorded by its name, not the secret."""
+    key_name = getattr(request.state, "staff_service_key_name", None)
+    email = getattr(admin, "email", None)
+    return {
+        "user_id": getattr(admin, "id", None),
+        "actor_email": email,
+        "actor_name": key_name or getattr(admin, "name", None) or email,
+        "service_key_id": getattr(request.state, "staff_service_key_id", None),
+        "service_key_name": key_name,
+    }
+
+
+def _receive_call(action):
+    try:
+        return action()
+    except PoReceiveError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@router.get("/released-pos")
+async def list_released_pos(
+    number: Optional[str] = Query(None, description="Exact PO number, for example PO-000962"),
+    outstanding_only: bool = Query(False, description="Only purchase orders with quantity left to receive"),
+    _admin: User = Depends(get_current_admin),
+):
+    """Released purchase orders, with ordered, received, and outstanding qty.
+
+    Business Central's API status Open is a released purchase order (the
+    page says Released). Draft orders are not included. Does not post.
+    """
+    return _receive_call(
+        lambda: po_receiving_service.list_released(
+            number=number, outstanding_only=outstanding_only,
+        )
+    )
+
+
+@router.get("/released-pos/{po_number}")
+async def get_released_po(
+    po_number: str,
+    _admin: User = Depends(get_current_admin),
+):
+    """One released purchase order and its lines.
+
+    Each line includes ordered quantity, quantity already received, and
+    outstanding quantity. A Draft purchase order is 422. Does not post.
+    """
+    kind, value = normalize_staff_po_ref(po_number)
+    return _receive_call(lambda: po_receiving_service.get_released(kind, value))
+
+
+@router.post("/released-pos/{po_number}/receive")
+async def receive_released_po(
+    po_number: str,
+    body: ReceivePurchaseOrderRequest,
+    request: Request,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Set Qty. to Receive and post Receive only.
+
+    Partial receipts are allowed. Quantity cannot exceed outstanding.
+    ``dry_run`` defaults to true and returns what would be posted.
+    Send ``dry_run: false`` to write the vendor packing slip, set the
+    quantities, and post. This never invoices, releases, or deletes.
+    """
+    kind, value = normalize_staff_po_ref(po_number)
+    payload = body.model_dump()
+    logger.info(
+        "PO receive actor=%s po=%s dry_run=%s",
+        _receive_actor(request, admin).get("actor_name"),
+        value,
+        payload.get("dry_run"),
+    )
+    return _receive_call(
+        lambda: po_receiving_service.receive(
+            db, kind, value, payload, _receive_actor(request, admin),
+        )
     )
 
 

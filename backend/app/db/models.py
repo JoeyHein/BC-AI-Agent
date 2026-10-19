@@ -2457,6 +2457,46 @@ class StaffServiceKeyAudit(Base):
         )
 
 
+class PurchaseReceiptAudit(Base):
+    """One receipt attempt against a released purchase order.
+
+    Written for previews and for posts. ``posting`` is always Receive.
+    ``invoice`` is always false. The row records who asked, which PO,
+    the lines and quantities, and the vendor packing slip (Vendor Shipment No.).
+    """
+
+    __tablename__ = "purchase_receipt_audits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    actor_email = Column(String(255), nullable=True)
+    actor_name = Column(String(255), nullable=True)
+    service_key_id = Column(
+        Integer, ForeignKey("staff_service_keys.id", ondelete="SET NULL"), nullable=True
+    )
+    service_key_name = Column(String(200), nullable=True)
+    po_number = Column(String(40), nullable=False, index=True)
+    po_id = Column(String(64), nullable=True)
+    vendor_number = Column(String(40), nullable=True)
+    vendor_name = Column(String(200), nullable=True)
+    vendor_shipment_no = Column(String(35), nullable=True)
+    lines = Column(JSON, nullable=False)
+    dry_run = Column(Boolean, nullable=False, default=True)
+    posted = Column(Boolean, nullable=False, default=False)
+    posting = Column(String(20), nullable=False, default="Receive")
+    invoice = Column(Boolean, nullable=False, default=False)
+    bc_receipt_no = Column(String(40), nullable=True)
+    outcome = Column(String(20), nullable=False)
+    error = Column(Text, nullable=True)
+
+    def __repr__(self):
+        return (
+            f"<PurchaseReceiptAudit({self.po_number} {self.outcome} "
+            f"slip={self.vendor_shipment_no})>"
+        )
+
+
 class KpiSnapshot(Base):
     """One saved KPI dashboard for a calendar month.
 
