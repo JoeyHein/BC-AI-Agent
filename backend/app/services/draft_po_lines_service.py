@@ -1,8 +1,11 @@
 """Edit lines on a Business Central Draft purchase order.
 
-Staff can change quantity, description (BC's 100-character limit), unit
-cost, and item number; delete a line; add an Item or Comment line; and
-reorder. Reorder has no BC line-renumber API, so the lines are snapshotted,
+Staff can change quantity, description (BC's 100-character limit), and
+item number; delete a line; add an Item or Comment line; and reorder.
+Unit cost is left alone unless ``unit_cost`` or ``unit_cost_override``
+is sent. A new item line omits directUnitCost so Business Central prices
+it from the vendor's date-valid purchase price list. A typed override is
+the only price this service writes. It never fills in zero. Reorder has no BC line-renumber API, so the lines are snapshotted,
 deleted, and re-added in the target order. After the rewrite the fresh
 lines are checked against the snapshot. A mismatch, or a failure part way
 through, deletes whatever is on the PO and writes the snapshot back.
@@ -27,6 +30,7 @@ from typing import Any, Dict, List, Optional, Sequence
 import requests
 
 from app.integrations.bc.client import bc_client
+from app.services.po_line_price import apply_direct_unit_cost, explicit_override
 from app.services.po_line_order import (
     BC_DESCRIPTION_MAX,
     classify_line,
@@ -304,10 +308,11 @@ class DraftPoLinesService:
             qty = self._quantity(changes["quantity"], comment=comment)
             if not comment:
                 patch["quantity"] = qty
-        if "unit_cost" in changes and changes["unit_cost"] is not None:
+        override = _explicit_line_cost(changes)
+        if override is not None:
             if comment:
                 raise DraftPoEditError(400, "Comment lines do not have a unit cost")
-            patch["directUnitCost"] = self._cost(changes["unit_cost"])
+            apply_direct_unit_cost(patch, self._cost(override))
         if "item_no" in changes and changes["item_no"] is not None:
             if comment:
                 raise DraftPoEditError(400, "Comment lines do not have an item number")
@@ -337,8 +342,10 @@ class DraftPoLinesService:
             "lineType": "Item",
             "lineObjectNumber": item,
             "quantity": self._quantity(body.get("quantity"), comment=False),
-            "directUnitCost": self._cost(body.get("unit_cost", 0)),
         }
+        override = _explicit_line_cost(body)
+        if override is not None:
+            apply_direct_unit_cost(payload, self._cost(override))
         description = body.get("description")
         if description:
             payload["description"] = self._description(description, required=False)
@@ -447,6 +454,22 @@ class DraftPoLinesService:
         return True
 
 
+def _explicit_line_cost(body: dict) -> Any:
+    """Manual price from a line edit, or None so the caller leaves cost alone.
+
+    ``unit_cost_override`` wins. ``unit_cost`` is the same override on the
+    staff line API (a person typed it). A missing or null value is not zero.
+    """
+    if not body:
+        return None
+    candidates = []
+    if "unit_cost_override" in body:
+        candidates.append(body.get("unit_cost_override"))
+    if "unit_cost" in body:
+        candidates.append(body.get("unit_cost"))
+    return explicit_override(*candidates)
+
+
 def _rebuild_payload(src: dict, sequence: int) -> dict:
     """POST body that preserves the snapshot line's purchasable fields."""
     line_type = src.get("lineType") or "Item"
@@ -469,6 +492,8 @@ def _rebuild_payload(src: dict, sequence: int) -> dict:
         payload["unitOfMeasureCode"] = uom
     if src.get("quantity") is not None:
         payload["quantity"] = _f(src.get("quantity"))
+    # Reorder copies the price already on the line (including a BC default
+    # or a previous override). It does not invent one from the item card.
     if src.get("directUnitCost") is not None:
         payload["directUnitCost"] = _f(src.get("directUnitCost"))
     location = src.get("locationId")

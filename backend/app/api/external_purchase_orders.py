@@ -6,8 +6,13 @@ POST /api/external/purchase-orders
       { "supplierAccountCode": "ED-001",
         "externalPoId": "<service.ai PO uuid>",
         "poNumber": "PO-000123",
-        "lines": [{ "sku": "PN10", "quantity": 5, "unitCostCents": 700,
+        "lines": [{ "sku": "PN10", "quantity": 5,
                     "description": "..." }] }
+
+    Omit unit cost. Business Central prices the line from the vendor's
+    date-valid purchase price list. ``unitCostCents`` is accepted and
+    stored on the idempotency hash only — it is not written to the PO.
+    ``unitCostOverrideCents`` is the optional manual price, in cents.
 
 Response (200/201):
     { "ok": true, "data": { "supplierPoRef": "104821", "supplierPoId": "...",
@@ -42,7 +47,10 @@ logger = logging.getLogger(__name__)
 class _LineIn(BaseModel):
     sku: str = Field(min_length=1, max_length=80)
     quantity: float = Field(gt=0, le=1_000_000)
-    unitCostCents: int = Field(ge=0)
+    # Not written to Business Central. Kept so older callers still validate.
+    unitCostCents: Optional[int] = Field(default=None, ge=0)
+    # Manual price in cents. Omit it and BC uses the vendor purchase price.
+    unitCostOverrideCents: Optional[int] = Field(default=None, ge=0)
     description: Optional[str] = Field(default=None, max_length=300)
 
 
@@ -92,6 +100,7 @@ def create_purchase_order(
                 quantity=l.quantity,
                 unit_cost_cents=l.unitCostCents,
                 description=l.description,
+                unit_cost_override_cents=l.unitCostOverrideCents,
             )
             for l in payload.lines
         ],

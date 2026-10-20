@@ -712,6 +712,102 @@ class BusinessCentralClient:
                 "queried_url": url,
             }
 
+    # Purchase price lists. Same OData V4 shape as SalesPriceLists, for the
+    # vendor side of BC's price-list experience. Purchase lines carry
+    # Direct_Unit_Cost (the PO direct unit cost). Source_Type is "Vendor"
+    # or "All Vendors" — spaces, matching the sales captions.
+    PURCHASE_PRICE_ENTITY = "PurchasePriceLists"
+    _PURCHASE_SOURCE_VENDOR = "Vendor"
+    _PURCHASE_SOURCE_ALL_VENDORS = "All Vendors"
+
+    def get_purchase_price_lines(
+        self,
+        item_no: str,
+        vendor_no: str = "",
+        unit_of_measure: str = "",
+        qty: float = 1.0,
+        as_of_date: Optional[str] = None,
+        company_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Read vendor purchase-price lines for one item. Does not write.
+
+        Filters the date-valid window the same way as get_sales_price_lines:
+        Starting_Date is blank or on/before ``as_of_date``, and Ending_Date
+        is blank or on/after that date. ``0001-01-01`` is BC's blank date.
+
+        ``vendor_no`` limits the rows to that vendor (Source_Type Vendor,
+        Assign_to_No). Blank vendor_no reads All Vendors. ``unit_of_measure``
+        limits Unit_of_Measure_Code when set. ``qty`` keeps rows whose
+        Minimum_Quantity is less than or equal to the PO quantity.
+
+        Returns dict with: available, entity, entries, error, queried_url.
+        """
+        if not as_of_date:
+            as_of_date = datetime.utcnow().strftime("%Y-%m-%d")
+
+        company_segment = self._odata_v4_company_segment(company_id)
+        safe_item = (item_no or "").replace("'", "''")
+        safe_vendor = (vendor_no or "").replace("'", "''")
+        safe_uom = (unit_of_measure or "").replace("'", "''")
+        null_date = self.BC_NULL_DATE
+        source_label = self._PURCHASE_SOURCE_VENDOR if safe_vendor else self._PURCHASE_SOURCE_ALL_VENDORS
+
+        filter_expr = (
+            f"Product_No eq '{safe_item}' "
+            f"and Source_Type eq '{source_label}'"
+            + (f" and Assign_to_No eq '{safe_vendor}'" if safe_vendor else "")
+            + (f" and Unit_of_Measure_Code eq '{safe_uom}'" if safe_uom else "")
+            + f" and Minimum_Quantity le {qty}"
+            + f" and (Starting_Date eq {null_date} or Starting_Date le {as_of_date})"
+            + f" and (Ending_Date eq {null_date} or Ending_Date ge {as_of_date})"
+        )
+        url = (
+            f"{self.odata_url}/{company_segment}/{self.PURCHASE_PRICE_ENTITY}"
+            f"?$filter={filter_expr}"
+        )
+        try:
+            token = self._get_access_token()
+            resp = requests.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/json",
+                },
+                timeout=30,
+            )
+            if resp.status_code == 404:
+                return {
+                    "available": False,
+                    "entity": None,
+                    "entries": [],
+                    "error": f"{self.PURCHASE_PRICE_ENTITY} not exposed in this BC tenant (404)",
+                    "queried_url": url,
+                }
+            if resp.status_code >= 400:
+                return {
+                    "available": False,
+                    "entity": self.PURCHASE_PRICE_ENTITY,
+                    "entries": [],
+                    "error": f"HTTP {resp.status_code} — {resp.text[:300]}",
+                    "queried_url": url,
+                }
+            data = resp.json()
+            return {
+                "available": True,
+                "entity": self.PURCHASE_PRICE_ENTITY,
+                "entries": data.get("value", []),
+                "error": None,
+                "queried_url": url,
+            }
+        except Exception as e:
+            return {
+                "available": False,
+                "entity": self.PURCHASE_PRICE_ENTITY,
+                "entries": [],
+                "error": f"{type(e).__name__}: {e}",
+                "queried_url": url,
+            }
+
     # ==================== Sales Quotes ====================
 
     def get_sales_quotes(self, company_id: Optional[str] = None, top: int = 100) -> List[Dict[str, Any]]:

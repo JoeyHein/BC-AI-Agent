@@ -409,3 +409,33 @@ def sales_price_lines(
         "error": result.get("error"),
         "lines": result.get("entries") or [],
     }
+
+
+@router.get("/purchase-price-lines")
+def purchase_price_lines(
+    item_no: str = Query(..., min_length=1),
+    vendor_no: str = Query("", description="Vendor number, for example UPW"),
+    unit_of_measure: str = Query("", description="Unit of measure code"),
+    qty: float = Query(1.0, ge=0),
+    as_of: Optional[str] = Query(None, description="YYYY-MM-DD, usually the PO order date"),
+    _user: User = Depends(require_staff),
+):
+    """Vendor purchase price list lines for one item. Read-only."""
+    result = _bc_call(
+        bc_client.get_purchase_price_lines,
+        item_no=item_no,
+        vendor_no=vendor_no,
+        unit_of_measure=unit_of_measure,
+        qty=qty,
+        as_of_date=as_of,
+    )
+    return {
+        "item_no": item_no,
+        "vendor_no": vendor_no,
+        "unit_of_measure": unit_of_measure,
+        "qty": qty,
+        "as_of": as_of,
+        "available": result.get("available"),
+        "error": result.get("error"),
+        "lines": result.get("entries") or [],
+    }

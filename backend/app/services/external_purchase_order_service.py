@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import ExternalPurchaseOrder
 from app.integrations.bc.client import bc_client
+from app.services.po_line_price import apply_direct_unit_cost
 from app.services.external_quote_service import _lock_for
 
 logger = logging.getLogger(__name__)
@@ -32,8 +33,11 @@ logger = logging.getLogger(__name__)
 class PoLine:
     sku: str
     quantity: float
-    unit_cost_cents: int
+    # Kept for the idempotency hash. Not written to Business Central.
+    unit_cost_cents: Optional[int] = None
     description: Optional[str] = None
+    # Explicit manual price, in cents. Omit it and BC uses the vendor list.
+    unit_cost_override_cents: Optional[int] = None
 
 
 @dataclass
@@ -59,6 +63,7 @@ def _request_hash(account_code: str, lines: List[PoLine]) -> str:
                 "sku": l.sku,
                 "quantity": l.quantity,
                 "unit_cost_cents": l.unit_cost_cents,
+                "unit_cost_override_cents": l.unit_cost_override_cents,
                 "description": l.description or "",
             }
             for l in lines
@@ -77,13 +82,17 @@ def _build_po_data(account_code: str, po_number: Optional[str]) -> Dict[str, Any
 
 def _build_line_data(line: PoLine) -> Dict[str, Any]:
     description = (line.description or line.sku)[:100]
-    return {
+    # unit_cost_cents is not a price override. Only an explicit override
+    # is sent, and it is never filled in as zero when the caller omitted it.
+    override = None
+    if line.unit_cost_override_cents is not None:
+        override = line.unit_cost_override_cents / 100.0
+    return apply_direct_unit_cost({
         "lineType": "Item",
         "lineObjectNumber": line.sku,
         "quantity": line.quantity,
-        "directUnitCost": line.unit_cost_cents / 100.0,
         "description": description,
-    }
+    }, override)
 
 
 def _to_cached_result(row: ExternalPurchaseOrder) -> PoResult:

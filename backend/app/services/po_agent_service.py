@@ -16,6 +16,7 @@ from app.db.models import (
     DemandSignal, POAgentLog, Part, AppSettings,
 )
 from app.integrations.bc.client import bc_client
+from app.services.po_line_price import apply_direct_unit_cost
 
 logger = logging.getLogger(__name__)
 
@@ -179,13 +180,14 @@ class POAgentService:
             # Add line items
             if bc_po and bc_po.get("id"):
                 for line in po.line_items:
-                    line_data = {
+                    # unit_cost on the draft is the part-card estimate.
+                    # BC prices the line unless unit_cost_override was set.
+                    line_data = apply_direct_unit_cost({
                         "lineType": "Item",
                         "lineObjectNumber": line["bc_item_number"],
                         "description": line.get("description", ""),
                         "quantity": line["quantity"],
-                        "directUnitCost": line["unit_cost"],
-                    }
+                    }, line.get("unit_cost_override"))
                     bc_client.add_purchase_order_line(bc_po["id"], line_data)
 
             return bc_po
