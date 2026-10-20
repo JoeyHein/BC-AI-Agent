@@ -37,6 +37,7 @@ from datetime import date
 from typing import Dict, List, Optional, Tuple
 
 from app.integrations.bc.client import bc_client
+from app.services.po_line_price import apply_direct_unit_cost
 from app.services.bc_production_service import bc_production_service
 from app.services.vendor_receipt_lead_time import (
     create_purchase_order_with_receipt,
@@ -298,13 +299,14 @@ def compute_netted_po_lines(so_number: str) -> dict:
             "item_no": item,
             "description": line_desc.get(item, ""),
             "quantity": round(net_need, 2),
-            "unit_cost": None,  # filled from item card cost below (base UoM)
+            # Item-card estimate for the preview only. Not sent on the PO line.
+            "unit_cost": None,
             "doors": sorted(item_doors.get(item, set())),
         })
 
-    # Price included lines from the same v2.0 item-cost source the rest of
-    # purchasing uses (base-UoM unitCost), not receipt last-paid — see
-    # [[project_purchasing_tool]] "Cost was pulled from receipt last-paid" fix.
+    # The preview still shows item-card unitCost (base UoM) so a buyer can
+    # see a rough amount. The PO line omits directUnitCost and BC prices it
+    # from the vendor purchase price list for the order date.
     if included:
         cost_cards = bc_client.get_items_by_numbers([r["item_no"] for r in included])
         for row in included:
@@ -554,12 +556,16 @@ def _write_plan_lines(po_id: str, plan: dict, so_number: str) -> int:
 
     def _add_item(row: dict) -> None:
         nonlocal seq, item_count
-        bc_client.add_purchase_order_line(po_id, {
+        # unit_cost on the plan is the item-card estimate. BC sets the PO
+        # price from the vendor's date-valid purchase price list unless
+        # unit_cost_override was typed in.
+        line_body = apply_direct_unit_cost({
             "sequence": seq, "lineType": "Item",
             "lineObjectNumber": row["item_no"], "quantity": row["quantity"],
-            "unitOfMeasureCode": row.get("uom"), "directUnitCost": row["unit_cost"],
+            "unitOfMeasureCode": row.get("uom"),
             "description": row["description"],
-        })
+        }, row.get("unit_cost_override"))
+        bc_client.add_purchase_order_line(po_id, line_body)
         seq += 10000
         item_count += 1
 

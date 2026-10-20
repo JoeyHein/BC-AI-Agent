@@ -94,7 +94,10 @@ class POLineIn(BaseModel):
     item_no: Optional[str] = None
     description: Optional[str] = ""
     quantity: float = 0
+    # Item-card estimate for the audit total. Not written to Business Central.
     unit_cost: float = 0
+    # Typed purchase price. Omit it and BC uses the vendor price list.
+    unit_cost_override: Optional[float] = None
     line_type: Optional[str] = None
     unit_of_measure: Optional[str] = None
 
@@ -131,20 +134,31 @@ class CompleteSoPoRequest(BaseModel):
 
 
 class DraftPoLineUpdate(BaseModel):
-    """Fields to change on one Draft PO line. Omit a field to leave it."""
+    """Fields to change on one Draft PO line. Omit a field to leave it.
+
+    Omit ``unit_cost`` and ``unit_cost_override`` to leave the purchase
+    price alone. Either field, when sent, is a manual override.
+    """
     quantity: Optional[float] = None
     description: Optional[str] = None
     unit_cost: Optional[float] = None
+    unit_cost_override: Optional[float] = None
     item_no: Optional[str] = None
 
 
 class DraftPoLineCreate(BaseModel):
-    """Add an Item line or a Comment / blank note on a Draft PO."""
+    """Add an Item line or a Comment / blank note on a Draft PO.
+
+    Leave ``unit_cost`` and ``unit_cost_override`` unset so Business Central
+    prices the line. Sending either one sets that price. There is no zero
+    default.
+    """
     line_type: str = "Item"
     item_no: Optional[str] = None
     description: Optional[str] = ""
     quantity: float = 0
-    unit_cost: float = 0
+    unit_cost: Optional[float] = None
+    unit_cost_override: Optional[float] = None
     unit_of_measure: Optional[str] = None
 
 

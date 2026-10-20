@@ -712,6 +712,8 @@ export const purchasingApi = {
   previewCompleteSoPo: (params) => apiClient.get('/api/admin/purchasing/so-complete-po/preview', { params }),
   createCompleteSoPo: (data) => apiClient.post('/api/admin/purchasing/so-complete-po', data),
   listDraftPOs: (params = {}) => apiClient.get('/api/admin/purchasing/draft-pos', { params }),
+  validateDraftPo: (poNumber) =>
+    apiClient.get(`/api/admin/purchasing/draft-pos/${encodeURIComponent(poNumber)}/validate`),
   createDraftPoReviewDraft: (poNumber, data = {}) =>
     apiClient.post(`/api/admin/purchasing/draft-pos/${encodeURIComponent(poNumber)}/review-draft`, data),
   getDraftPoLines: (poNumber) =>

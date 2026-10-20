@@ -108,6 +108,7 @@ export default function PurchasingDashboard() {
         item_no: r.item_no,
         description: r.description,
         quantity: sel[r.item_no].qty,
+        // Estimate for the audit total only. Business Central prices the PO line.
         unit_cost: r.unit_cost,
       }));
     const note = (poNotes[group.vendor_name] || '').trim();
@@ -684,8 +685,9 @@ function DraftPoLineEditor({ poNumber, onChanged }) {
   const [busy, setBusy] = useState(null);
   const [notice, setNotice] = useState(null);
   const [preview, setPreview] = useState(null);
-  const [addItem, setAddItem] = useState({ item_no: '', description: '', quantity: '1', unit_cost: '0' });
+  const [addItem, setAddItem] = useState({ item_no: '', description: '', quantity: '1', unit_cost_override: '' });
   const [addComment, setAddComment] = useState('');
+  const [priceWarnings, setPriceWarnings] = useState([]);
 
   useEffect(() => { refresh(); }, [poNumber]);
 
@@ -701,11 +703,20 @@ function DraftPoLineEditor({ poNumber, onChanged }) {
           item_no: ln.item_number || '',
           description: ln.description || '',
           quantity: ln.quantity ?? '',
-          unit_cost: ln.unit_cost ?? '',
+          unit_cost_override: '',
         };
       });
       setEdits(next);
       setPreview(null);
+      try {
+        const check = await purchasingApi.validateDraftPo(poNumber);
+        const issues = (check.data.issues || []).filter((issue) =>
+          issue.code === 'bc_price_missing' || issue.code === 'bc_price_differs_from_item_cost',
+        );
+        setPriceWarnings(issues);
+      } catch {
+        setPriceWarnings([]);
+      }
     } catch (e) {
       setNotice({ type: 'error', text: apiDetail(e) });
     }
@@ -721,8 +732,9 @@ function DraftPoLineEditor({ poNumber, onChanged }) {
     const body = { description: edit.description };
     if (line.line_type !== 'Comment') {
       body.quantity = Number(edit.quantity);
-      body.unit_cost = Number(edit.unit_cost);
       body.item_no = edit.item_no;
+      const override = String(edit.unit_cost_override ?? '').trim();
+      if (override !== '') body.unit_cost_override = Number(override);
     }
     setBusy(line.id);
     setNotice(null);
@@ -786,14 +798,16 @@ function DraftPoLineEditor({ poNumber, onChanged }) {
     setBusy('add-item');
     setNotice(null);
     try {
-      await purchasingApi.addDraftPoLine(poNumber, {
+      const payload = {
         line_type: 'Item',
         item_no: item,
         description: addItem.description,
         quantity: Number(addItem.quantity),
-        unit_cost: Number(addItem.unit_cost),
-      });
-      setAddItem({ item_no: '', description: '', quantity: '1', unit_cost: '0' });
+      };
+      const override = String(addItem.unit_cost_override ?? '').trim();
+      if (override !== '') payload.unit_cost_override = Number(override);
+      await purchasingApi.addDraftPoLine(poNumber, payload);
+      setAddItem({ item_no: '', description: '', quantity: '1', unit_cost_override: '' });
       setNotice({ type: 'success', text: `Added ${item} to ${poNumber}.` });
       await refresh();
       if (onChanged) onChanged();
@@ -890,6 +904,17 @@ function DraftPoLineEditor({ poNumber, onChanged }) {
 
       {notice && <div className={`p-2 rounded text-sm ${noticeClass[notice.type]}`}>{notice.text}</div>}
 
+      {priceWarnings.length > 0 && (
+        <div className="p-2 rounded text-sm bg-yellow-50 text-yellow-900">
+          <div className="font-medium">Purchase price</div>
+          <ul className="mt-1 list-disc pl-5">
+            {priceWarnings.map((issue) => (
+              <li key={`${issue.code}-${issue.item_number}-${issue.message}`}>{issue.message}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {preview?.changed && (
         <div className="text-sm">
           <div className="text-xs uppercase tracking-wide text-gray-500">Proposed order</div>
@@ -915,7 +940,7 @@ function DraftPoLineEditor({ poNumber, onChanged }) {
                 <th className="p-2 text-left">Item</th>
                 <th className="p-2 text-left">Description</th>
                 <th className="p-2 text-right">Qty</th>
-                <th className="p-2 text-right">Unit cost</th>
+                <th className="p-2 text-right">BC price</th>
                 <th className="p-2 text-left">Class</th>
                 <th className="p-2"></th>
               </tr>
@@ -959,14 +984,19 @@ function DraftPoLineEditor({ poNumber, onChanged }) {
                     </td>
                     <td className="p-2 text-right">
                       {comment ? '—' : (
-                        <input
-                          type="number"
-                          min="0"
-                          step="any"
-                          value={edit.unit_cost ?? ''}
-                          onChange={(e) => setField(line.id, 'unit_cost', e.target.value)}
-                          className="w-24 border rounded px-1 py-0.5 text-right"
-                        />
+                        <div>
+                          <div className="text-gray-800">{Number(line.unit_cost) ? Number(line.unit_cost).toFixed(2) : (line.unit_cost === 0 ? '0.00' : '—')}</div>
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            placeholder="Override"
+                            title="Leave blank to keep Business Central's price"
+                            value={edit.unit_cost_override ?? ''}
+                            onChange={(e) => setField(line.id, 'unit_cost_override', e.target.value)}
+                            className="mt-1 w-24 border rounded px-1 py-0.5 text-right"
+                          />
+                        </div>
                       )}
                     </td>
                     <td className="p-2 text-xs text-gray-500">{PANEL_CLASS_LABEL[line.panel_class] || line.panel_class}</td>
@@ -1014,13 +1044,15 @@ function DraftPoLineEditor({ poNumber, onChanged }) {
           />
         </label>
         <label className="text-xs text-gray-600">
-          Cost
+          Price override
           <input
             type="number"
             min="0"
             step="any"
-            value={addItem.unit_cost}
-            onChange={(e) => setAddItem((s) => ({ ...s, unit_cost: e.target.value }))}
+            placeholder="BC price"
+            title="Leave blank and Business Central uses the vendor price list"
+            value={addItem.unit_cost_override}
+            onChange={(e) => setAddItem((s) => ({ ...s, unit_cost_override: e.target.value }))}
             className="mt-1 block w-24 border rounded px-2 py-1 text-right"
           />
         </label>

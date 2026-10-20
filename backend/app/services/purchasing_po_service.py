@@ -35,6 +35,7 @@ from app.db.models import POAgentLog
 from app.integrations.bc.client import bc_client
 from app.integrations.email.client import graph_client
 from app.services.po_line_order import BC_DESCRIPTION_MAX, order_item_rows, order_request_lines
+from app.services.po_line_price import apply_direct_unit_cost
 from app.services.vendor_receipt_lead_time import (
     create_purchase_order_with_receipt,
     sentence_for_vendor,
@@ -111,6 +112,9 @@ class PurchasingPOService:
 
         `lines`: item rows ``{item_no, description, quantity, unit_cost}`` and
         optional comment rows ``{line_type: "Comment"|"blank", description}``.
+        ``unit_cost`` is the item-card estimate stored on the audit log. It
+        is not sent to Business Central. ``unit_cost_override``, when set,
+        is the only direct unit cost written on the line.
         Item quantity must be > 0. Comment text is written on the PO itself
         (BC description, 100 characters). Lines are ordered panels-first
         within each door group before they are posted. Raises on BC creation
@@ -171,13 +175,14 @@ class PurchasingPOService:
             else:
                 if float(ln.get("quantity") or 0) <= 0:
                     continue
-                line_data = {
+                # unit_cost is the item-card estimate for the audit log.
+                # Only unit_cost_override is written onto the PO line.
+                line_data = apply_direct_unit_cost({
                     "sequence": sequence,
                     "lineType": "Item",
                     "lineObjectNumber": ln["item_no"],
                     "quantity": float(ln["quantity"]),
-                    "directUnitCost": float(ln.get("unit_cost") or 0),
-                }
+                }, ln.get("unit_cost_override"))
                 if ln.get("description"):
                     line_data["description"] = str(ln["description"])[:BC_DESCRIPTION_MAX]
                 uom = ln.get("unit_of_measure") or ln.get("uom")

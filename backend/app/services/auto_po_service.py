@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db.models import AutoPoSnapshot, POAgentLog
 from app.integrations.bc.client import bc_client
+from app.services.po_line_price import apply_direct_unit_cost
 from app.services.vendor_receipt_lead_time import create_purchase_order_with_receipt
 from app.services.bc_production_service import bc_production_service
 from app.services.purchasing_demand_service import (
@@ -60,7 +61,9 @@ SKIP_UNASSIGNED = "unassigned_vendor"   # no vendor mapped
 SKIP_EXPEDITE = "expedite_vendor"       # DEK / UPAM — never auto-ordered
 SKIP_NON_PREFERRED = "non_preferred_vendor"
 SKIP_COVERED = "already_covered"        # stock / existing PO already covers it
-SKIP_NO_COST = "no_unit_cost"           # can't price the line
+# Kept so older summaries that mention this key stay readable. A zero
+# item-card cost is not a reason to skip: BC prices the PO line.
+SKIP_NO_COST = "no_unit_cost"
 SKIP_OUT_OF_SCOPE = "vendor_not_in_scope"  # only_vendors given and this isn't one
 
 
@@ -122,6 +125,7 @@ class AutoPoService:
         # 4. Decide per item how much to draft and for which SOs.
         vendor_lines: Dict[str, dict] = {}   # vendor_no -> {name, lines[], sos:set}
         skips: Dict[str, List[dict]] = defaultdict(list)
+        skips[SKIP_NO_COST] = []  # no longer a skip; key kept for older digests
         pending_cover: Dict[Tuple[str, int], float] = defaultdict(float)
 
         for item_no, contribs in new_by_item.items():
@@ -166,11 +170,9 @@ class AutoPoService:
                                                  "new_demand": total_new, "vendor_no": vno})
                 continue
 
+            # Item-card cost is an estimate for the draft summary. It is not
+            # sent as directUnitCost — BC prices the line from the vendor list.
             unit_cost = self._unit_cost(meta_row)
-            if unit_cost <= 0:
-                skips[SKIP_NO_COST].append({"item_no": item_no, "description": desc,
-                                            "new_demand": total_new, "vendor_no": vno})
-                continue
 
             # distribute the granted qty across the contributing SO lines
             remaining = grant
@@ -375,12 +377,11 @@ class AutoPoService:
         self._add_comment(bc_po_id, f"Drafted by OPENDC purchasing ({run_id}). Review + release.")
 
         for ln in plan["lines"]:
-            line_body = {
+            line_body = apply_direct_unit_cost({
                 "lineType": "Item",
                 "lineObjectNumber": ln["item_no"],
                 "quantity": ln["quantity"],
-                "directUnitCost": ln["unit_cost"],
-            }
+            }, ln.get("unit_cost_override"))
             if ln.get("description"):
                 line_body["description"] = str(ln["description"])[:100]
             bc_client.add_purchase_order_line(bc_po_id, line_body)

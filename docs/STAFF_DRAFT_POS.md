@@ -82,7 +82,21 @@ Rules (same lists as `purchasing_demand_service` / `so_po_generation_service`):
   `PN40-` cores with `PN45-`/`PN46-`, `TR10-`/`TR11-`/`TR12-` with `TR02-`/`TR03-`,
   `GL12*` / `AL*` with `GK15-17` or `PN80-`).
 
-Issue `code`s: `missing_companion`, `companion_zero_qty`, `exploded_leftover`.
+Issue `code`s: `missing_companion`, `companion_zero_qty`, `exploded_leftover`,
+`bc_price_missing`, `bc_price_differs_from_item_cost`.
+
+Purchase price: each item line is checked against the vendor's date-valid
+purchase price list (vendor, item, unit of measure, minimum quantity, and
+the PO order date) and against the item card cost.
+
+- `bc_price_missing` — the PO line cost is blank or zero, or the vendor
+  has no purchase price that is valid on the order date.
+- `bc_price_differs_from_item_cost` — that Business Central price is not
+  the item card cost.
+
+A lookup that cannot be read (the price-list page is not published, or BC
+did not answer) does not by itself raise `bc_price_missing`. The line cost
+and the item card are still compared.
 
 ### Download one PO PDF (by number)
 
@@ -276,10 +290,18 @@ PATCH /api/admin/purchasing/draft-pos/{po_number}/lines/{line_id}
 ```
 
 ```json
-{ "quantity": 6, "description": "TX450 section", "unit_cost": 12.5, "item_no": "PN45-24405-1000" }
+{ "quantity": 6, "description": "TX450 section", "item_no": "PN45-24405-1000" }
 ```
 
 Send only the fields to change. Comment lines accept `description` only.
+
+Leave `unit_cost` and `unit_cost_override` off the body to keep the price
+Business Central already stored. Sending either field sets that direct
+unit cost. There is no zero default: omitting the price does not write 0.
+
+```json
+{ "unit_cost_override": 12.5 }
+```
 
 ### Delete one line
 
@@ -296,8 +318,13 @@ POST /api/admin/purchasing/draft-pos/{po_number}/lines
 Item:
 
 ```json
-{ "line_type": "Item", "item_no": "PL10-00141-00", "description": "RETAINER", "quantity": 4, "unit_cost": 1.25, "unit_of_measure": "EA" }
+{ "line_type": "Item", "item_no": "PL10-00141-00", "description": "RETAINER", "quantity": 4, "unit_of_measure": "EA" }
 ```
+
+Omit the price and Business Central fills direct unit cost from the
+vendor's purchase price list for the PO order date. To type a price, send
+`unit_cost` or `unit_cost_override` (for example `1.25`). Do not send `0`
+unless that price is intentional.
 
 Comment (BC line type Comment — the blank type on the PO page):
 
