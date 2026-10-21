@@ -823,6 +823,7 @@ class DoorCalculationRequest(BaseModel):
     glazingType: Optional[str] = None  # 'glass' or 'polycarbonate' (aluminum doors)
     glassPaneType: Optional[str] = None  # 'INSULATED' or 'SINGLE' (aluminum doors)
     glassType: Optional[str] = "ANNEALED"  # 'ANNEALED' or 'TEMPERED' (aluminum doors)
+    includeTopSeal: Optional[bool] = None  # True forces top seal; None follows the width rule
 
 
 # ============================================================================
@@ -2587,22 +2588,24 @@ async def calculate_door_specifications(request: DoorCalculationRequest, db: Ses
             door_type=request.doorType,
             glazing_type=request.glazingType or 'glass',
             glass_pane_type=request.glassPaneType or 'INSULATED',
+            include_top_seal=request.includeTopSeal,
         )
 
         # Get summary
         summary = door_calculator.get_calculation_summary(calc)
 
-        # Add top seal upgrade info for commercial doors
-        commercial_auto_threshold = (
-            request.doorType == "commercial"
-            and width_inches >= 216
-            and height_inches >= 120
-        )
+        # Top seal: automatic only when the door is wider than 18'.
+        # 18' and narrower stay optional (includeTopSeal=True adds the part).
+        from app.services.top_seal_policy import auto_top_seal
+        top_seal_auto = auto_top_seal(request.doorType, width_inches, height_inches)
         summary["top_seal"] = {
-            "available": request.doorType in ("commercial", "aluminium"),
-            "auto_included": request.doorType == "aluminium" or commercial_auto_threshold,
-            "is_upgrade": request.doorType == "commercial" and not commercial_auto_threshold,
-            "description": "Top seal rubber weatherstrip" if request.doorType != "residential" else None,
+            "available": request.doorType in ("commercial", "aluminium", "aluminum") or request.includeTopSeal is True,
+            "auto_included": top_seal_auto,
+            "is_upgrade": not top_seal_auto,
+            "explicit": request.includeTopSeal is True,
+            "description": "Top seal rubber weatherstrip" if (
+                top_seal_auto or request.includeTopSeal is True or request.doorType != "residential"
+            ) else None,
         }
 
         return {

@@ -483,8 +483,9 @@ async def preview_complete_so_po(
 
     Calls ``build_upwardor_po(..., dry_run=True, mode="complete")``. The
     response includes door groups, quantities, and lines skipped because
-    they are operators (``OP*``) or wrapping (``WRAP*``). Does not write a
-    PO and does not call Graph.
+    they are operators (``OP*``), wrapping (``WRAP*``), or — when the vendor
+    is Upwardor — weatherstrip left on the sales order for stock or Elton.
+    Does not write a PO and does not call Graph.
     """
     number = normalize_staff_so_ref(so_number)
     logger.info(
@@ -515,7 +516,8 @@ async def create_complete_so_po(
     """Create a Draft PO from one sales order via ``build_upwardor_po``.
 
     Mode is complete: door-grouped comments, full SO quantity, ``OP*`` and
-    ``WRAP*`` left off. Does not email the vendor.
+    ``WRAP*`` left off. Weatherstrip is also left off when the vendor is
+    Upwardor. Does not email the vendor.
 
     ``create_review_draft`` defaults to true. When true, and a PO was
     created, the API downloads ``get_purchase_order_pdf`` and saves an

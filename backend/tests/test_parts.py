@@ -411,6 +411,65 @@ class TestTopSeal:
         top_seals = _by_category(parts, "top_seal")
         assert len(top_seals) >= 1, "Commercial 20'x12' should always have top seal"
 
+    def test_commercial_exactly_18_feet_does_not_auto_add_top_seal(self):
+        """18'0\" wide is not wider than 18', even when the door is 12' tall."""
+        parts = _get_parts({
+            "doorType": "commercial", "doorSeries": "TX450",
+            "doorWidth": 216, "doorHeight": 144,
+            "panelDesign": "UDC", "trackThickness": "3",
+        })
+        assert _by_category(parts, "top_seal") == []
+        assert _by_category(parts, "weather_stripping"), "weatherstrip stays on the quote"
+
+    def test_commercial_exactly_18_feet_explicit_top_seal(self):
+        parts = _get_parts({
+            "doorType": "commercial", "doorSeries": "TX450",
+            "doorWidth": 216, "doorHeight": 144,
+            "panelDesign": "UDC", "trackThickness": "3",
+            "includeTopSeal": True,
+        })
+        top_seals = _by_category(parts, "top_seal")
+        assert len(top_seals) >= 1
+        assert top_seals[0]["part_number"] == "PL10-00127-00"
+
+    def test_commercial_wider_than_18_but_under_10_tall_has_no_auto_top_seal(self):
+        """Wider than 18' keeps the old height rule: under 10' is still optional."""
+        parts = _get_parts({
+            "doorType": "commercial", "doorSeries": "TX450",
+            "doorWidth": 240, "doorHeight": 96,
+            "panelDesign": "UDC", "trackThickness": "3",
+        })
+        assert _by_category(parts, "top_seal") == []
+
+    def test_aluminum_at_18_feet_does_not_auto_add_top_seal(self):
+        narrow = _get_parts({
+            "doorType": "aluminium", "doorSeries": "SOLALITE",
+            "doorWidth": 216, "doorHeight": 96, "doorCount": 1,
+            "panelColor": "CLEAR_ANODIZED", "glazingType": "polycarbonate",
+            "glassColor": "CLEAR", "hasWindows": True, "operator": "NONE",
+            "hardware": {},
+        })
+        assert _by_category(narrow, "top_seal") == []
+        explicit = _get_parts({
+            "doorType": "aluminium", "doorSeries": "SOLALITE",
+            "doorWidth": 216, "doorHeight": 96, "doorCount": 1,
+            "panelColor": "CLEAR_ANODIZED", "glazingType": "polycarbonate",
+            "glassColor": "CLEAR", "hasWindows": True, "operator": "NONE",
+            "hardware": {},
+            "includeTopSeal": True,
+        })
+        assert _by_category(explicit, "top_seal")
+
+    def test_aluminum_wider_than_18_feet_keeps_auto_top_seal(self):
+        parts = _get_parts({
+            "doorType": "aluminium", "doorSeries": "SOLALITE",
+            "doorWidth": 240, "doorHeight": 96, "doorCount": 1,
+            "panelColor": "CLEAR_ANODIZED", "glazingType": "polycarbonate",
+            "glassColor": "CLEAR", "hasWindows": True, "operator": "NONE",
+            "hardware": {},
+        })
+        assert _by_category(parts, "top_seal")
+
 
 # ── Weather stripping color substitution ───────────────────────────────────
 

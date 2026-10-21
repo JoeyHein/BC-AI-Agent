@@ -36,6 +36,11 @@ from app.integrations.bc.client import bc_client
 from app.integrations.email.client import graph_client
 from app.services.po_line_order import BC_DESCRIPTION_MAX, order_item_rows, order_request_lines
 from app.services.po_line_price import apply_direct_unit_cost
+from app.services.weatherstrip_policy import (
+    WEATHERSTRIP_EXCLUSION_REASON,
+    is_upwardor_vendor,
+    is_weatherstrip_item,
+)
 from app.services.vendor_receipt_lead_time import (
     create_purchase_order_with_receipt,
     sentence_for_vendor,
@@ -129,6 +134,23 @@ class PurchasingPOService:
         skips both the PDF fetch and Graph so a Draft can be created without
         touching a mailbox.
         """
+        excluded_weatherstrip: List[dict] = []
+        if is_upwardor_vendor(vendor_no or "", vendor_name or ""):
+            kept: List[dict] = []
+            for ln in lines:
+                if _is_comment_request(ln) or not is_weatherstrip_item(
+                    ln.get("item_no") or "", ln.get("description") or "",
+                ):
+                    kept.append(ln)
+                    continue
+                excluded_weatherstrip.append({
+                    "item_no": ln.get("item_no"),
+                    "description": ln.get("description") or "",
+                    "quantity": ln.get("quantity"),
+                    "reason": WEATHERSTRIP_EXCLUSION_REASON,
+                })
+            lines = kept
+
         ordered = order_request_lines(lines)
         clean = [ln for ln in ordered if not _is_comment_request(ln)]
         comments = [ln for ln in ordered if _is_comment_request(ln)]
@@ -143,6 +165,13 @@ class PurchasingPOService:
                 )
         positive = [ln for ln in clean if float(ln.get("quantity") or 0) > 0]
         if not positive:
+            if excluded_weatherstrip:
+                numbers = ", ".join(str(row.get("item_no") or "") for row in excluded_weatherstrip)
+                raise ValueError(
+                    "No lines left to order from Upwardor. Weatherstrip "
+                    f"({numbers}) stays off this purchase order and is sourced "
+                    "from stock or Elton."
+                )
             raise ValueError("No lines with positive quantity to order")
         for ln in positive:
             if not (ln.get("item_no") or "").strip():
@@ -253,6 +282,7 @@ class PurchasingPOService:
             "draft_error": draft_error,
             "pdf_error": pdf_error,
             "pdf_source": pdf_source,
+            "excluded_weatherstrip": excluded_weatherstrip,
             **receipt.public_dict(),
         }
 

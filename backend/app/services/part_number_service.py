@@ -996,21 +996,14 @@ class PartNumberService:
             parts.extend(astragal_parts)
 
         # 5. TOP SEAL
-        #    Residential: never
-        #    Commercial ≥ 18'W AND ≥ 10'H: always included (auto, can't remove)
-        #    Commercial below threshold: optional upgrade (include_top_seal=True)
-        #    Aluminum: always
-        commercial_auto_top_seal = (
-            config.door_type == "commercial"
-            and config.door_width >= 216
-            and config.door_height >= 120
-        )
-        include_top_seal = (
-            config.door_type == "aluminium"
-            or commercial_auto_top_seal
-            or (config.door_type == "commercial" and config.include_top_seal is True)
-        )
-        if include_top_seal:
+        #    18'0" wide or narrower: only when include_top_seal is explicitly True.
+        #    Wider than 18': commercial also needs ≥ 10' tall; aluminium always;
+        #    residential never, unless explicitly requested.
+        #    See top_seal_policy.include_top_seal.
+        from app.services.top_seal_policy import include_top_seal as top_seal_selected
+        if top_seal_selected(
+            config.door_type, config.door_width, config.door_height, config.include_top_seal,
+        ):
             top_seal_parts = self._get_top_seal_parts(config)
             parts.extend(top_seal_parts)
 
@@ -1446,11 +1439,9 @@ class PartNumberService:
 
         # 8. Top seal weight — matches part inclusion logic
         TOP_SEAL_LBS_PER_INCH = 0.025  # 0.3 lbs per linear foot
-        commercial_auto_ts = (config.door_type == "commercial" and config.door_width >= 216 and config.door_height >= 120)
-        has_top_seal = (
-            config.door_type == "aluminium"
-            or commercial_auto_ts
-            or (config.door_type == "commercial" and config.include_top_seal is True)
+        from app.services.top_seal_policy import include_top_seal as top_seal_selected
+        has_top_seal = top_seal_selected(
+            config.door_type, config.door_width, config.door_height, config.include_top_seal,
         )
         top_seal_weight = config.door_width * TOP_SEAL_LBS_PER_INCH if has_top_seal else 0
 
@@ -1645,9 +1636,16 @@ class PartNumberService:
         if strut_info["count"] > 0 and strut_info["type"] != "z":
             strut_weight = strut_info["count"] * door_width_ft * strut_info["weight_per_ft"]
 
-        # Top seal (aluminum doors always get top seal)
+        # Top seal weight follows the same rule as the quote line.
         TOP_SEAL_LBS_PER_INCH = 0.025
-        top_seal_weight = config.door_width * TOP_SEAL_LBS_PER_INCH
+        from app.services.top_seal_policy import include_top_seal as top_seal_selected
+        top_seal_weight = (
+            config.door_width * TOP_SEAL_LBS_PER_INCH
+            if top_seal_selected(
+                config.door_type, config.door_width, config.door_height, config.include_top_seal,
+            )
+            else 0
+        )
 
         total_weight = panel_weight + hardware_weight + strut_weight + top_seal_weight
 

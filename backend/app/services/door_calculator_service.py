@@ -788,6 +788,7 @@ class DoorCalculatorService:
             is_aluminum=is_aluminum,
             glazing_type=kwargs.get("glazing_type", "glass"),
             glass_pane_type=kwargs.get("glass_pane_type", "INSULATED"),
+            include_top_seal=kwargs.get("include_top_seal", kwargs.get("includeTopSeal")),
         )
 
         # 4. Calculate track configuration
@@ -962,6 +963,7 @@ class DoorCalculatorService:
         is_aluminum: bool = False,
         glazing_type: str = "glass",
         glass_pane_type: str = "INSULATED",
+        include_top_seal: Optional[bool] = None,
     ) -> WeightBreakdown:
         """Calculate door weight breakdown matching part_number_service methodology.
 
@@ -1062,9 +1064,16 @@ class DoorCalculatorService:
         # 5. End cap seals
         seal_weight = (n21 * 2 * SEAL_WEIGHT_21) + (n24 * 2 * SEAL_WEIGHT_24)
 
-        # 5b. Top seal weight (commercial/aluminum only — residential doors have no top seal)
+        # 5b. Top seal weight — same rule as the quote line (top_seal_policy).
+        # Doors 18' wide or narrower only count it when explicitly requested.
+        # Wider commercial doors still need to be at least 10' tall.
+        from app.services.top_seal_policy import include_top_seal as top_seal_selected
         TOP_SEAL_LBS_PER_INCH = 0.025  # 0.3 lbs per linear foot
-        top_seal_weight = dimensions.width * TOP_SEAL_LBS_PER_INCH if door_type != "residential" else 0
+        top_seal_weight = (
+            dimensions.width * TOP_SEAL_LBS_PER_INCH
+            if top_seal_selected(door_type, dimensions.width, dimensions.height, include_top_seal)
+            else 0
+        )
 
         # Steel = panels + end caps + retainer + astragal + seals + top seal
         weight.steel_weight = panel_weight + end_cap_weight + retainer_weight + astragal_weight + seal_weight + top_seal_weight

@@ -182,7 +182,7 @@ if parts6:
     if len(top_seals) > 0:
         passes.append("Commercial 20x12: top seal present")
     else:
-        errors.append("Commercial 20x12: should HAVE top seal (>=18W, >=10H)")
+        errors.append("Commercial 20x12: should HAVE top seal (wider than 18', at least 10' tall)")
 
     if any(p.quantity == 480 for p in retainers):
         passes.append("Commercial 20ft: retainer qty doubled (480)")

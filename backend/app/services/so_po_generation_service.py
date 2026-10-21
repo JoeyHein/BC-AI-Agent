@@ -45,6 +45,11 @@ from app.services.vendor_receipt_lead_time import (
 )
 from app.services.purchasing_demand_service import NON_STOCK_ITEMS, _buy_complete
 from app.services.po_line_order import order_item_rows
+from app.services.weatherstrip_policy import (
+    WEATHERSTRIP_EXCLUSION_REASON,
+    is_upwardor_vendor,
+    is_weatherstrip_item,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -105,28 +110,24 @@ _GL12_MAX_SHEETS = 6
 # workbook, dashboard, digest, auto-PO) so BOM explosion here and the
 # engine's own manufactured-item exclusion never drift apart.
 
-# Astragal, retainer, and top seal always ride along with the panels they
-# seal — Joey, 2026-09-16: "we must include the astragal, the retainer, and
-# the top seal as well" whenever a PO has panels on it. Confirmed live on
-# SO-001301/SO-001304/etc.: BC shows large on-hand/other-PO quantities for
-# these bulk coil items (e.g. 13,050" astragal on hand vs. 240" needed) so
-# the normal "don't buy what we already have" netting excluded all of them
-# from every one of the day's POs. Unlike everything else this module nets
-# against stock, these three families always go on the PO at the SO's full
-# ordered quantity — matched by keyword in the BC item Description since
-# their part numbers don't share a clean prefix (astragal/retainer/top-seal
-# item numbers are scattered among weatherstrip's PL10-xx203-00 pattern).
+# Astragal, retainer, and the residential hardware box always ride along
+# with the panels. Joey, 2026-09-16 asked for astragal, retainer, and top
+# seal at full quantity because BC's bulk on-hand was netting them off
+# every PO. Top seal rubber is weatherstrip (Joey, 2026-10) and now nets
+# like any other stocked seal; an Upwardor PO leaves it off. Astragal is
+# part of the door package and stays at full quantity on the Upwardor PO
+# (Joey, 2026-10 correction). A complete astragal roll bought on its own
+# is a manual Elton purchase, not this generator. Matched on the BC
+# description because these item numbers do not share one prefix.
 #
 # "HARDWARE BOX" (HK10-*, residential) added 2026-09-22 — Joey, reviewing
 # PO-000985/986 (SO-001317/SO-001318): "the hardware boxes for these
 # residential ones would be the HK10s... it should be the same hardware box
 # that's on the sales order." Same root cause: BC showed a few units on
-# hand (9 vs. 1 needed; 5 vs. 1 needed) for a box that's actually cut/built
-# to that door's exact width and height, not generic stock. Deliberately
-# scoped to the "HARDWARE BOX" description text only — the commercial
-# HK02/03/13/32 kits already on _BUY_COMPLETE_PREFIXES say "HARDWARE KIT"
-# and aren't part of this ask.
-_ALWAYS_FULL_QTY_KEYWORDS = ("ASTRAGAL", "RETAINER", "TOP SEAL", "HARDWARE BOX")
+# hand for a box that's cut to that door's exact size, not generic stock.
+# Scoped to the "HARDWARE BOX" description only — commercial HK kits say
+# "HARDWARE KIT" and stay on the normal stock-netting path.
+_ALWAYS_FULL_QTY_KEYWORDS = ("ASTRAGAL", "RETAINER", "HARDWARE BOX")
 
 
 def _always_full_qty(description: str) -> bool:
@@ -379,6 +380,9 @@ def compute_netted_po_lines(so_number: str) -> dict:
 #   * operators (OP*) — bought direct from the operator maker (e.g. OP20 =
 #     Micanan), handled manually for now;
 #   * wrapping (WRAP*) — done in-house, not purchased.
+# Weatherstrip is a third family, but only when the PO vendor is Upwardor.
+# It stays on the sales order and can still be bought from Elton (or used
+# from stock). See omit_upwardor_weatherstrip.
 _COMPLETE_MODE_EXCLUDE_PREFIXES = {
     "OP": "operator — ordered direct from the manufacturer, not Upwardor",
     "WRAP": "wrapping — handled internally",
@@ -608,6 +612,73 @@ def _write_plan_lines(po_id: str, plan: dict, so_number: str) -> int:
     return item_count
 
 
+def omit_upwardor_weatherstrip(plan: dict, vendor_no: str, vendor_name: str) -> dict:
+    """Drop weatherstrip lines from an Upwardor plan and record why.
+
+    Other vendors (Elton included) keep the lines. The sales order is not
+    modified — the rows move from ``included`` / ``component_shortfall`` into
+    ``excluded`` so a preview can show they were left for stock or Elton.
+    """
+    if not is_upwardor_vendor(vendor_no, vendor_name):
+        return plan
+
+    def _split(rows):
+        keep, drop = [], []
+        for row in rows or []:
+            if is_weatherstrip_item(row.get("item_no"), row.get("description")):
+                drop.append(row)
+            else:
+                keep.append(row)
+        return keep, drop
+
+    included, dropped = _split(plan.get("included"))
+    shortfall, dropped_components = _split(plan.get("component_shortfall"))
+    excluded = list(plan.get("excluded") or [])
+    for row in dropped + dropped_components:
+        qty = row.get("quantity")
+        if qty is None:
+            qty = row.get("ordered_qty")
+        if qty is None:
+            qty = row.get("needed_qty")
+        excluded.append({
+            "item_no": row.get("item_no"),
+            "qty": qty,
+            "description": row.get("description") or "",
+            "reason": WEATHERSTRIP_EXCLUSION_REASON,
+            "doors": row.get("doors") or [],
+        })
+
+    def _filter_group(group: dict) -> dict:
+        filtered = dict(group)
+        filtered["included"], _ = _split(group.get("included"))
+        filtered["component_shortfall"], _ = _split(group.get("component_shortfall"))
+        return filtered
+
+    by_door = []
+    for group in plan.get("by_door") or []:
+        filtered = _filter_group(group)
+        if filtered["included"] or filtered["component_shortfall"]:
+            by_door.append(filtered)
+    shared = dict(plan.get("shared") or {})
+    if shared:
+        shared["included"], _ = _split(shared.get("included"))
+        shared["component_shortfall"], _ = _split(shared.get("component_shortfall"))
+
+    plan["included"] = included
+    plan["component_shortfall"] = shortfall
+    plan["excluded"] = excluded
+    plan["by_door"] = by_door
+    plan["shared"] = shared
+    plan["trimmed"] = [
+        row for row in (plan.get("trimmed") or [])
+        if not is_weatherstrip_item(row.get("item_no"), row.get("description"))
+    ]
+    plan["excluded_weatherstrip"] = [
+        row for row in excluded if row.get("reason") == WEATHERSTRIP_EXCLUSION_REASON
+    ]
+    return plan
+
+
 def build_upwardor_po(so_number: str, vendor_no: str = "UPW", vendor_name: str = "UPWARDOR",
                        dry_run: bool = True, mode: str = "complete") -> dict:
     """Preview (dry_run=True) or create (dry_run=False) a Draft Upwardor PO
@@ -620,15 +691,25 @@ def build_upwardor_po(so_number: str, vendor_no: str = "UPW", vendor_name: str =
     The staff purchasing API calls this (complete mode only) from
     purchasing_po_service.preview_complete_so_po / create_complete_so_po.
     Outlook review drafts are saved there, not here.
+
+    When the vendor is Upwardor, weatherstrip lines are left off the PO and
+    listed on ``excluded``. They stay on the sales order.
     """
-    plan = _compute_plan(so_number, mode)
+    plan = omit_upwardor_weatherstrip(_compute_plan(so_number, mode), vendor_no, vendor_name)
     result = {**plan, "vendor_no": vendor_no, "vendor_name": vendor_name, "dry_run": dry_run}
 
     if not plan["included"] and not plan["component_shortfall"]:
         result["bc_po_number"] = None
-        result["note"] = ("Nothing to order — every SO line is an operator, wrapping, or service line."
-                          if mode == "complete" else
-                          "Nothing to order — fully covered by stock/other open POs, or all items manufactured in-house.")
+        if plan.get("excluded_weatherstrip"):
+            result["note"] = (
+                "Nothing to order from Upwardor — weatherstrip stays on the sales order "
+                "for stock or Elton, and every other line is an operator, wrapping, "
+                "a service line, or already covered by stock."
+            )
+        else:
+            result["note"] = ("Nothing to order — every SO line is an operator, wrapping, or service line."
+                              if mode == "complete" else
+                              "Nothing to order — fully covered by stock/other open POs, or all items manufactured in-house.")
         return result
 
     receipt = receipt_plan_for_new_po(vendor_no, vendor_name)
@@ -688,7 +769,11 @@ def rewrite_po_lines(po_number: str, so_number: str, mode: str = "complete") -> 
             headers={"If-Match": "*"},
         )
 
-    plan = _compute_plan(so_number, mode)
+    plan = omit_upwardor_weatherstrip(
+        _compute_plan(so_number, mode),
+        po.get("vendorNumber") or "",
+        po.get("vendorName") or "",
+    )
     item_count = 0
     if plan["included"] or plan["component_shortfall"]:
         item_count = _write_plan_lines(po["id"], plan, so_number)
