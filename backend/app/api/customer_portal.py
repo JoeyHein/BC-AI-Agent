@@ -1917,6 +1917,7 @@ def _build_door_config_dict(door: dict, is_home_builder: bool = False) -> dict:
         "hardware": door.get("hardware", {}),
         "operator": door.get("operator"),
         "operatorAccessories": door.get("operatorAccessories", []),
+        "chainHoist": door.get("chainHoist"),
         "targetCycles": door.get("targetCycles", 10000),
         "shaftType": door.get("shaftType", "auto"),
     }
