@@ -2996,8 +2996,8 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         })}
       </div>
 
-      {/* Manual Chain Hoist — commercial, motor-less doors only (1 per door) */}
-      {door.doorType === 'commercial' && (door.operator === 'NONE' || !door.operator) && (
+      {/* Manual Chain Hoist — commercial and aluminum, motor-less doors only (1 per door) */}
+      {(door.doorType === 'commercial' || door.doorType === 'aluminium') && (door.operator === 'NONE' || !door.operator) && (
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Manual Chain Hoist
@@ -3364,6 +3364,12 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
                 <span className="text-gray-500">Operator:</span>
                 <span className="ml-2 text-gray-900">{getOperatorName(door.doorType, door.operator)}</span>
               </div>
+              {door.chainHoist && door.chainHoist !== 'none' && (door.doorType === 'commercial' || door.doorType === 'aluminium') && (
+                <div>
+                  <span className="text-gray-500">Chain Hoist:</span>
+                  <span className="ml-2 text-gray-900">{door.chainHoist === 'wall' ? 'Wall mount' : 'Shaft mount'}</span>
+                </div>
+              )}
             </div>
           </div>
         ))}

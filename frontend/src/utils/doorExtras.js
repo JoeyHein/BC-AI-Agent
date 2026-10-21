@@ -53,6 +53,8 @@ export function extrasFromConfig(doorConfig = {}) {
 
   if (cfg.operator && cfg.operator !== 'NONE') {
     items.push('ELECTRIC OPERATOR')
+  } else if (cfg.chainHoist && cfg.chainHoist !== 'none') {
+    items.push('GEARED CHAIN HOIST')
   }
 
   if (Array.isArray(cfg.operatorAccessories)) {
@@ -71,6 +73,9 @@ export function extrasFromConfig(doorConfig = {}) {
 // Order matters only for which label wins on the first match per line.
 const LINE_RULES = [
   { test: (i, d) => /^FH17/.test(i) || d.includes('STRUT'), label: 'DOOR STRUTS' },
+  // Manual hoist SKUs. Match these before the generic OPERATOR rule so the
+  // Pulse-operator chain-hoist accessory (OP21-02005) stays an electric extra.
+  { test: (i, d) => i.startsWith('SP12-00084') || i.startsWith('FH12-00190') || d.includes('CHAIN HOIST SHAFT') || d.includes('CHAIN HOIST WALL'), label: 'GEARED CHAIN HOIST' },
   { test: (i, d) => d.includes('OPERATOR') || /^OP/.test(i) || d.includes('LIFTMASTER') || d.includes('CHAMBERLAIN'), label: 'ELECTRIC OPERATOR' },
   { test: (i, d) => d.includes('KEYPAD'), label: 'KEYPAD' },
   { test: (i, d) => d.includes('REMOTE'), label: 'REMOTE CONTROL' },
@@ -96,7 +101,8 @@ export function extrasFromLineItems(lineItems = []) {
     const desc = String(line.description || '').toUpperCase()
     const qty = Number(line.quantity) || 0
 
-    if (/^SP\d/.test(itemNo)) springQty += qty
+    // SP12-00084 is the shaft-mount chain hoist, not a torsion spring.
+    if (/^SP\d/.test(itemNo) && !itemNo.startsWith('SP12-00084')) springQty += qty
 
     // Cycle rating often encoded in description: "50,000 CYCLE" or "25K CYCLE"
     const cycleMatch = desc.match(/(\d[\d,]*)\s*(?:K\s*)?CYCLE/)

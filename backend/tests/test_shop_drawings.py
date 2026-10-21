@@ -50,6 +50,42 @@ class TestContextBuilder:
                 job_number="x",
             )
 
+    def test_chain_hoist_maps_to_geared_hoist(self):
+        config = {
+            "doors": [{
+                "doorSeries": "AL976",
+                "doorType": "aluminium",
+                "doorWidth": 120,
+                "doorHeight": 96,
+                "operator": "NONE",
+                "chainHoist": "shaft",
+            }]
+        }
+        ctx = build_context_from_config(
+            config_data=config,
+            customer_name="x",
+            job_number="x",
+        )
+        assert ctx.operator == "CHAIN_HOIST"
+
+    def test_electric_operator_wins_over_chain_hoist(self):
+        config = {
+            "doors": [{
+                "doorSeries": "TX450",
+                "doorType": "commercial",
+                "doorWidth": 144,
+                "doorHeight": 144,
+                "operator": "OP19-01048-00",
+                "chainHoist": "shaft",
+            }]
+        }
+        ctx = build_context_from_config(
+            config_data=config,
+            customer_name="x",
+            job_number="x",
+        )
+        assert ctx.operator == "OP19-01048-00"
+
     def test_door_index_out_of_range(self):
         with pytest.raises(ValueError, match="out of range"):
             build_context_from_config(

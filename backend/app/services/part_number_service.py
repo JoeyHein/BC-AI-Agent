@@ -180,8 +180,9 @@ class DoorConfiguration:
     # the resolved wire/coil; otherwise the oil-tempered spring is kept and the
     # gap is flagged (never silently changes the spring rate).
     spring_finish: str = "oil_tempered"
-    # Manual hand-chain hoist for motor-less commercial doors. One per door.
-    # None/'none' = no hoist, 'shaft' = SP12-00084-00, 'wall' = FH12-00190-00.
+    # Manual hand-chain hoist for motor-less commercial and aluminum doors.
+    # One per door. None/'none' = no hoist, 'shaft' = SP12-00084-00,
+    # 'wall' = FH12-00190-00. Residential does not offer it.
     chain_hoist: Optional[str] = None
     # Perforated back-hang angle. Home-builder accounts only — set by the quote
     # builders from account_type, not by the customer. Size + stick count come
@@ -1136,8 +1137,9 @@ class PartNumberService:
                 window_parts = self._get_window_parts(config)
                 parts.extend(window_parts)
 
-        # Also runs for motor-less commercial doors that opt into a manual
-        # chain hoist — _get_operator_parts emits the hoist when operator is NONE.
+        # Also runs for motor-less commercial and aluminum doors that opt into
+        # a manual chain hoist — _get_operator_parts emits the hoist when
+        # operator is NONE.
         has_operator = config.operator and config.operator != "NONE"
         wants_chain_hoist = (config.chain_hoist or "").lower() in self.CHAIN_HOISTS
         if has_operator or wants_chain_hoist:
@@ -4012,11 +4014,20 @@ class PartNumberService:
     CHAIN_RAILS = {7: "OP19-02004-00", 8: "OP19-02005-00", 10: "OP19-02006-00"}
     BELT_RAILS = {7: "OP19-02001-00", 8: "OP19-02002-00", 10: "OP19-02003-00"}
 
-    # Manual hand-chain hoist (commercial, motor-less doors). One per door.
+    # Manual hand-chain hoist (motor-less doors). One per door.
+    # Same BC items the commercial builder already sends, and the same items
+    # on Upwardor POs (shaft mount on TX450 high-lift). Price comes from BC
+    # SalesPriceLists off the item number — these descriptions are labels only.
     CHAIN_HOISTS = {
         "shaft": ("SP12-00084-00", "CHAIN HOIST SHAFT MOUNT 1\" BORE"),
         "wall": ("FH12-00190-00", "CHAIN HOIST WALL MOUNT 1\" BORE"),
     }
+    # Steel commercial series (TX380 / TX450 / TX500 / TX760, including
+    # 20-gauge and full-view sections such as V130G / V230G / Panorama) and
+    # full-view aluminum (AL976, SWD, Panorama, Solalite). The door-type id
+    # is the British spelling "aluminium" used everywhere else in the builder.
+    # Residential (Kanata, Craft) stays push-up or electric.
+    CHAIN_HOIST_DOOR_TYPES = frozenset({"commercial", "aluminium"})
 
     # Bore-specific jackshaft accessories, keyed by torsion shaft bore (see
     # _torsion_shaft_bore — 1-1/4" only on >2000 lb doors, else 1"). One per door.
@@ -4112,15 +4123,17 @@ class PartNumberService:
                     category="operator"
                 ))
 
-        # Manual hand-chain hoist — commercial, motor-less doors only, one per
-        # door. A chain hoist IS the manual operation method, so it's mutually
-        # exclusive with an electric operator (guard against double-emit if a
-        # caller sends both). Mount type is the user's choice (shaft vs wall).
+        # Manual hand-chain hoist — commercial and aluminum, motor-less doors
+        # only, one per door. A chain hoist IS the manual operation method, so
+        # it's mutually exclusive with an electric operator (guard against
+        # double-emit if a caller sends both). Mount type is the user's choice
+        # (shaft vs wall).
         hoist_choice = (config.chain_hoist or "").lower()
         has_operator = bool(config.operator) and config.operator != "NONE"
+        door_type = (config.door_type or "").lower()
         if (
             hoist_choice in self.CHAIN_HOISTS
-            and config.door_type == "commercial"
+            and door_type in self.CHAIN_HOIST_DOOR_TYPES
             and not has_operator
         ):
             hoist_pn, hoist_desc = self.CHAIN_HOISTS[hoist_choice]

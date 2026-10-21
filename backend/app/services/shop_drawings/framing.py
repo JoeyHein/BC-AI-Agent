@@ -2887,6 +2887,21 @@ def dxf_to_string(doc: ezdxf.document.Drawing) -> bytes:
 
 # ─── Context builder from SavedQuoteConfig ─────────────────────────────────
 
+def _drawing_operator(door: dict) -> str:
+    """Operator label for the extras checklist.
+
+    A manual chain hoist is the operation method when no electric operator
+    is selected. The checklist only knows CHAIN_HOIST / electric / manual,
+    so both shaft-mount and wall-mount map to GEARED CHAIN HOIST.
+    """
+    operator = str(door.get("operator") or "NONE").strip()
+    if operator.upper() in ("", "NONE"):
+        hoist = str(door.get("chainHoist") or "none").strip().lower()
+        if hoist in ("shaft", "wall"):
+            return "CHAIN_HOIST"
+    return operator or "NONE"
+
+
 def build_context_from_config(
     config_data: dict,
     customer_name: str,
@@ -2948,7 +2963,7 @@ def build_context_from_config(
         # drawing matches the actual hardware ordered. Falls back to 2
         # if the calculator can't produce a result.
         spring_count=_spring_count_from_calculator(door),
-        operator=str(door.get("operator") or "NONE"),
+        operator=_drawing_operator(door),
         operator_side=str(door.get("operatorSide") or "right").lower(),
         has_struts=bool(hardware.get("struts", True)),
         has_weather_stripping=bool(hardware.get("weatherStripping", True)),
