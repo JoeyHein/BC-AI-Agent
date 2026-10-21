@@ -110,14 +110,15 @@ _GL12_MAX_SHEETS = 6
 # workbook, dashboard, digest, auto-PO) so BOM explosion here and the
 # engine's own manufactured-item exclusion never drift apart.
 
-# Retainer and the residential hardware box always ride along with the
-# panels — Joey, 2026-09-16 asked for astragal, retainer, and top seal at
-# full quantity because BC's bulk on-hand was netting them off every PO.
-# Astragal and top seal are weatherstrip. Joey, 2026-10: weatherstrip is
-# sourced from stock or Elton, not put on an Upwardor PO, so those two no
-# longer bypass stock netting. The rigid retainer still does (it is not
-# weatherstrip — see weatherstrip_policy). Matched on the BC description
-# because retainer item numbers do not share one prefix.
+# Astragal, retainer, and the residential hardware box always ride along
+# with the panels. Joey, 2026-09-16 asked for astragal, retainer, and top
+# seal at full quantity because BC's bulk on-hand was netting them off
+# every PO. Top seal rubber is weatherstrip (Joey, 2026-10) and now nets
+# like any other stocked seal; an Upwardor PO leaves it off. Astragal is
+# part of the door package and stays at full quantity on the Upwardor PO
+# (Joey, 2026-10 correction). A complete astragal roll bought on its own
+# is a manual Elton purchase, not this generator. Matched on the BC
+# description because these item numbers do not share one prefix.
 #
 # "HARDWARE BOX" (HK10-*, residential) added 2026-09-22 — Joey, reviewing
 # PO-000985/986 (SO-001317/SO-001318): "the hardware boxes for these
@@ -126,7 +127,7 @@ _GL12_MAX_SHEETS = 6
 # hand for a box that's cut to that door's exact size, not generic stock.
 # Scoped to the "HARDWARE BOX" description only — commercial HK kits say
 # "HARDWARE KIT" and stay on the normal stock-netting path.
-_ALWAYS_FULL_QTY_KEYWORDS = ("RETAINER", "HARDWARE BOX")
+_ALWAYS_FULL_QTY_KEYWORDS = ("ASTRAGAL", "RETAINER", "HARDWARE BOX")
 
 
 def _always_full_qty(description: str) -> bool:

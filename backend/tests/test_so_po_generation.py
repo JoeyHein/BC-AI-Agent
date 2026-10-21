@@ -281,13 +281,13 @@ class TestNetting:
     @pytest.mark.parametrize("desc", [
         "BOTTOM RETAINER, 1 3/4\" RESI RIGID BLACK 10'-0\" (BOTTOM)",
         "TOP/BOTTOM RETAINER, 1 3/4\" (TOP)",
+        'ASTRAGAL, 3" RESI/COMM BOTTOM RUBBER',
         "HARDWARE BOX, 2R 8'-10' X 8', STANDARD, 4S3HW, 4 SECTIONS",
     ])
-    def test_retainer_and_hwbox_always_full_qty_despite_stock(self, monkeypatch, desc):
-        """Retainer and the residential hardware box still go on at the SO's
-        full quantity. Astragal and top seal used to share this override
-        (Joey, 2026-09-16) but they are weatherstrip and now net like any
-        other stocked item — an Upwardor PO does not buy them."""
+    def test_retainer_astragal_and_hwbox_always_full_qty_despite_stock(self, monkeypatch, desc):
+        """Retainer, door-package astragal, and the residential hardware box
+        go on at the SO's full quantity. Top seal rubber is weatherstrip and
+        nets instead — an Upwardor PO does not buy it."""
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
               "salesOrderLines": [_line("PL10-SEAL-01", 240)]}
         cards = [_card("PL10-SEAL-01", on_hand=13050, on_po=1860, on_so=240, desc=desc)]
@@ -299,13 +299,10 @@ class TestNetting:
         assert [r["item_no"] for r in plan["included"]] == ["PL10-SEAL-01"]
         assert plan["included"][0]["quantity"] == 240
 
-    @pytest.mark.parametrize("desc", [
-        "ASTRAGAL, 3\" RESI/COMM BOTTOM RUBBER",
-        "TOP SEAL RUBBER (FS-1864 Die # 206)",
-    ])
-    def test_astragal_and_top_seal_net_against_stock(self, monkeypatch, desc):
-        """Astragal and top seal are weatherstrip. Bulk on-hand covers the
-        sales-order quantity, so the netted plan does not buy them."""
+    def test_top_seal_nets_against_stock(self, monkeypatch):
+        """Top seal rubber is weatherstrip. Bulk on-hand covers the
+        sales-order quantity, so the netted plan does not buy it."""
+        desc = "TOP SEAL RUBBER (FS-1864 Die # 206)"
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
               "salesOrderLines": [_line("PL10-SEAL-01", 240)]}
         cards = [_card("PL10-SEAL-01", on_hand=13050, on_po=1860, on_so=240, desc=desc)]
@@ -316,7 +313,7 @@ class TestNetting:
         assert [r["item_no"] for r in plan["excluded_in_stock"]] == ["PL10-SEAL-01"]
 
     def test_weatherstrip_is_not_swept_up_by_the_always_full_qty_override(self, monkeypatch):
-        """Only astragal/retainer/top-seal/hardware-box get the override —
+        """Only astragal/retainer/hardware-box get the override —
         an ordinary stocked item (weatherstrip, anything else) still nets
         against stock normally."""
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
@@ -962,20 +959,21 @@ class TestCompleteMode:
         bc, _ = _setup(monkeypatch, so, [])
         result = svc.build_upwardor_po("SO-TEST", dry_run=False)
         written = [b.get("lineObjectNumber") for _, b in bc.lines if b["lineType"] == "Item"]
-        assert written == ["PN45-24405-1200", "PL10-00141-00"]
+        assert written == ["PN45-24405-1200", "PL10-00005-01", "PL10-00141-00"]
         excluded = {row["item_no"]: row["reason"] for row in result["excluded"]}
         for item_no in (
-            "PL10-00005-01", "PL10-08203-00", "PL11-22082-00",
+            "PL10-08203-00", "PL11-22082-00",
             "PL10-00127-00", "MI20-00001-00",
         ):
             assert item_no in excluded
             assert "Elton" in excluded[item_no]
             assert item_no not in written
+        assert "PL10-00005-01" not in excluded
         assert so["salesOrderLines"][3]["lineObjectNumber"] == "PL10-00005-01"
         door_items = {
             row["item_no"] for row in result["by_door"][0]["included"]
         }
-        assert door_items == {"PN45-24405-1200", "PL10-00141-00"}
+        assert door_items == {"PN45-24405-1200", "PL10-00005-01", "PL10-00141-00"}
 
     def test_elton_complete_po_keeps_weatherstrip(self, monkeypatch):
         so = self._so_with_seals()

@@ -3,7 +3,7 @@
 GET /api/admin/purchasing/draft-pos and .../validate must:
   - reject unauthenticated callers
   - list live BC Draft POs (status filter) with lines + SO links
-  - flag missing RETAINER / HARDWARE BOX when panels are on the PO
+  - flag missing ASTRAGAL / RETAINER / HARDWARE BOX when panels are on the PO
   - flag weatherstrip that landed on an Upwardor PO
   - flag exploded-looking leftovers when buy-complete parents are present
   - leave customer-portal routes out of this surface
@@ -162,6 +162,7 @@ class TestSummarizeAndValidate:
             _line("PN45-24405-1000", 3, desc="SECTION TX450"),
             _line("HK02-14120-RC", 1, desc="HARDWARE BOX STD LIFT"),
             _line("PL10-00141-00", 240, desc='BOTTOM RETAINER, 1 3/4" RESI RIGID BLACK'),
+            _line("PL10-00005-01", 144, desc='ASTRAGAL, 3" RESI/COMM BOTTOM RUBBER'),
         ])
         result = validate_po(po)
         assert result["ok"] is True
@@ -174,7 +175,7 @@ class TestSummarizeAndValidate:
         po = _po(lines=[_line("PN45-24405-1000", 3, desc="SECTION TX450")])
         result = validate_po(po)
         assert result["ok"] is False
-        assert {i["keyword"] for i in result["issues"]} == {"RETAINER", "HARDWARE BOX"}
+        assert {i["keyword"] for i in result["issues"]} == {"ASTRAGAL", "RETAINER", "HARDWARE BOX"}
         assert all(i["code"] == "missing_companion" for i in result["issues"])
 
     def test_weatherstrip_does_not_count_as_companion(self):
@@ -185,7 +186,7 @@ class TestSummarizeAndValidate:
         ])
         result = validate_po(po)
         codes = {(i["code"], i.get("keyword") or i.get("item_number")) for i in result["issues"]}
-        assert ("missing_companion", "ASTRAGAL") not in codes
+        assert ("missing_companion", "ASTRAGAL") in codes
         assert ("missing_companion", "TOP SEAL") not in codes
         assert ("missing_companion", "RETAINER") in codes
         assert ("missing_companion", "HARDWARE BOX") in codes
@@ -292,7 +293,7 @@ class TestDraftPoReviewService:
         assert bundled["count"] == 2
         assert bundled["ok"] is False
         assert "HK" in bundled["buy_complete_prefixes"]
-        assert bundled["companion_keywords"] == ["RETAINER", "HARDWARE BOX"]
+        assert bundled["companion_keywords"] == ["ASTRAGAL", "RETAINER", "HARDWARE BOX"]
         by_no = {r["number"]: r for r in bundled["results"]}
         assert by_no["PO-CLEAN"]["ok"] is True
         assert by_no["PO-PANELS"]["ok"] is False

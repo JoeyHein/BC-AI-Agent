@@ -11,16 +11,19 @@ Item numbers
   * ``PL11-*`` — dual-fin and tri-seal weatherstrip (resi and commercial).
   * ``PL10-{length}203-{color}`` — galvanized steel / flexible vinyl weatherstrip
     (for example ``PL10-08203-00``).
-  * Known bottom-seal, astragal, top-seal, bubble-seal, and vinyl-for-weatherstrip
+  * Known bottom-seal, top-seal, bubble-seal, and vinyl-for-weatherstrip
     SKUs listed in ``KNOWN_WEATHERSTRIP_ITEMS``.
 
 Descriptions (so a hand-keyed line with a matching name is caught even when
 the item number is new)
   * WEATHER STRIP / WEATHERSTRIP, DUAL FIN / DUAL-FIN, TRI-SEAL,
-    TOP SEAL, ASTRAGAL, BOTTOM RUBBER, BOTTOM SEAL, BUBBLE SEAL,
-    U-rubber, or ``W/S``.
+    TOP SEAL, BOTTOM SEAL, BUBBLE SEAL, U-rubber, or ``W/S``.
 
 Not weatherstrip (these stay eligible for an Upwardor PO)
+  * Astragal / bottom rubber that ships with the door package
+    (``PL10-00004-00``, ``PL10-00005-01`` / ``02`` / ``03``). Joey, 2026-10:
+    that astragal stays on the Upwardor door PO. A complete roll bought on
+    its own is a manual Elton purchase, not this exclusion.
   * Rigid aluminum retainers (``TOP/BOTTOM RETAINER``, ``BOTTOM RETAINER``,
     ``PL15-*`` aluminium retainer, Panorama bottom retainer). The 2026-09-16
     companion rule still puts the retainer on the door PO.
@@ -44,10 +47,6 @@ _PL10_VINYL_RE = re.compile(r"^PL10-\d{2}203-", re.IGNORECASE)
 # SKUs that are weatherstrip but do not match the PL11 or PL10-xx203 patterns.
 # Descriptions are the BC display names from bc_items.json.
 KNOWN_WEATHERSTRIP_ITEMS = frozenset({
-    "PL10-00004-00",  # ASTRAGAL, 3" ALUMINIUM DOOR BOTTOM RUBBER
-    "PL10-00005-01",  # ASTRAGAL, 3" RESI/COMM/ALUM BOTTOM RUBBER
-    "PL10-00005-02",  # ASTRAGAL, 4" RESI/COMM BOTTOM RUBBER
-    "PL10-00005-03",  # ASTRAGAL, 6.5" COMM BOTTOM RUBBER
     "PL10-00006-00",  # WHITE VINYL FOR V7001 W/S
     "PL10-00127-00",  # TOP SEAL RUBBER (FS-1864 Die # 206)
     "PL10-00127-01",  # TOP SEAL, 3 1/4", CO-EXTRUDED RIGID/FLEXIBLE VINYL, TS-320
@@ -65,8 +64,6 @@ _DESC_MARKERS = (
     "TRI-SEAL",
     "TRI SEAL",
     "TOP SEAL",
-    "ASTRAGAL",
-    "BOTTOM RUBBER",
     "BOTTOM SEAL",
     "BUBBLE SEAL",
     "U RUBBER",

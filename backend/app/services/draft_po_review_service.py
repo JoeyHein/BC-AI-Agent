@@ -5,10 +5,11 @@ buy-complete / panel-companion rules the SO→PO generator uses:
 
   * Buy complete (don't explode): HK, PN45-/PN46-/PN80-, TR02-/TR03-,
     SP12-, GK15-/GK16-/GK17- — see purchasing_demand_service._BUY_COMPLETE_PREFIXES.
-  * When panels are on the PO, retainer and the residential hardware box must
-    ride along at full qty — see so_po_generation_service._ALWAYS_FULL_QTY_KEYWORDS.
-    Astragal and top seal are weatherstrip. On an Upwardor PO they are a
-    warning (sourced from stock or Elton), not a missing companion.
+  * When panels are on the PO, astragal, retainer, and the residential
+    hardware box must ride along at full qty — see
+    so_po_generation_service._ALWAYS_FULL_QTY_KEYWORDS. Top seal rubber is
+    weatherstrip. On an Upwardor PO it is a warning (sourced from stock or
+    Elton), not a missing companion. Door-package astragal is not.
   * If a buy-complete parent is present, leftover BOM-looking lines (raw
     cores, fasteners, track pieces, glazing sheet) are flagged.
 
@@ -204,7 +205,7 @@ def validate_po(po: dict) -> dict:
                     "keyword": keyword,
                     "message": (
                         f"Panels present but no {keyword} line "
-                        "(retainer and hardware box stay on the door PO at full qty)"
+                        "(astragal, retainer, and hardware box stay on the door PO at full qty)"
                     ),
                 })
             elif all(_f(r.get("quantity")) <= 0 for r in rows):

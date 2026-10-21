@@ -38,6 +38,14 @@ _RETAINERS = {
     "AL97-35509-01",
 }
 
+# Door-package astragal. Complete rolls bought alone are a manual Elton PO.
+_ASTRAGAL = {
+    "PL10-00004-00",
+    "PL10-00005-01",
+    "PL10-00005-02",
+    "PL10-00005-03",
+}
+
 # Plastics that are not seals.
 _NOT_WEATHERSTRIP = {
     "PL10-00000-00",  # sealed glass polystyrene
@@ -56,7 +64,11 @@ def test_known_patterns_and_retainers():
     assert is_weatherstrip_item("pl11-22082-00", "")
     assert is_weatherstrip_item("PL10-00127-00", "")
     assert is_weatherstrip_item("MI20-00001-00", "")
-    assert is_weatherstrip_item("NEW-SKU", "ASTRAGAL, 4\" BOTTOM RUBBER")
+    assert not is_weatherstrip_item("PL10-00004-00", 'ASTRAGAL, 3" ALUMINIUM DOOR BOTTOM RUBBER')
+    assert not is_weatherstrip_item("PL10-00005-01", 'ASTRAGAL, 3" RESI/COMM/ALUM BOTTOM RUBBER')
+    assert not is_weatherstrip_item("PL10-00005-02", 'ASTRAGAL, 4" RESI/COMM BOTTOM RUBBER')
+    assert not is_weatherstrip_item("PL10-00005-03", 'ASTRAGAL, 6.5" COMM BOTTOM RUBBER')
+    assert not is_weatherstrip_item("NEW-SKU", 'ASTRAGAL, 4" BOTTOM RUBBER')
     assert is_weatherstrip_item("NEW-SKU", "TOP SEAL RUBBER")
     assert is_weatherstrip_item("NEW-SKU", "WHITE VINYL FOR V7001 W/S")
     for item in _RETAINERS:
@@ -86,6 +98,10 @@ def test_catalog_classification_matches_bc_items():
     assert any(number.startswith("PL11-") for number in numbers)
     assert any(number.startswith("PL10-") and "203-" in number for number in numbers)
     assert set(retainers_seen) == _RETAINERS
+    assert _ASTRAGAL.isdisjoint(numbers)
+    for number in _ASTRAGAL:
+        match = next(item for item in items if item.get("number") == number)
+        assert not is_weatherstrip_item(number, match.get("displayName") or ""), number
     # Every catalog weatherstrip we classified is a seal, not a retainer or wrap.
     for number, desc in weather:
         upper = desc.upper()
