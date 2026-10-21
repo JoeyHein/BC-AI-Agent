@@ -243,6 +243,37 @@ class TestEdits:
         res = client.delete(f"/api/admin/purchasing/draft-pos/{PO_NUMBER}/lines/missing")
         assert res.status_code == 404, res.text
 
+    def test_upwardor_draft_rejects_a_new_weatherstrip_line(self, client, mem):
+        mem.po["vendorNumber"] = "UPW"
+        mem.po["vendorName"] = "UPWARDOR"
+        res = client.post(
+            f"/api/admin/purchasing/draft-pos/{PO_NUMBER}/lines",
+            json={
+                "line_type": "Item",
+                "item_no": "PL10-08203-00",
+                "description": "PLASTICS, WEATHER STRIP, WHITE, 8'",
+                "quantity": 2,
+            },
+        )
+        assert res.status_code == 400, res.text
+        assert "weatherstrip" in res.json()["detail"].lower()
+        assert mem.adds == 0
+
+    def test_elton_draft_accepts_weatherstrip(self, client, mem):
+        mem.po["vendorNumber"] = "ELT"
+        mem.po["vendorName"] = "Elton Manufacturing"
+        res = client.post(
+            f"/api/admin/purchasing/draft-pos/{PO_NUMBER}/lines",
+            json={
+                "line_type": "Item",
+                "item_no": "PL10-08203-00",
+                "description": "PLASTICS, WEATHER STRIP, WHITE, 8'",
+                "quantity": 2,
+            },
+        )
+        assert res.status_code == 200, res.text
+        assert any(ln["item_number"] == "PL10-08203-00" for ln in res.json()["lines"])
+
 
 class TestReleased:
     def test_released_is_refused_with_a_clear_error(self, client, mem):

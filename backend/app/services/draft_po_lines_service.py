@@ -31,6 +31,11 @@ import requests
 
 from app.integrations.bc.client import bc_client
 from app.services.po_line_price import apply_direct_unit_cost, explicit_override
+from app.services.weatherstrip_policy import (
+    WEATHERSTRIP_EXCLUSION_REASON,
+    is_upwardor_vendor,
+    is_weatherstrip_item,
+)
 from app.services.po_line_order import (
     BC_DESCRIPTION_MAX,
     classify_line,
@@ -160,6 +165,7 @@ class DraftPoLinesService:
         po = self._load_editable(kind, value)
         line = self._find_line(po, line_id)
         patch = self._patch_from_changes(line, changes)
+        self._reject_upwardor_weatherstrip(po, line, patch)
         if not patch:
             raise DraftPoEditError(400, "No line changes were provided")
         logger.info(
@@ -187,6 +193,14 @@ class DraftPoLinesService:
     def add_line(self, kind: str, value: str, body: dict, *, actor: str = "") -> dict:
         po = self._load_editable(kind, value)
         payload = self._create_payload(po, body)
+        if (payload.get("lineType") or "") == "Item" and self._is_upwardor_weatherstrip(
+            po, payload.get("lineObjectNumber"), payload.get("description"),
+        ):
+            raise DraftPoEditError(
+                400,
+                f"{payload.get('lineObjectNumber')} is weatherstrip and is not added to an "
+                f"Upwardor purchase order. {WEATHERSTRIP_EXCLUSION_REASON}.",
+            )
         logger.info(
             "Admin %s adding %s line on Draft PO %s: %s",
             actor or "?", payload.get("lineType"), po.get("number"), payload,
@@ -288,6 +302,35 @@ class DraftPoLinesService:
         if not fresh:
             raise DraftPoEditError(502, f"Business Central did not return {po.get('number')} after the edit")
         return fresh
+
+    @staticmethod
+    def _is_upwardor_weatherstrip(po: dict, item_no: Any, description: Any) -> bool:
+        if not is_upwardor_vendor(po.get("vendorNumber") or "", po.get("vendorName") or ""):
+            return False
+        return is_weatherstrip_item(str(item_no or ""), str(description or ""))
+
+    def _reject_upwardor_weatherstrip(self, po: dict, line: dict, patch: dict) -> None:
+        """Block turning a line into weatherstrip on an Upwardor draft.
+
+        A line that is already weatherstrip can still have its quantity
+        changed so staff can reduce it. Adding one is refused in add_line.
+        Review flags any that are already on the PO.
+        """
+        if (line.get("lineType") or "").lower() == "comment":
+            return
+        if "lineObjectNumber" not in patch and "description" not in patch:
+            return
+        item_no = patch.get("lineObjectNumber", line.get("lineObjectNumber"))
+        description = patch.get("description", line.get("description"))
+        if not self._is_upwardor_weatherstrip(po, item_no, description):
+            return
+        if is_weatherstrip_item(line.get("lineObjectNumber") or "", line.get("description") or ""):
+            return
+        raise DraftPoEditError(
+            400,
+            f"{item_no} is weatherstrip and is not ordered from Upwardor. "
+            f"{WEATHERSTRIP_EXCLUSION_REASON}.",
+        )
 
     @staticmethod
     def _find_line(po: dict, line_id: str) -> dict:

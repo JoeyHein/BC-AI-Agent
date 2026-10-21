@@ -5,8 +5,10 @@ buy-complete / panel-companion rules the SO→PO generator uses:
 
   * Buy complete (don't explode): HK, PN45-/PN46-/PN80-, TR02-/TR03-,
     SP12-, GK15-/GK16-/GK17- — see purchasing_demand_service._BUY_COMPLETE_PREFIXES.
-  * When panels are on the PO, astragal / retainer / top seal must ride along
-    at full qty — see so_po_generation_service._ALWAYS_FULL_QTY_KEYWORDS.
+  * When panels are on the PO, retainer and the residential hardware box must
+    ride along at full qty — see so_po_generation_service._ALWAYS_FULL_QTY_KEYWORDS.
+    Astragal and top seal are weatherstrip. On an Upwardor PO they are a
+    warning (sourced from stock or Elton), not a missing companion.
   * If a buy-complete parent is present, leftover BOM-looking lines (raw
     cores, fasteners, track pieces, glazing sheet) are flagged.
 
@@ -29,6 +31,11 @@ from app.services.po_line_order import classify_line
 from app.services.so_po_generation_service import (
     _ALWAYS_FULL_QTY_KEYWORDS,
     _always_full_qty,
+)
+from app.services.weatherstrip_policy import (
+    WEATHERSTRIP_EXCLUSION_REASON,
+    is_upwardor_vendor,
+    is_weatherstrip_item,
 )
 
 logger = logging.getLogger(__name__)
@@ -186,6 +193,7 @@ def validate_po(po: dict) -> dict:
     )
 
     companions = _companion_hits(item_lines)
+    upwardor = is_upwardor_vendor(po.get("vendorNumber") or "", po.get("vendorName") or "")
     if has_panels:
         for keyword in _ALWAYS_FULL_QTY_KEYWORDS:
             rows = companions[keyword]
@@ -196,7 +204,7 @@ def validate_po(po: dict) -> dict:
                     "keyword": keyword,
                     "message": (
                         f"Panels present but no {keyword} line "
-                        "(astragal / retainer / top seal must ride along at full qty)"
+                        "(retainer and hardware box stay on the door PO at full qty)"
                     ),
                 })
             elif all(_f(r.get("quantity")) <= 0 for r in rows):
@@ -207,6 +215,21 @@ def validate_po(po: dict) -> dict:
                     "item_number": rows[0].get("item_number"),
                     "message": f"{keyword} is on the PO but quantity is 0 (expected full qty)",
                 })
+
+    if upwardor:
+        for ln in item_lines:
+            item = (ln.get("lineObjectNumber") or "").strip()
+            desc = ln.get("description") or ""
+            if not is_weatherstrip_item(item, desc):
+                continue
+            issues.append({
+                "code": "upwardor_weatherstrip",
+                "severity": "warning",
+                "item_number": item,
+                "description": desc,
+                "quantity": _f(ln.get("quantity")),
+                "message": f"{item} is on an Upwardor PO. {WEATHERSTRIP_EXCLUSION_REASON}.",
+            })
 
     for ln in item_lines:
         item = (ln.get("lineObjectNumber") or "").strip()

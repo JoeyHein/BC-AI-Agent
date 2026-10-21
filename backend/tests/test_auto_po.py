@@ -89,14 +89,14 @@ def _req(items):
 
 def test_new_line_drafts_a_po_for_preferred_vendor(monkeypatch):
     db = _db()
-    bc = FakeBC([_so("SO-1001", [("PL10-16203-00", 4, 0)])])
+    bc = FakeBC([_so("SO-1001", [("SH12-11810-00", 4, 0)])])
     monkeypatch.setattr("app.services.auto_po_service.bc_client", bc)
     svc = AutoPoService()
     _wire(monkeypatch, svc,
-          requirements=_req([{"item_no": "PL10-16203-00", "net_need": 4,
-                              "description": "Weatherstrip 16", "unit_cost": 300,
-                              "last_purchase_cost": 311.0, "unit_of_measure": "BU"}]),
-          vendor_map={"PL10-16203-00": {"vendor_no": "UPW", "vendor_name": "UPWARDOR"}})
+          requirements=_req([{"item_no": "SH12-11810-00", "net_need": 4,
+                              "description": "Tube shaft", "unit_cost": 300,
+                              "last_purchase_cost": 311.0, "unit_of_measure": "EA"}]),
+          vendor_map={"SH12-11810-00": {"vendor_no": "UPW", "vendor_name": "UPWARDOR"}})
 
     result = svc.run(db, dry_run=False)
 
@@ -108,7 +108,7 @@ def test_new_line_drafts_a_po_for_preferred_vendor(monkeypatch):
     )
     log = db.query(POAgentLog).one()
     assert log.is_auto is True
-    assert log.so_allocations == {"SO-1001": [{"item_no": "PL10-16203-00", "qty": 4.0}]}
+    assert log.so_allocations == {"SO-1001": [{"item_no": "SH12-11810-00", "qty": 4.0}]}
     # comment line naming the SO went onto the PO
     assert any("SO-1001" in body.get("description", "") for _id, body in bc.lines
                if body.get("lineType") == "Comment")
@@ -119,13 +119,13 @@ def test_new_line_drafts_a_po_for_preferred_vendor(monkeypatch):
 
 def test_second_run_no_new_demand_drafts_nothing(monkeypatch):
     db = _db()
-    bc = FakeBC([_so("SO-1001", [("PL10-16203-00", 4, 0)])])
+    bc = FakeBC([_so("SO-1001", [("SH12-11810-00", 4, 0)])])
     monkeypatch.setattr("app.services.auto_po_service.bc_client", bc)
     svc = AutoPoService()
-    reqs = _req([{"item_no": "PL10-16203-00", "net_need": 4, "description": "WS",
+    reqs = _req([{"item_no": "SH12-11810-00", "net_need": 4, "description": "shaft",
                   "unit_cost": 300, "last_purchase_cost": 311.0}])
     _wire(monkeypatch, svc, requirements=reqs,
-          vendor_map={"PL10-16203-00": {"vendor_no": "UPW", "vendor_name": "UPWARDOR"}})
+          vendor_map={"SH12-11810-00": {"vendor_no": "UPW", "vendor_name": "UPWARDOR"}})
 
     svc.run(db, dry_run=False)
     bc.created.clear()
@@ -307,3 +307,45 @@ def test_prior_draft_allocation_prevents_redraft_after_snapshot_loss(monkeypatch
     result = svc.run(db, dry_run=False)
     assert bc.created == []
     assert result["skipped_counts"].get(SKIP_COVERED) == 1
+
+
+def test_upwardor_weatherstrip_is_not_drafted_elton_still_is(monkeypatch):
+    """PL10-xx203 weatherstrip mapped to UPW stays off the Upwardor draft
+    and is not marked covered. The same item mapped to Elton is drafted."""
+    from app.services.auto_po_service import SKIP_UPWARDOR_WEATHERSTRIP
+
+    db = _db()
+    bc = FakeBC([_so("SO-30", [("PL10-16203-00", 4, 0), ("SH12-11810-00", 1, 0)])])
+    monkeypatch.setattr("app.services.auto_po_service.bc_client", bc)
+    svc = AutoPoService()
+    _wire(monkeypatch, svc,
+          requirements=_req([
+              {"item_no": "PL10-16203-00", "net_need": 4, "description": "Weatherstrip 16",
+               "unit_cost": 3, "last_purchase_cost": 3},
+              {"item_no": "SH12-11810-00", "net_need": 1, "description": "shaft",
+               "unit_cost": 10, "last_purchase_cost": 10},
+          ]),
+          vendor_map={
+              "PL10-16203-00": {"vendor_no": "UPW", "vendor_name": "UPWARDOR"},
+              "SH12-11810-00": {"vendor_no": "UPW", "vendor_name": "UPWARDOR"},
+          })
+    result = svc.run(db, dry_run=False)
+    assert result["skipped_counts"].get(SKIP_UPWARDOR_WEATHERSTRIP) == 1
+    assert bc.created[0]["vendorNumber"] == "UPW"
+    drafted_items = [body["lineObjectNumber"] for _, body in bc.lines if body.get("lineType") == "Item"]
+    assert drafted_items == ["SH12-11810-00"]
+    snap = db.query(AutoPoSnapshot).filter_by(item_no="PL10-16203-00").one()
+    assert snap.covered_qty == 0.0
+
+    bc2 = FakeBC([_so("SO-31", [("PL10-16203-00", 2, 0)])])
+    monkeypatch.setattr("app.services.auto_po_service.bc_client", bc2)
+    _wire(monkeypatch, svc,
+          requirements=_req([
+              {"item_no": "PL10-16203-00", "net_need": 2, "description": "Weatherstrip 16",
+               "unit_cost": 3, "last_purchase_cost": 3},
+          ]),
+          vendor_map={"PL10-16203-00": {"vendor_no": "ELT", "vendor_name": "ELTON"}})
+    elton = svc.run(_db(), dry_run=False)
+    assert elton["drafted_po_count"] == 1
+    assert bc2.created[0]["vendorNumber"] == "ELT"
+    assert any(body.get("lineObjectNumber") == "PL10-16203-00" for _, body in bc2.lines)

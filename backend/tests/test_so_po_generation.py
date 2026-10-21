@@ -279,24 +279,15 @@ class TestNetting:
         assert plan["trimmed"] == []
 
     @pytest.mark.parametrize("desc", [
-        "ASTRAGAL, 3\" RESI/COMM BOTTOM RUBBER",
         "BOTTOM RETAINER, 1 3/4\" RESI RIGID BLACK 10'-0\" (BOTTOM)",
         "TOP/BOTTOM RETAINER, 1 3/4\" (TOP)",
-        "TOP SEAL RUBBER (FS-1864 Die # 206)",
         "HARDWARE BOX, 2R 8'-10' X 8', STANDARD, 4S3HW, 4 SECTIONS",
     ])
-    def test_astragal_retainer_topseal_hwbox_always_full_qty_despite_stock(self, monkeypatch, desc):
-        """Joey, 2026-09-16: "we must include the astragal, the retainer,
-        and the top seal as well" whenever panels are on the PO — confirmed
-        live on SO-001301/etc. that BC's large on-hand/other-PO quantities
-        for these bulk coil items (13,050" astragal on hand vs. 240" needed)
-        were excluding all of them from every PO. "HARDWARE BOX" (HK10-*
-        residential boxes) added 2026-09-22 — Joey, reviewing PO-985/986:
-        "the hardware boxes for these residential ones would be the HK10s
-        ... it should be the same hardware box that's on the sales order" —
-        same root cause, a box cut to that door's exact size isn't generic
-        stock either. Unlike every other item this module nets against
-        stock, these always go on at the SO's full ordered quantity."""
+    def test_retainer_and_hwbox_always_full_qty_despite_stock(self, monkeypatch, desc):
+        """Retainer and the residential hardware box still go on at the SO's
+        full quantity. Astragal and top seal used to share this override
+        (Joey, 2026-09-16) but they are weatherstrip and now net like any
+        other stocked item — an Upwardor PO does not buy them."""
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
               "salesOrderLines": [_line("PL10-SEAL-01", 240)]}
         cards = [_card("PL10-SEAL-01", on_hand=13050, on_po=1860, on_so=240, desc=desc)]
@@ -307,6 +298,22 @@ class TestNetting:
         assert plan["trimmed"] == []
         assert [r["item_no"] for r in plan["included"]] == ["PL10-SEAL-01"]
         assert plan["included"][0]["quantity"] == 240
+
+    @pytest.mark.parametrize("desc", [
+        "ASTRAGAL, 3\" RESI/COMM BOTTOM RUBBER",
+        "TOP SEAL RUBBER (FS-1864 Die # 206)",
+    ])
+    def test_astragal_and_top_seal_net_against_stock(self, monkeypatch, desc):
+        """Astragal and top seal are weatherstrip. Bulk on-hand covers the
+        sales-order quantity, so the netted plan does not buy them."""
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
+              "salesOrderLines": [_line("PL10-SEAL-01", 240)]}
+        cards = [_card("PL10-SEAL-01", on_hand=13050, on_po=1860, on_so=240, desc=desc)]
+        _setup(monkeypatch, so, cards, {"PL10-SEAL-01": {"unitCost": 0.1, "baseUnitOfMeasureCode": "IN"}})
+
+        plan = svc.compute_netted_po_lines("SO-TEST")
+        assert plan["included"] == []
+        assert [r["item_no"] for r in plan["excluded_in_stock"]] == ["PL10-SEAL-01"]
 
     def test_weatherstrip_is_not_swept_up_by_the_always_full_qty_override(self, monkeypatch):
         """Only astragal/retainer/top-seal/hardware-box get the override —
@@ -930,3 +937,75 @@ class TestCompleteMode:
         ]
         comments = [b["description"] for _, b in bc.lines if b["lineType"] == "Comment"]
         assert any(text.startswith('(1) 10\'0"') for text in comments)
+
+    def _so_with_seals(self):
+        def item(number, qty, desc, seq):
+            row = _line(number, qty, seq=seq)
+            row["description"] = desc
+            return row
+
+        return {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": [
+            _door_header('(1) 12\'0" x 10\'0" TX450, WHITE, UDC', 10000),
+            item("PN45-24405-1200", 4, "SECTION TX450", 20000),
+            item("PL10-00141-00", 144, 'TOP/BOTTOM RETAINER, 1 3/4" (BOTTOM)', 30000),
+            item("PL10-00005-01", 144, 'ASTRAGAL, 3" RESI/COMM BOTTOM RUBBER', 40000),
+            item("PL10-08203-00", 2, "PLASTICS, WEATHER STRIP, GALVANIZED STEEL/FLEXIBLE VINYL, WHITE, 8'", 50000),
+            item("PL11-22082-00", 1, "COMMERCIAL ALUMINUM WEATHERSTRIP, DUAL-FIN VINYL 8' - 2\"", 60000),
+            item("PL10-00127-00", 144, "TOP SEAL RUBBER (FS-1864 Die # 206)", 70000),
+            item("MI20-00001-00", 1, "BOTTOM SEAL FOAM FOR V130G", 80000),
+        ]}
+
+    def test_upwardor_complete_po_excludes_weatherstrip_and_keeps_retainer(self, monkeypatch):
+        """Weatherstrip stays off the Upwardor PO and is listed as excluded.
+        The rigid retainer stays. The sales order itself is not edited."""
+        so = self._so_with_seals()
+        bc, _ = _setup(monkeypatch, so, [])
+        result = svc.build_upwardor_po("SO-TEST", dry_run=False)
+        written = [b.get("lineObjectNumber") for _, b in bc.lines if b["lineType"] == "Item"]
+        assert written == ["PN45-24405-1200", "PL10-00141-00"]
+        excluded = {row["item_no"]: row["reason"] for row in result["excluded"]}
+        for item_no in (
+            "PL10-00005-01", "PL10-08203-00", "PL11-22082-00",
+            "PL10-00127-00", "MI20-00001-00",
+        ):
+            assert item_no in excluded
+            assert "Elton" in excluded[item_no]
+            assert item_no not in written
+        assert so["salesOrderLines"][3]["lineObjectNumber"] == "PL10-00005-01"
+        door_items = {
+            row["item_no"] for row in result["by_door"][0]["included"]
+        }
+        assert door_items == {"PN45-24405-1200", "PL10-00141-00"}
+
+    def test_elton_complete_po_keeps_weatherstrip(self, monkeypatch):
+        so = self._so_with_seals()
+        bc, _ = _setup(monkeypatch, so, [])
+        result = svc.build_upwardor_po(
+            "SO-TEST", vendor_no="ELT", vendor_name="Elton Manufacturing", dry_run=False,
+        )
+        written = [b.get("lineObjectNumber") for _, b in bc.lines if b["lineType"] == "Item"]
+        assert "PL10-08203-00" in written
+        assert "PL10-00005-01" in written
+        assert "PL10-00127-00" in written
+        assert result.get("excluded_weatherstrip", []) == []
+
+    def test_upwardor_netted_shortfall_weatherstrip_is_excluded(self, monkeypatch):
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": [
+            _line("PN45-24405-1200", 2),
+            _line("PL10-08203-00", 4),
+        ]}
+        so["salesOrderLines"][1]["description"] = (
+            "PLASTICS, WEATHER STRIP, GALVANIZED STEEL/FLEXIBLE VINYL, WHITE, 8'"
+        )
+        cards = [
+            _card("PN45-24405-1200", on_hand=0, on_so=2),
+            _card("PL10-08203-00", on_hand=0, on_so=4,
+                  desc="PLASTICS, WEATHER STRIP, GALVANIZED STEEL/FLEXIBLE VINYL, WHITE, 8'"),
+        ]
+        _setup(monkeypatch, so, cards, {
+            "PN45-24405-1200": {"unitCost": 10, "baseUnitOfMeasureCode": "EA"},
+            "PL10-08203-00": {"unitCost": 5, "baseUnitOfMeasureCode": "EA"},
+        })
+        result = svc.build_upwardor_po("SO-TEST", dry_run=True, mode="netted")
+        assert [row["item_no"] for row in result["included"]] == ["PN45-24405-1200"]
+        assert [row["item_no"] for row in result["excluded_weatherstrip"]] == ["PL10-08203-00"]

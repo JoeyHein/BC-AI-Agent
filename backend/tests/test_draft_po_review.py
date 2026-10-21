@@ -3,7 +3,8 @@
 GET /api/admin/purchasing/draft-pos and .../validate must:
   - reject unauthenticated callers
   - list live BC Draft POs (status filter) with lines + SO links
-  - flag missing ASTRAGAL/RETAINER/TOP SEAL when panels are on the PO
+  - flag missing RETAINER / HARDWARE BOX when panels are on the PO
+  - flag weatherstrip that landed on an Upwardor PO
   - flag exploded-looking leftovers when buy-complete parents are present
   - leave customer-portal routes out of this surface
 """
@@ -160,9 +161,7 @@ class TestSummarizeAndValidate:
         po = _po(lines=[
             _line("PN45-24405-1000", 3, desc="SECTION TX450"),
             _line("HK02-14120-RC", 1, desc="HARDWARE BOX STD LIFT"),
-            _line("PL10-00141-00", 240, desc='ASTRAGAL, 3" RESI/COMM BOTTOM RUBBER'),
             _line("PL10-00141-00", 240, desc='BOTTOM RETAINER, 1 3/4" RESI RIGID BLACK'),
-            _line("PL10-00127-00", 216, desc="TOP SEAL RUBBER (FS-1864 Die # 206)"),
         ])
         result = validate_po(po)
         assert result["ok"] is True
@@ -175,7 +174,7 @@ class TestSummarizeAndValidate:
         po = _po(lines=[_line("PN45-24405-1000", 3, desc="SECTION TX450")])
         result = validate_po(po)
         assert result["ok"] is False
-        assert {i["keyword"] for i in result["issues"]} == {"ASTRAGAL", "RETAINER", "TOP SEAL", "HARDWARE BOX"}
+        assert {i["keyword"] for i in result["issues"]} == {"RETAINER", "HARDWARE BOX"}
         assert all(i["code"] == "missing_companion" for i in result["issues"])
 
     def test_weatherstrip_does_not_count_as_companion(self):
@@ -185,10 +184,12 @@ class TestSummarizeAndValidate:
                   desc="PLASTICS, WEATHER STRIP, GALVANIZED STEEL/FLEXIBLE VINYL, WHITE, 8' (SIDES)"),
         ])
         result = validate_po(po)
-        codes = {(i["code"], i.get("keyword")) for i in result["issues"]}
-        assert ("missing_companion", "ASTRAGAL") in codes
+        codes = {(i["code"], i.get("keyword") or i.get("item_number")) for i in result["issues"]}
+        assert ("missing_companion", "ASTRAGAL") not in codes
+        assert ("missing_companion", "TOP SEAL") not in codes
         assert ("missing_companion", "RETAINER") in codes
-        assert ("missing_companion", "TOP SEAL") in codes
+        assert ("missing_companion", "HARDWARE BOX") in codes
+        assert ("upwardor_weatherstrip", "PL10-08203-00") in codes
 
     def test_no_companion_requirement_without_panels(self):
         po = _po(lines=[_line("HK02-14120-RC", 1, desc="HARDWARE BOX")])
@@ -249,13 +250,12 @@ class TestSummarizeAndValidate:
     def test_companion_zero_qty_flagged(self):
         po = _po(lines=[
             _line("PN45-24405-1000", 3, desc="SECTION TX450"),
-            _line("PL10-a", 0, desc="ASTRAGAL, 3\""),
-            _line("PL10-b", 240, desc="BOTTOM RETAINER"),
-            _line("PL10-c", 216, desc="TOP SEAL RUBBER"),
+            _line("PL10-b", 0, desc="BOTTOM RETAINER"),
+            _line("HK02-14120-RC", 1, desc="HARDWARE BOX"),
         ])
         result = validate_po(po)
         zeros = [i for i in result["issues"] if i["code"] == "companion_zero_qty"]
-        assert [i["keyword"] for i in zeros] == ["ASTRAGAL"]
+        assert [i["keyword"] for i in zeros] == ["RETAINER"]
 
     def test_freight_lines_ignored(self):
         po = _po(lines=[
@@ -292,7 +292,7 @@ class TestDraftPoReviewService:
         assert bundled["count"] == 2
         assert bundled["ok"] is False
         assert "HK" in bundled["buy_complete_prefixes"]
-        assert "ASTRAGAL" in bundled["companion_keywords"]
+        assert bundled["companion_keywords"] == ["RETAINER", "HARDWARE BOX"]
         by_no = {r["number"]: r for r in bundled["results"]}
         assert by_no["PO-CLEAN"]["ok"] is True
         assert by_no["PO-PANELS"]["ok"] is False

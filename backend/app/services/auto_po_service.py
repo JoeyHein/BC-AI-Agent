@@ -47,6 +47,7 @@ from app.services.purchasing_demand_service import (
 )
 from app.services.vendor_map_service import vendor_map_service
 from app.services.vendor_policy import is_preferred, is_expedite
+from app.services.weatherstrip_policy import is_upwardor_vendor, is_weatherstrip_item
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,9 @@ SKIP_COVERED = "already_covered"        # stock / existing PO already covers it
 # item-card cost is not a reason to skip: BC prices the PO line.
 SKIP_NO_COST = "no_unit_cost"
 SKIP_OUT_OF_SCOPE = "vendor_not_in_scope"  # only_vendors given and this isn't one
+# Weatherstrip mapped to Upwardor is not drafted. It stays uncovered so a
+# later run can buy it once the vendor map points at Elton, or stock covers it.
+SKIP_UPWARDOR_WEATHERSTRIP = "upwardor_weatherstrip"
 
 
 class AutoPoService:
@@ -168,6 +172,13 @@ class AutoPoService:
             if only_vendors is not None and vno not in only_vendors:
                 skips[SKIP_OUT_OF_SCOPE].append({"item_no": item_no, "description": desc,
                                                  "new_demand": total_new, "vendor_no": vno})
+                continue
+            if is_upwardor_vendor(vno, vname) and is_weatherstrip_item(item_no, desc):
+                skips[SKIP_UPWARDOR_WEATHERSTRIP].append({
+                    "item_no": item_no, "description": desc,
+                    "new_demand": total_new, "vendor_no": vno,
+                    "reason": "weatherstrip — sourced from stock or Elton, not Upwardor",
+                })
                 continue
 
             # Item-card cost is an estimate for the draft summary. It is not

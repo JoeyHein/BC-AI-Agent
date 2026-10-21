@@ -438,6 +438,7 @@ class ProductionScheduleService:
         nothing on the SO to buy in that group."""
         from app.services.purchasing_demand_service import NON_STOCK_ITEMS
         from app.services.so_po_generation_service import _complete_mode_exclusion
+        from app.services.weatherstrip_policy import is_weatherstrip_item
 
         facts: Dict[str, dict] = {}
         for order in orders:
@@ -450,7 +451,11 @@ class ProductionScheduleService:
                     continue
                 if _has_prefix(item, OPERATOR_PREFIXES):
                     needs_operator = True
-                elif not _complete_mode_exclusion(item):
+                elif not _complete_mode_exclusion(item) and not is_weatherstrip_item(
+                    item, ln.get("description") or "",
+                ):
+                    # Weatherstrip is not an Upwardor buy. A weatherstrip-only
+                    # sales order must not show as a missed Upwardor PO.
                     needs_main = True
                 if _has_prefix(item, WINDOW_KIT_PREFIXES):
                     window_kit_lines.append({

@@ -2867,7 +2867,10 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         {door.doorType === 'commercial' && (() => {
           const widthInches = door.doorWidth || 0
           const heightInches = door.doorHeight || 0
-          const autoIncluded = widthInches >= 216 && heightInches >= 120
+          // 216" is 18'0". Automatic only when the door is wider than 18'
+          // and at least 10' tall. 18' and narrower stay optional.
+          // Keep in step with backend/app/services/top_seal_policy.py.
+          const autoIncluded = widthInches > 216 && heightInches >= 120
           return (
             <label className={`flex items-start p-3 border rounded-lg ${autoIncluded ? 'bg-green-50 border-green-200' : 'cursor-pointer hover:bg-gray-50'}`}>
               <input
@@ -2880,9 +2883,9 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
               <div className="ml-2">
                 <span className="text-sm font-medium text-gray-700">Top Seal (Header Weatherstrip)</span>
                 {autoIncluded ? (
-                  <p className="text-xs text-green-600">Automatically included for doors ≥ 18' wide and ≥ 10' tall</p>
+                  <p className="text-xs text-green-600">Automatically included for commercial doors wider than 18' and at least 10' tall</p>
                 ) : (
-                  <p className="text-xs text-gray-500">Optional upgrade — adds rubber weatherstrip along the top of the door opening</p>
+                  <p className="text-xs text-gray-500">Optional upgrade — adds rubber weatherstrip along the top of the door opening. Not added automatically at 18' wide or narrower.</p>
                 )}
               </div>
             </label>
@@ -3221,6 +3224,7 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
               doorType: door.doorType || 'commercial',
               glazingType: door.glazingType || null,
               glassPaneType: door.glassPaneType || null,
+              includeTopSeal: door.includeTopSeal || false,
             }
             const response = await doorConfigApi.calculateDoor(calcRequest)
             return {

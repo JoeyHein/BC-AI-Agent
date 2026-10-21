@@ -17,6 +17,7 @@ from app.db.models import (
 )
 from app.integrations.bc.client import bc_client
 from app.services.po_line_price import apply_direct_unit_cost
+from app.services.weatherstrip_policy import is_upwardor_vendor, is_weatherstrip_item
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class POAgentService:
             "vendors": 0,
             "mode": self._get_mode(db),
             "errors": [],
+            "weatherstrip_left_off_upwardor": [],
         }
 
         # Get acknowledged but unlinked demand signals
@@ -69,6 +71,8 @@ class POAgentService:
             line_items = []
             total = 0.0
             signal_ids = []
+            kept_signals = []
+            last_kept_part = None
 
             for s in vendor_signals:
                 # Look up part for unit cost
@@ -76,6 +80,15 @@ class POAgentService:
                 part = db.query(Part).filter(Part.bc_item_number == s.bc_item_number).first()
                 if part and part.unit_cost:
                     unit_cost = float(part.unit_cost)
+                desc = part.bc_description if part else (s.bc_item_number or "")
+                vendor_id_for_line = part.vendor_id if part and part.vendor_id else ""
+                if is_upwardor_vendor(vendor_id_for_line, vendor_name) and is_weatherstrip_item(
+                    s.bc_item_number or "", desc,
+                ):
+                    stats["weatherstrip_left_off_upwardor"].append(s.bc_item_number)
+                    continue
+                kept_signals.append(s)
+                last_kept_part = part
 
                 qty = s.recommended_qty or 1
                 line_total = unit_cost * qty
@@ -90,10 +103,13 @@ class POAgentService:
                 total += line_total
                 signal_ids.append(s.id)
 
+            if not kept_signals:
+                continue
+
             # Look up vendor_id from BC if available
             vendor_id = None
-            if part and part.vendor_id:
-                vendor_id = part.vendor_id
+            if last_kept_part and last_kept_part.vendor_id:
+                vendor_id = last_kept_part.vendor_id
 
             po_draft = POAgentLog(
                 vendor_id=vendor_id,
@@ -109,8 +125,9 @@ class POAgentService:
             db.add(po_draft)
             db.flush()
 
-            # Link signals to this PO draft
-            for s in vendor_signals:
+            # Link signals to this PO draft. Weatherstrip left off an
+            # Upwardor draft stays unlinked so it can still be sourced.
+            for s in kept_signals:
                 s.linked_po_id = po_draft.id
 
             stats["drafts_created"] += 1

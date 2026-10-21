@@ -309,6 +309,26 @@ class TestCreateWithReviewDraft:
         assert bc.created == []
         assert graph.drafts == []
 
+    def test_upwardor_generate_po_drops_weatherstrip_and_keeps_the_panel(self, db, bc_graph):
+        bc, _graph = bc_graph
+        result = _create(db, vendor_no="UPW", vendor_name="UPWARDOR", lines=[
+            {"item_no": "PN45-24405-1200", "description": "SECTION", "quantity": 4, "unit_cost": 10},
+            {"item_no": "PL10-00127-00", "description": "TOP SEAL RUBBER", "quantity": 216, "unit_cost": 1},
+            {"item_no": "PL10-00141-00", "description": "TOP/BOTTOM RETAINER, 1 3/4\"", "quantity": 216, "unit_cost": 1},
+        ])
+        written = [body.get("lineObjectNumber") for _, body in bc.lines if body.get("lineType") == "Item"]
+        assert written == ["PN45-24405-1200", "PL10-00141-00"]
+        assert [row["item_no"] for row in result["excluded_weatherstrip"]] == ["PL10-00127-00"]
+
+    def test_upwardor_generate_po_weatherstrip_only_does_not_create(self, db, bc_graph):
+        bc, graph = bc_graph
+        with pytest.raises(ValueError, match="Elton"):
+            _create(db, vendor_no="UPW", vendor_name="UPWARDOR", lines=[
+                {"item_no": "PL11-22082-00", "description": "DUAL-FIN", "quantity": 2, "unit_cost": 4},
+            ])
+        assert bc.created == []
+        assert graph.drafts == []
+
     def test_notes_are_escaped_in_the_draft_body(self, db, bc_graph):
         _, graph = bc_graph
         _create(db, notes="<script>alert(1)</script>", vendor_name="A&B <Doors>")
