@@ -910,3 +910,168 @@ class TestGK17Glazing:
         assert glass, "V130G door produced no glass line"
         assert glass[0]["part_number"] == "GK17-10000-00"
         assert self._active(glass[0]["part_number"])
+
+
+# ── Panorama polycarbonate square footage ─────────────────────────────────
+
+class TestPanoramaPolycarbonateSqft:
+    """Panorama polycarbonate is the door opening, not the AL976 glass pocket.
+
+    The old formula subtracted end stiles, center stiles, and rails, then
+    multiplied by section count and rounded to 2 decimals (which can round
+    down). Joey: sq ft = width (ft) × height (ft) per door × door count,
+    rounded up to a whole square foot.
+    """
+
+    @staticmethod
+    def _poly(parts):
+        rows = [p for p in parts if (p.get("part_number") or "").startswith("GK17-25")]
+        assert len(rows) == 1, rows
+        return rows[0]
+
+    def _panorama(self, width_in, height_in, door_count=1, **over):
+        cfg = {
+            "doorType": "aluminium",
+            "doorSeries": "PANORAMA",
+            "doorWidth": width_in,
+            "doorHeight": height_in,
+            "doorCount": door_count,
+            "panelColor": "CLEAR_ANODIZED",
+            "glazingType": "polycarbonate",
+            "glassColor": "LIGHT_BRONZE",
+            "operator": "NONE",
+            "hardware": {},
+        }
+        cfg.update(over)
+        return get_parts_for_door_config(cfg).get("parts_list", [])
+
+    @pytest.mark.parametrize("width_ft,height_ft,door_count,expected", [
+        (16, 7, 1, 112),
+        (16, 7, 2, 224),
+        (18, 8, 1, 144),
+        (18, 8, 2, 288),
+        (10, 10, 1, 100),
+        (10, 10, 3, 300),
+        (24, 14, 1, 336),
+        (24, 14, 2, 672),
+    ])
+    def test_whole_foot_sizes(self, width_ft, height_ft, door_count, expected):
+        row = self._poly(self._panorama(width_ft * 12, height_ft * 12, door_count))
+        assert row["quantity"] == expected
+        assert row["part_number"] == "GK17-25100-00"
+        assert row["category"] == "aluminum_glazing"
+
+    def test_fractional_dimensions_round_up(self):
+        """12'2\" × 10'3\" is 124.708 sq ft. Round up to 125, never down to 124."""
+        row = self._poly(self._panorama(12 * 12 + 2, 10 * 12 + 3, 1))
+        assert row["quantity"] == 125
+
+    def test_fractional_dimensions_times_door_count(self):
+        """Ceil per door, then multiply. 125 × 2 = 250, which covers 249.42."""
+        row = self._poly(self._panorama(12 * 12 + 2, 10 * 12 + 3, 2))
+        assert row["quantity"] == 250
+
+    def test_color_selection_unchanged(self):
+        for color, sku in (
+            ("CLEAR", "GK17-25000-00"),
+            ("LIGHT_BRONZE", "GK17-25100-00"),
+            ("DARK_BRONZE", "GK17-25200-00"),
+            ("WHITE_OPAL", "GK17-25300-00"),
+        ):
+            row = self._poly(self._panorama(16 * 12, 7 * 12, glassColor=color))
+            assert row["part_number"] == sku
+            assert row["quantity"] == 112
+
+    def test_solalite_keeps_al976_opening_formula(self):
+        """Solalite shares the polycarbonate branch but is not a Panorama door."""
+        parts = get_parts_for_door_config({
+            "doorType": "aluminium", "doorSeries": "SOLALITE",
+            "doorWidth": 192, "doorHeight": 84, "doorCount": 2,
+            "panelColor": "CLEAR_ANODIZED", "glazingType": "polycarbonate",
+            "glassColor": "CLEAR", "operator": "NONE", "hardware": {},
+        }).get("parts_list", [])
+        row = self._poly(parts)
+        assert row["part_number"] == "GK17-25000-00"
+        assert row["quantity"] == pytest.approx(83.97 * 2)
+
+    def test_al976_polycarbonate_keeps_al976_opening_formula(self):
+        parts = get_parts_for_door_config({
+            "doorType": "aluminium", "doorSeries": "AL976",
+            "doorWidth": 192, "doorHeight": 84, "doorCount": 1,
+            "panelColor": "CLEAR_ANODIZED", "glazingType": "polycarbonate",
+            "glassColor": "LIGHT_BRONZE", "operator": "NONE", "hardware": {},
+        }).get("parts_list", [])
+        row = self._poly(parts)
+        assert row["part_number"] == "GK17-25100-00"
+        assert row["quantity"] == pytest.approx(83.97)
+
+    def test_al976_glass_sqft_unchanged(self):
+        parts = get_parts_for_door_config({
+            "doorType": "aluminium", "doorSeries": "AL976",
+            "doorWidth": 192, "doorHeight": 84, "doorCount": 1,
+            "panelColor": "CLEAR_ANODIZED", "glazingType": "glass",
+            "glassColor": "CLEAR", "glassPaneType": "INSULATED",
+            "operator": "NONE", "hardware": {},
+        }).get("parts_list", [])
+        glass = [p for p in parts if p.get("category") == "aluminum_glass"]
+        assert len(glass) == 1
+        assert glass[0]["quantity"] == pytest.approx(83.97)
+
+    def _insert(self, width_in, height_in, sections, door_count=1, **over):
+        panels = {str(i): {"type": "PANORAMA", "qty": 1} for i in range(1, sections + 1)}
+        cfg = {
+            "doorType": "commercial", "doorSeries": "TX450",
+            "doorWidth": width_in, "doorHeight": height_in, "doorCount": door_count,
+            "panelColor": "WHITE", "panelDesign": "UDC", "trackThickness": "3",
+            "hasWindows": True, "windowInsert": "PANORAMA", "windowQty": sections,
+            "windowPanels": panels,
+            "glazingType": "polycarbonate", "glassColor": "LIGHT_BRONZE",
+            "operator": "NONE",
+        }
+        cfg.update(over)
+        return get_parts_for_door_config(cfg).get("parts_list", [])
+
+    def test_commercial_insert_one_section_is_share_of_opening(self):
+        """One of four sections on a 16'×7' door is 28 sq ft, not the stile-cut 20.99."""
+        row = self._poly(self._insert(192, 84, 1))
+        assert row["quantity"] == 28
+        assert row["part_number"] == "GK17-25100-00"
+        assert row["category"] == "v130g_glass"
+        # Door-level windowQty (no per-panel map) uses the same share.
+        door_level = get_parts_for_door_config({
+            "doorType": "commercial", "doorSeries": "TX450",
+            "doorWidth": 192, "doorHeight": 84, "doorCount": 1,
+            "panelColor": "WHITE", "panelDesign": "UDC", "trackThickness": "3",
+            "hasWindows": True, "windowInsert": "PANORAMA", "windowQty": 1,
+            "glazingType": "polycarbonate", "glassColor": "CLEAR",
+            "operator": "NONE",
+        }).get("parts_list", [])
+        clear = self._poly(door_level)
+        assert clear["quantity"] == 28
+        assert clear["part_number"] == "GK17-25000-00"
+
+    def test_commercial_insert_all_sections_matches_full_door(self):
+        row = self._poly(self._insert(192, 84, 4))
+        assert row["quantity"] == 112
+
+    def test_commercial_insert_door_count(self):
+        row = self._poly(self._insert(192, 84, 1, door_count=2))
+        assert row["quantity"] == 56
+
+    def test_commercial_insert_fractional_rounds_up(self):
+        """12'2\" × 10'3\" has 6 sections. One section is 20.785 sq ft → 21."""
+        row = self._poly(self._insert(12 * 12 + 2, 10 * 12 + 3, 1))
+        assert row["quantity"] == 21
+        row = self._poly(self._insert(12 * 12 + 2, 10 * 12 + 3, 6, door_count=2))
+        assert row["quantity"] == 250
+
+    def test_helper_never_rounds_down(self):
+        from app.services.part_number_service import PartNumberService
+        sqft = PartNumberService._panorama_polycarbonate_sqft
+        assert sqft(16 * 12, 7 * 12) == 112
+        assert sqft(12 * 12 + 2, 10 * 12 + 3) == 125
+        assert sqft(1, 1) == 1  # 1/144 sq ft still orders a whole foot
+        assert sqft(12, 12) == 1
+        assert sqft(192, 84, sections=1, section_count=4) == 28
+        assert sqft(192, 84, sections=4, section_count=4) == 112
+        assert sqft(0, 84) == 0

@@ -1658,6 +1658,41 @@ class PartNumberService:
         return total_weight
 
     @staticmethod
+    def _panorama_polycarbonate_sqft(
+        door_width_in: int,
+        door_height_in: int,
+        sections: int = 1,
+        section_count: int = 1,
+    ) -> int:
+        """Whole square feet of polycarbonate for one Panorama door, rounded up.
+
+        Joey, 2026-10: a Panorama door is width (ft) × height (ft). A 16'×7'
+        door is 112 sq ft, not the AL976 glass-opening area (that formula
+        subtracts end stiles, center stiles, and rails, and Panorama has no
+        vertical stiles). Round up to the next whole square foot and never
+        round down.
+
+        ``sections`` / ``section_count`` scale that opening when only some
+        sections of a commercial door are Panorama inserts. A door whose
+        sections are all Panorama (``sections == section_count``) is the full
+        opening. Door count is applied later, once, in
+        ``get_parts_for_configuration``.
+        """
+        width_in = int(door_width_in or 0)
+        height_in = int(door_height_in or 0)
+        covered = int(sections or 0)
+        total_sections = int(section_count or 0)
+        if width_in <= 0 or height_in <= 0 or covered <= 0:
+            return 0
+        if total_sections <= 0:
+            total_sections = covered
+        covered = min(covered, total_sections)
+        # ceil(width_in * height_in * covered / total_sections / 144)
+        numer = width_in * height_in * covered
+        denom = 144 * total_sections
+        return (numer + denom - 1) // denom
+
+    @staticmethod
     def _calculate_al976_glass_sqft_per_section(
         door_width_in: int, door_height_in: int,
         section_height_in: int, num_sections: int
@@ -3279,49 +3314,72 @@ class PartNumberService:
             notes=f"Wrapping for {panel_count} sections ({config.door_width / 12:.0f}' x {section_height}\" each)"
         ))
 
-        # Glazing — GK17 glass for AL976, GK17 polycarbonate for Panorama/Solalite
-        # Glass sqft calculated from actual window opening dimensions per PN Generator spreadsheet
-        glazing_sqft_per_section = self._calculate_al976_glass_sqft_per_section(
-            config.door_width, config.door_height, section_height, panel_count
-        )
-        total_glazing_sqft = round(glazing_sqft_per_section * panel_count, 2)
-
+        # Glazing — GK17 glass for AL976, GK17 polycarbonate for Panorama/Solalite.
+        # Panorama is the full door opening (width × height), rounded up to a
+        # whole square foot. Solalite and AL976-with-polycarbonate stay on the
+        # AL976 glass-opening formula below; they are not Panorama doors.
         glazing_type = (config.glazing_type or "").lower()
         is_polycarbonate = glazing_type == "polycarbonate" or series in ("PANORAMA", "SOLALITE")
 
-        if is_polycarbonate:
+        if series == "PANORAMA":
             poly_pn, poly_desc = resolve_gk17_polycarbonate(config.glass_color)
+            poly_sqft = self._panorama_polycarbonate_sqft(
+                config.door_width, config.door_height
+            )
+            w_ft, w_in = divmod(int(config.door_width), 12)
+            h_ft, h_in = divmod(int(config.door_height), 12)
             parts.append(PartSelection(
                 part_number=poly_pn,
                 description=poly_desc,
-                quantity=total_glazing_sqft,
+                quantity=poly_sqft,
                 category="aluminum_glazing",
-                notes=f"Polycarbonate for {panel_count} sections ({glazing_sqft_per_section:.2f} sqft each)"
+                notes=(
+                    f"Polycarbonate for Panorama door "
+                    f"({w_ft}'{w_in}\" x {h_ft}'{h_in}\", {poly_sqft} sqft rounded up)"
+                ),
             ))
         else:
-            # AL976 / SWD — GK17 aluminum glass kits, keyed
-            # (color, pane, treatment). Unstocked combos resolve to the nearest
-            # kit and emit a glazing_comment so the office confirms the swap.
-            glass_pn, glass_desc, sub_note = resolve_gk17_alum_glass(
-                config.glass_color,
-                config.glass_pane_type,
-                getattr(config, "glass_type", None),
+            # Glass sqft from actual window opening dimensions (PN Generator
+            # spreadsheet). Used for AL976/SWD glass and for Solalite /
+            # AL976 polycarbonate — not for Panorama.
+            glazing_sqft_per_section = self._calculate_al976_glass_sqft_per_section(
+                config.door_width, config.door_height, section_height, panel_count
             )
-            parts.append(PartSelection(
-                part_number=glass_pn,
-                description=glass_desc,
-                quantity=total_glazing_sqft,
-                category="aluminum_glass",
-                notes=f"Glass for {panel_count} sections ({glazing_sqft_per_section:.2f} sqft each)"
-            ))
-            if sub_note:
+            total_glazing_sqft = round(glazing_sqft_per_section * panel_count, 2)
+
+            if is_polycarbonate:
+                poly_pn, poly_desc = resolve_gk17_polycarbonate(config.glass_color)
                 parts.append(PartSelection(
-                    part_number="",
-                    description=f"** {sub_note} **",
-                    quantity=0,
-                    category="glazing_comment",
-                    notes="glazing_substitution",
+                    part_number=poly_pn,
+                    description=poly_desc,
+                    quantity=total_glazing_sqft,
+                    category="aluminum_glazing",
+                    notes=f"Polycarbonate for {panel_count} sections ({glazing_sqft_per_section:.2f} sqft each)"
                 ))
+            else:
+                # AL976 / SWD — GK17 aluminum glass kits, keyed
+                # (color, pane, treatment). Unstocked combos resolve to the nearest
+                # kit and emit a glazing_comment so the office confirms the swap.
+                glass_pn, glass_desc, sub_note = resolve_gk17_alum_glass(
+                    config.glass_color,
+                    config.glass_pane_type,
+                    getattr(config, "glass_type", None),
+                )
+                parts.append(PartSelection(
+                    part_number=glass_pn,
+                    description=glass_desc,
+                    quantity=total_glazing_sqft,
+                    category="aluminum_glass",
+                    notes=f"Glass for {panel_count} sections ({glazing_sqft_per_section:.2f} sqft each)"
+                ))
+                if sub_note:
+                    parts.append(PartSelection(
+                        part_number="",
+                        description=f"** {sub_note} **",
+                        quantity=0,
+                        category="glazing_comment",
+                        notes="glazing_substitution",
+                    ))
 
         return self._consolidate_parts(parts)
 
@@ -3832,6 +3890,10 @@ class PartNumberService:
 
         Uses PN80 prefix for aluminum frame sections + GK17 polycarbonate glazing.
         Same panel replacement logic as V130G but with polycarbonate instead of glass.
+
+        Polycarbonate quantity is the door opening (width × height) times the
+        share of sections that are Panorama, rounded up to a whole square foot.
+        Every section Panorama matches a full Panorama door of the same size.
         """
         parts = []
         panorama_qty = config.window_qty or 1
@@ -3884,21 +3946,27 @@ class PartNumberService:
                 notes=f"Panorama polycarbonate section - replaces insulated panel at section {section_num}"
             ))
 
-        # Polycarbonate glazing (GK17)
+        # Polycarbonate glazing (GK17). Same opening rule as a Panorama door:
+        # width × height, scaled by how many sections are Panorama, rounded up
+        # to a whole square foot. A door with every section Panorama matches
+        # the full-door quantity. Door count is applied by the caller.
         poly_pn, poly_desc = resolve_gk17_polycarbonate(config.glass_color)
-
-        panel_count = self._calculate_panel_count(config.door_height)
-        glazing_sqft_per_section = self._calculate_al976_glass_sqft_per_section(
-            config.door_width, config.door_height, section_height, panel_count
+        poly_sqft = self._panorama_polycarbonate_sqft(
+            config.door_width,
+            config.door_height,
+            sections=panorama_qty,
+            section_count=panel_count,
         )
-        total_glazing_sqft = round(glazing_sqft_per_section * panorama_qty, 2)
 
         parts.append(PartSelection(
             part_number=poly_pn,
             description=poly_desc,
-            quantity=total_glazing_sqft,
+            quantity=poly_sqft,
             category="v130g_glass",
-            notes=f"Polycarbonate for {panorama_qty} Panorama section(s) ({glazing_sqft_per_section:.2f} sqft each)"
+            notes=(
+                f"Polycarbonate for {panorama_qty} of {panel_count} Panorama "
+                f"section(s) ({poly_sqft} sqft, door opening rounded up)"
+            ),
         ))
 
         return self._consolidate_parts(parts)
