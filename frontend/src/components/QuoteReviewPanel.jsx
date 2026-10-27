@@ -68,6 +68,18 @@ export default function QuoteReviewPanel({ bcQuoteId, bcQuoteNumber, onClose }) 
 
       {reviewData && diff && (
         <div className="p-4 space-y-4">
+          {(reviewData.creator_tag || reviewData.creator_email) && (
+            <p className="text-sm text-gray-600">
+              Creator:{' '}
+              {reviewData.creator_tag && (
+                <span className="font-mono text-gray-900">{reviewData.creator_tag}</span>
+              )}
+              {reviewData.creator_email && (
+                <span className="text-gray-500"> · {reviewData.creator_email}</span>
+              )}
+            </p>
+          )}
+
           {/* Summary */}
           <div className={`p-3 rounded-md text-sm font-medium ${
             diff.has_changes

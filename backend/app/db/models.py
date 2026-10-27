@@ -118,7 +118,12 @@ class User(Base):
     # Relationships
     email_connections = relationship("EmailConnection", back_populates="user", cascade="all, delete-orphan")
     bc_customer = relationship("BCCustomer", foreign_keys=[bc_customer_id], primaryjoin="User.bc_customer_id == BCCustomer.bc_customer_id")
-    saved_quote_configs = relationship("SavedQuoteConfig", back_populates="user", cascade="all, delete-orphan")
+    saved_quote_configs = relationship(
+        "SavedQuoteConfig",
+        foreign_keys="SavedQuoteConfig.user_id",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     projects = relationship("Project", back_populates="customer", cascade="all, delete-orphan")
     install_referrals = relationship("InstallReferral", back_populates="customer", cascade="all, delete-orphan")
     approver = relationship("User", remote_side=[id], foreign_keys=[approved_by])
@@ -965,13 +970,21 @@ class SavedQuoteConfig(Base):
     # keeping the BC quote number stable.
     bc_line_map = Column(MutableDict.as_mutable(JSON), nullable=True)
 
+    # Who generated the BC quote from the door configurator. Distinct from
+    # user_id, which is the customer-portal account that owns the draft.
+    # Populated even when External Document No. is a customer PO.
+    creator_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    creator_email = Column(String(255), nullable=True)
+    creator_tag = Column(String(35), nullable=True, index=True)
+
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, onupdate=datetime.utcnow)
     submitted_at = Column(DateTime, nullable=True)
 
     # Relationships
-    user = relationship("User", back_populates="saved_quote_configs")
+    user = relationship("User", foreign_keys=[user_id], back_populates="saved_quote_configs")
+    configurator_creator = relationship("User", foreign_keys=[creator_user_id])
 
     def __repr__(self):
         return f"<SavedQuoteConfig(id={self.id}, name={self.name}, submitted={self.is_submitted})>"
@@ -1264,15 +1277,38 @@ class QuoteSnapshot(Base):
     pricing_tier = Column(String(50), nullable=True)
     saved_config_id = Column(Integer, ForeignKey("saved_quote_configs.id"), nullable=True)
 
+    # Configurator creator. Queryable when the BC External Document No. is a
+    # customer PO rather than the creator tag.
+    creator_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    creator_email = Column(String(255), nullable=True)
+    creator_tag = Column(String(35), nullable=True, index=True)
+
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, onupdate=datetime.utcnow)
 
     # Relationships
     reviews = relationship("QuoteReview", back_populates="snapshot", cascade="all, delete-orphan")
+    creator = relationship("User", foreign_keys=[creator_user_id])
 
     def __repr__(self):
         return f"<QuoteSnapshot(id={self.id}, bc_quote={self.bc_quote_number}, source={self.source})>"
+
+
+class ConfiguratorQuoteCounter(Base):
+    """Per-creator running count of configurator quotes.
+
+    ``counter_key`` is ``user:<id>`` for a staff login and ``email`` for the
+    unattended email auto-quote path. ``last_issued`` is the last NNNN handed
+    out. Advanced with one upsert so concurrent Generate clicks stay unique.
+    """
+    __tablename__ = "configurator_quote_counters"
+
+    counter_key = Column(String(64), primary_key=True)
+    last_issued = Column(Integer, nullable=False, default=0, server_default="0")
+
+    def __repr__(self):
+        return f"<ConfiguratorQuoteCounter(key={self.counter_key}, last={self.last_issued})>"
 
 
 class QuoteReview(Base):

@@ -61,7 +61,7 @@ function QuoteSearch() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Quotes</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Search any saved quote across all customers by quote # or tag name.
+            Search saved quotes and configurator quotes by quote #, tag name, or creator.
           </p>
         </div>
       </div>
@@ -73,7 +73,7 @@ function QuoteSearch() {
             autoFocus
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search by quote # or tag name…"
+            placeholder="Search by quote #, tag name, or creator…"
             className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-odc-500 focus:border-odc-500"
           />
           <svg className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -105,6 +105,7 @@ function QuoteSearch() {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">BC Quote #</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tag / Name</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Creator</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
@@ -123,14 +124,34 @@ function QuoteSearch() {
                       <td className="px-6 py-3 text-sm text-gray-900">
                         {q.name || <span className="text-gray-400">(untitled)</span>}
                       </td>
+                      <td className="px-6 py-3 text-sm text-gray-900">
+                        {q.creator_tag ? (
+                          <>
+                            <span className="font-mono">{q.creator_tag}</span>
+                            {q.creator_email && (
+                              <p className="text-xs text-gray-500">{q.creator_email}</p>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
                       <td className="px-6 py-3 text-sm">
-                        <Link
-                          to={`/customers/${q.customer.id}`}
-                          className="text-odc-600 hover:text-odc-800 font-medium"
-                        >
-                          {q.customer.company_name || q.customer.name || q.customer.email}
-                        </Link>
-                        <p className="text-xs text-gray-500">{q.customer.email}</p>
+                        {q.customer?.id ? (
+                          <Link
+                            to={`/customers/${q.customer.id}`}
+                            className="text-odc-600 hover:text-odc-800 font-medium"
+                          >
+                            {q.customer.company_name || q.customer.name || q.customer.email}
+                          </Link>
+                        ) : (
+                          <span className="font-medium text-gray-900">
+                            {q.customer?.company_name || q.customer?.name || '—'}
+                          </span>
+                        )}
+                        {q.customer?.email && (
+                          <p className="text-xs text-gray-500">{q.customer.email}</p>
+                        )}
                       </td>
                       <td className="px-6 py-3">
                         <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${b.cls}`}>

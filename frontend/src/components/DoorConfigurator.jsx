@@ -3910,6 +3910,13 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
               <p className="text-sm text-green-700">
                 <span className="font-medium">BC Quote #:</span> {quoteResult.data.bc_quote_number}
               </p>
+              {quoteResult.data.creator_tag && (
+                <p className="text-sm text-green-700">
+                  <span className="font-medium">Creator:</span>{' '}
+                  <span className="font-mono">{quoteResult.data.creator_tag}</span>
+                  {quoteResult.data.created_by_email ? ` (${quoteResult.data.created_by_email})` : ''}
+                </p>
+              )}
               <p className="text-sm text-green-700">
                 <span className="font-medium">Lines Added:</span> {quoteResult.data.lines_added} items
               </p>
