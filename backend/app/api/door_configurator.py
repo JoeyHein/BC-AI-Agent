@@ -154,7 +154,10 @@ DOOR_SERIES = {
             "categoryValue": "67ab1db858e8bd835f4898e4",
             "specs": {
                 "rValue": 16.3,
-                "maxWidth": 432,  # 36' in inches
+                # 36'2". The rest of the catalog treats a nominal foot as
+                # covering +2" (weatherstrip "12' covers 12'2""; AL976 max
+                # 24'2"; Panorama max 30'2"). 432" blocked a 36'2" opening.
+                "maxWidth": 434,
                 "features": ["Double Continuous Hinge Reinforcement", "Thermal Break", "Windload", "IECC Certified"],
                 "warranty": "10 Year Limited"
             }
@@ -1627,7 +1630,9 @@ def build_bc_quote_from_doors(
                 if part.get("category") == "comment":
                     continue
                 # Info/warning comments → BC Comment line (not an item)
-                if part.get("category") in ("spring_comment", "highlift_comment", "glazing_comment"):
+                if part.get("category") in (
+                    "spring_comment", "highlift_comment", "glazing_comment", "sizing_warning",
+                ):
                     part["lineType"] = "Comment"
                     part["is_note"] = True
 
@@ -1794,27 +1799,23 @@ def build_bc_quote_from_doors(
 
             if is_panel_like:
                 reason = "not stocked in BC and no larger size available"
-                # "Generate anyway": drop the unresolved section/panel in as a
-                # MANUAL ENTRY comment so the rest of the quote still goes out.
-                if allow_unresolved_parts:
-                    logger.warning(
-                        f"FORCE: {pn} — {reason}; flagging as comment on {bc_quote_number}"
-                    )
-                    part_warnings.append(
-                        _flag_unresolved_line_as_comment(line, pn, reason)
-                    )
-                    continue
-                # No bigger size in BC for a panel/section — abort the
-                # quote rather than ship a wrong-size SKU.
-                logger.error(f"{line.get('category','panel').upper()} {pn} not in BC and no larger size found — aborting quote {bc_quote_number}")
-                try:
-                    bc_client.delete_sales_quote(bc_quote_id)
-                except Exception:
-                    pass
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"{line.get('category','Panel')} part {pn} not found in BC and no larger size available. Please contact the office."
+                # A series-legal width can still sit past the stocked section
+                # table (TX450 36'2" is PN46-*-3602; the item cache stops at
+                # 32'0" / PN46-*-3200). Aborting drops the rest of a valid BOM
+                # and the old step-down shipped a shorter section. Keep the
+                # exact part number as a MANUAL ENTRY comment so the office
+                # adds the section, and let every other line post.
+                # allow_unresolved_parts (forceGenerate) used to be the only
+                # way past the abort; it no longer gates this path.
+                logger.warning(
+                    f"{line.get('category','panel').upper()} {pn} — {reason}; "
+                    f"flagging as MANUAL ENTRY on {bc_quote_number} "
+                    f"(forceGenerate={allow_unresolved_parts})"
                 )
+                part_warnings.append(
+                    _flag_unresolved_line_as_comment(line, pn, reason)
+                )
+                continue
 
             # Non-panel part with no width-code suffix — find a sibling in
             # the same prefix family. Prefer the next-biggest where any
@@ -2341,7 +2342,8 @@ async def get_dimension_constraints(series_id: str):
         },
         "TX450": {
             "minWidth": 72,
-            "maxWidth": 432,  # 36'
+            # Lockstep with DOOR_SERIES TX450 specs (36'2", nominal +2").
+            "maxWidth": (find_door_series("TX450") or {}).get("specs", {}).get("maxWidth", 434),
             "minHeight": 84,
             "maxHeight": 240,
         },
@@ -2569,8 +2571,15 @@ async def calculate_door_specifications(request: DoorCalculationRequest, db: Ses
         width_inches = (request.widthFeet * 12) + request.widthInches
         height_inches = (request.heightFeet * 12) + request.heightInches
 
-        if width_inches < 60 or width_inches > 432:
-            raise HTTPException(status_code=400, detail="Door width must be between 60\" and 432\" (5' to 36')")
+        series_cap = (find_door_series(request.doorModel) or {}).get("specs", {}).get("maxWidth", 432)
+        if width_inches < 60 or width_inches > series_cap:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Door width must be between 60\" and {series_cap}\" "
+                    f"for {request.doorModel}"
+                ),
+            )
         if height_inches < 60 or height_inches > 288:
             raise HTTPException(status_code=400, detail="Door height must be between 60\" and 288\" (5' to 24')")
 

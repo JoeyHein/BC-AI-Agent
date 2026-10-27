@@ -17,6 +17,7 @@ import {
   lookupSeries,
   getDimensionValidation,
   collectDoorsDimensionErrors,
+  formatLimitFt,
 } from '../utils/doorDimensions'
 
 const STEPS = [
@@ -1022,9 +1023,9 @@ function DimensionsStep({ door, onChange, series }) {
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
           <p className="text-sm text-blue-700">
             <strong>{series?.name}:</strong>
-            {specs.maxWidth && ` Max width ${specs.maxWidth}" (${Math.floor(specs.maxWidth / 12)}')`}
+            {specs.maxWidth && ` Max width ${specs.maxWidth}" (${formatLimitFt(specs.maxWidth)})`}
             {specs.maxWidth && specs.maxHeight && ','}
-            {specs.maxHeight && ` Max height ${specs.maxHeight}" (${Math.floor(specs.maxHeight / 12)}')`}
+            {specs.maxHeight && ` Max height ${specs.maxHeight}" (${formatLimitFt(specs.maxHeight)})`}
             {specs.sectionHeights && `, Section heights: ${specs.sectionHeights.join('", ')}`}
           </p>
         </div>

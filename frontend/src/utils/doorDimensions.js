@@ -16,6 +16,14 @@ export function formatFtIn(totalInches) {
   return `${feet}'${rem}"`
 }
 
+/** Banner label for a max dimension. 432 → 36', 434 → 36'2". */
+export function formatLimitFt(totalInches) {
+  const inches = Number(totalInches) || 0
+  const feet = Math.floor(inches / 12)
+  const rem = inches % 12
+  return rem ? `${feet}'${rem}"` : `${feet}'`
+}
+
 export function formatFtInList(values) {
   const formatted = (values || []).map(formatFtIn)
   if (formatted.length === 0) return ''
