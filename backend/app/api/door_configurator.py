@@ -20,8 +20,10 @@ from app.services.quote_review_service import save_quote_snapshot
 from app.services.freight_service import calculate_freight, get_freight_config
 from app.services.operator_service import find_operator_by_part_number
 from app.integrations.bc.client import bc_client
+from app.api.staff_principal import require_staff
+from app.services.staff_permissions import redact_configurator_quote
 from app.db.database import get_db
-from app.db.models import BCCustomer
+from app.db.models import BCCustomer, User
 
 logger = logging.getLogger(__name__)
 
@@ -1324,7 +1326,7 @@ def _group_quote_lines_into_doors(lines: List[Dict[str, Any]]) -> List[Dict[str,
 
 
 @router.get("/load-quote/{quote_number}")
-async def load_existing_quote(quote_number: str):
+async def load_existing_quote(quote_number: str, _user: User = Depends(require_staff)):
     """Pull a live BC sales quote back into the configurator.
 
     Reconstructs a best-effort List[DoorConfigRequest] from the quote's
@@ -1402,7 +1404,11 @@ async def load_existing_quote(quote_number: str):
 
 
 @router.post("/generate-quote")
-async def generate_door_quote(request: QuoteGenerationRequest, db: Session = Depends(get_db)):
+async def generate_door_quote(
+    request: QuoteGenerationRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_staff),
+):
     """
     Generate a quote directly in Business Central.
 
@@ -2260,7 +2266,7 @@ def build_bc_quote_from_doors(
         manual_entry_required = [
             w for w in part_warnings if w.get("manual_entry_required")
         ]
-        return {
+        return redact_configurator_quote(_user, {
             "success": True,
             "data": {
                 "bc_quote_number": bc_quote_number,
@@ -2290,7 +2296,7 @@ def build_bc_quote_from_doors(
                 f" | Volume pricing: {escalating_result['target_gm']:.1f}% GM ({escalating_result['discount_pct']:.1f}% discount)"
                 if escalating_result else ""
             )
-        }
+        })
 
     except Exception as e:
         logger.error(f"Error generating BC quote: {e}", exc_info=True)

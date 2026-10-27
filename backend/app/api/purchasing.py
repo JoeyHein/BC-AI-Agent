@@ -20,6 +20,7 @@ from app.api.staff_principal import service_user_if_key
 from app.db.database import SessionLocal
 from app.db.models import User
 from app.services.auth_service import auth_service
+from app.services.staff_permissions import enforce_staff_permission
 from app.services.purchasing_demand_service import purchasing_demand_service
 from app.services.vendor_map_service import vendor_map_service
 from app.services.purchasing_report_service import purchasing_report_service
@@ -73,6 +74,7 @@ def get_current_admin(
     user = db.query(User).get(int(payload.get("sub")))
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+    enforce_staff_permission(request, user)
     return user
 
 

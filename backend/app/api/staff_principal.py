@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.db.models import User
 from app.services.auth_service import auth_service
+from app.services.staff_permissions import enforce_staff_permission
 from app.services.staff_service_keys_service import evaluate, is_staff_service_key
 
 _bearer = HTTPBearer(auto_error=False)
@@ -94,4 +95,5 @@ def require_staff(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Staff access required",
         )
+    enforce_staff_permission(request, user)
     return user

@@ -810,6 +810,19 @@ export const emailAgentApi = {
     apiClient.get('/api/email-agent/history'),
 };
 
+// Staff directory (Settings → Users).
+export const usersApi = {
+  catalog: () => apiClient.get('/api/auth/permission-catalog'),
+  list: () => apiClient.get('/api/auth/users'),
+  audit: (limit = 40) => apiClient.get('/api/auth/access-audit', { params: { limit } }),
+  invite: (body) => apiClient.post('/api/auth/users', body),
+  update: (id, body) => apiClient.patch(`/api/auth/users/${id}`, body),
+  disable: (id) => apiClient.post(`/api/auth/users/${id}/disable`),
+  enable: (id) => apiClient.post(`/api/auth/users/${id}/enable`),
+  setupLink: (id) => apiClient.post(`/api/auth/users/${id}/setup-link`),
+  passwordReset: (id) => apiClient.post(`/api/auth/users/${id}/password-reset`),
+};
+
 // Staff service keys (Settings → Service keys). Admin JWT only.
 export const serviceKeysApi = {
   list: () => apiClient.get('/api/admin/service-keys'),

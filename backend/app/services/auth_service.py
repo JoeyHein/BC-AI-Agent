@@ -86,10 +86,6 @@ class AuthService:
             logger.warning(f"Login attempt for non-existent user: {email}")
             return None
 
-        if not user.is_active:
-            logger.warning(f"Login attempt for inactive user: {email}")
-            return None
-
         # The automation identity is not a person. Access is the service key,
         # which an admin can revoke. Reject password login with the same
         # failure as a bad password so this account cannot be used in the UI.
@@ -101,7 +97,12 @@ class AuthService:
             logger.warning(f"Invalid password for user: {email}")
             return None
 
-        # Update last login time
+        # Password matched. The login route turns an inactive account into
+        # 403. A wrong password stays 401, including for a disabled account.
+        if not user.is_active:
+            logger.warning(f"Login attempt for inactive user: {email}")
+            return user
+
         user.last_login_at = datetime.utcnow()
         db.commit()
 
@@ -156,8 +157,14 @@ class AuthService:
         """Check if user has required permission level"""
         role_hierarchy = {
             UserRole.VIEWER: 0,
+            UserRole.CONFIGURATOR: 0,
+            UserRole.WAREHOUSE: 1,
+            UserRole.SALES: 1,
+            UserRole.PURCHASING: 1,
             UserRole.REVIEWER: 1,
-            UserRole.ADMIN: 2
+            UserRole.MANAGER: 1,
+            UserRole.ADMIN: 2,
+            UserRole.OWNER: 3,
         }
 
         user_level = role_hierarchy.get(user.role, 0)

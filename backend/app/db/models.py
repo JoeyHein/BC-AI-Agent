@@ -35,10 +35,22 @@ class KnowledgeType(enum.Enum):
 
 
 class UserRole(enum.Enum):
-    """User roles for permission system"""
-    ADMIN = "admin"          # Full access: manage users, connect emails, review quotes
-    REVIEWER = "reviewer"    # Can review and approve/reject quotes
-    VIEWER = "viewer"        # Read-only access
+    """Staff role presets. Customer accounts stay on this column too.
+
+    The names are what PostgreSQL stores (userrole). The values are what the
+    API returns. Owner and admin can do everything; the other presets are
+    starting points an owner can override per person. Reviewer is the old
+    preset, kept so rows that have not been migrated still load.
+    """
+    OWNER = "owner"
+    ADMIN = "admin"
+    MANAGER = "manager"
+    SALES = "sales"
+    PURCHASING = "purchasing"
+    WAREHOUSE = "warehouse"
+    CONFIGURATOR = "configurator"
+    REVIEWER = "reviewer"
+    VIEWER = "viewer"
 
 
 class UserType(enum.Enum):
@@ -97,6 +109,12 @@ class User(Base):
     # OPENDC admins can override this from the admin portal.
     is_customer_admin = Column(Boolean, default=False, nullable=False)
 
+    # Staff access. NULL means "use the preset for role". A dict is a
+    # per-person override. Customer accounts leave this empty.
+    permissions = Column(JSON, nullable=True)
+    # True until the person opens the setup link and chooses a password.
+    invite_pending = Column(Boolean, default=False, nullable=False)
+
     # Relationships
     email_connections = relationship("EmailConnection", back_populates="user", cascade="all, delete-orphan")
     bc_customer = relationship("BCCustomer", foreign_keys=[bc_customer_id], primaryjoin="User.bc_customer_id == BCCustomer.bc_customer_id")
@@ -106,7 +124,25 @@ class User(Base):
     approver = relationship("User", remote_side=[id], foreign_keys=[approved_by])
 
     def __repr__(self):
-        return f"<User(id={self.id}, email={self.email}, role={self.role.value}, type={self.user_type})>"
+        role = self.role.value if self.role is not None else None
+        return f"<User(id={self.id}, email={self.email}, role={role}, type={self.user_type})>"
+
+
+class StaffAccessAudit(Base):
+    """Who changed a staff login, and what changed. No passwords or tokens."""
+    __tablename__ = "staff_access_audit"
+
+    id = Column(Integer, primary_key=True, index=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    actor_email = Column(String(255), nullable=True)
+    target_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    target_email = Column(String(255), nullable=True)
+    action = Column(String(40), nullable=False)
+    detail = Column(JSON, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<StaffAccessAudit(id={self.id}, action={self.action}, target={self.target_email})>"
 
 
 class EmailConnection(Base):

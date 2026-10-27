@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.api.auth import require_admin
+from app.api.auth import get_current_user
 from app.db.database import get_db
 from app.db.models import BCCustomer, User
 from app.integrations.bc.client import BusinessCentralClient
@@ -182,7 +182,7 @@ def _resolve_bc_hierarchy(
 
 @router.get("/probe")
 async def probe_bc_sales_prices(
-    _admin: User = Depends(require_admin),
+    _user: User = Depends(get_current_user),
 ):
     """
     Quick connectivity probe. Hits BC OData V4 with a no-op Sales Price query
@@ -217,7 +217,7 @@ async def probe_bc_sales_prices(
 @router.post("")
 async def run_pricing_diagnostic(
     request: DiagnosticRequest,
-    _admin: User = Depends(require_admin),
+    _user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """

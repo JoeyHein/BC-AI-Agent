@@ -36,6 +36,7 @@ from app.api import external_purchase_orders
 from app.api import external_door_config
 from app.api import bc_read, staff_service_keys
 from app.api import kpi_dashboard
+from app.api.staff_permission_middleware import staff_permission_middleware
 from app.api.staff_service_key_middleware import staff_service_key_middleware
 
 # Import services
@@ -232,6 +233,13 @@ async def external_call_log_middleware(request, call_next):
     except Exception:
         logger.warning("external_call_log write failed", exc_info=True)
     return response
+
+
+@app.middleware("http")
+async def _staff_permissions(request, call_next):
+    """Staff permission check. Registered before the service-key gate so the
+    key allow-list stays the outer middleware and still runs first."""
+    return await staff_permission_middleware(request, call_next)
 
 
 @app.middleware("http")

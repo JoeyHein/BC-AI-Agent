@@ -17,9 +17,14 @@ from sqlalchemy.orm import Session
 
 from app.services.task_completion_service import task_completion_service
 from app.services.bc_production_service import bc_production_service, PRODUCTION_API_AVAILABLE
+from app.api.staff_principal import require_staff
 from app.db.models import ProductionTask, ProductionOrder, SalesOrder, SalesOrderLineItem, OrderStatus, TaskCompletionStatus
 
-router = APIRouter(prefix="/production/tasks", tags=["Production Tasks"])
+router = APIRouter(
+    prefix="/production/tasks",
+    tags=["Production Tasks"],
+    dependencies=[Depends(require_staff)],
+)
 
 
 # ==================== Request/Response Models ====================

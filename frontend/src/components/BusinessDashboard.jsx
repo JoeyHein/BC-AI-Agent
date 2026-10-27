@@ -352,14 +352,12 @@ function ErrorBanner({ message }) {
 // MAIN DASHBOARD
 // ============================================================================
 function BusinessDashboard() {
-  const { user } = useAuth()
-  const role = user?.role || 'viewer'
+  const { can, canAny } = useAuth()
 
-  // Determine available tabs based on role
   const tabs = []
-  if (role === 'admin') tabs.push({ id: 'executive', label: 'Executive' })
-  if (role === 'admin' || role === 'reviewer') tabs.push({ id: 'operations', label: 'Operations' })
-  tabs.push({ id: 'shipping', label: 'Shipping' })
+  if (can('users.manage')) tabs.push({ id: 'executive', label: 'Executive' })
+  if (canAny(['quotes.edit', 'sales_orders.edit', 'purchase_orders.view'])) tabs.push({ id: 'operations', label: 'Operations' })
+  if (can('sales_orders.view')) tabs.push({ id: 'shipping', label: 'Shipping' })
 
   const [activeTab, setActiveTab] = useState(tabs[0]?.id || 'shipping')
 
@@ -371,6 +369,10 @@ function BusinessDashboard() {
           <p className="mt-1 text-sm text-gray-500">Live metrics from Business Central</p>
         </div>
       </div>
+
+      {tabs.length === 0 && (
+        <p className="text-sm text-gray-500">Your login does not include a business report.</p>
+      )}
 
       {/* Tab switcher */}
       {tabs.length > 1 && (
@@ -394,9 +396,9 @@ function BusinessDashboard() {
       )}
 
       {/* View content */}
-      {activeTab === 'executive' && <ExecutiveView />}
-      {activeTab === 'operations' && <OperationsView />}
-      {activeTab === 'shipping' && <ShippingView />}
+      {tabs.some((tab) => tab.id === 'executive') && activeTab === 'executive' && <ExecutiveView />}
+      {tabs.some((tab) => tab.id === 'operations') && activeTab === 'operations' && <OperationsView />}
+      {tabs.some((tab) => tab.id === 'shipping') && activeTab === 'shipping' && <ShippingView />}
     </div>
   )
 }
