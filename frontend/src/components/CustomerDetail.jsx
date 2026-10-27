@@ -263,7 +263,7 @@ function CustomerQuotes({ customerId }) {
             type="text"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search by quote # or tag…"
+            placeholder="Search by quote #, tag, or creator…"
             className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-odc-500"
           />
           <svg className="absolute left-2 top-2 h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -285,6 +285,7 @@ function CustomerQuotes({ customerId }) {
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tag / Name</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">BC Quote #</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Creator</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Updated</th>
@@ -303,6 +304,18 @@ function CustomerQuotes({ customerId }) {
                     </td>
                     <td className="px-6 py-3 text-sm font-mono text-gray-700">
                       {q.bc_quote_number || '—'}
+                    </td>
+                    <td className="px-6 py-3 text-sm text-gray-900">
+                      {q.creator_tag ? (
+                        <>
+                          <span className="font-mono">{q.creator_tag}</span>
+                          {q.creator_email && (
+                            <p className="text-xs text-gray-500">{q.creator_email}</p>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
                     </td>
                     <td className="px-6 py-3">
                       <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${b.cls}`}>

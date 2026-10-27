@@ -606,8 +606,9 @@ class TestGenerateQuoteRedaction:
 
     def _seed(self):
         engine = _engine()
-        from app.db.models import AppSettings
+        from app.db.models import AppSettings, ConfiguratorQuoteCounter
         AppSettings.__table__.create(engine, checkfirst=True)
+        ConfiguratorQuoteCounter.__table__.create(engine, checkfirst=True)
         Session = _session_factory(engine)
         hidden = dict(PRESETS["configurator"])
         hidden["pricing.view"] = False

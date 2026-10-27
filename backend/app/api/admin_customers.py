@@ -15,7 +15,10 @@ from typing import Optional, List
 
 from app.api.staff_principal import service_user_if_key
 from app.db.database import SessionLocal
-from app.db.models import User, UserRole, BCCustomer, SavedQuoteConfig, SalesOrder, CustomerInstallPricing, CustomerNote
+from app.db.models import (
+    User, UserRole, BCCustomer, SavedQuoteConfig, SalesOrder,
+    CustomerInstallPricing, CustomerNote, QuoteSnapshot,
+)
 from app.services.auth_service import auth_service
 from app.services.staff_permissions import (
     enforce_staff_permission,
@@ -1468,17 +1471,42 @@ def list_customer_quotes(
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
 
+    like = f"%{search.strip()}%" if search and search.strip() else None
     q = db.query(SavedQuoteConfig).filter(SavedQuoteConfig.user_id == customer.id)
-    if search and search.strip():
-        like = f"%{search.strip()}%"
+    if like:
         q = q.filter(or_(
             SavedQuoteConfig.name.ilike(like),
             SavedQuoteConfig.bc_quote_number.ilike(like),
+            SavedQuoteConfig.creator_tag.ilike(like),
+            SavedQuoteConfig.creator_email.ilike(like),
         ))
     configs = q.order_by(SavedQuoteConfig.created_at.desc()).all()
 
+    snapshots = []
+    if customer.bc_customer_id:
+        snap_q = db.query(QuoteSnapshot).filter(
+            QuoteSnapshot.creator_tag.isnot(None),
+            QuoteSnapshot.bc_customer_id == customer.bc_customer_id,
+        )
+        if like:
+            snap_q = snap_q.filter(or_(
+                QuoteSnapshot.bc_quote_number.ilike(like),
+                QuoteSnapshot.creator_tag.ilike(like),
+                QuoteSnapshot.creator_email.ilike(like),
+            ))
+        snapshots = snap_q.order_by(QuoteSnapshot.created_at.desc()).all()
+    saved_bc_ids = {c.bc_quote_id for c in configs if c.bc_quote_id}
+    extra_snapshots = [s for s in snapshots if s.bc_quote_id not in saved_bc_ids]
+
+    overlay = {}
+    overlay_ids = [c.bc_quote_id for c in configs if c.bc_quote_id and not c.creator_tag]
+    if overlay_ids:
+        for snap in db.query(QuoteSnapshot).filter(QuoteSnapshot.bc_quote_id.in_(overlay_ids)).all():
+            overlay[snap.bc_quote_id] = snap
+
     # Hydrate order_placed flag (matches customer portal _hydrate_order_placed)
     submitted_nums = [c.bc_quote_number for c in configs if c.bc_quote_number]
+    submitted_nums.extend(s.bc_quote_number for s in extra_snapshots if s.bc_quote_number)
     ordered_nums: set = set()
     if submitted_nums and customer.bc_customer_id:
         rows = db.query(SalesOrder.bc_quote_number).filter(
@@ -1487,21 +1515,47 @@ def list_customer_quotes(
         ).all()
         ordered_nums = {r[0] for r in rows if r[0]}
 
-    return [
-        {
-            "id": c.id,
-            "name": c.name,
-            "description": c.description,
-            "is_submitted": c.is_submitted,
-            "bc_quote_number": c.bc_quote_number,
-            "bc_quote_id": c.bc_quote_id,
-            "created_at": c.created_at.isoformat() if c.created_at else None,
-            "updated_at": c.updated_at.isoformat() if c.updated_at else None,
-            "submitted_at": c.submitted_at.isoformat() if c.submitted_at else None,
-            "order_placed": bool(c.bc_quote_number and c.bc_quote_number in ordered_nums),
+    def _row(config: SavedQuoteConfig) -> dict:
+        snap = overlay.get(config.bc_quote_id)
+        tag = config.creator_tag or (snap.creator_tag if snap else None)
+        user_id = config.creator_user_id if config.creator_user_id is not None else (
+            snap.creator_user_id if snap else None
+        )
+        email = config.creator_email or (snap.creator_email if snap else None)
+        return {
+            "id": config.id,
+            "name": config.name,
+            "description": config.description,
+            "is_submitted": config.is_submitted,
+            "bc_quote_number": config.bc_quote_number,
+            "bc_quote_id": config.bc_quote_id,
+            "created_at": config.created_at.isoformat() if config.created_at else None,
+            "updated_at": config.updated_at.isoformat() if config.updated_at else None,
+            "submitted_at": config.submitted_at.isoformat() if config.submitted_at else None,
+            "order_placed": bool(config.bc_quote_number and config.bc_quote_number in ordered_nums),
+            "creator_tag": tag,
+            "creator_user_id": user_id,
+            "creator_email": email,
         }
-        for c in configs
-    ]
+
+    payload = [_row(c) for c in configs]
+    for snap in extra_snapshots:
+        payload.append({
+            "id": f"snapshot-{snap.id}",
+            "name": snap.creator_tag or snap.bc_quote_number,
+            "description": "Email auto-quote" if snap.source == "email" else "Configurator quote",
+            "is_submitted": False,
+            "bc_quote_number": snap.bc_quote_number,
+            "bc_quote_id": snap.bc_quote_id,
+            "created_at": snap.created_at.isoformat() if snap.created_at else None,
+            "updated_at": snap.updated_at.isoformat() if snap.updated_at else None,
+            "submitted_at": None,
+            "order_placed": bool(snap.bc_quote_number and snap.bc_quote_number in ordered_nums),
+            "creator_tag": snap.creator_tag,
+            "creator_user_id": snap.creator_user_id,
+            "creator_email": snap.creator_email,
+        })
+    return payload
 
 
 @router.get("/notes-feed")

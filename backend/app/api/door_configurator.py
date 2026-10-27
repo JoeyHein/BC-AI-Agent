@@ -17,6 +17,10 @@ from app.services.shop_drawing_service import calculate_shop_drawing_geometry
 from app.services.spring_data_service import get_bc_spring_inventory
 from app.services.pricing_service import calculate_selling_price, warm_bc_cost_cache
 from app.services.quote_review_service import save_quote_snapshot
+from app.services.configurator_quote_tag import (
+    external_document_number,
+    resolve_creator_tag,
+)
 from app.services.freight_service import calculate_freight, get_freight_config
 from app.services.operator_service import find_operator_by_part_number
 from app.integrations.bc.client import bc_client
@@ -1695,9 +1699,21 @@ def build_bc_quote_from_doors(
             ).first()
             enable_volume_curve = bool(flag_setting and flag_setting.setting_value)
 
-        # Set external document number for tracking
-        po_number = request.poNumber or f"CFG-{len(request.doors)}-DOORS"
+        # Creator tag identifies who generated the quote. Your Reference
+        # always gets the tag. External Document No. keeps a typed PO as
+        # entered, and falls back to the tag when that field is blank.
+        creator_tag, creator_user_id, creator_email = resolve_creator_tag(
+            db, user, request.bcQuoteId,
+        )
+        po_number = external_document_number(request.poNumber, creator_tag)
         quote_data["externalDocumentNumber"] = po_number
+        quote_data["yourReference"] = creator_tag
+        logger.info(
+            "Configurator quote tag %s (user=%s, external_document=%s)",
+            creator_tag,
+            creator_email or "email",
+            po_number,
+        )
 
         # Either reuse an existing BC quote (clearing its lines first) or
         # create a fresh one. Reuse keeps the BC quote number stable across
@@ -1716,11 +1732,17 @@ def build_bc_quote_from_doors(
                 try:
                     bc_client.update_sales_quote(
                         bc_quote_id,
-                        {"externalDocumentNumber": po_number},
+                        {
+                            "externalDocumentNumber": po_number,
+                            "yourReference": creator_tag,
+                        },
                         etag=existing.get("@odata.etag", "*"),
                     )
                 except Exception as header_err:
-                    logger.warning(f"Could not update externalDocumentNumber on quote {bc_quote_number}: {header_err}")
+                    logger.warning(
+                        f"Could not update externalDocumentNumber/yourReference "
+                        f"on quote {bc_quote_number}: {header_err}"
+                    )
                 existing_lines = bc_client.get_quote_lines(bc_quote_id)
                 for ql in existing_lines:
                     line_id = ql.get("id")
@@ -2266,6 +2288,9 @@ def build_bc_quote_from_doors(
                 door_configs=door_configs_summary,
                 bc_customer_id=request.customerId,
                 pricing_tier=pricing_tier,
+                creator_user_id=creator_user_id,
+                creator_email=creator_email,
+                creator_tag=creator_tag,
             )
         except Exception as snap_err:
             logger.warning(f"Could not save quote snapshot: {snap_err}")
@@ -2279,6 +2304,9 @@ def build_bc_quote_from_doors(
                 "bc_quote_number": bc_quote_number,
                 "bc_quote_id": bc_quote_id,
                 "po_number": po_number,
+                "creator_tag": creator_tag,
+                "created_by_user_id": creator_user_id,
+                "created_by_email": creator_email,
                 "tag_name": request.tagName or "Door Configurator Quote",
                 "doors": door_summaries,
                 "total_doors": len(request.doors),

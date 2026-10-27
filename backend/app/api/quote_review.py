@@ -24,6 +24,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin/quote-review", tags=["quote-review"])
 
 
+def _creator_fields(snapshot: Optional[QuoteSnapshot]) -> dict:
+    if snapshot is None:
+        return {"creator_tag": None, "creator_user_id": None, "creator_email": None}
+    return {
+        "creator_tag": snapshot.creator_tag,
+        "creator_user_id": snapshot.creator_user_id,
+        "creator_email": snapshot.creator_email,
+    }
+
+
 # ── Request models ─────────────────────────────────────────────
 
 class ReviewRequest(BaseModel):
@@ -70,6 +80,7 @@ async def list_snapshots(
             "review_count": review_count,
             "is_reviewed": review_count > 0,
             "created_at": s.created_at.isoformat() if s.created_at else None,
+            **_creator_fields(s),
         })
 
     return {"snapshots": results, "total": total}
@@ -135,6 +146,7 @@ async def review_quote(
         "diff": diff_result,
         "ai_analysis": ai_analysis,
         "created_at": review.created_at.isoformat(),
+        **_creator_fields(snapshot),
     }
 
 
@@ -219,6 +231,7 @@ async def list_reviews(
             "reviewed_by": r.reviewed_by,
             "review_notes": r.review_notes,
             "created_at": r.created_at.isoformat() if r.created_at else None,
+            **_creator_fields(snapshot),
         })
 
     return {"reviews": results, "total": total}
@@ -250,6 +263,7 @@ async def get_review(
             "original_pricing_totals": snapshot.original_pricing_totals,
             "pricing_tier": snapshot.pricing_tier,
             "created_at": snapshot.created_at.isoformat() if snapshot.created_at else None,
+            **_creator_fields(snapshot),
         } if snapshot else None,
         "bc_lines_at_review": review.bc_lines_at_review,
         "diff": review.diff_result,

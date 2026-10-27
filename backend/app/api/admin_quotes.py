@@ -6,6 +6,7 @@ plus staff download of the Business Central sales-quote PDF by SQ number or GUID
 
 import logging
 import re
+from datetime import datetime
 from typing import Optional, Tuple
 
 import requests
@@ -16,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.api.admin_customers import get_current_admin
 from app.db.database import SessionLocal
-from app.db.models import User, SavedQuoteConfig, SalesOrder
+from app.db.models import User, SavedQuoteConfig, SalesOrder, QuoteSnapshot, BCCustomer
 from app.integrations.bc.client import bc_client
 
 router = APIRouter(prefix="/api/admin/quotes", tags=["admin-quotes"])
@@ -36,6 +37,50 @@ def get_db():
         db.close()
 
 
+def _creator_fields(tag, user_id, email) -> dict:
+    return {
+        "creator_tag": tag,
+        "creator_user_id": user_id,
+        "creator_email": email,
+    }
+
+
+def _ordered_quote_numbers(db: Session, numbers: list) -> set:
+    nums = [n for n in numbers if n]
+    if not nums:
+        return set()
+    order_rows = db.query(SalesOrder.bc_quote_number).filter(
+        SalesOrder.bc_quote_number.in_(nums),
+    ).all()
+    return {r[0] for r in order_rows if r[0]}
+
+
+def _snapshot_customer(snapshot: QuoteSnapshot, portal_user: Optional[User], bc_customer: Optional[BCCustomer]) -> dict:
+    if portal_user is not None:
+        return {
+            "id": portal_user.id,
+            "email": portal_user.email,
+            "name": portal_user.name or portal_user.email,
+            "company_name": getattr(portal_user, "company_name", None) or (
+                bc_customer.company_name if bc_customer is not None else None
+            ),
+            "bc_customer_id": snapshot.bc_customer_id,
+        }
+    if bc_customer is not None:
+        label = bc_customer.company_name or bc_customer.contact_name
+    elif snapshot.source == "email":
+        label = "Email auto-quote"
+    else:
+        label = "Configurator"
+    return {
+        "id": None,
+        "email": snapshot.creator_email,
+        "name": label,
+        "company_name": label,
+        "bc_customer_id": snapshot.bc_customer_id,
+    }
+
+
 @router.get("")
 def search_all_quotes(
     search: Optional[str] = None,
@@ -43,55 +88,120 @@ def search_all_quotes(
     current_admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    """Admin: global search across every customer's saved-quote configs.
+    """Admin: global search across saved-quote configs and configurator quotes.
 
-    ?search= matches name (tag) or BC quote number, case-insensitive substring.
-    No search term → returns the most recent `limit` quotes across all customers.
+    ?search= matches name, BC quote number, creator tag, or creator email.
+    No search term → the most recent quotes. Configurator quotes that were
+    never saved as a customer draft are included once they have a creator tag,
+    so staff can see who generated them when a PO was typed.
     """
+    cap = max(1, min(limit, 200))
+    like = f"%{search.strip()}%" if search and search.strip() else None
+
     q = (
         db.query(SavedQuoteConfig, User)
         .join(User, SavedQuoteConfig.user_id == User.id)
         .filter(User.user_type == 'CUSTOMER')
     )
-    if search and search.strip():
-        like = f"%{search.strip()}%"
+    if like:
         q = q.filter(or_(
             SavedQuoteConfig.name.ilike(like),
             SavedQuoteConfig.bc_quote_number.ilike(like),
+            SavedQuoteConfig.creator_tag.ilike(like),
+            SavedQuoteConfig.creator_email.ilike(like),
         ))
 
-    rows = q.order_by(SavedQuoteConfig.created_at.desc()).limit(max(1, min(limit, 200))).all()
+    rows = q.order_by(SavedQuoteConfig.created_at.desc()).limit(cap).all()
 
-    submitted_nums = [c.bc_quote_number for c, _ in rows if c.bc_quote_number]
-    ordered_nums: set = set()
-    if submitted_nums:
-        order_rows = db.query(SalesOrder.bc_quote_number).filter(
-            SalesOrder.bc_quote_number.in_(submitted_nums),
-        ).all()
-        ordered_nums = {r[0] for r in order_rows if r[0]}
+    snap_q = db.query(QuoteSnapshot).filter(QuoteSnapshot.creator_tag.isnot(None))
+    if like:
+        snap_q = snap_q.filter(or_(
+            QuoteSnapshot.bc_quote_number.ilike(like),
+            QuoteSnapshot.creator_tag.ilike(like),
+            QuoteSnapshot.creator_email.ilike(like),
+        ))
+    snapshots = snap_q.order_by(QuoteSnapshot.created_at.desc()).limit(cap).all()
 
-    return [
-        {
-            "id": c.id,
-            "name": c.name,
-            "description": c.description,
-            "is_submitted": c.is_submitted,
-            "bc_quote_number": c.bc_quote_number,
-            "bc_quote_id": c.bc_quote_id,
-            "created_at": c.created_at.isoformat() if c.created_at else None,
-            "updated_at": c.updated_at.isoformat() if c.updated_at else None,
-            "submitted_at": c.submitted_at.isoformat() if c.submitted_at else None,
-            "order_placed": bool(c.bc_quote_number and c.bc_quote_number in ordered_nums),
-            "customer": {
-                "id": u.id,
-                "email": u.email,
-                "name": u.name or u.email,
-                "company_name": getattr(u, "company_name", None),
-                "bc_customer_id": u.bc_customer_id,
-            },
-        }
-        for c, u in rows
+    saved_bc_ids = {c.bc_quote_id for c, _ in rows if c.bc_quote_id}
+    saved_config_ids = {c.id for c, _ in rows}
+    extra_snapshots = [
+        s for s in snapshots
+        if s.bc_quote_id not in saved_bc_ids and s.saved_config_id not in saved_config_ids
     ]
+
+    overlay_ids = [c.bc_quote_id for c, _ in rows if c.bc_quote_id and not c.creator_tag]
+    overlay = {}
+    if overlay_ids:
+        for snap in db.query(QuoteSnapshot).filter(QuoteSnapshot.bc_quote_id.in_(overlay_ids)).all():
+            overlay[snap.bc_quote_id] = snap
+
+    bc_ids = {s.bc_customer_id for s in extra_snapshots if s.bc_customer_id}
+    users_by_bc = {}
+    bc_by_id = {}
+    if bc_ids:
+        for user in db.query(User).filter(
+            User.bc_customer_id.in_(bc_ids),
+            User.user_type == "CUSTOMER",
+        ).all():
+            users_by_bc.setdefault(user.bc_customer_id, user)
+        for bc in db.query(BCCustomer).filter(BCCustomer.bc_customer_id.in_(bc_ids)).all():
+            bc_by_id[bc.bc_customer_id] = bc
+
+    numbers = [c.bc_quote_number for c, _ in rows if c.bc_quote_number]
+    numbers.extend(s.bc_quote_number for s in extra_snapshots if s.bc_quote_number)
+    ordered_nums = _ordered_quote_numbers(db, numbers)
+
+    results = []
+    for config, owner in rows:
+        snap = overlay.get(config.bc_quote_id)
+        tag = config.creator_tag or (snap.creator_tag if snap else None)
+        user_id = config.creator_user_id if config.creator_user_id is not None else (
+            snap.creator_user_id if snap else None
+        )
+        email = config.creator_email or (snap.creator_email if snap else None)
+        results.append((config.created_at or datetime.min, {
+            "id": config.id,
+            "name": config.name,
+            "description": config.description,
+            "is_submitted": config.is_submitted,
+            "bc_quote_number": config.bc_quote_number,
+            "bc_quote_id": config.bc_quote_id,
+            "created_at": config.created_at.isoformat() if config.created_at else None,
+            "updated_at": config.updated_at.isoformat() if config.updated_at else None,
+            "submitted_at": config.submitted_at.isoformat() if config.submitted_at else None,
+            "order_placed": bool(config.bc_quote_number and config.bc_quote_number in ordered_nums),
+            **_creator_fields(tag, user_id, email),
+            "customer": {
+                "id": owner.id,
+                "email": owner.email,
+                "name": owner.name or owner.email,
+                "company_name": getattr(owner, "company_name", None),
+                "bc_customer_id": owner.bc_customer_id,
+            },
+        }))
+
+    for snap in extra_snapshots:
+        results.append((snap.created_at or datetime.min, {
+            "id": f"snapshot-{snap.id}",
+            "name": snap.creator_tag or snap.bc_quote_number,
+            "description": "Email auto-quote" if snap.source == "email" else "Configurator quote",
+            "is_submitted": False,
+            "bc_quote_number": snap.bc_quote_number,
+            "bc_quote_id": snap.bc_quote_id,
+            "created_at": snap.created_at.isoformat() if snap.created_at else None,
+            "updated_at": snap.updated_at.isoformat() if snap.updated_at else None,
+            "submitted_at": None,
+            "order_placed": bool(snap.bc_quote_number and snap.bc_quote_number in ordered_nums),
+            **_creator_fields(snap.creator_tag, snap.creator_user_id, snap.creator_email),
+            "customer": _snapshot_customer(
+                snap,
+                users_by_bc.get(snap.bc_customer_id),
+                bc_by_id.get(snap.bc_customer_id),
+            ),
+        }))
+
+    results.sort(key=lambda item: item[0], reverse=True)
+    return [payload for _, payload in results[:cap]]
 
 
 def normalize_staff_quote_ref(raw: str) -> Tuple[str, str]:
