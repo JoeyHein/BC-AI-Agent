@@ -15,6 +15,11 @@ from app.api.staff_principal import service_user_if_key
 from app.db.database import SessionLocal
 from app.db.models import User, UserRole
 from app.services.auth_service import auth_service
+from app.services.staff_permissions import (
+    enforce_staff_permission,
+    has_permission,
+    serialize_user,
+)
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
 logger = logging.getLogger(__name__)
@@ -89,13 +94,14 @@ def get_current_user(
             detail="User is inactive",
         )
 
+    enforce_staff_permission(request, user)
     return user
 
 
 # Dependency to require admin role
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    """Require admin role"""
-    if not auth_service.check_permission(current_user, UserRole.ADMIN):
+    """Users, settings, and service keys. Owner and admin presets, or a custom grant."""
+    if not has_permission(current_user, "users.manage"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"
@@ -103,10 +109,13 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
-# Dependency to require reviewer role
 def require_reviewer(current_user: User = Depends(get_current_user)) -> User:
-    """Require reviewer role or higher"""
-    if not auth_service.check_permission(current_user, UserRole.REVIEWER):
+    """Quote, order, or purchasing changes. The route's own permission still applies."""
+    if not (
+        has_permission(current_user, "quotes.edit")
+        or has_permission(current_user, "sales_orders.edit")
+        or has_permission(current_user, "purchase_orders.edit")
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Reviewer access required"
@@ -143,11 +152,14 @@ class UserResponse(BaseModel):
     """User response"""
     id: int
     email: str
-    name: Optional[str]
+    name: Optional[str] = None
     role: str
     is_active: bool
-    created_at: datetime
-    last_login_at: Optional[datetime]
+    created_at: Optional[datetime] = None
+    last_login_at: Optional[datetime] = None
+    permissions: dict = {}
+    permissions_custom: bool = False
+    invite_pending: bool = False
 
     class Config:
         from_attributes = True
@@ -172,6 +184,11 @@ def login(
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account is disabled.",
+        )
 
     # Create access token (sub must be string per JWT spec)
     access_token = auth_service.create_access_token(data={"sub": str(user.id)})
@@ -179,12 +196,7 @@ def login(
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "name": user.name,
-            "role": user.role.value
-        }
+        "user": serialize_user(user),
     }
 
 
@@ -193,43 +205,27 @@ def register(
     register_data: RegisterRequest,
     db: Session = Depends(get_db)
 ):
-    """Register a new user (public endpoint for first admin)"""
-    # Check if any users exist
-    existing_users_count = db.query(User).count()
+    """Create the first staff admin when the users table is empty.
 
-    # If this is the first user, make them admin
-    if existing_users_count == 0:
-        role = UserRole.ADMIN
-        logger.info("Creating first admin user")
-    else:
-        # For subsequent users, require admin to create
-        # For now, we'll allow self-registration as viewer
-        role_str = register_data.role.lower()
-        if role_str not in ["viewer", "reviewer", "admin"]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid role. Must be viewer, reviewer, or admin"
-            )
-        role = UserRole[role_str.upper()]
+    After that, staff accounts are invited from Settings. Customer signup
+    stays on /api/customer/register.
+    """
+    if db.query(User).count() > 0:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Staff accounts are created by an administrator. Ask an owner to send you a setup link.",
+        )
 
-        # Only allow viewer for self-registration
-        if role != UserRole.VIEWER and existing_users_count > 0:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only admin can create users with elevated permissions"
-            )
-
+    logger.info("Creating first admin user")
     try:
         user = auth_service.create_user(
             db=db,
             email=register_data.email,
             password=register_data.password,
             name=register_data.name,
-            role=role
+            role=UserRole.ADMIN,
         )
-
-        return user
-
+        return serialize_user(user)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -241,8 +237,8 @@ def register(
 def get_current_user_info(
     current_user: User = Depends(get_current_user)
 ):
-    """Get current user info"""
-    return current_user
+    """Get current user info, including the permissions the nav should use."""
+    return serialize_user(current_user)
 
 
 @router.post("/logout")
@@ -251,72 +247,6 @@ def logout(current_user: User = Depends(get_current_user)):
     return {"message": "Logged out successfully"}
 
 
-@router.get("/users", response_model=list[UserResponse])
-def list_users(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
-):
-    """List all users (admin only)"""
-    users = db.query(User).all()
-    return users
+from app.api.staff_users import register_staff_routes
 
-
-@router.post("/users", response_model=UserResponse)
-def create_user(
-    register_data: RegisterRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
-):
-    """Create a new user (admin only)"""
-    role_str = register_data.role.lower()
-    if role_str not in ["viewer", "reviewer", "admin"]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid role"
-        )
-
-    role = UserRole[role_str.upper()]
-
-    try:
-        user = auth_service.create_user(
-            db=db,
-            email=register_data.email,
-            password=register_data.password,
-            name=register_data.name,
-            role=role
-        )
-
-        return user
-
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-
-
-@router.delete("/users/{user_id}")
-def delete_user(
-    user_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
-):
-    """Delete a user (admin only)"""
-    # Don't allow deleting yourself
-    if user_id == current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot delete your own account"
-        )
-
-    user = auth_service.get_user_by_id(db, user_id)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-
-    db.delete(user)
-    db.commit()
-
-    return {"message": f"User {user.email} deleted successfully"}
+register_staff_routes(router, get_db, get_current_user)

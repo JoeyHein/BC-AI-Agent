@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useAuth } from '../contexts/AuthContext'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { doorConfigApi, settingsApi, adminQuotesApi } from '../api/client'
 import apiClient from '../api/client'
@@ -3098,6 +3099,10 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
 }
 
 function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateError, isGenerating, quoteResult, selectedCustomer, poNumber, onPoNumberChange, onAddDoor, deliveryType, onDeliveryTypeChange, installTown, onInstallTownChange, onStartNewQuote }) {
+  const { can } = useAuth()
+  const seeSellingPrices = can('pricing.view')
+  const seeCost = can('pricing.edit')
+  const canOpenQuotes = can('quotes.view')
   const [partsData, setPartsData] = useState(null)
   const [loadingParts, setLoadingParts] = useState(false)
   const [showParts, setShowParts] = useState(false)
@@ -3130,12 +3135,13 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
     }
   }
 
-  // Fetch freight config on mount for rate display
+  // Freight rate percentages are cost settings. Selling-price users still see the freight amount on the quote.
   useEffect(() => {
+    if (!seeCost) return
     settingsApi.getFreightConfig()
       .then(res => setFreightConfig(res.data?.data?.config || null))
       .catch(() => {})
-  }, [])
+  }, [seeCost])
 
   // Fetch part numbers and calculations when component mounts or doors change
   useEffect(() => {
@@ -3906,7 +3912,7 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
               <p className="text-sm text-green-700">
                 <span className="font-medium">Lines Added:</span> {quoteResult.data.lines_added} items
               </p>
-              {quoteResult.data.pricing && (
+              {seeSellingPrices && quoteResult.data.pricing && (
                 <div className="mt-3 pt-3 border-t border-green-200">
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <span className="text-green-600">Subtotal:</span>
@@ -3979,7 +3985,7 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
               {/* Review Changes + Start New Quote */}
               {quoteResult.data.bc_quote_id && (
                 <div className="mt-3 pt-3 border-t border-green-200 flex flex-wrap gap-2">
-                  {quoteResult.data.bc_quote_number && (
+                  {canOpenQuotes && quoteResult.data.bc_quote_number && (
                     <button
                       type="button"
                       onClick={handleDownloadPdf}
@@ -3989,12 +3995,14 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
                       {downloadingPdf ? 'Downloading…' : 'Download PDF'}
                     </button>
                   )}
+                  {canOpenQuotes && (
                   <button
                     onClick={() => setShowReviewPanel(!showReviewPanel)}
                     className="px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md"
                   >
                     {showReviewPanel ? 'Hide Review' : 'Review Changes'}
                   </button>
+                  )}
                   {onStartNewQuote && (
                     <button
                       onClick={onStartNewQuote}
@@ -4010,7 +4018,7 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
           )}
         </div>
       )}
-      {showReviewPanel && quoteResult?.data?.bc_quote_id && (
+      {canOpenQuotes && showReviewPanel && quoteResult?.data?.bc_quote_id && (
         <QuoteReviewPanel
           bcQuoteId={quoteResult.data.bc_quote_id}
           bcQuoteNumber={quoteResult.data.bc_quote_number}

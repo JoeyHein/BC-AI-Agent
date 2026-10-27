@@ -9,10 +9,13 @@ Currently, scheduling calculations work locally but actual
 production order CRUD operations will return 501 errors.
 """
 
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
-from typing import List, Optional
 from datetime import date
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+
+from app.api.staff_principal import require_staff
 
 from app.services.bc_production_service import (
     bc_production_service,
@@ -21,7 +24,11 @@ from app.services.bc_production_service import (
     PRODUCTION_API_AVAILABLE
 )
 
-router = APIRouter(prefix="/production", tags=["Production"])
+router = APIRouter(
+    prefix="/production",
+    tags=["Production"],
+    dependencies=[Depends(require_staff)],
+)
 
 
 # ==================== Request/Response Models ====================

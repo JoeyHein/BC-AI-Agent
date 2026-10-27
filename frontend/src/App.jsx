@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { BrowserRouter as Router, Navigate, Routes, Route } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import StaffShell from './components/StaffShell'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -24,9 +24,31 @@ import QuotingAnalytics from './pages/QuotingAnalytics'
 import OrderAgeTracker from './pages/OrderAgeTracker'
 import PurchasingDashboard from './components/Purchasing/PurchasingDashboard'
 import CutWorkOrders from './components/Purchasing/CutWorkOrders'
+import { ResetPassword, SetupAccount } from './components/SetupAccount'
+import { showChat, showDashboard } from './utils/access'
+
+function HomeGate() {
+  const { user, loading, can } = useAuth()
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="text-gray-500">Loading...</div>
+      </div>
+    )
+  }
+  if (!user) return <Navigate to="/login" replace />
+  if (showDashboard(user)) return <Dashboard />
+  if (can('configurator.use') || can('quotes.edit')) return <Navigate to="/door-configurator" replace />
+  return (
+    <div className="bg-white shadow rounded-lg p-6">
+      <h1 className="text-xl font-semibold text-gray-900">Welcome</h1>
+      <p className="mt-2 text-sm text-gray-600">Your login does not include the dashboard. Use the menu for the pages you can open.</p>
+    </div>
+  )
+}
 
 function AppContent() {
-  const { isAuthenticated } = useAuth()
+  const { user, isAuthenticated } = useAuth()
 
   // Handler for when chat actions are taken (refresh data as needed)
   const handleChatAction = (actions) => {
@@ -42,122 +64,120 @@ function AppContent() {
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/setup" element={<SetupAccount />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
 
           {/* Protected routes */}
-          <Route path="/" element={
-            <ProtectedRoute>
-              <Dashboard />
-            </ProtectedRoute>
-          } />
+          <Route path="/" element={<HomeGate />} />
 
           <Route path="/reviews" element={
-            <ProtectedRoute>
+            <ProtectedRoute permission="quotes.view">
               <ReviewQueue />
             </ProtectedRoute>
           } />
 
           <Route path="/reviews/:id" element={
-            <ProtectedRoute requireReviewer>
+            <ProtectedRoute permission="quotes.edit">
               <QuoteDetail />
             </ProtectedRoute>
           } />
 
           <Route path="/analytics" element={
-            <ProtectedRoute>
+            <ProtectedRoute anyOf={['quotes.view', 'sales_orders.view']}>
               <Analytics />
             </ProtectedRoute>
           } />
           <Route path="/analytics/quoting" element={
-            <ProtectedRoute requireReviewer>
+            <ProtectedRoute permission="quotes.view">
               <QuotingAnalytics />
             </ProtectedRoute>
           } />
           <Route path="/analytics/order-age" element={
-            <ProtectedRoute requireReviewer>
+            <ProtectedRoute permission="sales_orders.view">
               <OrderAgeTracker />
             </ProtectedRoute>
           } />
 
           <Route path="/door-configurator" element={
-            <ProtectedRoute>
+            <ProtectedRoute anyOf={['configurator.use', 'quotes.edit']}>
               <DoorConfigurator />
             </ProtectedRoute>
           } />
 
           <Route path="/settings" element={
-            <ProtectedRoute>
+            <ProtectedRoute anyOf={['settings.view', 'pricing.edit', 'users.view', 'inventory.view', 'purchase_orders.view']}>
               <SettingsPage />
             </ProtectedRoute>
           } />
 
           <Route path="/settings/email" element={
-            <ProtectedRoute>
+            <ProtectedRoute permission="settings.view">
               <EmailSettings />
             </ProtectedRoute>
           } />
 
           <Route path="/business" element={
-            <ProtectedRoute>
+            <ProtectedRoute anyOf={['users.manage', 'quotes.edit', 'sales_orders.edit', 'purchase_orders.view', 'sales_orders.view']}>
               <BusinessDashboard />
             </ProtectedRoute>
           } />
 
           <Route path="/customers" element={
-            <ProtectedRoute>
+            <ProtectedRoute permission="customers.view">
               <CustomerManagement />
             </ProtectedRoute>
           } />
 
           <Route path="/customers/:id" element={
-            <ProtectedRoute>
+            <ProtectedRoute permission="customers.view">
               <CustomerDetail />
             </ProtectedRoute>
           } />
 
           <Route path="/orders" element={
-            <ProtectedRoute>
+            <ProtectedRoute permission="sales_orders.view">
               <OrderManagement />
             </ProtectedRoute>
           } />
 
           <Route path="/quotes" element={
-            <ProtectedRoute>
+            <ProtectedRoute permission="quotes.view">
               <QuoteSearch />
             </ProtectedRoute>
           } />
 
           <Route path="/leads" element={
-            <ProtectedRoute>
+            <ProtectedRoute permission="quotes.view">
               <QuoteLeads />
             </ProtectedRoute>
           } />
 
           <Route path="/install-referrals" element={
-            <ProtectedRoute>
+            <ProtectedRoute permission="customers.view">
               <InstallReferralQueue />
             </ProtectedRoute>
           } />
 
           <Route path="/production" element={
-            <ProtectedRoute>
+            <ProtectedRoute permission="production.view">
               <ProductionCalendar />
             </ProtectedRoute>
           } />
 
           <Route path="/purchasing" element={
-            <ProtectedRoute requireReviewer>
+            <ProtectedRoute permission="purchase_orders.view">
               <PurchasingDashboard />
             </ProtectedRoute>
           } />
 
           <Route path="/cut-work-orders" element={
-            <ProtectedRoute requireReviewer>
+            <ProtectedRoute permission="production.view">
               <CutWorkOrders />
             </ProtectedRoute>
           } />
 
           <Route path="/weekly-email" element={
-            <ProtectedRoute requireAdmin>
+            <ProtectedRoute permission="users.manage">
               <WeeklyEmail />
             </ProtectedRoute>
           } />
@@ -166,7 +186,7 @@ function AppContent() {
       </StaffShell>
 
       {/* Global AI Chat Box - only visible when authenticated */}
-      {isAuthenticated && <ChatBox onAction={handleChatAction} />}
+      {isAuthenticated && showChat(user) && <ChatBox onAction={handleChatAction} />}
     </div>
   )
 }

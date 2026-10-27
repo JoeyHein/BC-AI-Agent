@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import SpringInventorySettings from './SpringInventorySettings'
 import GeneralSettings from './GeneralSettings'
 import PricingSettings from './PricingSettings'
@@ -9,27 +9,35 @@ import InventoryDashboard from '../InventoryAgent/InventoryDashboard'
 import POAgentDashboard from '../POAgent/POAgentDashboard'
 import ServiceKeysSettings from './ServiceKeysSettings'
 import ExternalKeysSettings from './ExternalKeysSettings'
+import UsersSettings from './UsersSettings'
 import { useAuth } from '../../contexts/AuthContext'
 
-function SettingsPage() {
-  const [activeTab, setActiveTab] = useState('springs')
-  const { isAdmin } = useAuth()
+const TAB_DEFS = [
+  { id: 'springs', name: 'Spring Inventory', icon: 'cog', view: 'settings.view', edit: 'settings.edit' },
+  { id: 'pricing', name: 'Pricing', icon: 'currency', view: 'pricing.edit', edit: 'pricing.edit' },
+  { id: 'install-pricing', name: 'Install Pricing', icon: 'currency', view: 'pricing.edit', edit: 'pricing.edit' },
+  { id: 'travel', name: 'Travel Distances', icon: 'currency', view: 'settings.view', edit: 'settings.edit' },
+  { id: 'catalog', name: 'Catalog Builder', icon: 'cog', view: 'inventory.view', edit: 'inventory.edit' },
+  { id: 'inventory', name: 'Inventory Agent', icon: 'adjustments', view: 'inventory.view', edit: 'inventory.edit' },
+  { id: 'po-agent', name: 'PO Agent', icon: 'currency', view: 'purchase_orders.view', edit: 'purchase_orders.edit' },
+  { id: 'email', name: 'Email', icon: 'envelope', view: 'settings.view', edit: 'settings.edit' },
+  { id: 'general', name: 'General', icon: 'adjustments', view: 'settings.view', edit: 'settings.edit' },
+  { id: 'users', name: 'Users', icon: 'adjustments', view: 'users.view', edit: 'users.manage' },
+  { id: 'service-keys', name: 'Service keys', icon: 'adjustments', view: 'users.manage', edit: 'users.manage' },
+  { id: 'external-keys', name: 'External API keys', icon: 'adjustments', view: 'users.manage', edit: 'users.manage' },
+]
 
-  const tabs = [
-    { id: 'springs', name: 'Spring Inventory', icon: 'cog' },
-    { id: 'pricing', name: 'Pricing', icon: 'currency' },
-    { id: 'install-pricing', name: 'Install Pricing', icon: 'currency' },
-    { id: 'travel', name: 'Travel Distances', icon: 'currency' },
-    { id: 'catalog', name: 'Catalog Builder', icon: 'cog' },
-    { id: 'inventory', name: 'Inventory Agent', icon: 'adjustments' },
-    { id: 'po-agent', name: 'PO Agent', icon: 'currency' },
-    { id: 'email', name: 'Email', icon: 'envelope' },
-    { id: 'general', name: 'General', icon: 'adjustments' },
-  ]
-  if (isAdmin) {
-    tabs.push({ id: 'service-keys', name: 'Service keys', icon: 'adjustments' })
-    tabs.push({ id: 'external-keys', name: 'External API keys', icon: 'adjustments' })
-  }
+function SettingsPage() {
+  const { can } = useAuth()
+  const tabs = TAB_DEFS.filter((tab) => can(tab.view))
+  const [activeTab, setActiveTab] = useState(tabs[0]?.id || 'springs')
+  useEffect(() => {
+    if (tabs.length && !tabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab(tabs[0].id)
+    }
+  }, [tabs, activeTab])
+  const current = tabs.find((tab) => tab.id === activeTab) || tabs[0]
+  const readOnly = current && !can(current.edit)
 
   const getTabIcon = (iconName) => {
     switch (iconName) {
@@ -71,6 +79,11 @@ function SettingsPage() {
         <p className="mt-1 text-sm text-gray-500">
           Manage application settings and preferences
         </p>
+        {readOnly && (
+          <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            This screen is view-only for your login. Saving is refused until an owner grants edit access.
+          </p>
+        )}
       </div>
 
       {/* Tab Navigation and Content */}
@@ -98,6 +111,9 @@ function SettingsPage() {
 
         {/* Tab Content */}
         <div className="p-6">
+          {tabs.length === 0 && (
+            <p className="text-sm text-gray-500">Your login does not include a settings screen.</p>
+          )}
           {activeTab === 'springs' && <SpringInventorySettings />}
           {activeTab === 'pricing' && <PricingSettings />}
           {activeTab === 'install-pricing' && <InstallPricingSettings />}
@@ -107,8 +123,9 @@ function SettingsPage() {
           {activeTab === 'po-agent' && <POAgentDashboard />}
           {activeTab === 'email' && <EmailSettingsTab />}
           {activeTab === 'general' && <GeneralSettings />}
-          {activeTab === 'service-keys' && isAdmin && <ServiceKeysSettings />}
-          {activeTab === 'external-keys' && isAdmin && <ExternalKeysSettings />}
+          {activeTab === 'users' && <UsersSettings />}
+          {activeTab === 'service-keys' && <ServiceKeysSettings />}
+          {activeTab === 'external-keys' && <ExternalKeysSettings />}
         </div>
       </div>
     </div>

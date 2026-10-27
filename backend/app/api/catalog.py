@@ -15,6 +15,7 @@ from app.api.staff_principal import service_user_if_key
 from app.db.database import SessionLocal
 from app.db.models import User, UserRole, Part, SpecialOrderRequest, AppSettings
 from app.services.auth_service import auth_service
+from app.services.staff_permissions import enforce_staff_permission
 from app.services.catalog_builder_service import catalog_builder_service
 
 router = APIRouter(prefix="/api/admin/catalog", tags=["catalog-builder"])
@@ -51,6 +52,7 @@ def get_current_admin(
     user = db.query(User).get(int(user_id))
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+    enforce_staff_permission(request, user)
     return user
 
 

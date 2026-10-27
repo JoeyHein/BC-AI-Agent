@@ -10,8 +10,9 @@ from sqlalchemy.orm import Session
 
 from app.api.staff_principal import service_user_if_key
 from app.db.database import SessionLocal
-from app.db.models import User, UserRole
+from app.db.models import User
 from app.services.auth_service import auth_service
+from app.services.staff_permissions import enforce_staff_permission, has_permission
 
 router = APIRouter(prefix="/api/metrics", tags=["metrics"])
 logger = logging.getLogger(__name__)
@@ -43,22 +44,22 @@ def get_current_user(
     user = auth_service.get_user_by_id(db, user_id=user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    enforce_staff_permission(request, user)
     return user
 
 
 def require_viewer(current_user: User = Depends(get_current_user)) -> User:
-    """Any authenticated internal user can access metrics."""
+    """Any authenticated internal user can access metrics the route allows."""
     return current_user
 
 
 def require_reviewer(current_user: User = Depends(get_current_user)) -> User:
-    if not auth_service.check_permission(current_user, UserRole.REVIEWER):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Reviewer access required")
+    """Route permission already ran inside get_current_user."""
     return current_user
 
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    if not auth_service.check_permission(current_user, UserRole.ADMIN):
+    if not has_permission(current_user, "users.manage"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return current_user
 

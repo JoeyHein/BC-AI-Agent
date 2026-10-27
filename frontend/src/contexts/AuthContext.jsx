@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import axios from 'axios'
 import { useQueryClient } from '@tanstack/react-query'
+import { can as userCan, canAny as userCanAny } from '../utils/access'
 
 const AuthContext = createContext(null)
 
@@ -72,22 +73,42 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
-  const register = async (email, password, name) => {
+  const startSession = (accessToken, userData) => {
+    queryClient.clear()
+    localStorage.setItem('authToken', accessToken)
+    setToken(accessToken)
+    setUser(userData)
+  }
+
+  const completeSetup = async ({ token: setupToken, password, name }) => {
     try {
-      const response = await axios.post(`${API_URL}/api/auth/register`, {
-        email,
+      const response = await axios.post(`${API_URL}/api/auth/setup`, {
+        token: setupToken,
         password,
         name,
-        role: 'viewer'  // Default role for self-registration
       })
-
-      // After registration, log in
-      return await login(email, password)
+      startSession(response.data.access_token, response.data.user)
+      return { success: true }
     } catch (error) {
-      console.error('Registration error:', error)
       return {
         success: false,
-        error: error.response?.data?.detail || 'Registration failed'
+        error: error.response?.data?.detail || 'This setup link is invalid or has expired',
+      }
+    }
+  }
+
+  const completeReset = async ({ token: resetToken, password }) => {
+    try {
+      const response = await axios.post(`${API_URL}/api/auth/reset-password`, {
+        token: resetToken,
+        password,
+      })
+      startSession(response.data.access_token, response.data.user)
+      return { success: true }
+    } catch (error) {
+      return {
+        success: false,
+        error: error.response?.data?.detail || 'This reset link is invalid or has expired',
       }
     }
   }
@@ -105,11 +126,14 @@ export const AuthProvider = ({ children }) => {
     user,
     loading,
     login,
-    register,
     logout,
+    completeSetup,
+    completeReset,
     isAuthenticated: !!user,
-    isAdmin: user?.role === 'admin',
-    isReviewer: user?.role === 'reviewer' || user?.role === 'admin'
+    can: (key) => userCan(user, key),
+    canAny: (keys) => userCanAny(user, keys),
+    isAdmin: userCan(user, 'users.manage'),
+    isReviewer: userCanAny(user, ['quotes.edit', 'sales_orders.edit', 'purchase_orders.edit']),
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

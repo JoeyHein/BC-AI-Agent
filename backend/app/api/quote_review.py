@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.db.models import QuoteSnapshot, QuoteReview, User
-from app.api.auth import require_admin
+from app.api.auth import get_current_user
 from app.services.quote_review_service import (
     compute_quote_diff,
     fetch_current_bc_lines,
@@ -42,7 +42,7 @@ async def list_snapshots(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
     """List all quote snapshots, newest first, with reviewed/unreviewed flag."""
     snapshots = (
@@ -80,7 +80,7 @@ async def review_quote(
     bc_quote_id: str,
     body: ReviewRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Diff a quote's original snapshot against current BC lines.
@@ -142,7 +142,7 @@ async def review_quote(
 async def analyze_patterns(
     body: PatternAnalysisRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Cross-quote AI pattern analysis across recent reviews.
@@ -192,7 +192,7 @@ async def list_reviews(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
     """List past reviews, newest first."""
     reviews = (
@@ -228,7 +228,7 @@ async def list_reviews(
 async def get_review(
     review_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
     """Get a single review with full detail."""
     review = db.query(QuoteReview).filter(QuoteReview.id == review_id).first()

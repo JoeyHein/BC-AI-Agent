@@ -17,6 +17,11 @@ from app.api.staff_principal import service_user_if_key
 from app.db.database import SessionLocal
 from app.db.models import User, UserRole, BCCustomer, SavedQuoteConfig, SalesOrder, CustomerInstallPricing, CustomerNote
 from app.services.auth_service import auth_service
+from app.services.staff_permissions import (
+    enforce_staff_permission,
+    has_permission,
+    redact_customer_search,
+)
 from app.services.bc_sync_service import bc_sync_service
 from app.integrations.bc.client import bc_client
 from app.services.notification_service import notification_service
@@ -95,13 +100,7 @@ def get_current_admin(
             detail="User is inactive",
         )
 
-    # Only admins can access these endpoints
-    if user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required",
-        )
-
+    enforce_staff_permission(request, user)
     return user
 
 
@@ -287,19 +286,27 @@ def search_bc_customers(
     # and customers BC blocks outright: neither can be quoted.
     bc_customers = [c for c in bc_customers if is_quotable_bc_customer(c)]
 
-    # Filter by search query if provided
+    # Filter by search query if provided. A configurator login can pick a
+    # company to price. Contact details and the price group stay off that search.
+    see_directory = has_permission(current_admin, "customers.view")
+    see_cost = has_permission(current_admin, "pricing.edit")
     if q:
         q_lower = q.lower()
-        bc_customers = [
-            c for c in bc_customers
-            if (c.company_name and q_lower in c.company_name.lower()) or
-               (c.contact_name and q_lower in c.contact_name.lower()) or
-               (c.email and q_lower in c.email.lower()) or
-               (c.bc_customer_id and q_lower in c.bc_customer_id.lower()) or
-               (c.bc_price_group and q_lower in c.bc_price_group.lower()) or
-               (str((c.customer_metadata or {}).get("number") or "") and
-                q_lower in str((c.customer_metadata or {}).get("number")).lower())
-        ]
+
+        def _matches(c: BCCustomer) -> bool:
+            fields = [c.company_name, c.bc_customer_id]
+            if see_directory:
+                fields.extend([
+                    c.contact_name,
+                    c.email,
+                    c.phone,
+                    str((c.customer_metadata or {}).get("number") or ""),
+                ])
+            if see_directory or see_cost:
+                fields.append(c.bc_price_group)
+            return any(value and q_lower in str(value).lower() for value in fields)
+
+        bc_customers = [c for c in bc_customers if _matches(c)]
 
     # Check which are already linked, and which are home-builder accounts (so
     # the configurator can collect an install town + add the install line).
@@ -312,18 +319,18 @@ def search_bc_customers(
 
     result = []
     for bc in bc_customers[:50]:  # Limit results
-        result.append(BCCustomerSearchResponse(
-            bc_customer_id=bc.bc_customer_id,
-            company_name=bc.company_name,
-            contact_name=bc.contact_name,
-            email=bc.email,
-            phone=bc.phone,
-            already_linked=bc.bc_customer_id in linked_ids,
-            is_home_builder=bc.bc_customer_id in hb_ids,
-            bc_price_group=bc.bc_price_group,
-            pricing_tier=bc.pricing_tier,
-            customer_number=(bc.customer_metadata or {}).get("number"),
-        ))
+        result.append(BCCustomerSearchResponse(**redact_customer_search(current_admin, {
+            "bc_customer_id": bc.bc_customer_id,
+            "company_name": bc.company_name,
+            "contact_name": bc.contact_name,
+            "email": bc.email,
+            "phone": bc.phone,
+            "already_linked": bc.bc_customer_id in linked_ids,
+            "is_home_builder": bc.bc_customer_id in hb_ids,
+            "bc_price_group": bc.bc_price_group,
+            "pricing_tier": bc.pricing_tier,
+            "customer_number": (bc.customer_metadata or {}).get("number"),
+        })))
 
     return result
 

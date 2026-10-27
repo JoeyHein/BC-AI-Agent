@@ -13,7 +13,8 @@ from typing import Optional, List
 
 from app.api.staff_principal import service_user_if_key
 from app.db.database import SessionLocal
-from app.db.models import PublicQuoteRequest as PublicQuoteRequestModel, User, UserRole
+from app.db.models import PublicQuoteRequest as PublicQuoteRequestModel, User
+from app.services.staff_permissions import enforce_staff_permission
 from app.services.notification_service import notification_service
 from app.services.auth_service import auth_service
 
@@ -246,12 +247,7 @@ def get_current_admin(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive",
         )
-    if user.role not in (UserRole.ADMIN, UserRole.REVIEWER):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
-        )
-
+    enforce_staff_permission(request, user)
     return user
 
 

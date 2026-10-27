@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { navAllowed, showDashboard, showSettings } from '../utils/access'
 
-// Every signed-in role sees the same destinations. Admin and reviewer checks
-// still happen on the routes themselves, the same as before.
 const DASHBOARD = { path: '/', label: 'Dashboard', icon: 'home' }
 
 const SECTIONS = [
@@ -82,7 +81,11 @@ function Logo({ className = 'h-8' }) {
   return <img src="/assets/opendc-logo.jpg" alt="Open Distribution Company" className={`${className} w-auto`} />
 }
 
-function SideNav({ pathname, onNavigate }) {
+function SideNav({ pathname, onNavigate, user }) {
+  const sections = SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.filter((item) => navAllowed(user, item.path)),
+  })).filter((section) => section.items.length > 0)
   const linkClass = (active) =>
     `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium whitespace-nowrap ${
       active
@@ -92,6 +95,7 @@ function SideNav({ pathname, onNavigate }) {
 
   return (
     <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 py-4">
+      {showDashboard(user) && (
       <ul>
         <li>
           <Link
@@ -105,7 +109,8 @@ function SideNav({ pathname, onNavigate }) {
           </Link>
         </li>
       </ul>
-      {SECTIONS.map((section) => {
+      )}
+      {sections.map((section) => {
         const sectionActive = section.items.some((item) => isActive(pathname, item.path))
         return (
           <div key={section.label} className="mt-6">
@@ -137,7 +142,7 @@ function SideNav({ pathname, onNavigate }) {
   )
 }
 
-function AccountMenu({ user, pathname }) {
+function AccountMenu({ user, pathname, settingsVisible }) {
   const navigate = useNavigate()
   const { logout } = useAuth()
   const [open, setOpen] = useState(false)
@@ -199,6 +204,7 @@ function AccountMenu({ user, pathname }) {
             <p className="truncate text-sm font-semibold text-gray-900">{name}</p>
             {user?.email && <p className="truncate text-xs text-gray-500">{user.email}</p>}
           </div>
+          {settingsVisible && (
           <Link
             role="menuitem"
             to="/settings"
@@ -210,8 +216,9 @@ function AccountMenu({ user, pathname }) {
               <Icon name="cog" />
               Settings
             </span>
-            <span className="mt-0.5 block pl-[26px] text-xs font-normal text-gray-400">Pricing, catalog, and service keys</span>
+            <span className="mt-0.5 block pl-[26px] text-xs font-normal text-gray-400">Pricing, catalog, users, and service keys</span>
           </Link>
+          )}
           <div className="border-t border-gray-100">
             <button
               type="button"
@@ -272,7 +279,7 @@ function StaffShell({ children }) {
             <Logo />
           </Link>
         </div>
-        <SideNav pathname={location.pathname} />
+        <SideNav pathname={location.pathname} user={user} />
       </aside>
 
       {mobileOpen && (
@@ -299,7 +306,7 @@ function StaffShell({ children }) {
                 </svg>
               </button>
             </div>
-            <SideNav pathname={location.pathname} onNavigate={() => setMobileOpen(false)} />
+            <SideNav pathname={location.pathname} user={user} onNavigate={() => setMobileOpen(false)} />
           </aside>
         </div>
       )}
@@ -324,6 +331,7 @@ function StaffShell({ children }) {
             {pageTitle(location.pathname)}
           </h1>
           <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
+            {showSettings(user) && (
             <Link
               to="/settings"
               title="Settings"
@@ -339,7 +347,8 @@ function StaffShell({ children }) {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </Link>
-            <AccountMenu user={user} pathname={location.pathname} />
+            )}
+            <AccountMenu user={user} pathname={location.pathname} settingsVisible={showSettings(user)} />
           </div>
         </header>
         <div className="min-w-0 flex-1 overflow-x-auto">
