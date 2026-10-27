@@ -124,6 +124,23 @@ class Settings(BaseSettings):
     # not expose Vendor Order No. (Purchase Header field 66).
     VENDOR_ACK_BC_ODATA_ENTITY: str = "PurchaseOrder"
     VENDOR_ACK_BC_ODATA_FIELD: str = "Vendor_Order_No"
+    # Receive-only posting. The standard purchaseOrders API exposes
+    # receiveQuantity, but its only bound action is receiveAndInvoice.
+    # The portal posts Microsoft.NAV.receive on this custom API page and
+    # refuses any action name that contains "invoice".
+    BC_PO_RECEIVE_PUBLISHER: str = "opendc"
+    BC_PO_RECEIVE_GROUP: str = "purchasing"
+    BC_PO_RECEIVE_VERSION: str = "v1.0"
+    BC_PO_RECEIVE_ENTITY: str = "purchaseOrderReceives"
+    BC_PO_RECEIVE_ACTION: str = "receive"
+    # Release one unreleased purchase order. The standard purchaseOrders
+    # resource does not document Microsoft.NAV.release. The portal tries that
+    # action first and, only on 404, the custom page below. The action name
+    # must be release. Reopen and invoice are refused before any HTTP call.
+    BC_PO_RELEASE_ENTITY: str = "purchaseOrderReleases"
+    BC_PO_RELEASE_ACTION: str = "release"
+    # Purchase Header field 69, on the same published page 50 as Vendor Order No.
+    BC_PO_VENDOR_SHIPMENT_FIELD: str = "Vendor_Shipment_No"
 
     # Outlook review-draft To addresses, by BC vendor number, used instead of
     # the vendor card email. Format: VENDOR=addr1|addr2;VENDOR2=addr
@@ -179,6 +196,23 @@ class Settings(BaseSettings):
         if not all([self.BC_TENANT_ID, self.BC_ENVIRONMENT]):
             return ""
         return f"{self.BC_BASE_URL}/{self.BC_TENANT_ID}/{self.BC_ENVIRONMENT}/ODataV4"
+
+    @property
+    def bc_po_receive_api_url(self) -> str:
+        """Custom API that posts a purchase order as Receive only.
+
+        Page 70910 in bc-extension/po-receive. Not the standard v2.0 API:
+        that API's purchase-order action invoices as well as receives.
+        """
+        if not all([self.BC_TENANT_ID, self.BC_ENVIRONMENT]):
+            return ""
+        publisher = (self.BC_PO_RECEIVE_PUBLISHER or "opendc").strip()
+        group = (self.BC_PO_RECEIVE_GROUP or "purchasing").strip()
+        version = (self.BC_PO_RECEIVE_VERSION or "v1.0").strip()
+        return (
+            f"{self.BC_BASE_URL}/{self.BC_TENANT_ID}/{self.BC_ENVIRONMENT}"
+            f"/api/{publisher}/{group}/{version}"
+        )
 
     @property
     def bc_picking_api_url(self) -> str:
