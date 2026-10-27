@@ -59,7 +59,7 @@ def _session_factory(engine):
     return sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
-def _user(email, role, password="test123", active=True):
+def _user(email, role, password="test123", active=True, permissions=None):
     return User(
         email=email,
         password_hash=AuthService.get_password_hash(password),
@@ -68,6 +68,7 @@ def _user(email, role, password="test123", active=True):
         is_active=active,
         user_type="INTERNAL",
         invite_pending=False,
+        permissions=permissions,
     )
 
 
@@ -497,3 +498,197 @@ class TestConfiguratorOnly:
         assert turned_off.json()["permissions"]["pricing.view"] is False
         assert turned_off.json()["permissions"]["configurator.use"] is True
         assert turned_off.json()["permissions_custom"] is True
+
+
+_QUOTE_DOOR = {
+    "doorType": "residential",
+    "doorSeries": "KANATA",
+    "doorWidth": 96,
+    "doorHeight": 84,
+    "panelColor": "WHITE",
+    "panelDesign": "FLUSH",
+}
+
+
+class _FakeQuoteBC:
+    """BC stand-in for generate-quote. Returns one priced item line."""
+
+    def create_sales_quote(self, quote_data, company_id=None):
+        return {"id": "quote-guid", "number": "SQ-900001"}
+
+    def add_quote_line(self, quote_id, line_data):
+        return {"id": "line-1", "sequence": 10000, "@odata.etag": "*"}
+
+    def set_quote_line_output(self, number, sequence, output=True):
+        return None
+
+    def get_sales_quote(self, quote_id):
+        return {
+            "id": quote_id,
+            "number": "SQ-900001",
+            "totalAmountExcludingTax": 100.0,
+            "totalAmountIncludingTax": 105.0,
+        }
+
+    def get_quote_lines(self, quote_id):
+        return [{
+            "id": "line-1",
+            "lineType": "Item",
+            "lineObjectNumber": "PN-TEST",
+            "description": "Test panel",
+            "quantity": 1,
+            "unitPrice": 100.0,
+            "netAmount": 100.0,
+            "@odata.etag": "*",
+        }]
+
+
+def _fake_parts(config_dict, spring_inventory=None):
+    return {
+        "parts_list": [{
+            "lineType": "Item",
+            "part_number": "PN-TEST",
+            "description": "Test panel",
+            "quantity": 1,
+            "category": "panel",
+            "unit_price": 100,
+            "unit_cost": 40,
+            "margin": 0.6,
+        }]
+    }
+
+
+def _install_quote_mocks(monkeypatch):
+    import app.api.door_configurator as door_config
+
+    monkeypatch.setattr(door_config, "get_bc_spring_inventory", lambda: {})
+    monkeypatch.setattr(door_config, "get_parts_for_door_config", _fake_parts)
+    monkeypatch.setattr(door_config, "bc_client", _FakeQuoteBC())
+    monkeypatch.setattr(door_config, "save_quote_snapshot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "app.services.bc_part_number_mapper.get_bc_mapper",
+        lambda: SimpleNamespace(bc_items={"PN-TEST": {"displayName": "Test panel"}}),
+    )
+
+
+def _quote_client(monkeypatch, Session):
+    from app.api.door_configurator import router as door_router
+    from app.db.database import get_db as database_get_db
+
+    def new_session():
+        return Session()
+
+    monkeypatch.setattr(staff_keys, "new_session", new_session)
+
+    def _override():
+        scoped = Session()
+        try:
+            yield scoped
+        finally:
+            scoped.close()
+
+    app = FastAPI()
+    app.middleware("http")(staff_permission_middleware)
+    app.middleware("http")(staff_service_key_middleware)
+    app.include_router(auth_api.router)
+    app.include_router(door_router)
+    app.dependency_overrides[auth_api.get_db] = _override
+    app.dependency_overrides[database_get_db] = _override
+    return TestClient(app)
+
+
+class TestGenerateQuoteRedaction:
+    """POST /generate-quote must not 500, and prices follow the caller's grants.
+
+    The email auto-quote path calls the same builder with no user and still
+    needs line_pricing for the review UI.
+    """
+
+    def _seed(self):
+        engine = _engine()
+        from app.db.models import AppSettings
+        AppSettings.__table__.create(engine, checkfirst=True)
+        Session = _session_factory(engine)
+        hidden = dict(PRESETS["configurator"])
+        hidden["pricing.view"] = False
+        db = Session()
+        db.add(_user("joey@opendc.ca", UserRole.ADMIN))
+        db.add(_user("config@upwardor.com", UserRole.CONFIGURATOR))
+        db.add(_user("blind@upwardor.com", UserRole.CONFIGURATOR, permissions=hidden))
+        db.commit()
+        db.close()
+        return Session
+
+    def test_route_redacts_for_admin_and_configurator(self, monkeypatch):
+        Session = self._seed()
+        _install_quote_mocks(monkeypatch)
+        client = _quote_client(monkeypatch, Session)
+
+        def generate(email):
+            login = _login(client, email)
+            assert login.status_code == 200, login.text
+            response = client.post(
+                "/api/door-config/generate-quote",
+                headers=_auth(login.json()["access_token"]),
+                json={"doors": [_QUOTE_DOOR], "deliveryType": "pickup", "poNumber": "PERM-1"},
+            )
+            assert response.status_code == 200, response.text
+            body = response.json()
+            assert body["success"] is True
+            assert body["data"]["bc_quote_number"] == "SQ-900001"
+            return body
+
+        admin = generate("joey@opendc.ca")
+        assert admin["data"]["line_pricing"][0]["unit_price"] == 100
+        assert admin["data"]["pricing"]["total"] == 105
+        assert admin["data"]["freight"]["rate"] == 0
+        assert admin["data"]["parts_summary"][0]["unit_cost"] == 40
+        assert admin["data"]["parts_summary"][0]["unit_price"] == 100
+
+        seller = generate("config@upwardor.com")
+        assert seller["data"]["line_pricing"][0]["unit_price"] == 100
+        assert seller["data"]["pricing"]["total"] == 105
+        assert "rate" not in seller["data"]["freight"]
+        assert "unit_cost" not in seller["data"]["parts_summary"][0]
+        assert "margin" not in seller["data"]["parts_summary"][0]
+        assert seller["data"]["parts_summary"][0]["unit_price"] == 100
+
+        blind = generate("blind@upwardor.com")
+        assert "line_pricing" not in blind["data"]
+        assert "pricing" not in blind["data"]
+        assert "freight" not in blind["data"]
+        summary = blind["data"]["parts_summary"][0]
+        assert summary["part_number"] == "PN-TEST"
+        assert "unit_price" not in summary
+        assert "unit_cost" not in summary
+
+    def test_email_path_without_user_returns_line_pricing(self, monkeypatch):
+        Session = self._seed()
+        _install_quote_mocks(monkeypatch)
+        from app.api.door_configurator import (
+            DoorConfigRequest,
+            QuoteGenerationRequest,
+            build_bc_quote_from_doors,
+        )
+
+        db = Session()
+        try:
+            result = build_bc_quote_from_doors(
+                QuoteGenerationRequest(
+                    doors=[DoorConfigRequest(**_QUOTE_DOOR)],
+                    deliveryType="pickup",
+                    poNumber="EMAIL-QR-1",
+                ),
+                db,
+                source="email",
+            )
+        finally:
+            db.close()
+
+        assert result["success"] is True
+        assert result["data"]["bc_quote_number"] == "SQ-900001"
+        assert result["data"]["line_pricing"][0]["part_number"] == "PN-TEST"
+        assert result["data"]["line_pricing"][0]["unit_price"] == 100
+        assert result["data"]["pricing"]["total"] == 105
+        assert result["data"]["freight"]["rate"] == 0
+        assert result["data"]["parts_summary"][0]["unit_cost"] == 40
