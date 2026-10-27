@@ -139,6 +139,20 @@ def _f(v) -> float:
     return float(v or 0)
 
 
+def _apply_item_card_cost(row: dict, meta: dict) -> None:
+    """Fill the preview cost. Panorama sheet lines keep the mapped unit.
+
+    GL12-00029-00 is SF (sheet count × length × 4'). The other clear
+    sheet items are EA. The item-card unit must not turn a 224 SF line
+    into 224 EA, or a 4 EA line into 4 SF.
+    """
+    row["unit_cost"] = _f(meta.get("unitCost"))
+    if row.get("sheet_uom"):
+        row["uom"] = row["sheet_uom"]
+    else:
+        row["uom"] = meta.get("baseUnitOfMeasureCode") or row.get("uom") or "EA"
+
+
 def _round_to_full_sheets(item_no: str, sf_needed: float) -> float:
     """Round a non-Panorama GL12 square-foot need up to stocked sheet area.
 
@@ -324,9 +338,7 @@ def compute_netted_po_lines(so_number: str) -> dict:
     if included:
         cost_cards = bc_client.get_items_by_numbers([r["item_no"] for r in included])
         for row in included:
-            meta = cost_cards.get(row["item_no"], {})
-            row["unit_cost"] = _f(meta.get("unitCost"))
-            row["uom"] = meta.get("baseUnitOfMeasureCode") or "EA"
+            _apply_item_card_cost(row, cost_cards.get(row["item_no"], {}))
 
     # ── Explode manufactured items to raw components, net those too ────────
     component_shortfall, component_covered = [], []
@@ -364,9 +376,7 @@ def compute_netted_po_lines(so_number: str) -> dict:
         if component_shortfall:
             cost_cards = bc_client.get_items_by_numbers([r["item_no"] for r in component_shortfall])
             for row in component_shortfall:
-                meta = cost_cards.get(row["item_no"], {})
-                row["unit_cost"] = _f(meta.get("unitCost"))
-                row["uom"] = meta.get("baseUnitOfMeasureCode") or "EA"
+                _apply_item_card_cost(row, cost_cards.get(row["item_no"], {}))
 
     by_door, shared = _group_by_door(
         door_labels, door_item_qty, included, component_shortfall,
@@ -474,9 +484,7 @@ def compute_complete_po_lines(so_number: str) -> dict:
     if included:
         cost_cards = bc_client.get_items_by_numbers([r["item_no"] for r in included])
         for row in included:
-            meta = cost_cards.get(row["item_no"], {})
-            row["unit_cost"] = _f(meta.get("unitCost"))
-            row["uom"] = meta.get("baseUnitOfMeasureCode") or "EA"
+            _apply_item_card_cost(row, cost_cards.get(row["item_no"], {}))
 
     by_door, shared = _group_by_door(
         door_labels, door_item_qty, included, [],

@@ -1041,6 +1041,7 @@ class TestPanoramaPolycarbonateSheets:
             gk_item: {"unitCost": 3.0, "baseUnitOfMeasureCode": "SF"},
             "GL12-00025-00": {"unitCost": 70.0, "baseUnitOfMeasureCode": "EA"},
             "GL12-00028-00": {"unitCost": 75.0, "baseUnitOfMeasureCode": "EA"},
+            "GL12-00029-00": {"unitCost": 3.0, "baseUnitOfMeasureCode": "SF"},
             "GL12-00026-00": {"unitCost": 90.0, "baseUnitOfMeasureCode": "EA"},
             "GL12-00027-00": {"unitCost": 100.0, "baseUnitOfMeasureCode": "EA"},
         }
@@ -1050,14 +1051,31 @@ class TestPanoramaPolycarbonateSheets:
         return svc.compute_complete_po_lines("SO-TEST")
 
     def test_14_2_by_16_is_four_14_ft_sheets(self, monkeypatch):
+        """GL12-00029-00 is SF: 4 sheets × 14' × 4' = 224 SF."""
         plan = self._plan(monkeypatch, self._so(14, 2, 16, 0, 227))
         sheet = plan["panorama_sheets"][0]
-        assert (sheet["length_ft"], sheet["sheet_count"]) == (14, 4)
-        assert sheet["item_no"] is None
-        bought = {row["item_no"] for row in plan["included"]}
+        assert (sheet["length_ft"], sheet["sheet_count"], sheet["item_no"]) == (
+            14, 4, "GL12-00029-00",
+        )
+        assert sheet["uom"] == "SF"
+        assert sheet["order_qty"] == 224
+        assert sheet["warning"] is None
+        assert plan["warnings"] == []
+        row = next(r for r in plan["included"] if r["item_no"] == "GL12-00029-00")
+        assert row["quantity"] == 224
+        assert row["uom"] == "SF"
+        bought = {r["item_no"] for r in plan["included"]}
         assert "GK17-25000-00" not in bought
-        assert not any(item.startswith("GL12") for item in bought)
+        assert "GL12-00026-00" not in bought
         assert "PN80-24100-1402" in bought
+
+        svc.build_upwardor_po("SO-TEST", dry_run=False)
+        written = [
+            (body["lineObjectNumber"], body["quantity"], body.get("unitOfMeasureCode"))
+            for _, body in svc.bc_client.lines if body["lineType"] == "Item"
+        ]
+        assert ("GL12-00029-00", 224, "SF") in written
+        assert all(item[0] != "GK17-25000-00" for item in written)
 
     def test_16_2_by_16_is_four_16_ft_sheets(self, monkeypatch):
         plan = self._plan(monkeypatch, self._so(16, 2, 16, 0, 259))
@@ -1077,40 +1095,53 @@ class TestPanoramaPolycarbonateSheets:
         assert door_items["PN80-24100-1402"] == 8
 
     def test_14_2_by_18_is_five_14_ft_sheets(self, monkeypatch):
+        """5 sheets × 56 SF = 280 SF on GL12-00029-00."""
         plan = self._plan(monkeypatch, self._so(14, 2, 18, 0, 255))
         sheet = plan["panorama_sheets"][0]
-        assert (sheet["length_ft"], sheet["sheet_count"]) == (14, 5)
-        assert sheet["item_no"] is None
+        assert (sheet["length_ft"], sheet["sheet_count"], sheet["item_no"]) == (
+            14, 5, "GL12-00029-00",
+        )
+        assert plan["warnings"] == []
+        row = next(r for r in plan["included"] if r["item_no"] == "GL12-00029-00")
+        assert row["quantity"] == 280
+        assert row["uom"] == "SF"
 
     def test_missing_sheet_item_warns_and_does_not_size_up(self, monkeypatch):
-        so = self._so(14, 2, 16, 0, 227)
+        """15' still has no BC item. A 16' sheet is not substituted."""
+        so = self._so(15, 0, 16, 0, 240)
         bc, _ = _setup(monkeypatch, so, [], self._costs())
         plan = svc.compute_complete_po_lines("SO-TEST")
         warning = plan["warnings"][0]
         assert warning["code"] == "panorama_sheet_item_missing"
-        assert warning["length_ft"] == 14
+        assert warning["length_ft"] == 15
         assert warning["sheet_count"] == 4
-        assert "4 x 14'" in warning["message"]
+        assert "4 x 15'" in warning["message"]
         assert "Not substituted with a longer sheet" in warning["message"]
         assert len(warning["po_comment"]) <= 100
         bought = {row["item_no"] for row in plan["included"]}
-        assert "GL12-00026-00" not in bought  # 16' sheet exists and is not used
+        assert "GL12-00026-00" not in bought
+        assert "GL12-00029-00" not in bought
         assert "GL12-00027-00" not in bought
 
         svc.build_upwardor_po("SO-TEST", dry_run=False)
         comments = [body["description"] for _, body in bc.lines if body["lineType"] == "Comment"]
-        items = [body["lineObjectNumber"] for _, body in bc.lines if body["lineType"] == "Item"]
-        assert any("4 x 14'" in text and "not sized up" in text for text in comments)
+        items = [
+            (body["lineObjectNumber"], body["quantity"], body.get("unitOfMeasureCode"))
+            for _, body in bc.lines if body["lineType"] == "Item"
+        ]
+        assert any("4 x 15'" in text and "not sized up" in text for text in comments)
         assert all(len(text) <= 100 for text in comments)
-        assert "GL12-00026-00" not in items
-        assert "GK17-25000-00" not in items
-        assert "PN80-24100-1402" in items
+        assert all(item[0] != "GL12-00026-00" for item in items)
+        assert "GK17-25000-00" not in {item[0] for item in items}
+        assert ("PN80-24100-1402", 8, "EA") in items
 
     def test_extra_inches_and_exact_feet_do_not_size_up(self):
         from app.services.panorama_sheet_purchasing import panorama_sheet_order
 
-        wide = panorama_sheet_order(14 * 12 + 11, 16 * 12)  # 14'11"
+        wide = panorama_sheet_order(14 * 12 + 11, 16 * 12)  # 14'11" stays 14'
         assert wide["length_ft"] == 14
+        assert wide["item_no"] == "GL12-00029-00"
+        assert wide["order_qty"] == 224
         fifteen = panorama_sheet_order(15 * 12, 16 * 12)
         assert fifteen["length_ft"] == 15
         assert fifteen["item_no"] is None
@@ -1122,10 +1153,13 @@ class TestPanoramaPolycarbonateSheets:
 
         clear = PANORAMA_SHEET_ITEMS["CLEAR"]
         assert clear[10]["item_no"] == "GL12-00025-00"
+        assert clear[10]["uom"] == "EA"
         assert clear[12]["item_no"] == "GL12-00028-00"
+        assert clear[14]["item_no"] == "GL12-00029-00"
+        assert clear[14]["uom"] == "SF"
         assert clear[16]["item_no"] == "GL12-00026-00"
+        assert clear[16]["uom"] == "EA"
         assert clear[18]["item_no"] == "GL12-00027-00"
-        assert 14 not in clear
 
     def test_header_door_count_multiplies_sheets(self, monkeypatch):
         plan = self._plan(monkeypatch, self._so(16, 2, 16, 0, gk_qty=1, door_count=2))
@@ -1166,4 +1200,24 @@ class TestPanoramaPolycarbonateSheets:
         plan = svc.compute_netted_po_lines("SO-TEST")
         row = next(r for r in plan["included"] if r["item_no"] == "GL12-00026-00")
         assert row["quantity"] == 3
+        assert row["uom"] == "EA"
         assert "GK17-25000-00" not in {r["item_no"] for r in plan["included"]}
+
+    def test_sf_sheet_nets_square_feet_not_sheet_count(self, monkeypatch):
+        """56 SF on hand is one 14' sheet. Four sheets need 224 − 56 = 168 SF."""
+        so = self._so(14, 2, 16, 0, 227)
+        cards = [
+            _card("PN80-24100-1402", on_hand=0, on_so=8),
+            _card("GK17-25000-00", on_hand=0, on_so=227, replen="Purchase"),
+            _card("GL12-00029-00", on_hand=56, on_so=0),
+        ]
+        costs = self._costs()
+        # The item card says EA here on purpose. The mapped unit is SF, so
+        # the line stays 168 SF rather than 168 each.
+        costs["GL12-00029-00"] = {"unitCost": 3.0, "baseUnitOfMeasureCode": "EA"}
+        _setup(monkeypatch, so, cards, costs)
+        plan = svc.compute_netted_po_lines("SO-TEST")
+        row = next(r for r in plan["included"] if r["item_no"] == "GL12-00029-00")
+        assert row["quantity"] == 168
+        assert row["uom"] == "SF"
+        assert plan["panorama_sheets"][0]["sheet_count"] == 4

@@ -10,8 +10,10 @@ Quote coverage stays width × height square feet (see
 ``PartNumberService._panorama_polycarbonate_sqft``). This module only
 changes what the purchase order buys.
 
-Sheet length maps to a BC item number. The map below is 3-wall clear.
-A length with no item (14' today) is a warning. A longer sheet is not
+Sheet length maps to a BC item. Each entry names the unit that item is
+bought in. SF items are ordered as sheet count × length × 4' (a 14'
+sheet is 56 SF; four of them are 224 SF). EA items are ordered as the
+sheet count. A length with no item warns, and a longer sheet is not
 substituted. Other colors have no sheet map, so their glazing-kit line
 stays on the PO and a warning says clear sheet was not substituted.
 """
@@ -30,25 +32,35 @@ logger = logging.getLogger(__name__)
 # 4' sheet height. ceil(door height / 4') == ceil(height_in / 48).
 SHEET_HEIGHT_IN = 48
 
-# Nominal length in feet → BC item. Add a key only when that item exists.
-# 14' is absent on purpose: there is no 14' clear sheet in BC yet.
+# Nominal length in feet → BC item. ``uom`` is that item's base unit.
+# SF: order sheet count × length × 4'. EA: order the sheet count.
+# Add a key only when that item exists. Do not point a length at a longer sheet.
 PANORAMA_SHEET_ITEMS: Dict[str, Dict[int, dict]] = {
     "CLEAR": {
         10: {
             "item_no": "GL12-00025-00",
             "description": "POLYCARBONATE SHEET, 3-WALL CLEAR, 10' x 4'",
+            "uom": "EA",
         },
         12: {
             "item_no": "GL12-00028-00",
             "description": "POLYCARBONATE SHEET, 3-WALL CLEAR, 12' x 4'",
+            "uom": "EA",
+        },
+        14: {
+            "item_no": "GL12-00029-00",
+            "description": "POLYCARBONATE SHEET, 3-WALL CLEAR, 14' x 4'",
+            "uom": "SF",
         },
         16: {
             "item_no": "GL12-00026-00",
             "description": "POLYCARBONATE SHEET, 3-WALL CLEAR, 16' x 4'",
+            "uom": "EA",
         },
         18: {
             "item_no": "GL12-00027-00",
             "description": "POLYCARBONATE SHEET, 3-WALL CLEAR, 18' x 4'",
+            "uom": "EA",
         },
     },
 }
@@ -116,6 +128,18 @@ def sheets_per_door(height_in: int) -> int:
     return (int(height_in) + SHEET_HEIGHT_IN - 1) // SHEET_HEIGHT_IN
 
 
+def sheet_order_quantity(sheet_count: float, length_ft: int, uom: str) -> float:
+    """Purchase quantity in the item's unit.
+
+    SF sheets are length × 4' each (a 14' sheet is 56 SF). EA sheets are
+    one unit per sheet.
+    """
+    count = float(sheet_count or 0)
+    if (uom or "EA").upper() == "SF":
+        return count * int(length_ft) * (SHEET_HEIGHT_IN // 12)
+    return count
+
+
 def _size_label(width_in: int, height_in: int) -> str:
     w_ft, w_in = divmod(int(width_in), 12)
     h_ft, h_in = divmod(int(height_in), 12)
@@ -156,6 +180,8 @@ def panorama_sheet_order(
         "color": color_key,
         "item_no": None,
         "description": None,
+        "uom": None,
+        "order_qty": None,
         "warning": None,
         "po_comment": None,
         "code": None,
@@ -201,9 +227,13 @@ def panorama_sheet_order(
         })
         return base
 
+    uom = (spec.get("uom") or "EA").upper()
+    order_qty = sheet_order_quantity(sheet_count, length_ft, uom)
     base.update({
         "item_no": spec["item_no"],
         "description": spec["description"],
+        "uom": uom,
+        "order_qty": order_qty,
         "convert": True,
     })
     return base
@@ -284,16 +314,16 @@ def _allocate_purchases(
             by_item[decision["item_no"]].append(decision)
     purchase: Dict[int, float] = {}
     for item_no, group in by_item.items():
-        total = float(sum(d["sheet_count"] for d in group))
+        total = float(sum(d["order_qty"] for d in group))
         if net_need is None:
             covered = 0.0
         else:
             _avail, net = net_need(item_no, total)
             covered = max(0.0, total - float(net))
         for decision in sorted(group, key=lambda d: d["door_index"]):
-            take = min(covered, float(decision["sheet_count"]))
+            take = min(covered, float(decision["order_qty"]))
             covered = round(covered - take, 4)
-            purchase[decision["door_index"]] = round(float(decision["sheet_count"]) - take, 2)
+            purchase[decision["door_index"]] = round(float(decision["order_qty"]) - take, 2)
     return purchase
 
 
@@ -381,6 +411,8 @@ def replace_panorama_polycarbonate(
             "color": decision["color"],
             "item_no": decision.get("item_no"),
             "description": decision.get("description"),
+            "uom": decision.get("uom"),
+            "order_qty": decision.get("order_qty"),
             "purchase_qty": bought,
             "warning": decision.get("warning"),
         }
@@ -403,14 +435,16 @@ def replace_panorama_polycarbonate(
             continue
         description = decision["description"]
         door_idx = decision["door_index"]
+        gross = float(decision["order_qty"])
         if bought <= 0:
             excluded_in_stock.append({
                 "item_no": decision["item_no"],
                 "description": description,
-                "ordered_qty": decision["sheet_count"],
+                "ordered_qty": gross,
                 "net_qty": 0,
-                "avail": decision["sheet_count"],
+                "avail": gross,
                 "doors": [door_idx],
+                "uom": decision["uom"],
             })
             continue
         included.append({
@@ -418,17 +452,19 @@ def replace_panorama_polycarbonate(
             "description": description,
             "quantity": bought,
             "unit_cost": None,
-            "uom": "EA",
+            "uom": decision["uom"],
+            "sheet_uom": decision["uom"],
             "doors": [door_idx],
             "length_ft": decision["length_ft"],
         })
-        if bought < decision["sheet_count"]:
+        if bought < gross:
             trimmed.append({
                 "item_no": decision["item_no"],
                 "description": description,
-                "ordered_qty": decision["sheet_count"],
+                "ordered_qty": gross,
                 "net_qty": bought,
                 "doors": [door_idx],
+                "uom": decision["uom"],
             })
 
     return {

@@ -81,9 +81,10 @@ Rules (same lists as `purchasing_demand_service` / `so_po_generation_service`):
   leftover-looking components are flagged (e.g. `FH*` with an `HK*` kit,
   `PN40-` cores with `PN45-`/`PN46-`, `TR10-`/`TR11-`/`TR12-` with `TR02-`/`TR03-`,
   `GL12*` / `AL*` with `GK15-17` or `PN80-`). Mapped Panorama clear
-  sheet items (`GL12-00025-00` 10', `GL12-00028-00` 12', `GL12-00026-00` 16',
-  `GL12-00027-00` 18') are purchased on purpose and are not leftovers. A
-  length with no BC item (14' today) is a purchasing warning, not a longer sheet.
+  sheet items (`GL12-00025-00` 10', `GL12-00028-00` 12', `GL12-00029-00` 14'
+  ordered in SF, `GL12-00026-00` 16', `GL12-00027-00` 18') are purchased on
+  purpose and are not leftovers. A length with no BC item is a purchasing
+  warning, not a longer sheet.
 
 Issue `code`s: `missing_companion`, `companion_zero_qty`, `exploded_leftover`,
 `bc_price_missing`, `bc_price_differs_from_item_cost`.
