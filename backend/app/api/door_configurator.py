@@ -1437,6 +1437,7 @@ async def generate_door_quote(
     return build_bc_quote_from_doors(
         request, db, source="admin",
         allow_unresolved_parts=request.forceGenerate,
+        user=_user,
     )
 
 
@@ -1462,10 +1463,15 @@ def build_bc_quote_from_doors(
     db: Session,
     source: str = "admin",
     allow_unresolved_parts: bool = False,
+    user: Optional[User] = None,
 ):
     """Canonical BC quote builder shared by the configurator HTTP route and the
     email auto-quote flow, so both paths produce identical parts, line
     ordering, part-number validation, and BC SalesPriceLists pricing.
+
+    ``user`` is the staff principal on the HTTP route. Selling prices and
+    cost are redacted for that person. Callers with no user (the email
+    monitor) receive the full payload, including line_pricing.
 
     Raises HTTPException on validation failures (unstocked combo, panel not in
     BC, etc.) and on unexpected errors; non-HTTP callers (e.g. the email
@@ -2267,7 +2273,7 @@ def build_bc_quote_from_doors(
         manual_entry_required = [
             w for w in part_warnings if w.get("manual_entry_required")
         ]
-        return redact_configurator_quote(_user, {
+        payload = {
             "success": True,
             "data": {
                 "bc_quote_number": bc_quote_number,
@@ -2297,7 +2303,10 @@ def build_bc_quote_from_doors(
                 f" | Volume pricing: {escalating_result['target_gm']:.1f}% GM ({escalating_result['discount_pct']:.1f}% discount)"
                 if escalating_result else ""
             )
-        })
+        }
+        if user is not None:
+            return redact_configurator_quote(user, payload)
+        return payload
 
     except Exception as e:
         logger.error(f"Error generating BC quote: {e}", exc_info=True)
