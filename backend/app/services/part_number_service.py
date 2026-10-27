@@ -615,6 +615,47 @@ STRUT_WIDTH_BRACKETS = [98, 110, 122, 134, 146, 158, 170, 182, 194, 206, 218, 23
 STRUT_HEIGHT_BRACKETS = [98, 121, 145, 169, 193, 217, 241, 265, 289, 313]
 # Height bracket index → strut type: 0-1=20ga, 2-5=16ga, 6-9=z
 STRUT_HEIGHT_TYPE = ["20ga", "20ga", "16ga", "16ga", "16ga", "16ga", "z", "z", "z", "z"]
+# Stocked Z-strut sticks. BC has 8' and 10' only. Old quotes mention a 12'
+# Z strut ("Z STRUTS 12 GA 12'") but the item master has no SKU for it.
+Z_STRUT_PIECES = (
+    (120, "FH17-98012-1000", "Z STRUTS 12 GA 10'"),
+    (96, "FH17-98012-0800", "Z STRUTS 12 GA 8'"),
+)
+Z_STRUT_COUPLER = ("FH17-00020-00", "Z-STRUT COUPLING PLATE")
+
+
+def z_strut_run(width_inches: int) -> List[int]:
+    """Piece lengths (inches) that cover ``width_inches`` using stocked Z struts.
+
+    Minimizes overhang, then piece count. BC does not stock a single stick
+    at 36'2", so a run is several 8' and 10' pieces joined with couplers.
+    """
+    lengths = [length for length, _pn, _desc in Z_STRUT_PIECES]
+    target = max(int(width_inches or 0), min(lengths))
+    best: Optional[List[int]] = None
+    best_waste: Optional[int] = None
+    best_count: Optional[int] = None
+    max_pieces = target // min(lengths) + 1
+    for n10 in range(max_pieces + 1):
+        for n8 in range(max_pieces - n10 + 1):
+            if n10 == 0 and n8 == 0:
+                continue
+            covered = n10 * 120 + n8 * 96
+            if covered < target:
+                continue
+            waste = covered - target
+            count = n10 + n8
+            if (
+                best is None
+                or waste < best_waste
+                or (waste == best_waste and count < best_count)
+            ):
+                best = [120] * n10 + [96] * n8
+                best_waste = waste
+                best_count = count
+    return best or [max(lengths)]
+
+
 # Chart data: STRUT_CHART[width_idx][height_idx] = count
 STRUT_CHART = [
     #  8'2  10'1  12'1  14'1  16'1  18'1  20'1  22'1  24'1  26'1   (heights)
@@ -1314,6 +1355,7 @@ class PartNumberService:
             v130g_reduction = config.window_qty
 
         # Build part selections for each height (24" first since they're top sections)
+        seen_panel_notes = set()
         for h in [24, 21]:
             count = breakdown[str(h)]
             if count <= 0:
@@ -1349,6 +1391,15 @@ class PartNumberService:
                 quantity=count,
                 category="panel"
             ))
+            if panel.notes and panel.notes not in seen_panel_notes:
+                seen_panel_notes.add(panel.notes)
+                parts.append(PartSelection(
+                    part_number="",
+                    description=f"** SECTION WARNING: {panel.notes} **",
+                    quantity=0,
+                    category="sizing_warning",
+                    notes="unstocked_panel_width",
+                ))
 
         return parts
 
@@ -2344,8 +2395,11 @@ class PartNumberService:
                 notes=f"Inner spring: {inner_wire}\" x {inner_coil}\" x {inner_length}\" RH × {rh_count}"
             ))
 
-            # Winder/stationary sets for inner coil size — one per inner spring
-            inner_winder = mapper.get_winder_stationary_set(inner_coil, 1.0)
+            # Winder/stationary sets for inner coil size — one per inner spring.
+            # Doors over 2000 lbs take a 1-1/4" shaft; the cones have to match.
+            inner_winder = mapper.get_winder_stationary_set(
+                inner_coil, 1.25 if door_weight > 2000 else 1.0
+            )
             parts.append(PartSelection(
                 part_number=inner_winder.part_number,
                 description=inner_winder.description,
@@ -2353,14 +2407,28 @@ class PartNumberService:
                 category="spring_accessory"
             ))
 
-        # Add winder/stationary cone sets — universal parts (work for both LH/RH)
-        winder_universal = mapper.get_winder_stationary_set(coil_id, 1.0)
+        # Add winder/stationary cone sets — universal parts (work for both LH/RH).
+        # Match the shaft: >2000 lbs is 1-1/4" keyed bar, everything else is 1".
+        shaft_bore = 1.25 if door_weight > 2000 else 1.0
+        winder_universal = mapper.get_winder_stationary_set(coil_id, shaft_bore)
         parts.append(PartSelection(
             part_number=winder_universal.part_number,
             description=winder_universal.description,
             quantity=positions,  # one set per (outer) spring
             category="spring_accessory"
         ))
+        if shaft_bore > 1 and "1-1/4" not in (winder_universal.description or ""):
+            parts.append(PartSelection(
+                part_number="",
+                description=(
+                    f"** SHAFT WARNING: Door is {door_weight:.0f} lbs so the shaft is "
+                    f"1-1/4\", but no 1-1/4\" winder set is stocked for a {coil_id}\" coil. "
+                    f"Using {winder_universal.part_number}. Office to confirm the cones. **"
+                ),
+                quantity=0,
+                category="sizing_warning",
+                notes="winder_bore_mismatch",
+            ))
 
         # Shaft sizing counts shaft positions (a duplex nest is one position).
         return parts, positions, is_tandem
@@ -2414,12 +2482,26 @@ class PartNumberService:
                     f"{width_display} door — billing bulk bar by the inch"
                 )
                 bulk = mapper.get_shaft(door_width_feet=0, shaft_type="1-1/4")
-                return [PartSelection(
-                    part_number=bulk.part_number,
-                    description=f"{bulk.description} ({needed_inches}\")",
-                    quantity=needed_inches,
-                    category="shaft",
-                )]
+                return [
+                    PartSelection(
+                        part_number=bulk.part_number,
+                        description=f"{bulk.description} ({needed_inches}\")",
+                        quantity=needed_inches,
+                        category="shaft",
+                    ),
+                    PartSelection(
+                        part_number="",
+                        description=(
+                            f"** SHAFT WARNING: No stocked 1-1/4\" shaft covers "
+                            f"{needed_inches}\" ({width_display} door + 18\" overhang). "
+                            f"Billing bulk bar {bulk.part_number} by the inch "
+                            f"(qty {needed_inches}). Office to confirm. **"
+                        ),
+                        quantity=0,
+                        category="sizing_warning",
+                        notes="shaft_bulk_bar",
+                    ),
+                ]
             return [PartSelection(
                 part_number=shaft.part_number,
                 description=shaft.description,
@@ -2489,6 +2571,22 @@ class PartNumberService:
                             (7, 8, 9, 10, 11, 12, 13, 14, 15)]
         available_sh11 = [ff for ff, _ in sh11_lengths]
 
+        # A 36'2" opening needs door_width+18" of shaft. The longest stocked
+        # 1" solid is 15'6", so one or two sticks come up short. Raise the
+        # count until the longest sticks can span it, unless the user forced
+        # a single shaft.
+        max_stocked = sh11_lengths[-1][1]
+        span_needed = config.door_width + 18
+        if max_stocked and config.shaft_preference != "single":
+            span_n = math.ceil(span_needed / max_stocked)
+            if span_n > N:
+                logger.warning(
+                    f"Raising shaft count from {N} to {span_n} so stocked "
+                    f"{max_stocked}\" shafts can span {width_display} "
+                    f"(need {span_needed}\")"
+                )
+                N = span_n
+
         if N == 1:
             # Single solid shaft: FF*12+6 >= door_width+18 → FF >= (door_width+12)/12
             required_ff = math.ceil((config.door_width + 12) / 12)
@@ -2496,19 +2594,30 @@ class PartNumberService:
 
             physical_length = sku_geometry.sku_to_inches(shaft.part_number) or 0
             needed = config.door_width + 18
+            parts = [PartSelection(
+                part_number=shaft.part_number,
+                description=shaft.description,
+                quantity=1,
+                category="shaft"
+            )]
             if physical_length < needed:
                 logger.warning(
                     f"No solid shaft long enough for {width_display} door "
                     f"(need {needed}\", max available {physical_length}\"): "
                     f"using {shaft.part_number}"
                 )
-
-            return [PartSelection(
-                part_number=shaft.part_number,
-                description=shaft.description,
-                quantity=1,
-                category="shaft"
-            )]
+                parts.append(PartSelection(
+                    part_number="",
+                    description=(
+                        f"** SHAFT WARNING: No solid shaft long enough for {width_display} "
+                        f"door (need {needed}\", longest stocked {physical_length}\"). "
+                        f"Using {shaft.part_number}. Office to confirm shaft layout. **"
+                    ),
+                    quantity=0,
+                    category="sizing_warning",
+                    notes="shaft_length_short",
+                ))
+            return parts
         else:
             # Multi-shaft: N-1 standard shafts + 1 operator shaft + N-1 couplers
             total_needed = config.door_width + 18
@@ -2583,6 +2692,18 @@ class PartNumberService:
                 quantity=(N - 1) * shaft_multiplier,
                 category="shaft"
             ))
+            if total_actual < total_needed:
+                parts.append(PartSelection(
+                    part_number="",
+                    description=(
+                        f"** SHAFT WARNING: Stocked 1\" shafts total {total_actual}\" "
+                        f"which is short of {total_needed}\" for a {width_display} door. "
+                        f"Office to confirm the shaft layout. **"
+                    ),
+                    quantity=0,
+                    category="sizing_warning",
+                    notes="shaft_length_short",
+                ))
             return parts
 
     def _get_strut_parts(self, config: DoorConfiguration) -> List[PartSelection]:
@@ -2620,25 +2741,78 @@ class PartNumberService:
         if strut_count == 0:
             return []
 
+        # Z struts (>=28' wide) are 8' and 10' sticks joined across the
+        # opening. A single hat-strut SKU does not exist at 36', and the
+        # old fallback (FH17-00003-00, a 16' 20ga hat) under-sized the door.
+        if strut_type == "z":
+            return self._get_z_strut_parts(config, strut_count)
+
         mapper = get_bc_mapper()
         door_width_feet = config.door_width // 12
-
-        # Map strutting chart type to gauge for BC part number
-        if strut_type == "16ga":
-            gauge = 16
-        else:
-            # Both 20ga and z-struts use 20ga BC parts
-            # (z-struts are a different assembly but use the same part series)
-            gauge = 20
-
+        gauge = 16 if strut_type == "16ga" else 20
         strut = mapper.get_strut(door_width_feet, gauge)
-
-        return [PartSelection(
+        parts = [PartSelection(
             part_number=strut.part_number,
             description=strut.description,
             quantity=strut_count,
             category="strut"
         )]
+        if strut.notes:
+            parts.append(PartSelection(
+                part_number="",
+                description=f"** STRUT WARNING: {strut.notes} **",
+                quantity=0,
+                category="sizing_warning",
+                notes="strut_length_short",
+            ))
+        return parts
+
+    def _get_z_strut_parts(self, config: DoorConfiguration, strut_count: int) -> List[PartSelection]:
+        """Build each Z-strut run from stocked 8' and 10' sticks."""
+        run = z_strut_run(config.door_width)
+        covered = sum(run)
+        sku_for = {length: (pn, desc) for length, pn, desc in Z_STRUT_PIECES}
+        per_run: Dict[int, int] = {}
+        for length in run:
+            per_run[length] = per_run.get(length, 0) + 1
+
+        parts: List[PartSelection] = []
+        for length, n_per_run in sorted(per_run.items(), reverse=True):
+            pn, desc = sku_for[length]
+            parts.append(PartSelection(
+                part_number=pn,
+                description=desc,
+                quantity=n_per_run * strut_count,
+                category="strut",
+            ))
+        joints = max(0, len(run) - 1)
+        if joints:
+            parts.append(PartSelection(
+                part_number=Z_STRUT_COUPLER[0],
+                description=Z_STRUT_COUPLER[1],
+                quantity=joints * strut_count,
+                category="strut",
+            ))
+        combo = " + ".join(
+            f"{n}×{length // 12}'"
+            for length, n in sorted(per_run.items(), reverse=True)
+        )
+        ft = config.door_width // 12
+        rem = config.door_width % 12
+        width_label = f"{ft}'{rem}\"" if rem else f"{ft}'"
+        parts.append(PartSelection(
+            part_number="",
+            description=(
+                f"** STRUT WARNING: No single Z strut covers {config.door_width}\" "
+                f"({width_label}). Each of {strut_count} runs is {combo} "
+                f"({covered}\" from stocked 8' and 10' sticks; BC has no 12' Z-strut SKU). "
+                f"Angled straps (FH17-00019-00) are not auto-counted — office to confirm. **"
+            ),
+            quantity=0,
+            category="sizing_warning",
+            notes="z_strut_built_from_sticks",
+        ))
+        return parts
 
     def _get_hardware_kit_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """Get hardware box part numbers using actual BC part numbers.
@@ -2718,12 +2892,33 @@ class PartNumberService:
             door_type=config.door_type or "commercial",
         )
 
-        return [PartSelection(
+        parts = [PartSelection(
             part_number=hardware.part_number,
             description=hardware.description,
             quantity=1,
             category="hardware"
         )]
+        # Commercial kit buckets stop at 29' (HK03 code 29). A 36'2" TX450
+        # is past that table; keep the largest kit and warn instead of failing.
+        if is_commercial and config.door_width > mapper.HK03_MAX_WIDTH_IN:
+            cap = mapper.HK03_MAX_WIDTH_IN
+            ft = config.door_width // 12
+            rem = config.door_width % 12
+            width_label = f"{ft}'{rem}\"" if rem else f"{ft}'"
+            parts.append(PartSelection(
+                part_number="",
+                description=(
+                    f"** HARDWARE WARNING: Door width {config.door_width}\" "
+                    f"({width_label}) is past the largest commercial hardware-kit "
+                    f"bucket ({cap}\" / {cap // 12}'). Using {hardware.part_number} "
+                    f"({hardware.description}). Office should confirm the kit "
+                    f"is correct for this opening. **"
+                ),
+                quantity=0,
+                category="sizing_warning",
+                notes="hardware_kit_past_width_table",
+            ))
+        return parts
 
     def _get_seal_parts(self, config: DoorConfiguration) -> List[PartSelection]:
         """

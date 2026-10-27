@@ -125,6 +125,10 @@ class BCPartNumber:
     length_adjustment_ratio: Optional[float] = None
     requested_length_ft: Optional[int] = None
     resolved_length_ft: Optional[int] = None
+    # Set when the caller should surface a warning (unstocked width, strut
+    # shorter than the door, hardware kit past the width table) instead of
+    # treating the line as an exact fit.
+    notes: Optional[str] = None
 
 
 @dataclass
@@ -1105,6 +1109,7 @@ class BCPartNumberMapper:
         # closest available width — preferring next-LARGER, falling back
         # to next-smaller — guarantees every panel line lands on a real
         # priced BC item rather than a fabricated PN that prices at $0.
+        notes = None
         if part_number not in self.bc_items:
             substitute = self._find_closest_panel_width(part_number)
             if substitute:
@@ -1113,20 +1118,36 @@ class BCPartNumberMapper:
                     f"{substitute.part_number} ({substitute.description[:60]})"
                 )
                 return substitute
+            largest = self._largest_stocked_panel(part_number)
+            largest_txt = ""
+            if largest:
+                lin, lpn = largest
+                largest_txt = (
+                    f" Largest stocked section in this family is {lpn} "
+                    f"({lin // 12}'{lin % 12}\")."
+                )
+            notes = (
+                f"No BC section is stocked at {feet}'{inches}\" ({part_number})."
+                f"{largest_txt} "
+                f"Kept the requested width — office must add this section in BC. "
+                f"A shorter stocked section is not a substitute."
+            )
+            logger.warning(notes)
 
         return BCPartNumber(
             part_number=part_number,
             description=desc,
-            category="PANEL"
+            category="PANEL",
+            notes=notes,
         )
 
     def _find_closest_panel_width(self, constructed_pn: str) -> Optional[BCPartNumber]:
-        """Find the closest matching panel by width in the same series + height
-        + stamp + color family. Tries next-larger first (so we never
-        under-bill), falls back to next-smaller as a last resort.
+        """Find the next-larger panel in the same series + height + stamp + color
+        family. Steps up so the section is never shorter than the opening.
 
-        Returns None when no panels in the same family exist at all — caller
-        is responsible for handling that edge case.
+        Returns None when nothing in the family is at least as wide as requested
+        (including when the family is empty). Callers keep the exact width and
+        warn — they do not substitute a shorter section.
         """
         bits = constructed_pn.split("-")
         if len(bits) != 3:
@@ -1157,7 +1178,9 @@ class BCPartNumberMapper:
             return None
 
         candidates.sort()
-        # Preference 1: smallest candidate >= requested width (step up).
+        # Smallest candidate >= requested width (step up). Never step down:
+        # a shorter section under-sizes the door (a 36'2" TX450 used to
+        # land on PN46-*-3200, the 32'0" stick).
         for ctot, pn in candidates:
             if ctot >= target_total_in:
                 item = self.bc_items[pn]
@@ -1166,15 +1189,31 @@ class BCPartNumberMapper:
                     description=item.get("displayName", item.get("description", "")),
                     category="PANEL",
                 )
-        # Preference 2: largest candidate < requested width (step down,
-        # only when requested exceeds the largest stocked size).
-        ctot, pn = candidates[-1]
-        item = self.bc_items[pn]
-        return BCPartNumber(
-            part_number=pn,
-            description=item.get("displayName", item.get("description", "")),
-            category="PANEL",
-        )
+        return None
+
+    def _largest_stocked_panel(self, constructed_pn: str) -> Optional[Tuple[int, str]]:
+        """Widest stocked panel in the same family, as (total inches, part number)."""
+        bits = constructed_pn.split("-")
+        if len(bits) != 3:
+            return None
+        prefix, body, target_width = bits
+        if len(target_width) < 4:
+            return None
+        family_prefix = f"{prefix}-{body}-"
+        best: Optional[Tuple[int, str]] = None
+        for pn in self.bc_items:
+            if not pn.startswith(family_prefix):
+                continue
+            suffix = pn[len(family_prefix):]
+            if len(suffix) < 4 or not suffix[:4].isdigit():
+                continue
+            try:
+                ctot = int(suffix[:2]) * 12 + int(suffix[2:4])
+            except ValueError:
+                continue
+            if best is None or ctot > best[0]:
+                best = (ctot, pn)
+        return best
 
     def get_shaft_by_length(
         self, needed_inches: int, shaft_type: str = "solid"
@@ -1229,28 +1268,17 @@ class BCPartNumberMapper:
         Returns:
             BCPartNumber for strut
         """
-        # Map width to standard strut lengths
-        strut_lengths = {8: 8, 9: 9, 10: 10, 12: 12, 14: 14, 16: 16, 18: 18,
-                        20: 20, 22: 22, 24: 24, 26: 26, 28: 28}
-
-        strut_length = strut_lengths.get(door_width_feet, door_width_feet)
-
-        # Part number based on gauge and length
+        # Part number based on gauge and length. Pick the shortest stocked
+        # stick that covers the door. If nothing is long enough, keep the
+        # longest stick and say so — never describe a 16' part as 36'.
         if gauge == 16:
-            length_map_16 = {
+            length_map = {
                 18: "FH17-00035-00",
                 20: "FH17-00036-00",
                 22: "FH17-00037-00",
                 24: "FH17-00018-00",
                 26: "FH17-00042-00",
             }
-            # Find the smallest key >= strut_length
-            matched = None
-            for k in sorted(length_map_16.keys()):
-                if k >= strut_length:
-                    matched = length_map_16[k]
-                    break
-            part_number = matched or length_map_16[26]  # fallback to largest
         else:  # 20 gauge
             length_map = {
                 8: "FH17-00028-00",
@@ -1263,13 +1291,31 @@ class BCPartNumberMapper:
                 18: "FH17-00004-00",
                 20: "FH17-00036-00",
             }
-            part_number = length_map.get(strut_length, "FH17-00003-00")
+
+        matched_len = None
+        for k in sorted(length_map):
+            if k >= door_width_feet:
+                matched_len = k
+                break
+        notes = None
+        if matched_len is None:
+            matched_len = max(length_map)
+            notes = (
+                f"No {gauge}ga strut is stocked at {door_width_feet}'. "
+                f"Longest stocked is {matched_len}' ({length_map[matched_len]}), "
+                f"which is short of this door. Office to confirm strut length."
+            )
 
         return BCPartNumber(
-            part_number=part_number,
-            description=f"STRUT, {gauge} GA, {strut_length}'",
-            category="STRUT"
+            part_number=length_map[matched_len],
+            description=f"STRUT, {gauge} GA, {matched_len}'",
+            category="STRUT",
+            notes=notes,
         )
+
+    # Last commercial (HK03) width bucket. Code "29" covers through 29'0".
+    # Wider doors (TX450 up to 36'2") still use that kit, and the caller warns.
+    HK03_MAX_WIDTH_IN = 348
 
     def get_hardware_box(
         self,
@@ -1334,7 +1380,7 @@ class BCPartNumberMapper:
         WIDTH_BUCKETS_HK03: List[Tuple[int, str]] = [
             (134, "11"), (170, "14"), (194, "16"), (206, "17"),
             (233, "19"), (240, "20"), (264, "22"), (288, "24"),
-            (314, "26"), (336, "28"), (348, "29"),
+            (314, "26"), (336, "28"), (self.HK03_MAX_WIDTH_IN, "29"),
         ]
 
         def bucket_for(inches: int, table: List[Tuple[int, str]]) -> str:

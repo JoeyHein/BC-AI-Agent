@@ -989,7 +989,7 @@ def _generate_bc_quote_with_items(
                 # _format_door_description header; skip the duplicate.
                 if part.get("category") == "comment":
                     continue
-                if part.get("category") in ("spring_comment", "highlift_comment", "glazing_comment"):
+                if part.get("category") in ("spring_comment", "highlift_comment", "glazing_comment", "sizing_warning"):
                     part["lineType"] = "Comment"
                     part["is_note"] = True
 
@@ -1225,30 +1225,37 @@ def _generate_bc_quote_with_items(
                             break
 
                 if not stepped_up:
-                    logger.error(
-                        f"PANEL PART FAILED — aborting quote {bc_quote_number}. "
-                        f"Part: {part_id}, Error: {line_error}"
+                    # Don't delete the quote. A legal width with no stocked
+                    # section (TX450 36'2") should keep the rest of the BOM
+                    # and tell the office to add the section by hand.
+                    desc = (line.get("description") or "").strip()
+                    qty = line.get("quantity", 1)
+                    logger.warning(
+                        f"PANEL {part_id} not in BC and no larger size — "
+                        f"keeping quote {bc_quote_number} with a MANUAL ENTRY comment"
                     )
                     try:
-                        bc_client.delete_sales_quote(bc_quote_id)
-                    except Exception:
-                        pass
-                    return {
-                        "success": False,
-                        "error": (
-                            f"Panel part number {part_id} could not be resolved in BC. "
-                            f"Please contact the office to complete this quote."
-                        ),
-                        "bc_quote_id": None,
-                        "bc_quote_number": None,
-                        "lines_added": 0,
-                        "lines_failed": [{"part_number": part_id, "error": str(line_error), "category": "panel"}],
-                        "pricing": None,
-                        "line_pricing": None,
-                        "door_results": None,
-                        "freight": None,
-                        "escalating_margin": None,
-                    }
+                        added_note = bc_client.add_quote_line(bc_quote_id, {
+                            "lineType": "Comment",
+                            "description": (
+                                f"** MANUAL ENTRY REQUIRED: {desc} — part {part_id} "
+                                f"(Qty {qty}) is not stocked in BC and no larger size exists. "
+                                f"Office to add the section line. **"
+                            ),
+                        })
+                        lines_added += 1
+                        _track_door_line(line.get("door_index"), added_note)
+                    except Exception as note_err:
+                        logger.warning(
+                            f"Could not add manual-entry comment for {part_id}: {note_err}"
+                        )
+                    lines_failed.append({
+                        "part_number": part_id,
+                        "error": str(line_error),
+                        "category": "panel",
+                        "manual_entry_required": True,
+                    })
+                    continue
 
             # ── Substitute lookup ──────────────────────────────────────────
             # 1) Deterministic step-up: if the SKU ends in a 4-digit width
@@ -2065,7 +2072,7 @@ def _edit_bc_quote_lines(
                 # _format_door_description header; skip the duplicate.
                 if part.get("category") == "comment":
                     continue
-                if part.get("category") in ("spring_comment", "highlift_comment", "glazing_comment"):
+                if part.get("category") in ("spring_comment", "highlift_comment", "glazing_comment", "sizing_warning"):
                     part["lineType"] = "Comment"
                     part["is_note"] = True
                 all_new_lines.append(part)
@@ -2471,7 +2478,7 @@ def _estimate_pricing_locally(
                 # _format_door_description header; skip the duplicate.
                 if part.get("category") == "comment":
                     continue
-                if part.get("category") in ("spring_comment", "highlift_comment", "glazing_comment"):
+                if part.get("category") in ("spring_comment", "highlift_comment", "glazing_comment", "sizing_warning"):
                     part["lineType"] = "Comment"
                     part["is_note"] = True
 

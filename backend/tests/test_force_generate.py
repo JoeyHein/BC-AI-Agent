@@ -1,10 +1,11 @@
-"""'Generate anyway' force path — unresolved section/panel becomes a MANUAL
-ENTRY comment line instead of aborting the whole BC quote.
+"""Unresolved section/panel with no larger stocked width becomes a MANUAL
+ENTRY comment instead of aborting the quote.
 
-Covers the pure helper `_flag_unresolved_line_as_comment`. The force flag only
-changes the `is_panel_like` "no larger size" abort; it must NOT bypass
-`validate_panel_combo` (unstocked color/stamp/series stays a hard block — that
-case is covered by test_series_constraints.py).
+Covers the pure helper `_flag_unresolved_line_as_comment`. The no-larger-size
+path always flags manual entry (a series-legal width can sit past the stocked
+section table — TX450 36'2"). `forceGenerate` is still accepted and must NOT
+bypass `validate_panel_combo` (unstocked color/stamp/series stays a hard
+block — that case is covered by test_series_constraints.py).
 """
 import sys
 import os
