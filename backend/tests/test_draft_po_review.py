@@ -222,6 +222,16 @@ class TestSummarizeAndValidate:
         assert [i["item_number"] for i in leftovers] == ["PN40-24405-1000"]
         assert "PN45-" in leftovers[0]["parent_prefixes"]
 
+    def test_mapped_panorama_sheet_is_not_an_exploded_gk17_leftover(self):
+        """16' clear sheet is a real Panorama buy, even beside a glazing kit."""
+        po = _po(lines=[
+            _line("GK17-10000-00", 40, desc="GLAZING KIT, ALUM, THERM, CLEAR"),
+            _line("GL12-00026-00", 4, desc="POLYCARBONATE SHEET, 3-WALL CLEAR, 16' x 4'"),
+        ])
+        result = validate_po(po)
+        leftovers = [i for i in result["issues"] if i["code"] == "exploded_leftover"]
+        assert leftovers == []
+
     def test_gl12_flagged_when_gk17_parent_present(self):
         po = _po(lines=[
             _line("GK17-25100-00", 196, desc="GLAZING KIT"),

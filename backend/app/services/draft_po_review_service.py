@@ -29,6 +29,7 @@ from app.services.purchasing_demand_service import (
     _buy_complete,
 )
 from app.services.po_line_order import classify_line
+from app.services.panorama_sheet_purchasing import panorama_sheet_item_numbers
 from app.services.so_po_generation_service import (
     _ALWAYS_FULL_QTY_KEYWORDS,
     _always_full_qty,
@@ -168,6 +169,13 @@ def _leftover_matches(item: str, description: str, present_parents: Sequence[str
         if parent_prefix not in present_parents:
             continue
         if item.startswith(leftover_prefixes) or any(k in desc_u for k in keywords):
+            # Panorama sheet buys are whole GL12 lengths chosen from the door.
+            # They are not an exploded GK15/GK16/GK17 kit.
+            if (
+                item in panorama_sheet_item_numbers()
+                and parent_prefix in ("GK15-", "GK16-", "GK17-")
+            ):
+                continue
             if parent_prefix not in matched:
                 matched.append(parent_prefix)
     return matched

@@ -966,6 +966,16 @@ class TestPanoramaPolycarbonateSqft:
         row = self._poly(self._panorama(12 * 12 + 2, 10 * 12 + 3, 1))
         assert row["quantity"] == 125
 
+    def test_sheet_lengths_do_not_change_coverage(self):
+        """Purchasing buys whole sheets. The quote stays width × height.
+
+        14'2\" × 16' is 226.67 sq ft → 227, not 4 × 14' × 4' = 224.
+        16'2\" × 16' is 258.67 → 259. 14'2\" × 18' is 255 exactly.
+        """
+        assert self._poly(self._panorama(14 * 12 + 2, 16 * 12))["quantity"] == 227
+        assert self._poly(self._panorama(16 * 12 + 2, 16 * 12))["quantity"] == 259
+        assert self._poly(self._panorama(14 * 12 + 2, 18 * 12))["quantity"] == 255
+
     def test_fractional_dimensions_times_door_count(self):
         """Ceil per door, then multiply. 125 × 2 = 250, which covers 249.42."""
         row = self._poly(self._panorama(12 * 12 + 2, 10 * 12 + 3, 2))
