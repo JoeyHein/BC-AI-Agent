@@ -1,8 +1,10 @@
 """Configurator quotes record who generated them without clobbering a typed PO.
 
 The tag is ``<SHORTNAME>-<NNNN>`` (``EMAIL-<NNNN>`` when no staff user).
-It always goes to BC Your Reference. External Document No. keeps a typed
-PO exactly, and uses the tag only when that field is blank.
+It is stored on the portal snapshot / saved quote. External Document No.
+keeps a typed PO exactly, and uses the tag only when that field is blank.
+Your Reference is never sent: the standard api/v2.0 salesQuotes entity has
+no such property and BC rejects the whole request with a 400.
 """
 from __future__ import annotations
 
@@ -213,6 +215,34 @@ def test_concurrent_clicks_get_unique_numbers():
     assert sorted(tags) == [f"JOEY-{n:04d}" for n in range(1, 9)]
 
 
+# Writable header properties on the standard BC api/v2.0 salesQuote entity
+# (Microsoft Learn, "salesQuote resource type"). Real BC answers any other
+# key with 400 "The property 'X' does not exist on type
+# 'Microsoft.NAV.salesQuote'" and creates nothing.
+_SALES_QUOTE_V2_PROPERTIES = {
+    "number", "externalDocumentNumber", "documentDate", "postingDate",
+    "dueDate", "customerId", "customerNumber", "customerName", "billToName",
+    "billToCustomerId", "billToCustomerNumber", "shipToName", "shipToContact",
+    "sellToAddressLine1", "sellToAddressLine2", "sellToCity", "sellToCountry",
+    "sellToState", "sellToPostCode", "billToAddressLine1", "billToAddressLine2",
+    "billToCity", "billToCountry", "billToState", "billToPostCode",
+    "shipToAddressLine1", "shipToAddressLine2", "shipToCity", "shipToCountry",
+    "shipToState", "shipToPostCode", "shortcutDimension1Code",
+    "shortcutDimension2Code", "currencyId", "currencyCode", "paymentTermsId",
+    "shipmentMethodId", "salesperson", "discountAmount", "status",
+    "validUntilDate", "phoneNumber", "email",
+}
+
+
+def _reject_unknown_quote_properties(quote_data):
+    unknown = sorted(set(quote_data) - _SALES_QUOTE_V2_PROPERTIES)
+    if unknown:
+        raise RuntimeError(
+            f"400 Bad Request | BC: The property '{unknown[0]}' does not "
+            f"exist on type 'Microsoft.NAV.salesQuote'."
+        )
+
+
 class _RecordingBC:
     def __init__(self):
         self.created = []
@@ -220,11 +250,13 @@ class _RecordingBC:
         self.n = 0
 
     def create_sales_quote(self, quote_data, company_id=None):
+        _reject_unknown_quote_properties(quote_data)
         self.n += 1
         self.created.append(dict(quote_data))
         return {"id": f"quote-{self.n}", "number": f"SQ-90000{self.n}"}
 
     def update_sales_quote(self, quote_id, quote_data, etag="*", company_id=None):
+        _reject_unknown_quote_properties(quote_data)
         self.updated.append({"id": quote_id, "data": dict(quote_data), "etag": etag})
         return {"id": quote_id, "number": "SQ-900001"}
 
@@ -333,7 +365,7 @@ def test_typed_po_is_preserved_and_tag_is_stored(monkeypatch, quote_db):
     assert data["created_by_email"] == "joey@opendc.ca"
     assert data["po_number"] == " PO-123 "
     assert bc.created[0]["externalDocumentNumber"] == " PO-123 "
-    assert bc.created[0]["yourReference"] == "JOEY-0001"
+    assert "yourReference" not in bc.created[0]
     assert bc.updated == []
 
     snap = db.query(QuoteSnapshot).filter(QuoteSnapshot.bc_quote_id == data["bc_quote_id"]).one()
@@ -359,12 +391,12 @@ def test_blank_po_uses_the_tag_and_the_counter_advances(monkeypatch, quote_db):
     assert first["data"]["creator_tag"] == "JOEY-0001"
     assert first["data"]["po_number"] == "JOEY-0001"
     assert bc.created[0]["externalDocumentNumber"] == "JOEY-0001"
-    assert bc.created[0]["yourReference"] == "JOEY-0001"
+    assert "yourReference" not in bc.created[0]
 
     assert second["data"]["creator_tag"] == "JOEY-0002"
     assert second["data"]["po_number"] == "JOEY-0002"
     assert bc.created[1]["externalDocumentNumber"] == "JOEY-0002"
-    assert bc.created[1]["yourReference"] == "JOEY-0002"
+    assert "yourReference" not in bc.created[1]
 
 
 def test_email_path_has_its_own_counter_and_keeps_a_supplied_reference(monkeypatch, quote_db):
@@ -379,12 +411,12 @@ def test_email_path_has_its_own_counter_and_keeps_a_supplied_reference(monkeypat
     assert blank["data"]["created_by_user_id"] is None
     assert blank["data"]["created_by_email"] is None
     assert blank["data"]["po_number"] == "EMAIL-0001"
-    assert bc.created[0]["yourReference"] == "EMAIL-0001"
+    assert "yourReference" not in bc.created[0]
     assert bc.created[0]["externalDocumentNumber"] == "EMAIL-0001"
 
     assert supplied["data"]["creator_tag"] == "EMAIL-0002"
     assert supplied["data"]["po_number"] == "EMAIL-QR-9"
-    assert bc.created[1]["yourReference"] == "EMAIL-0002"
+    assert "yourReference" not in bc.created[1]
     assert bc.created[1]["externalDocumentNumber"] == "EMAIL-QR-9"
 
     snap = db.query(QuoteSnapshot).filter(
@@ -393,6 +425,27 @@ def test_email_path_has_its_own_counter_and_keeps_a_supplied_reference(monkeypat
     assert snap.creator_tag == "EMAIL-0002"
     assert snap.creator_user_id is None
     assert snap.source == "email"
+
+
+def test_typed_reference_generates_against_strict_v2_quote_entity(monkeypatch, quote_db):
+    """Regression: Oct 28 2026, PO / Reference 'Vern' -> BC 400 on yourReference."""
+    db, joey = quote_db
+    bc = _RecordingBC()
+    _install_mocks(monkeypatch, bc)
+
+    result = _generate(db, joey, bc, poNumber="Vern")
+
+    assert result["data"]["bc_quote_number"] == "SQ-900001"
+    assert result["data"]["po_number"] == "Vern"
+    assert result["data"]["creator_tag"] == "JOEY-0001"
+    assert len(bc.created) == 1
+    assert set(bc.created[0]) <= _SALES_QUOTE_V2_PROPERTIES
+    assert bc.created[0]["externalDocumentNumber"] == "Vern"
+
+    snap = db.query(QuoteSnapshot).filter(
+        QuoteSnapshot.bc_quote_id == result["data"]["bc_quote_id"]
+    ).one()
+    assert snap.creator_tag == "JOEY-0001"
 
 
 def test_regenerating_a_quote_reuses_the_tag(monkeypatch, quote_db):
@@ -407,7 +460,7 @@ def test_regenerating_a_quote_reuses_the_tag(monkeypatch, quote_db):
     assert first["data"]["creator_tag"] == "JOEY-0001"
     assert second["data"]["creator_tag"] == "JOEY-0001"
     assert second["data"]["po_number"] == "JOB-2"
-    assert bc.updated[-1]["data"]["yourReference"] == "JOEY-0001"
+    assert bc.updated[-1]["data"] == {"externalDocumentNumber": "JOB-2"}
     assert bc.updated[-1]["data"]["externalDocumentNumber"] == "JOB-2"
     assert len(bc.created) == 1
 

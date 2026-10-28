@@ -1,9 +1,10 @@
 """Creator tags for door-configurator sales quotes.
 
 A tag is ``<SHORTNAME>-<NNNN>`` (or ``EMAIL-<NNNN>`` for the unattended
-email auto-quote path). It is written to the BC sales quote Your Reference
-field on every generate, and used as External Document No. only when the
-operator left PO / Reference blank.
+email auto-quote path). It is stored on the portal quote snapshot / saved
+quote on every generate, and written to BC as External Document No. only
+when the operator left PO / Reference blank. (The standard api/v2.0
+salesQuotes entity has no Your Reference property, so it is not sent.)
 
 ``NNNN`` is that creator's own running count, stored in
 ``configurator_quote_counters`` and advanced with a single upsert so two
