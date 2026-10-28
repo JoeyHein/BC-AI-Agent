@@ -1699,15 +1699,21 @@ def build_bc_quote_from_doors(
             ).first()
             enable_volume_curve = bool(flag_setting and flag_setting.setting_value)
 
-        # Creator tag identifies who generated the quote. Your Reference
-        # always gets the tag. External Document No. keeps a typed PO as
-        # entered, and falls back to the tag when that field is blank.
+        # Creator tag identifies who generated the quote. External Document
+        # No. keeps a typed PO as entered, and falls back to the tag when
+        # that field is blank. The tag is always stored on the portal
+        # snapshot / saved quote.
+        #
+        # Do NOT send "yourReference": the standard api/v2.0 salesQuotes
+        # entity has no such property and BC rejects the whole POST/PATCH
+        # with 400 "The property 'yourReference' does not exist on type
+        # 'Microsoft.NAV.salesQuote'". Writing Your Reference needs a
+        # published OData page (e.g. Sales Quote page 41) — not built yet.
         creator_tag, creator_user_id, creator_email = resolve_creator_tag(
             db, user, request.bcQuoteId,
         )
         po_number = external_document_number(request.poNumber, creator_tag)
         quote_data["externalDocumentNumber"] = po_number
-        quote_data["yourReference"] = creator_tag
         logger.info(
             "Configurator quote tag %s (user=%s, external_document=%s)",
             creator_tag,
@@ -1732,15 +1738,12 @@ def build_bc_quote_from_doors(
                 try:
                     bc_client.update_sales_quote(
                         bc_quote_id,
-                        {
-                            "externalDocumentNumber": po_number,
-                            "yourReference": creator_tag,
-                        },
+                        {"externalDocumentNumber": po_number},
                         etag=existing.get("@odata.etag", "*"),
                     )
                 except Exception as header_err:
                     logger.warning(
-                        f"Could not update externalDocumentNumber/yourReference "
+                        f"Could not update externalDocumentNumber "
                         f"on quote {bc_quote_number}: {header_err}"
                     )
                 existing_lines = bc_client.get_quote_lines(bc_quote_id)
