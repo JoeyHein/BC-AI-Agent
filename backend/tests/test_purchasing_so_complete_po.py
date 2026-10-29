@@ -251,6 +251,7 @@ class TestPreview:
         assert skipped["WRAPALU"]["quantity"] == 57.3
         assert "operator" in skipped["OP20-01056-00"]["reason"]
         assert "wrapping" in skipped["WRAPALU"]["reason"]
+        assert data["warnings"] == []
         assert "FREIGHT" not in _qty_map(data["lines"])
         assert "RAW-CORE" not in _qty_map(data["lines"])
         assert bc.created == []

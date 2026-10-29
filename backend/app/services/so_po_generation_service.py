@@ -44,6 +44,7 @@ from app.services.vendor_receipt_lead_time import (
     receipt_plan_for_new_po,
 )
 from app.services.purchasing_demand_service import NON_STOCK_ITEMS, _buy_complete
+from app.services.panorama_sheet_purchasing import replace_panorama_polycarbonate
 from app.services.po_line_order import order_item_rows
 from app.services.weatherstrip_policy import (
     WEATHERSTRIP_EXCLUSION_REASON,
@@ -66,11 +67,10 @@ _DOOR_HEADER_RE = re.compile(r'^\(\d+\)\s+\d+\'\d+"\s*x\s*\d+\'\d+"')
 
 _MAX_BOM_DEPTH = 6  # defends against a cyclical/self-referencing BOM
 
-# GL12 polycarbonate glazing sheet: Joey, 2026-09-09 — "the purchasing order
-# should be full sheets", BC only carries one SKU per color (priced per SF,
-# no per-length variant), and stock comes in 4' x {12',16',20',24'} pieces.
-# So a raw SF need gets rounded up to the minimal-waste combination of those
-# stocked lengths — never an arbitrary cut SF quantity Upwardor can't supply.
+# GL12 square-foot leaf from a non-Panorama BOM. Joey, 2026-09-09 asked for
+# full sheets when BC had one SKU per color priced per SF. That rounding
+# stays for those leaves only. Panorama doors do not use it: they buy a
+# per-length sheet item from the nominal door width (panorama_sheet_purchasing).
 _GL12_SHEET_SF = [4 * ft for ft in (12, 16, 20, 24)]  # 48, 64, 80, 96
 _GL12_MAX_SHEETS = 6
 
@@ -139,10 +139,26 @@ def _f(v) -> float:
     return float(v or 0)
 
 
+def _apply_item_card_cost(row: dict, meta: dict) -> None:
+    """Fill the preview cost. Panorama sheet lines keep the mapped unit.
+
+    GL12-00029-00 is SF (sheet count × length × 4'). The other clear
+    sheet items are EA. The item-card unit must not turn a 224 SF line
+    into 224 EA, or a 4 EA line into 4 SF.
+    """
+    row["unit_cost"] = _f(meta.get("unitCost"))
+    if row.get("sheet_uom"):
+        row["uom"] = row["sheet_uom"]
+    else:
+        row["uom"] = meta.get("baseUnitOfMeasureCode") or row.get("uom") or "EA"
+
+
 def _round_to_full_sheets(item_no: str, sf_needed: float) -> float:
-    """Round a GL12 (polycarbonate glazing sheet) need up to the smallest
-    combination of stocked 4'-wide sheet lengths that covers it, minimizing
-    both waste and sheet count. Every other item passes through unchanged."""
+    """Round a non-Panorama GL12 square-foot need up to stocked sheet area.
+
+    Panorama purchasing does not call this. It buys one sheet length — the
+    nominal door width — and ceil(height / 4') sheets. Every other item
+    passes through unchanged."""
     if not item_no.startswith("GL12") or sf_needed <= 0:
         return sf_needed
     import itertools
@@ -262,7 +278,7 @@ def compute_netted_po_lines(so_number: str) -> dict:
         "so_number": so_number, "customer_name": so.get("customerName"),
         "included": [], "excluded_manufactured": [], "excluded_in_stock": [], "trimmed": [],
         "component_shortfall": [], "component_covered": [], "by_door": [], "shared": {},
-        "has_doors": bool(door_labels),
+        "has_doors": bool(door_labels), "warnings": [], "panorama_sheets": [],
     }
     if not so_qty:
         return empty
@@ -305,15 +321,24 @@ def compute_netted_po_lines(so_number: str) -> dict:
             "doors": sorted(item_doors.get(item, set())),
         })
 
+    def _net_sheet(item_no: str, qty: float):
+        return _net_need(items.get(item_no, {}), qty)
+
+    sheet_plan = replace_panorama_polycarbonate(
+        door_labels, door_item_qty, included, excluded_in_stock, trimmed,
+        net_need=_net_sheet,
+    )
+    included = sheet_plan["included"]
+    excluded_in_stock = sheet_plan["excluded_in_stock"]
+    trimmed = sheet_plan["trimmed"]
+
     # The preview still shows item-card unitCost (base UoM) so a buyer can
     # see a rough amount. The PO line omits directUnitCost and BC prices it
     # from the vendor purchase price list for the order date.
     if included:
         cost_cards = bc_client.get_items_by_numbers([r["item_no"] for r in included])
         for row in included:
-            meta = cost_cards.get(row["item_no"], {})
-            row["unit_cost"] = _f(meta.get("unitCost"))
-            row["uom"] = meta.get("baseUnitOfMeasureCode") or "EA"
+            _apply_item_card_cost(row, cost_cards.get(row["item_no"], {}))
 
     # ── Explode manufactured items to raw components, net those too ────────
     component_shortfall, component_covered = [], []
@@ -351,11 +376,12 @@ def compute_netted_po_lines(so_number: str) -> dict:
         if component_shortfall:
             cost_cards = bc_client.get_items_by_numbers([r["item_no"] for r in component_shortfall])
             for row in component_shortfall:
-                meta = cost_cards.get(row["item_no"], {})
-                row["unit_cost"] = _f(meta.get("unitCost"))
-                row["uom"] = meta.get("baseUnitOfMeasureCode") or "EA"
+                _apply_item_card_cost(row, cost_cards.get(row["item_no"], {}))
 
-    by_door, shared = _group_by_door(door_labels, door_item_qty, included, component_shortfall)
+    by_door, shared = _group_by_door(
+        door_labels, door_item_qty, included, component_shortfall,
+        warnings=sheet_plan["warnings"],
+    )
 
     return {
         "so_number": so_number,
@@ -369,6 +395,8 @@ def compute_netted_po_lines(so_number: str) -> dict:
         "by_door": by_door,
         "shared": shared,
         "has_doors": bool(door_labels),
+        "warnings": sheet_plan["warnings"],
+        "panorama_sheets": sheet_plan["panorama_sheets"],
     }
 
 
@@ -448,20 +476,29 @@ def compute_complete_po_lines(so_number: str) -> dict:
         "doors": sorted(item_doors.get(item, set())),
     } for item, qty in sorted(so_qty.items()) if qty > 0]
 
+    sheet_plan = replace_panorama_polycarbonate(
+        door_labels, door_item_qty, included,
+    )
+    included = sheet_plan["included"]
+
     if included:
         cost_cards = bc_client.get_items_by_numbers([r["item_no"] for r in included])
         for row in included:
-            meta = cost_cards.get(row["item_no"], {})
-            row["unit_cost"] = _f(meta.get("unitCost"))
-            row["uom"] = meta.get("baseUnitOfMeasureCode") or "EA"
+            _apply_item_card_cost(row, cost_cards.get(row["item_no"], {}))
 
-    by_door, shared = _group_by_door(door_labels, door_item_qty, included, [])
+    by_door, shared = _group_by_door(
+        door_labels, door_item_qty, included, [],
+        warnings=sheet_plan["warnings"],
+    )
     return {
         "so_number": so_number, "customer_name": so.get("customerName"), "mode": "complete",
         "included": included, "excluded": list(excluded.values()),
-        "excluded_manufactured": [], "excluded_in_stock": [], "trimmed": [],
+        "excluded_manufactured": [], "excluded_in_stock": sheet_plan["excluded_in_stock"],
+        "trimmed": sheet_plan["trimmed"],
         "component_shortfall": [], "component_covered": [],
         "by_door": by_door, "shared": shared, "has_doors": bool(door_labels),
+        "warnings": sheet_plan["warnings"],
+        "panorama_sheets": sheet_plan["panorama_sheets"],
     }
 
 
@@ -476,7 +513,8 @@ def _compute_plan(so_number: str, mode: str) -> dict:
 def _group_by_door(door_labels: Dict[int, str],
                     door_item_qty: Dict[str, Dict[int, float]],
                     included: List[dict],
-                    component_shortfall: List[dict]) -> Tuple[List[dict], dict]:
+                    component_shortfall: List[dict],
+                    warnings: Optional[List[dict]] = None) -> Tuple[List[dict], dict]:
     """Reshape the flat included/component_shortfall lists into the same
     door-by-door layout the sales order itself uses — Joey, 2026-09-09:
     "create the layout... in the same sort of format as we do the sales
@@ -524,14 +562,22 @@ def _group_by_door(door_labels: Dict[int, str],
         else:
             shared_included.append(row)
 
+    warn_by_door: Dict[int, List[dict]] = defaultdict(list)
+    for warning in warnings or []:
+        door_idx = warning.get("door_index")
+        if door_idx:
+            warn_by_door[door_idx].append(warning)
+
     by_door: List[dict] = []
     for door_idx in sorted(door_labels):
         door_included = per_door_included.get(door_idx, [])
         door_components = [r for r in component_shortfall if r["doors"] == [door_idx]]
-        if door_included or door_components:
+        door_warnings = warn_by_door.get(door_idx, [])
+        if door_included or door_components or door_warnings:
             by_door.append({
                 "door_index": door_idx, "label": door_labels[door_idx],
                 "included": door_included, "component_shortfall": door_components,
+                "warnings": door_warnings,
             })
     shared = {
         "included": shared_included,
@@ -583,21 +629,35 @@ def _write_plan_lines(po_id: str, plan: dict, so_number: str) -> int:
 
     by_door = plan["by_door"]
     shared = plan["shared"]
+
+    def _add_warning_comments(rows) -> None:
+        for warning in rows or []:
+            text = (warning.get("po_comment") or warning.get("message") or "")[:100]
+            if text:
+                _add_comment(text)
+
     # Panels-first inside each door (and inside the shared / flat buckets).
     # The door comment stays the first line of the group. See po_line_order.
     if plan["has_doors"]:
         # Same shape as the sales order: one heading per door, its items
         # underneath — Joey, 2026-09-09 — then panels-first within the door.
+        seen_doors = set()
         for group in by_door:
+            seen_doors.add(group.get("door_index"))
             _add_comment(group["label"])
             door_rows = list(group["included"]) + list(group["component_shortfall"])
             for row in order_item_rows(door_rows):
                 _add_item(row)
+            _add_warning_comments(group.get("warnings"))
         if shared["included"] or shared["component_shortfall"]:
             _add_comment("ITEMS SHARED ACROSS MULTIPLE DOORS ON THIS ORDER")
             shared_rows = list(shared["included"]) + list(shared["component_shortfall"])
             for row in order_item_rows(shared_rows):
                 _add_item(row)
+        _add_warning_comments([
+            warning for warning in (plan.get("warnings") or [])
+            if warning.get("door_index") not in seen_doors
+        ])
     else:
         # No door-header structure on this SO (e.g. not built through the
         # configurator) — flat layout. The raw-material banner stays where
@@ -608,6 +668,7 @@ def _write_plan_lines(po_id: str, plan: dict, so_number: str) -> int:
             _add_comment("Raw materials for in-house manufactured items (BOM-exploded, netted vs stock)")
             for row in order_item_rows(plan["component_shortfall"]):
                 _add_item(row)
+        _add_warning_comments(plan.get("warnings"))
 
     return item_count
 
@@ -657,7 +718,7 @@ def omit_upwardor_weatherstrip(plan: dict, vendor_no: str, vendor_name: str) -> 
     by_door = []
     for group in plan.get("by_door") or []:
         filtered = _filter_group(group)
-        if filtered["included"] or filtered["component_shortfall"]:
+        if filtered["included"] or filtered["component_shortfall"] or filtered.get("warnings"):
             by_door.append(filtered)
     shared = dict(plan.get("shared") or {})
     if shared:

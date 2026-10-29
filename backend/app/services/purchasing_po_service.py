@@ -504,6 +504,7 @@ class PurchasingPOService:
                     "door_index": group.get("door_index"),
                     "label": group.get("label"),
                     "lines": written_lines(group),
+                    "warnings": group.get("warnings") or [],
                 })
             shared_lines = written_lines(plan.get("shared") or {})
             item_line_count = sum(len(door["lines"]) for door in doors) + len(shared_lines)
@@ -540,6 +541,16 @@ class PurchasingPOService:
             "skipped": skipped,
             "item_line_count": item_line_count,
             "note": plan.get("note"),
+            "warnings": [
+                {
+                    "code": warning.get("code"),
+                    "door_index": warning.get("door_index"),
+                    "message": warning.get("message"),
+                    "length_ft": warning.get("length_ft"),
+                    "sheet_count": warning.get("sheet_count"),
+                }
+                for warning in (plan.get("warnings") or [])
+            ],
         }
         for key in (
             "requested_receipt_date",

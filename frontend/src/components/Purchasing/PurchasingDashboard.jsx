@@ -606,6 +606,18 @@ function CompleteSalesOrderPo({ vendors, soOptions, onCreated }) {
             {preview.item_line_count || 0} item line{(preview.item_line_count || 0) === 1 ? '' : 's'}
             {preview.note ? ` · ${preview.note}` : ''}
           </div>
+          {(preview.warnings || []).length > 0 && (
+            <div className="p-3 rounded-lg bg-amber-50 text-sm text-amber-950">
+              <div className="text-xs uppercase tracking-wide text-amber-700">Panorama sheet warnings</div>
+              <ul className="mt-1 space-y-1">
+                {preview.warnings.map((warning, i) => (
+                  <li key={`${warning.code || 'sheet'}-${warning.door_index || i}`}>
+                    {warning.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {preview.has_doors && preview.doors.map((door) => (
             <PreviewLines key={door.door_index} title={door.label} lines={door.lines} />
           ))}
