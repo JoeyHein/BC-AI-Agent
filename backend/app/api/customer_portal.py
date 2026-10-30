@@ -112,6 +112,10 @@ class SavedQuoteConfigResponse(BaseModel):
     # is shared across). Lets staff at the same dealership see each other's work.
     created_by_name: Optional[str] = None
     created_by_email: Optional[str] = None
+    shop_drawing_number: Optional[str] = None
+    shop_drawing_revision: Optional[int] = None
+    shop_drawn_by: Optional[str] = None
+    shop_drawing_generated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -308,6 +312,10 @@ def _config_to_response(config: SavedQuoteConfig, db: Session) -> dict:
         "order_placed": _has_sales_order_for_quote(config, db),
         "created_by_name": creator.name if creator else None,
         "created_by_email": creator.email if creator else None,
+        "shop_drawing_number": config.shop_drawing_number,
+        "shop_drawing_revision": config.shop_drawing_revision,
+        "shop_drawn_by": config.shop_drawn_by,
+        "shop_drawing_generated_at": config.shop_drawing_generated_at,
     }
 
 
@@ -345,6 +353,10 @@ def _hydrate_order_placed(configs: List[SavedQuoteConfig], db: Session) -> List[
             "order_placed": bool(c.bc_quote_number and c.bc_quote_number in ordered_nums),
             "created_by_name": creator.name if creator else None,
             "created_by_email": creator.email if creator else None,
+            "shop_drawing_number": c.shop_drawing_number,
+            "shop_drawing_revision": c.shop_drawing_revision,
+            "shop_drawn_by": c.shop_drawn_by,
+            "shop_drawing_generated_at": c.shop_drawing_generated_at,
         })
     return result
 
@@ -391,6 +403,9 @@ def create_saved_quote(
     )
 
     db.add(config)
+    db.flush()
+    from app.services.shop_drawings.issue import issue_shop_drawing
+    issue_shop_drawing(config, current_user, revision=0)
     db.commit()
     db.refresh(config)
 
@@ -462,6 +477,10 @@ def update_saved_quote(
     if update_data.description is not None:
         config.description = update_data.description
 
+    from app.services.shop_drawings.issue import config_fingerprint, issue_shop_drawing
+    previous_doors = config_fingerprint(config.config_data)
+    config_changed = False
+
     if update_data.config_data is not None:
         new_config_data = update_data.config_data
         if config.bc_quote_id:
@@ -494,6 +513,15 @@ def update_saved_quote(
         else:
             # Draft (no BC quote yet): just update config_data
             config.config_data = new_config_data
+        config_changed = config_fingerprint(config.config_data) != previous_doors
+
+    if config_changed:
+        # First issue is revision 0. Every later edit of the doors is the next one.
+        if config.shop_drawing_number is None or config.shop_drawing_revision is None:
+            next_revision = 0
+        else:
+            next_revision = int(config.shop_drawing_revision) + 1
+        issue_shop_drawing(config, current_user, revision=next_revision)
 
     config.updated_at = datetime.utcnow()
     db.commit()
@@ -594,6 +622,9 @@ def duplicate_saved_quote(
     )
 
     db.add(copy)
+    db.flush()
+    from app.services.shop_drawings.issue import issue_shop_drawing
+    issue_shop_drawing(copy, current_user, revision=0)
     db.commit()
     db.refresh(copy)
 
@@ -3155,18 +3186,29 @@ def generate_framing_drawing_endpoint(
             detail="Saved configuration not found",
         )
 
-    try:
-        content = generate_framing_drawing(
-            config_data=config.config_data or {},
-            customer_name=current_user.name or current_user.email,
-            job_number=config.bc_quote_number or f"Q-{config.id}",
-            fmt=fmt,
-            drawing_date=config.updated_at or config.created_at,
-            config_id=config.id,
-            door_index=door_index,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    stored = config.shop_drawing_pdf if fmt == "pdf" else config.shop_drawing_dxf
+    if stored and door_index == 0:
+        content = stored
+    else:
+        # Older quotes, or a door other than the first, are drawn live.
+        # DRAWN BY stays the person who issued the stored revision when we have one.
+        try:
+            content = generate_framing_drawing(
+                config_data=config.config_data or {},
+                customer_name=current_user.name or current_user.email,
+                job_number=config.bc_quote_number or config.shop_drawing_number or f"Q-{config.id}",
+                fmt=fmt,
+                drawing_date=config.shop_drawing_generated_at or config.updated_at or config.created_at,
+                config_id=config.id,
+                door_index=door_index,
+                drawn_by=config.shop_drawn_by or current_user.name or current_user.email,
+                drawing_number=config.shop_drawing_number or f"SD-{config.id:06d}",
+                revision=config.shop_drawing_revision,
+                project_name=(config.config_data or {}).get("projectName") or config.name or "",
+                architect=(config.config_data or {}).get("architect") or "",
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     media_type = "application/pdf" if fmt == "pdf" else "application/dxf"
     filename = f"framing-{config.bc_quote_number or config.id}.{fmt}"

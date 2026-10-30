@@ -110,8 +110,12 @@ function DoorDrawings({
 
   // Pull a single door config out of doorConfig for the preview endpoint.
   // The drawing service expects { doors: [{ ... }] }.
+  // Send the whole door. The backend rebuilds sections, springs, and
+  // clearances from the calculators, so a field the form has is not dropped
+  // on the way to the sheet. Normalized numbers overwrite the raw strings.
   const buildPreviewConfigData = () => ({
     doors: [{
+      ...doorConfig,
       doorSeries,
       doorType,
       doorWidth: widthInches,
@@ -131,9 +135,12 @@ function DoorDrawings({
       liftType,
       highLiftInches: highLiftInches || null,
       trackRadius: radius,
-      trackThickness: trackSize,
-      trackMount: trackMount || 'bracket',
+      trackThickness: String(trackSize),
+      trackMount: doorConfig.trackMount || trackMount || 'bracket',
+      mountSurface: doorConfig.mountSurface || frameType,
     }],
+    projectName: doorConfig.projectName || null,
+    architect: doorConfig.architect || null,
   })
 
   // Returns a Blob/Response for the requested fmt. Picks the saved-quote
