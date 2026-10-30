@@ -24,7 +24,7 @@ from app.services.configurator_quote_tag import (
 from app.services.freight_service import calculate_freight, get_freight_config
 from app.services.operator_service import find_operator_by_part_number
 from app.integrations.bc.client import bc_client
-from app.api.staff_principal import require_staff
+from app.api.staff_principal import require_staff, require_staff_or_customer
 from app.services.staff_permissions import redact_configurator_quote
 from app.db.database import get_db
 from app.db.models import BCCustomer, User
@@ -2978,12 +2978,18 @@ class FramingDrawingPreviewRequest(BaseModel):
 
 
 @router.post("/preview-framing-drawing")
-def preview_framing_drawing(req: FramingDrawingPreviewRequest):
+def preview_framing_drawing(
+    req: FramingDrawingPreviewRequest,
+    user: User = Depends(require_staff_or_customer),
+):
     """Generate a shop drawing PDF/DXF directly from raw config data.
 
     Same output as the customer portal /saved-quotes/{id}/framing-drawing
     endpoint, but accepts the config inline so it works before a quote is
     saved (and for in-house tools that don't go through the quote flow).
+
+    Requires a staff or customer login. DRAWN BY is that person, not the
+    customer name on the request.
     """
     from app.services.shop_drawings import generate_framing_drawing
 
@@ -2991,6 +2997,7 @@ def preview_framing_drawing(req: FramingDrawingPreviewRequest):
     if fmt not in ("pdf", "dxf"):
         raise HTTPException(400, "fmt must be 'pdf' or 'dxf'")
 
+    drawn_by = (user.name or "").strip() or user.email
     try:
         content = generate_framing_drawing(
             config_data=req.config_data or {},
@@ -2998,6 +3005,9 @@ def preview_framing_drawing(req: FramingDrawingPreviewRequest):
             job_number=req.job_number or "PREVIEW",
             fmt=fmt,
             door_index=req.door_index,
+            drawn_by=drawn_by,
+            project_name=(req.config_data or {}).get("projectName") or "",
+            architect=(req.config_data or {}).get("architect") or "",
         )
     except ValueError as e:
         raise HTTPException(400, str(e))

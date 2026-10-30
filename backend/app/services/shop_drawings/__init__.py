@@ -5,5 +5,6 @@ elevation geometry; Stage 3 adds variants + BOM.
 """
 
 from .framing import generate_framing_drawing
+from .spec import build_door_spec, build_spec_from_config
 
-__all__ = ["generate_framing_drawing"]
+__all__ = ["generate_framing_drawing", "build_door_spec", "build_spec_from_config"]
