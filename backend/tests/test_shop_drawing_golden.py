@@ -11,7 +11,7 @@ import pytest
 from pypdf import PdfReader
 import io
 
-from app.services.shop_drawings.clearances import lookup_clearances, round_up_half_inch
+from app.services.shop_drawings.clearances import lookup_clearances, printed_headroom
 from app.services.shop_drawings.framing import (
     build_dxf,
     dxf_to_png_bytes,
@@ -50,19 +50,13 @@ def _tx(width, height, **extra):
 
 
 class TestHeadroomRounding:
-    def test_fractional_table_value_rounds_up_to_the_next_half(self):
-        # Standard 3" track is 17.75. Joey: show 18.
-        assert round_up_half_inch(17.75) == 18.0
-
-    def test_value_already_on_a_half_inch_stays(self):
-        # HL24 table headroom is 35, which is already a half-inch boundary.
-        # The s01 sheet prints 35.5; the rounding rule does not add another half.
-        assert round_up_half_inch(35) == 35.0
-        assert round_up_half_inch(186) == 186.0
-        assert round_up_half_inch(85) == 85.0
-
-    def test_just_over_a_boundary_goes_to_the_next_half(self):
-        assert round_up_half_inch(35.1) == 35.5
+    def test_buffer_then_round_up_to_the_next_half(self):
+        # Add 1/4", then round up to the next 1/2". Matches s01 (35 → 35.5)
+        # and the standard table (17.75 → 18).
+        assert printed_headroom(17.75) == 18.0
+        assert printed_headroom(35) == 35.5
+        assert printed_headroom(85) == 85.5
+        assert printed_headroom(186) == 186.5
 
 
 class TestSectionStack:
@@ -93,7 +87,7 @@ class TestClearancesMatchTheTable:
             _tx(144, 168, liftType="high_lift", highLiftInches=24, trackMount="angle"),
             drawn_by="Joey Hein",
         )
-        assert spec.headroom_text == '35"'
+        assert spec.headroom_text == '35.5"'
         assert spec.high_lift_text == '24"'
         assert spec.ust_text == "16'-0\""
         assert spec.backroom_text == "14'-6\""
@@ -119,7 +113,7 @@ class TestClearancesMatchTheTable:
             )
             assert spec.lift == "vertical"
             assert spec.track_title == "FULL VERTICAL LIFT TRACKS"
-            assert spec.headroom_text == "15'-6\""
+            assert spec.headroom_text == "15'-6 1/2\""
             assert spec.backroom_text == "1'-6\""
             assert spec.cl_shaft_text == "29'-0\""
             assert spec.sideroom_text == '4.25"'
@@ -133,7 +127,7 @@ class TestClearancesMatchTheTable:
             drawn_by="J",
         )
         assert spec.clearances.headroom_table_in == 85
-        assert spec.headroom_text == '85"'
+        assert spec.headroom_text == '85.5"'
 
     def test_sideroom_follows_mount(self):
         bracket = lookup_clearances(168, track_size=3, radius=15, lift="standard", mount="bracket")
@@ -213,7 +207,7 @@ class TestSheetText:
             customer_name="Global Overhead Doors",
         )
         for expected in (
-            '35"',
+            '35.5"',
             "16'-0\"",
             "14'-6\"",
             "16'-7\"",
@@ -239,7 +233,7 @@ class TestSheetText:
         )
         assert "SHIPLAP JOINT" in text
         assert "FULL VERTICAL LIFT TRACKS" in text
-        assert "15'-6\"" in text
+        assert "15'-6 1/2\"" in text
         assert "29'-0\"" in text
         assert '1-1/2"' in text
 

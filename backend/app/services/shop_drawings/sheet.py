@@ -14,12 +14,14 @@ from app.services.shop_drawings.profiles import (
     draw_parametric_panorama,
     draw_parametric_steel,
     import_profile_block,
-    panorama_stack_height,
+    panorama_stack_size,
+    steel_stack_size,
 )
 from app.services.shop_drawings.sheet_geom import (
     checkbox,
     dim_h,
     dim_v,
+    leader,
     text,
     view_frame,
 )
@@ -79,21 +81,24 @@ def draw_sheet(doc: Drawing, spec: DoorDrawingSpec) -> None:
 def _inside_face(msp, box, spec: DoorDrawingSpec):
     x0, y0, x1, y1 = box
     view_frame(msp, box, "DOOR FACE: INSIDE LOOKING OUT")
-    cx0, cy0 = x0 + 0.72, y0 + 0.42
-    cx1, cy1 = x1 - 0.62, y1 - 0.95
+    # Title underline is near the top of the frame. The shaft dimensions sit
+    # under it, then the door fills the rest of the view.
+    cx0, cx1 = x0 + 1.05, x1 - 0.95
+    # Leave the top of the frame for the title. Shaft dims sit under it.
+    dy1_cap = y1 - 1.62
+    dy0_min = y0 + 0.58
     avail_w = cx1 - cx0
-    avail_h = cy1 - cy0 - 0.15
+    avail_h = dy1_cap - dy0_min
     if avail_w < 0.5 or avail_h < 0.5 or spec.height_in <= 0:
         return
-    # Leave a band above the door for the shaft. The door itself fills the rest.
-    shaft_band = 0.62
-    scale = min(avail_w / spec.width_in, (avail_h - shaft_band) / spec.height_in)
+    scale = min(avail_w / spec.width_in, avail_h / spec.height_in)
     door_w = spec.width_in * scale
     door_h = spec.height_in * scale
     dx0 = cx0 + (avail_w - door_w) / 2
-    dy0 = cy0 + 0.05
+    dy1 = dy0_min + door_h
+    dy0 = dy0_min
     dx1 = dx0 + door_w
-    dy1 = dy0 + door_h
+    shaft_y = dy1 + 0.16
 
     y = dy0
     for index, height in enumerate(spec.section_heights):
@@ -103,7 +108,7 @@ def _inside_face(msp, box, spec: DoorDrawingSpec):
             close=True,
             dxfattribs={"layer": "FRAMING"},
         )
-        ribs = 4 if height >= 20 else 3
+        ribs = 7 if height >= 20 else 4
         for r in range(1, ribs + 1):
             ry = y + sh * r / (ribs + 1)
             msp.add_line((dx0 + 0.03, ry - 0.012), (dx1 - 0.03, ry - 0.012),
@@ -127,21 +132,21 @@ def _inside_face(msp, box, spec: DoorDrawingSpec):
         msp.add_circle((dx0 - 0.05, yy), 0.035, dxfattribs={"layer": "HARDWARE"})
         msp.add_circle((dx1 + 0.05, yy), 0.035, dxfattribs={"layer": "HARDWARE"})
 
-    shaft_y = dy1 + 0.48
+    shaft_y = dy1 + 0.62
     _shaft_line(msp, dx0, dx1, shaft_y, spec)
 
     dim_v(
-        msp, dy0, shaft_y, x0 + 0.34,
+        msp, dy0, shaft_y, x0 + 0.58,
         ["CENTERLINE", "OF SHAFT", spec.cl_shaft_text],
-        side="left",
+        side="left", ext=dx0,
     )
     dim_v(
-        msp, dy0, dy1, dx1 + 0.28,
+        msp, dy0, dy1, dx1 + 0.42,
         ["DOOR", "HEIGHT", spec.door_height_text],
-        side="right",
+        side="right", ext=dx1,
     )
-    dim_h(msp, dx0, dx1, dy0 - 0.16, spec.door_width_text)
-    text(msp, "DOOR WIDTH", (dx0 + dx1) / 2, dy0 - 0.30, 0.055, "mc", "DIMENSIONS")
+    dim_h(msp, dx0, dx1, dy0 - 0.28, spec.door_width_text, ext=dy0)
+    text(msp, "DOOR WIDTH", (dx0 + dx1) / 2, dy0 - 0.48, 0.07, "mc", "DIMENSIONS")
 
 
 def _window_row(msp, x, y, w, h, count, full=False):
@@ -149,7 +154,7 @@ def _window_row(msp, x, y, w, h, count, full=False):
     margin = w * 0.08
     gap = w * 0.03
     ww = (w - 2 * margin - gap * (count - 1)) / count
-    wh = h * (0.72 if full else 0.55)
+    wh = h * (0.78 if full else 0.68)
     wy = y + (h - wh) / 2
     for i in range(count):
         wx = x + margin + i * (ww + gap)
@@ -197,31 +202,32 @@ def _hinge_marks(msp, x0, x1, y):
 
 
 def _shaft_line(msp, x0, x1, y, spec: DoorDrawingSpec):
-    msp.add_line((x0 - 0.12, y), (x1 + 0.12, y), dxfattribs={"layer": "HARDWARE"})
+    msp.add_line((x0 - 0.16, y), (x1 + 0.16, y), dxfattribs={"layer": "HARDWARE", "lineweight": 50})
     for edge in (x0, x1):
-        msp.add_circle((edge, y), 0.09, dxfattribs={"layer": "HARDWARE"})
+        msp.add_circle((edge, y), 0.13, dxfattribs={"layer": "HARDWARE"})
+        msp.add_circle((edge, y), 0.04, dxfattribs={"layer": "HARDWARE"})
         msp.add_lwpolyline(
-            [(edge - 0.04, y - 0.14), (edge + 0.04, y - 0.14),
-             (edge + 0.04, y + 0.14), (edge - 0.04, y + 0.14)],
+            [(edge - 0.05, y - 0.20), (edge + 0.05, y - 0.20),
+             (edge + 0.05, y + 0.20), (edge - 0.05, y + 0.20)],
             close=True,
             dxfattribs={"layer": "HARDWARE"},
         )
     mid = (x0 + x1) / 2
-    gap = 0.16
+    gap = 0.22
     left = [s for s in spec.springs if s.hand == "LHW"]
     right = [s for s in spec.springs if s.hand == "RHW"]
-    _coil_group(msp, x0 + 0.18, mid - gap, y, _coil_count(left))
-    _coil_group(msp, mid + gap, x1 - 0.18, y, _coil_count(right))
+    _coil_group(msp, x0 + 0.22, mid - gap, y, _coil_count(left))
+    _coil_group(msp, mid + gap, x1 - 0.22, y, _coil_count(right))
     if spec.coupler:
-        msp.add_circle((mid, y), 0.04, dxfattribs={"layer": "HARDWARE"})
-        msp.add_line((mid - 0.07, y - 0.07), (mid + 0.07, y + 0.07),
+        msp.add_circle((mid, y), 0.055, dxfattribs={"layer": "HARDWARE"})
+        msp.add_line((mid - 0.09, y - 0.09), (mid + 0.09, y + 0.09),
                      dxfattribs={"layer": "HARDWARE"})
-    dim_h(msp, mid - gap, mid + gap, y + 0.20, '6"')
-    text(msp, "SPRING PADS", mid, y + 0.32, 0.05, "mc", "DIMENSIONS")
-    dim_h(msp, mid, x1, y + 0.46, spec.half_shaft_text)
-    text(msp, '3" FRAME', x0, y + 0.30, 0.05, "mc", "DIMENSIONS")
+    dim_h(msp, mid - gap, mid + gap, y + 0.20, '6"', ext=y + 0.08)
+    text(msp, "SPRING PADS", mid - 0.72, y + 0.34, 0.058, "mc", "DIMENSIONS")
+    dim_h(msp, mid, x1, y + 0.42, spec.half_shaft_text, ext=y + 0.12)
+    text(msp, '3" FRAME', x0 - 0.15, y + 0.34, 0.060, "mc", "DIMENSIONS")
     if spec.drum_model:
-        text(msp, f"DRUM {spec.drum_model}", x1, y - 0.18, 0.048, "mr", "ANNOTATIONS")
+        text(msp, f"DRUM {spec.drum_model}", x1, y - 0.28, 0.06, "mr", "ANNOTATIONS")
 
 
 def _coil_count(lines) -> int:
@@ -237,12 +243,12 @@ def _coil_group(msp, x0, x1, y, count):
     for i in range(count):
         a = x0 + i * width + 0.02
         b = x0 + (i + 1) * width - 0.03
-        _zigzag(msp, a, b, y, amp=0.055)
-        msp.add_circle((b, y), 0.032, dxfattribs={"layer": "HARDWARE"})
+        _zigzag(msp, a, b, y, amp=0.08)
+        msp.add_circle((b, y), 0.045, dxfattribs={"layer": "HARDWARE"})
 
 
 def _zigzag(msp, x0, x1, y, amp):
-    n = max(6, int((x1 - x0) / 0.045))
+    n = max(10, int((x1 - x0) / 0.028))
     pts = []
     for i in range(n + 1):
         x = x0 + (x1 - x0) * i / n
@@ -340,72 +346,69 @@ def _panel_detail(msp, box, spec: DoorDrawingSpec):
     x0, y0, x1, y1 = box
     title = spec.joint_title if spec.joint == "panorama" else "SIDE VIEW ILLUSTRATION"
     view_frame(msp, box, title)
-    text(msp, "Exterior", x0 + 0.55, y1 - 0.32, 0.07, "mc", "ANNOTATIONS", style="ITALIC")
-    text(msp, "Interior", x0 + 1.55, y1 - 0.32, 0.07, "mc", "ANNOTATIONS", style="ITALIC")
     if spec.joint != "panorama":
-        text(msp, spec.joint_title, (x0 + x1) / 2, y1 - 0.32, 0.055, "mc", "ANNOTATIONS")
+        text(msp, spec.joint_title, (x0 + x1) / 2, y1 - 0.38, 0.08, "mc", "ANNOTATIONS", style="BOLD")
+    text(msp, "Exterior", x0 + 0.72, y1 - 0.52, 0.09, "mc", "ANNOTATIONS", style="ITALIC")
+    text(msp, "Interior", x0 + 1.90, y1 - 0.52, 0.09, "mc", "ANNOTATIONS", style="ITALIC")
 
-    content_top = y1 - 0.48
-    content_bot = y0 + 0.12
-    label_x = x1 - 0.08
-    profile_right = label_x - 1.55
+    content_top = y1 - 0.68
+    content_bot = y0 + 0.10
     T = spec.thickness_in
-    real_h = panorama_stack_height(T) if spec.joint == "panorama" else 7.0
-    real_w = T * 1.55
-    scale = min((profile_right - x0 - 0.35) / real_w, (content_top - content_bot) / real_h)
-    scale = max(0.2, scale)
-    ox = x0 + 0.28
-    oy = content_bot + 0.08
+    real_w, real_h = panorama_stack_size(T) if spec.joint == "panorama" else steel_stack_size(T)
+    # The section fills the height. Callouts sit immediately to its right.
+    icon_w = 0.28
+    callout_w = 1.85
+    avail_w = (x1 - x0) - icon_w - callout_w - 0.20
+    avail_h = content_top - content_bot
+    scale = min(avail_w / real_w, avail_h / real_h)
+    scale = max(0.35, scale)
+    drawn_h = real_h * scale
+    ox = x0 + icon_w
+    oy = content_bot + max(0.0, (avail_h - drawn_h) / 2)
 
     block = import_profile_block(msp.doc, spec.joint)
+    anchors = []
     if block:
         msp.add_blockref(
             block, (ox, oy),
             dxfattribs={"xscale": scale, "yscale": scale, "layer": "FRAMING"},
         )
     elif spec.joint == "panorama":
-        draw_parametric_panorama(msp, spec, (ox, oy), scale)
+        anchors = draw_parametric_panorama(msp, spec, (ox, oy), scale) or []
     else:
-        draw_parametric_steel(msp, spec, (ox, oy), scale)
+        anchors = draw_parametric_steel(msp, spec, (ox, oy), scale) or []
 
-    # Thickness dimension across the top of the profile.
-    dim_h(msp, ox, ox + T * scale, content_top - 0.02, spec.thickness_text, text_h=0.055)
+    # Thickness sits across the foam, the way the sample sheets dimension it.
+    dim_h(
+        msp, ox + 0.02, ox + max(0.2, T * scale - 0.02),
+        oy + drawn_h * 0.58, spec.thickness_text, text_h=0.08,
+    )
+    _place_leaders(msp, anchors, ox, oy, scale, x1 - callout_w, content_bot + 0.05, content_top - 0.05)
+    _weather_icons(msp, x0 + 0.12, oy + drawn_h * 0.45)
 
-    _detail_labels(msp, label_x, content_bot, content_top, spec)
-    _weather_icons(msp, x0 + 0.12, (content_bot + content_top) / 2)
 
-
-def _detail_labels(msp, x, y0, y1, spec: DoorDrawingSpec):
-    if spec.joint == "panorama":
-        rows = [
-            (0.93, "LOW TEMP. VINYL TOP SEAL"),
-            (0.78, "ADJUSTABLE TOP ROLLER"),
-            (0.70, "12GA GAL STEEL"),
-            (0.55, "GLAZING MOULDING"),
-            (0.40, "WEATHER SEAL"),
-            (0.24, "BOTTOM BRACKET"),
-            (0.16, "12GA GAL STEEL"),
-            (0.06, "LOW TEMP VINYL BOTTOM ASTRAGAL"),
-        ]
-    else:
-        seal = "LOW TEMP. VINYL TOP SEAL" + (" (OPTIONAL)" if not spec.top_seal else "")
-        rows = [
-            (0.94, seal),
-            (0.84, spec.exterior_skin_label),
-            (0.74, spec.interior_skin_label),
-            (0.64, "FOAMED-IN-PLACE POLYURETHANE 2.5 PCF"),
-            (0.54, "WEATHER SEAL"),
-            (0.44, "THERMALLY BROKEN CHEMICALLY BONDED AND SEALED"),
-            (0.34, "HINGE REINFORCING 2 STEEL STRIPS, 1-1/4\" W"),
-            (0.24, "FULL HINGE APPLICATION"),
-            (0.14, "P.V.C. RETAINER"),
-            (0.05, "LOW TEMP. VINYL BOTTOM ASTRAGAL"),
-        ]
-    span = y1 - y0
-    for frac, label in rows:
-        yy = y0 + span * frac
-        text(msp, label, x, yy, 0.042, "mr", "ANNOTATIONS")
-        msp.add_line((x - 1.42, yy), (x - 1.55, yy), dxfattribs={"layer": "DIMENSIONS"})
+def _place_leaders(msp, anchors, ox, oy, scale, text_x, y_bot, y_top):
+    """Keep each callout next to its part, with an arrow on the part."""
+    items = []
+    for anchor in anchors:
+        ax, ay, lines = anchor
+        items.append({
+            "x": ox + ax * scale,
+            "y": oy + ay * scale,
+            "lines": tuple(lines),
+            "h": len(lines) * 0.070,
+        })
+    items.sort(key=lambda item: -item["y"])
+    cursor = y_top
+    for item in items:
+        preferred = item["y"] + item["h"] / 2
+        top = min(cursor, preferred)
+        top = max(top, y_bot + item["h"])
+        if top > cursor:
+            top = cursor
+        item["cy"] = top - item["h"] / 2
+        cursor = top - item["h"] - 0.04
+        leader(msp, (item["x"], item["y"]), text_x, item["cy"], item["lines"], text_h=0.060)
 
 
 def _weather_icons(msp, x, y):
@@ -444,10 +447,11 @@ def _checklist(msp, box, spec: DoorDrawingSpec):
     y = top - row_h
     for kind, label, checked in rows:
         if kind == "header":
-            text(msp, label, x0 + 0.08, y, 0.058, "ml", "ANNOTATIONS", style="BOLD")
+            text(msp, label, x0 + 0.08, y, 0.072, "ml", "ANNOTATIONS", style="BOLD")
         else:
-            checkbox(msp, x0 + 0.08, y - 0.02, bool(checked), size=min(0.075, row_h * 0.7))
-            text(msp, label, x0 + 0.20, y, 0.048, "ml", "ANNOTATIONS")
+            box = min(0.095, row_h * 0.72)
+            checkbox(msp, x0 + 0.08, y - box * 0.35, bool(checked), size=box)
+            text(msp, label, x0 + 0.08 + box + 0.06, y, 0.064, "ml", "ANNOTATIONS")
         y -= row_h
         if y < bot:
             break
@@ -831,6 +835,6 @@ def _title_block(msp, box, spec: DoorDrawingSpec):
     for label, value in rows:
         y_next = y - row_h
         msp.add_line((x0, y_next), (x1, y_next), dxfattribs={"layer": "TITLE_BLOCK"})
-        text(msp, label, x0 + 0.06, (y + y_next) / 2, 0.042, "ml", "TITLE_BLOCK")
-        text(msp, value, x1 - 0.06, (y + y_next) / 2, 0.05, "mr", "TITLE_BLOCK", style="BOLD")
+        text(msp, label, x0 + 0.06, (y + y_next) / 2, 0.058, "ml", "TITLE_BLOCK")
+        text(msp, value, x1 - 0.06, (y + y_next) / 2, 0.068, "mr", "TITLE_BLOCK", style="BOLD")
         y = y_next

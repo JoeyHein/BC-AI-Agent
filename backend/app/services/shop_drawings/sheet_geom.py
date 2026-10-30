@@ -39,14 +39,23 @@ class Pen:
             dxfattribs={"layer": layer or self.layer},
         )
 
-    def poly(self, pts, close=False, layer=None):
+    def poly(self, pts, close=False, layer=None, width=0.0):
         if len(pts) < 2:
             return
+        attribs = {"layer": layer or self.layer}
+        if width:
+            attribs["const_width"] = width
         self.msp.add_lwpolyline(
             [self.p(x, y) for x, y in pts],
             close=close,
-            dxfattribs={"layer": layer or self.layer},
+            dxfattribs=attribs,
         )
+
+    def triangle(self, pts, layer=None):
+        if len(pts) < 3:
+            return
+        a, b, c = (self.p(*pts[0]), self.p(*pts[1]), self.p(*pts[2]))
+        self.msp.add_solid([a, b, c, c], dxfattribs={"layer": layer or "SOLID_FILL"})
 
     def rect(self, x0, y0, x1, y1, layer=None):
         self.poly([(x0, y0), (x1, y0), (x1, y1), (x0, y1)], close=True, layer=layer)
@@ -118,11 +127,11 @@ def text(msp, value, x, y, height=0.07, align="mc", layer="ANNOTATIONS",
     return ent
 
 
-def arrow(msp, tip, angle_deg, size=0.065, layer="DIMENSIONS"):
+def arrow(msp, tip, angle_deg, size=0.085, layer="DIMENSIONS"):
     ang = math.radians(angle_deg)
     x, y = tip
     back = size
-    spread = size * 0.38
+    spread = size * 0.42
     bx = x - math.cos(ang) * back
     by = y - math.sin(ang) * back
     px = math.cos(ang + math.pi / 2) * spread
@@ -133,36 +142,73 @@ def arrow(msp, tip, angle_deg, size=0.065, layer="DIMENSIONS"):
     )
 
 
-def dim_h(msp, x0, x1, y, label, text_h=0.062):
+def _ext(msp, x0, y0, x1, y1):
+    msp.add_line((x0, y0), (x1, y1), dxfattribs={"layer": "DIMENSIONS"})
+
+
+def dim_h(msp, x0, x1, y, label, text_h=0.088, ext=None):
+    """Horizontal dimension. ``ext`` is the object y the extension lines start from."""
     if abs(x1 - x0) < 0.05:
         return
     if x1 < x0:
         x0, x1 = x1, x0
+    if ext is not None:
+        gap = 0.04 if y >= ext else -0.04
+        over = 0.06 if y >= ext else -0.06
+        for x in (x0, x1):
+            _ext(msp, x, ext + gap, x, y + over)
     mid = (x0 + x1) / 2
-    gap = min((x1 - x0) * 0.7, max(0.18, len(str(label)) * text_h * 0.52))
-    msp.add_line((x0, y), (mid - gap / 2, y), dxfattribs={"layer": "DIMENSIONS"})
-    msp.add_line((mid + gap / 2, y), (x1, y), dxfattribs={"layer": "DIMENSIONS"})
-    arrow(msp, (x0, y), 180, size=0.055)
-    arrow(msp, (x1, y), 0, size=0.055)
-    text(msp, label, mid, y + 0.01, text_h, "mc", "DIMENSIONS")
+    gap_w = min((x1 - x0) * 0.62, max(0.28, len(str(label)) * text_h * 0.55))
+    _ext(msp, x0, y, mid - gap_w / 2, y)
+    _ext(msp, mid + gap_w / 2, y, x1, y)
+    arrow(msp, (x0, y), 180, size=0.075)
+    arrow(msp, (x1, y), 0, size=0.075)
+    text(msp, label, mid, y + text_h * 0.15, text_h, "mc", "DIMENSIONS")
 
 
-def dim_v(msp, y0, y1, x, lines, text_h=0.058, side="left"):
+def dim_v(msp, y0, y1, x, lines, text_h=0.078, side="left", ext=None):
+    """Vertical dimension. ``ext`` is the object x the extension lines start from."""
     if abs(y1 - y0) < 0.05:
         return
     if y1 < y0:
         y0, y1 = y1, y0
+    if ext is not None:
+        gap = 0.04 if x <= ext else -0.04
+        over = -0.06 if side == "left" else 0.06
+        for y in (y0, y1):
+            _ext(msp, ext - gap, y, x + over, y)
     msp.add_line((x, y0), (x, y1), dxfattribs={"layer": "DIMENSIONS"})
-    arrow(msp, (x, y0), -90, size=0.055)
-    arrow(msp, (x, y1), 90, size=0.055)
+    arrow(msp, (x, y0), -90, size=0.075)
+    arrow(msp, (x, y1), 90, size=0.075)
     mid = (y0 + y1) / 2
-    step = text_h + 0.012
+    step = text_h + 0.02
     n = len(lines)
-    anchor_x = x - 0.06 if side == "left" else x + 0.06
+    anchor_x = x - 0.08 if side == "left" else x + 0.08
     align = "mr" if side == "left" else "ml"
     for i, line in enumerate(lines):
         yy = mid + ((n - 1) / 2 - i) * step
         text(msp, line, anchor_x, yy, text_h, align, "DIMENSIONS")
+
+
+def leader(msp, target, text_x, text_y, lines, text_h=0.062):
+    """Arrow at ``target``, callout stacked at ``text_x`` (left edge), centred on ``text_y``."""
+    if not lines:
+        return
+    step = text_h + 0.008
+    top = text_y + (len(lines) - 1) * step / 2
+    for i, line in enumerate(lines):
+        text(msp, line, text_x, top - i * step, text_h, "ml", "ANNOTATIONS")
+    start = (text_x - 0.05, text_y)
+    end = target
+    if abs(start[1] - end[1]) < 0.03:
+        msp.add_line(start, end, dxfattribs={"layer": "DIMENSIONS"})
+        angle = 180 if end[0] <= start[0] else 0
+    else:
+        knee = (end[0] + 0.16, start[1])
+        msp.add_line(start, knee, dxfattribs={"layer": "DIMENSIONS"})
+        msp.add_line(knee, end, dxfattribs={"layer": "DIMENSIONS"})
+        angle = math.degrees(math.atan2(end[1] - knee[1], end[0] - knee[0]))
+    arrow(msp, end, angle, size=0.07, layer="ANNOTATIONS")
 
 
 def checkbox(msp, x, y, checked, size=0.075):
@@ -186,6 +232,6 @@ def view_frame(msp, box, title=None):
         dxfattribs={"layer": "BORDER"},
     )
     if title:
-        text(msp, title, (x0 + x1) / 2, y1 - 0.10, 0.078, "tc", "ANNOTATIONS", style="BOLD")
-        msp.add_line((x0 + 0.08, y1 - 0.18), (x1 - 0.08, y1 - 0.18),
-                     dxfattribs={"layer": "ANNOTATIONS"})
+        text(msp, title, (x0 + x1) / 2, y1 - 0.14, 0.125, "tc", "ANNOTATIONS", style="BOLD")
+        msp.add_line((x0 + 0.08, y1 - 0.26), (x1 - 0.08, y1 - 0.26),
+                     dxfattribs={"layer": "ANNOTATIONS", "lineweight": 50})

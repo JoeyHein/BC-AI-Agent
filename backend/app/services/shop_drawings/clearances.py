@@ -1,9 +1,9 @@
 """Thermalex clearance lookup for shop drawings.
 
-Headroom is the only value we adjust: round the table figure UP to the next
-1/2 inch (17.75 becomes 18). A value that is already on a 1/2 inch boundary
-stays there (35 stays 35, 186 stays 186). Shaft centreline, underside of
-track, backroom, and sideroom are the table values unchanged.
+Headroom is the only value we adjust: add 1/4 inch as a safety buffer, then
+round UP to the next 1/2 inch. 17.75 becomes 18, 35 becomes 35.5, 85 becomes
+85.5. Shaft centreline, underside of track, backroom, and sideroom stay on
+the table.
 
 The Thermalex tables live in ``shop_drawing_service``. For full vertical the
 table stores shaft centreline as ``H + 12`` in the offset field, and the
@@ -24,11 +24,16 @@ from app.services.shop_drawing_service import (
 
 
 def round_up_half_inch(value: float) -> float:
-    """Smallest multiple of 1/2 inch that is >= value.
-
-    17.75 → 18, 35 → 35, 35.1 → 35.5, 186 → 186.
-    """
+    """Smallest multiple of 1/2 inch that is >= value."""
     return math.ceil(float(value) * 2 - 1e-9) / 2.0
+
+
+def printed_headroom(table_value: float) -> float:
+    """Table headroom plus a 1/4 inch buffer, rounded up to the next 1/2 inch.
+
+    17.75 → 18, 35 → 35.5, 85 → 85.5, 186 → 186.5.
+    """
+    return round_up_half_inch(float(table_value) + 0.25)
 
 
 @dataclass(frozen=True)
@@ -73,7 +78,7 @@ def lookup_clearances(
     table_hr = float(dims["headroom_min"])
     # Both standard (offset above the opening) and vertical (H+18, already
     # the printed figure) are stored in this field. Do not add H again.
-    headroom = round_up_half_inch(table_hr)
+    headroom = printed_headroom(table_hr)
 
     ust_offset = float(dims["ust"])
     show_ust = lift in ("standard", "high_lift") and ust_offset > 0

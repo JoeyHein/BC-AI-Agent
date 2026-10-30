@@ -31,20 +31,20 @@ TITLE_BLOCK_W = 5.5
 TITLE_BLOCK_H = 3.2
 
 LAYERS = [
-    ("BORDER", 250, 50, "CONTINUOUS"),
-    ("TITLE_BLOCK", 250, 35, "CONTINUOUS"),
-    ("FRAMING", 250, 35, "CONTINUOUS"),
-    ("HORIZONTALS", 250, 18, "CONTINUOUS"),
-    ("TRACKS", 250, 30, "CONTINUOUS"),
-    ("STRUTS", 250, 25, "CONTINUOUS"),
-    ("HARDWARE", 250, 25, "CONTINUOUS"),
-    ("DIMENSIONS", 250, 18, "CONTINUOUS"),
-    ("ANNOTATIONS", 250, 18, "CONTINUOUS"),
-    ("HIDDEN", 8, 18, "HIDDEN"),
-    ("CENTERLINE", 250, 18, "CENTER"),
-    ("SOLID_FILL", 250, 25, "CONTINUOUS"),
-    ("GLAZING", 4, 18, "CONTINUOUS"),
-    ("HATCH", 8, 13, "CONTINUOUS"),
+    ("BORDER", 250, 70, "CONTINUOUS"),
+    ("TITLE_BLOCK", 250, 50, "CONTINUOUS"),
+    ("FRAMING", 250, 60, "CONTINUOUS"),
+    ("HORIZONTALS", 250, 25, "CONTINUOUS"),
+    ("TRACKS", 250, 50, "CONTINUOUS"),
+    ("STRUTS", 250, 35, "CONTINUOUS"),
+    ("HARDWARE", 250, 40, "CONTINUOUS"),
+    ("DIMENSIONS", 250, 25, "CONTINUOUS"),
+    ("ANNOTATIONS", 250, 35, "CONTINUOUS"),
+    ("HIDDEN", 8, 25, "HIDDEN"),
+    ("CENTERLINE", 250, 25, "CENTER"),
+    ("SOLID_FILL", 250, 35, "CONTINUOUS"),
+    ("GLAZING", 4, 25, "CONTINUOUS"),
+    ("HATCH", 8, 18, "CONTINUOUS"),
 ]
 
 TEXT_LARGE = 0.20
@@ -326,7 +326,7 @@ def _figure(doc: ezdxf.document.Drawing, dpi: int):
     ax.set_aspect("equal")
     ax.axis("off")
     backend = MatplotlibBackend(ax)
-    config = Configuration(text_policy=TextPolicy.IGNORE)
+    config = Configuration(text_policy=TextPolicy.IGNORE, lineweight_scaling=1.6)
     Frontend(RenderContext(doc), backend, config).draw_layout(doc.modelspace(), finalize=False)
     _overlay_text(ax, doc)
     ax.set_xlim(0, SHEET_W)
