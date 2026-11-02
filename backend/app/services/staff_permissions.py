@@ -254,7 +254,13 @@ _COST_KEYS = {
     "bc_price_group",
     "pricing_tier",
 }
-_SELLING_KEYS = {"unit_price", "line_total", "unitPrice", "netAmount"}
+_SELLING_KEYS = {
+    "unit_price",
+    "line_total",
+    "unitPrice",
+    "netAmount",
+    "fixed_unit_price",
+}
 
 
 def _strip_keys(value, keys: set):
