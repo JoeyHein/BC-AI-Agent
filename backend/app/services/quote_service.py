@@ -197,14 +197,15 @@ class QuoteGenerationService:
                     "customer_tier": (customer.pricing_tier or "retail") if customer else "retail"
                 }
 
-                # Get unit price (use part price if available, otherwise calculate)
+                # An explicit part price (door wrapping) is the sell price.
+                # Everything else still runs through the legacy rule engine.
                 if part.unit_price:
                     unit_price = Decimal(str(part.unit_price))
                 else:
                     unit_price = self._get_part_price(part, config)
-
-                # Apply pricing rules
-                unit_price = self._apply_pricing_rules(unit_price, part.category, part.part_number, context)
+                    unit_price = self._apply_pricing_rules(
+                        unit_price, part.category, part.part_number, context
+                    )
 
                 # Calculate total (quantity from part × door quantity)
                 total_quantity = part.quantity * quantity

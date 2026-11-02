@@ -877,6 +877,51 @@ def is_generatable_glass_kit_part(part_number: str, door_series: str) -> Tuple[b
     return True, ""
 
 
+# Steel and residential door packages are wrapped in-house and billed as BC
+# item WRAP (unit of measure SF). Upwardor invoices the same way, checked
+# against 26 invoice lines: square footage of ONE door, rounded to the nearest
+# whole square foot (a half rounds up), then multiplied by the door quantity.
+# Aluminum and Panorama doors already carry WRAPALU and must not be charged
+# again. Operator-only, parts-only, and loose-section orders have no door
+# panels and are not wrapped.
+#
+# The WRAP item card in BC is $2.50/SF (and at least one sales price list is
+# $0.94). Portal quotes must sell at WRAP_UNIT_PRICE. Quote builders PATCH
+# unitPrice from fixed_unit_price; they must not trust the card or price list.
+WRAP_ITEM_NUMBER = "WRAP"
+WRAP_DESCRIPTION = "Wrapping"
+WRAP_UNIT_PRICE = 0.95
+
+
+def door_wrapping_sqft(width_inches: int, height_inches: int) -> int:
+    """Nearest whole square foot of one door. A half rounds up.
+
+    Width and height are inches. Area is (width × height) / 144, which is
+    width_ft × height_ft. Integer arithmetic avoids binary-float error and
+    Python's banker's round (half to even). 14'2" × 14' = 198.333… → 198;
+    24'2" × 16' = 386.666… → 387; 9' × 8'6" = 76.5 → 77.
+    """
+    width = int(width_inches)
+    height = int(height_inches)
+    if width <= 0 or height <= 0:
+        return 0
+    # floor(area + 0.5) == (numerator + denominator / 2) // denominator
+    return (width * height + 72) // 144
+
+
+def door_needs_wrapping(door_type: Optional[str], hardware: Optional[dict]) -> bool:
+    """True for a door package that ships panels and is not aluminum.
+
+    Aluminum / Panorama already get WRAPALU. Panels default on, so a normal
+    residential or commercial door is wrapped. Turning panels off is how
+    operator-only, parts-only, and loose-section orders are quoted.
+    """
+    if (door_type or "").lower() in ("aluminium", "aluminum"):
+        return False
+    flags = hardware or {}
+    return bool(flags.get("panels", True))
+
+
 class PartNumberService:
     """
     Service to select appropriate part numbers based on door configuration.
@@ -1185,6 +1230,26 @@ class PartNumberService:
         if overlay and config.door_type == "residential":
             overlay_parts = self._get_overlay_parts(config, overlay)
             parts.extend(overlay_parts)
+
+        # 14. WRAPPING. Per-door square footage, already rounded. The door
+        # count multiplier below scales it — round first, then multiply, so
+        # two 16'2" × 14' doors are 226 × 2 = 452, not round(452.67).
+        if door_needs_wrapping(config.door_type, hardware):
+            per_door_sf = door_wrapping_sqft(config.door_width, config.door_height)
+            width_ft = config.door_width / 12
+            height_ft = config.door_height / 12
+            parts.append(PartSelection(
+                part_number=WRAP_ITEM_NUMBER,
+                description=WRAP_DESCRIPTION,
+                quantity=per_door_sf,
+                category="wrapping",
+                unit_price=WRAP_UNIT_PRICE,
+                notes=(
+                    f"{per_door_sf} SF per door "
+                    f"({width_ft:.4f}' x {height_ft:.4f}', nearest SF, half up) "
+                    f"@ ${WRAP_UNIT_PRICE:.2f}/SF"
+                ),
+            ))
 
         # Apply quantity multiplier for door count (skip comment lines only)
         for part in parts:
@@ -4512,21 +4577,29 @@ class PartNumberService:
             if part.category not in summary["by_category"]:
                 summary["by_category"][part.category] = []
 
-            summary["by_category"][part.category].append({
+            category_entry = {
                 "part_number": part.part_number,
                 "description": part.description,
                 "quantity": part.quantity,
-                "notes": part.notes
-            })
-
-            summary["parts_list"].append({
+                "notes": part.notes,
+            }
+            line_entry = {
                 "part_number": part.part_number,
                 "description": part.description,
                 "quantity": part.quantity,
                 "category": part.category,
                 "notes": part.notes,
                 "length_adjustment_ratio": part.length_adjustment_ratio,
-            })
+            }
+            # Portal-fixed sell price (wrapping). Quote builders PATCH this
+            # onto the BC line; the item card price is not the sell price.
+            if part.unit_price is not None:
+                category_entry["unit_price"] = part.unit_price
+                line_entry["unit_price"] = part.unit_price
+                line_entry["fixed_unit_price"] = part.unit_price
+
+            summary["by_category"][part.category].append(category_entry)
+            summary["parts_list"].append(line_entry)
 
         return summary
 

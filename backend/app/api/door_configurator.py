@@ -1143,6 +1143,7 @@ LINE_ORDER = [
     "aluminum_glass",    # 2e. Aluminum glass glazing
     "glazing_comment",   # 2e-note. Glazing substitution note (unstocked combo)
     "commercial_window", # 2f. Commercial thermopane windows
+    "wrapping",          # 2g. Door-package wrapping (WRAP). Not WRAPALU.
     "retainer",          # 3. Retainer (top/bottom)
     "astragal",          # 4. Astragal (bottom rubber)
     "top_seal",          # 5. Top seal (commercial/aluminium)
@@ -1802,6 +1803,10 @@ def build_bc_quote_from_doors(
             pn = line["part_number"]
             if pn in mapper.bc_items:
                 continue
+            # WRAP is a portal-priced service item. A stale item cache must
+            # not rewrite it as WRAPALU just because both start with WRAP.
+            if line.get("category") == "wrapping" or pn == "WRAP":
+                continue
             # Skip validation for deterministic HK hardware kit part numbers
             if any(pn.startswith(pfx) for pfx in SKIP_VALIDATION_PREFIXES) and pn != f"{pn[:4]}-00000-RC":
                 continue
@@ -1921,10 +1926,30 @@ def build_bc_quote_from_doors(
                     except Exception as out_err:
                         logger.warning(f"Failed to set Output flag on line: {out_err}")
 
-                # Trust BC. Track the line for the volume curve (if re-enabled
-                # later) but never PATCH unitPrice — BC's SalesPriceLists is
-                # the only source of truth.
-                if request.customerId and line.get("lineType") != "Comment":
+                # Trust BC for catalog items. Wrapping (and any other line
+                # carrying fixed_unit_price) is the exception: the WRAP card
+                # is $2.50 and price lists differ, but the sell rate is the
+                # portal constant. PATCH it, and keep it out of the volume
+                # curve so a later discount cannot move it.
+                fixed_price = line.get("fixed_unit_price")
+                if line.get("lineType") != "Comment" and fixed_price is not None:
+                    try:
+                        bc_client.update_quote_line(
+                            bc_quote_id,
+                            added_line["id"],
+                            added_line.get("@odata.etag", "*"),
+                            {"unitPrice": float(fixed_price)},
+                        )
+                        logger.info(
+                            "PRICING [%s]: portal fixed unit price $%.2f",
+                            line.get("part_number"), float(fixed_price),
+                        )
+                    except Exception as price_err:
+                        logger.error(
+                            "FIXED PRICE PATCH FAILED [%s]: %s",
+                            line.get("part_number"), price_err,
+                        )
+                elif request.customerId and line.get("lineType") != "Comment":
                     part_num = line["part_number"]
                     from app.services.pricing_service import _get_live_item
                     live = _get_live_item(part_num) or {}

@@ -613,6 +613,7 @@ def duplicate_saved_quote(
 LINE_ORDER = [
     "comment", "panel", "v130g_section", "v130g_glass",
     "aluminum_section", "aluminum_glazing", "aluminum_glass", "glazing_comment", "commercial_window",
+    "wrapping",
     "retainer", "astragal", "top_seal", "strut", "window",
     "track", "highlift_comment", "highlift_track", "hardware", "spring_comment", "spring", "spring_accessory",
     "shaft", "weather_stripping", "accessory", "operator",
@@ -1142,8 +1143,9 @@ def _generate_bc_quote_with_items(
                     logger.warning(f"Failed to set Output flag on line: {out_err}")
 
             # BC auto-populates description and unitPrice from the item card
-            # on POST, overriding what we send.  PATCH afterward to restore
-            # our intended description and lock in the customer-tier price.
+            # on POST, overriding what we send. PATCH afterward to restore
+            # our description. Catalog prices stay on BC's SalesPriceLists;
+            # fixed_unit_price lines (wrapping) are overwritten below.
             if line.get("lineType") != "Comment":
                 patch_data = {}
 
@@ -1154,9 +1156,18 @@ def _generate_bc_quote_with_items(
                     if bc_desc != intended_desc:
                         patch_data["description"] = intended_desc[:100]
 
-                # Trust BC. Track the line so the volume curve can find it
-                # if/when re-enabled, but do NOT PATCH unitPrice.
-                if line.get("lineType") != "Comment" and db:
+                # Catalog lines trust BC SalesPriceLists. A line with
+                # fixed_unit_price (door wrapping) is PATCHed to that rate —
+                # the WRAP item card is $2.50 — and left out of the volume
+                # curve so a discount cannot move it.
+                fixed_price = line.get("fixed_unit_price")
+                if fixed_price is not None:
+                    patch_data["unitPrice"] = float(fixed_price)
+                    logger.info(
+                        "PRICING [%s]: portal fixed unit price $%.2f",
+                        line.get("part_number"), float(fixed_price),
+                    )
+                elif line.get("lineType") != "Comment" and db:
                     part_num = line["part_number"]
                     from app.services.pricing_service import _get_live_item
                     live = _get_live_item(part_num) or {}
@@ -2179,12 +2190,12 @@ def _edit_bc_quote_lines(
                 intended_desc = line.get("description", "")
                 if intended_desc and added_line.get("description", "") != intended_desc:
                     patch_data["description"] = intended_desc[:100]
-                # Trust BC SalesPriceLists for unit price — do NOT override with
-                # the legacy margin engine. This matches the new-quote generate
-                # path (_generate_bc_quote_with_items / build_bc_quote_from_doors),
-                # which leave unitPrice untouched so BC resolves it natively
-                # (Customer → Customer Price Group → All Customers → Item card).
-                # Editing a quote must not silently re-price it off BC's prices.
+                # Catalog lines keep the price BC resolved. Wrapping carries
+                # fixed_unit_price because the WRAP card is $2.50; an edit
+                # must re-apply $0.95 or the line snaps back to the card.
+                fixed_price = line.get("fixed_unit_price")
+                if fixed_price is not None:
+                    patch_data["unitPrice"] = float(fixed_price)
                 if patch_data:
                     etag = added_line.get("@odata.etag", "*")
                     try:
@@ -2370,6 +2381,7 @@ def _estimate_pricing_locally(
     """
     all_lines = []
     door_results = []
+    spring_inventory = get_bc_spring_inventory()
 
     for i, door in enumerate(doors):
         door_index = i + 1
@@ -2546,12 +2558,18 @@ def _estimate_pricing_locally(
             quantity = line.get("quantity", 1)
             door_type = line.get("door_type", "residential")
 
-            unit_price = calculate_selling_price(
-                part_number=part_number,
-                door_type=door_type,
-                tier=pricing_tier,
-                db=db,
-            ) or 0.0
+            # Same portal-fixed rate the BC quote paths PATCH onto the line.
+            # Margin math on the WRAP card ($2.50 sell / ~$0.66 cost) is not
+            # the wrapping price.
+            if line.get("fixed_unit_price") is not None:
+                unit_price = float(line["fixed_unit_price"])
+            else:
+                unit_price = calculate_selling_price(
+                    part_number=part_number,
+                    door_type=door_type,
+                    tier=pricing_tier,
+                    db=db,
+                ) or 0.0
 
             line_total = round(unit_price * quantity, 2)
             subtotal += line_total
