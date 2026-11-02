@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.integrations.bc.client import bc_client
 from app.db.models import QuoteRequest, QuoteItem, AuditTrail, BCCustomer, AIDecision
 from app.config import settings
+from app.services.wrapping import fixed_wrap_unit_price
 
 logger = logging.getLogger(__name__)
 
@@ -305,7 +306,22 @@ class BCQuoteService:
                         "description": f"{item.product_code}: {item.description or 'Part not in BC'} (Qty: {item.quantity})"
                     }
 
-                self.bc_client.add_quote_line(bc_quote_id, line_data)
+                added_line = self.bc_client.add_quote_line(bc_quote_id, line_data)
+                # BC overwrites unitPrice from the item card on POST. WRAP's
+                # card is $2.50; the stored quote item carries the portal rate.
+                wrap_price = fixed_wrap_unit_price({
+                    "part_number": item.product_code,
+                    "lineType": line_data.get("lineType", "Item"),
+                    "unit_price": float(item.unit_price) if item.unit_price else None,
+                })
+                if wrap_price is not None and added_line and added_line.get("id"):
+                    self.bc_client.update_quote_line(
+                        bc_quote_id,
+                        added_line["id"],
+                        added_line.get("@odata.etag", "*"),
+                        {"unitPrice": wrap_price},
+                    )
+                    bc_unit_price = wrap_price
                 logger.info(f"Added line item: {item.product_code} x{item.quantity}" +
                            (f" @ ${bc_unit_price}" if bc_unit_price else " (comment line)"))
 
