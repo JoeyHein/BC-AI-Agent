@@ -54,6 +54,13 @@ from enum import Enum
 
 from app.services.spring_calculator_service import spring_calculator
 from app.services.door_calculator_service import SECTION_HEIGHT_TABLE, door_calculator
+from app.services.wrapping import (
+    WRAP_CATEGORY,
+    WRAP_DESCRIPTION,
+    WRAP_ITEM_NUMBER,
+    WRAP_SELL_PRICE_PER_SF,
+    wrapping_sqft,
+)
 from app.services.bc_part_number_mapper import (
     BCPartNumberMapper,
     get_bc_mapper,
@@ -1180,18 +1187,60 @@ class PartNumberService:
             operator_parts = self._get_operator_parts(config)
             parts.extend(operator_parts)
 
+        # 12b. WRAPPING (steel door packages). Quantity is the opening in
+        # square feet, rounded per door; the door-count multiplier below
+        # scales it. Aluminum/Panorama already carry WRAPALU.
+        wrap_part = self._get_wrapping_part(config)
+        if wrap_part:
+            parts.append(wrap_part)
+
         # 13. OVERLAY (residential wood overlay, if selected)
         overlay = hardware.get("overlay") if hardware else None
         if overlay and config.door_type == "residential":
             overlay_parts = self._get_overlay_parts(config, overlay)
             parts.extend(overlay_parts)
 
-        # Apply quantity multiplier for door count (skip comment lines only)
+        # Apply quantity multiplier for door count (skip comment lines only).
+        # Wrapping quantity is already the per-door square footage, so this
+        # multiply is the second step Upwardor uses (round, then × door qty).
         for part in parts:
             if part.category != "comment":
                 part.quantity *= config.door_count
 
         return parts
+
+    def _get_wrapping_part(self, config: DoorConfiguration) -> Optional[PartSelection]:
+        """One WRAP line for a steel door that ships panels. None otherwise.
+
+        Excluded:
+        * Aluminum / Panorama / Solalite / SWD — those doors already get
+          WRAPALU from ``_get_aluminum_section_parts``. Adding WRAP would
+          double-charge the same opening.
+        * Orders with no door panels (hardware-only, operator-only, loose
+          parts). ``hardware.panels`` defaults to on when the key is absent,
+          matching a complete door and a panels-only / door-face order.
+        """
+        door_type = (config.door_type or "").lower()
+        if door_type in ("aluminium", "aluminum"):
+            return None
+        hardware = config.hardware or {}
+        if not hardware.get("panels", True):
+            return None
+        per_door = wrapping_sqft(config.door_width, config.door_height)
+        if per_door <= 0:
+            return None
+        return PartSelection(
+            part_number=WRAP_ITEM_NUMBER,
+            description=WRAP_DESCRIPTION,
+            quantity=per_door,
+            category=WRAP_CATEGORY,
+            unit_price=WRAP_SELL_PRICE_PER_SF,
+            notes=(
+                f"{per_door} SF per door @ ${WRAP_SELL_PRICE_PER_SF:.2f}/SF "
+                f"(opening {config.door_width}\" x {config.door_height}\", "
+                f"nearest SF, half up)"
+            ),
+        )
 
     def _get_width_code(self, width_inches: int) -> str:
         """Convert width in inches to code (feet or inches)"""
@@ -4525,6 +4574,7 @@ class PartNumberService:
                 "quantity": part.quantity,
                 "category": part.category,
                 "notes": part.notes,
+                "unit_price": part.unit_price,
                 "length_adjustment_ratio": part.length_adjustment_ratio,
             })
 

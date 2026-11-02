@@ -22,6 +22,7 @@ from app.services.configurator_quote_tag import (
     resolve_creator_tag,
 )
 from app.services.freight_service import calculate_freight, get_freight_config
+from app.services.wrapping import fixed_wrap_unit_price
 from app.services.operator_service import find_operator_by_part_number
 from app.integrations.bc.client import bc_client
 from app.api.staff_principal import require_staff
@@ -1143,6 +1144,7 @@ LINE_ORDER = [
     "aluminum_glass",    # 2e. Aluminum glass glazing
     "glazing_comment",   # 2e-note. Glazing substitution note (unstocked combo)
     "commercial_window", # 2f. Commercial thermopane windows
+    "wrapping",          # 2g. In-house wrapping (WRAP), per-door square feet
     "retainer",          # 3. Retainer (top/bottom)
     "astragal",          # 4. Astragal (bottom rubber)
     "top_seal",          # 5. Top seal (commercial/aluminium)
@@ -1921,10 +1923,36 @@ def build_bc_quote_from_doors(
                     except Exception as out_err:
                         logger.warning(f"Failed to set Output flag on line: {out_err}")
 
-                # Trust BC. Track the line for the volume curve (if re-enabled
-                # later) but never PATCH unitPrice — BC's SalesPriceLists is
-                # the only source of truth.
-                if request.customerId and line.get("lineType") != "Comment":
+                # WRAP's item card is $2.50. BC fills unitPrice from that card
+                # (or a sales price list) on POST and ignores the price we
+                # send. Patch the line so the quote charges the portal rate.
+                # Every other item still takes BC's price.
+                wrap_price = fixed_wrap_unit_price(line)
+                if wrap_price is not None and added_line.get("id"):
+                    try:
+                        bc_client.update_quote_line(
+                            bc_quote_id,
+                            added_line["id"],
+                            added_line.get("@odata.etag", "*"),
+                            {"unitPrice": wrap_price},
+                        )
+                        logger.info(
+                            "WRAP price override: qty=%s unitPrice=%s",
+                            line.get("quantity"), wrap_price,
+                        )
+                    except Exception as wrap_err:
+                        logger.error(f"WRAP price override failed: {wrap_err}")
+
+                # Trust BC for everything except the fixed WRAP rate above.
+                # Track the line for the volume curve (if re-enabled later)
+                # but never PATCH unitPrice — BC's SalesPriceLists is the
+                # source of truth. WRAP is left out of the curve so a volume
+                # discount cannot move it off $0.95/SF.
+                if (
+                    request.customerId
+                    and line.get("lineType") != "Comment"
+                    and wrap_price is None
+                ):
                     part_num = line["part_number"]
                     from app.services.pricing_service import _get_live_item
                     live = _get_live_item(part_num) or {}
