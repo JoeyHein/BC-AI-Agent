@@ -2018,13 +2018,14 @@ def _edit_bc_quote_lines(
     delivery_type: str = "delivery",
 ) -> Dict[str, Any]:
     """
-    Surgically edit an existing BC sales quote.
+    Edit an existing BC sales quote, keeping the same quote id and number.
 
-    - Diffs old vs new doors; deletes only the lines for changed/removed doors
-    - Deletes all shared lines (freight/install/travel/volume_discount)
-    - Regenerates changed + added doors' lines at tier pricing
-    - Regenerates shared lines from the new totals
-    - KEEPS the same bc_quote_id and bc_quote_number
+    Any add, remove, resize, or reorder rebuilds every remaining door so the
+    posted order stays ``[door lines, WRAP, that door's FREIGHT]``. Business
+    Central only appends lines, so leaving unchanged doors in place and
+    tacking one freight line on the end would collapse the per-door split.
+    Pickup quotes are rebuilt without freight lines. A PO-only edit does not
+    touch lines.
 
     Escalating margin is NOT recomputed here (customer clicks "Refresh Pricing"
     for that — which rebuilds the whole quote from scratch).
@@ -2070,6 +2071,10 @@ def _edit_bc_quote_lines(
     indices_to_regenerate = sorted(set(diff["changed"] + diff["added"]))
     indices_to_delete = sorted(set(diff["changed"] + diff["removed"]))
     moves = diff.get("moved") or []
+    # Rebuild every remaining door when the package set changes. Appending
+    # only the edited door would leave the other doors' freight behind and
+    # put a single freight line at the bottom.
+    rebuild_all = bool(indices_to_regenerate or indices_to_delete or moves)
 
     # Same builder gate the create path uses, so an edit can't silently drop
     # (or add) the perforated back-hang angle on regenerated doors.
@@ -2096,9 +2101,8 @@ def _edit_bc_quote_lines(
         "v130g_section", "v130g_glass",
     }
 
-    for door_index in indices_to_regenerate:
-        if door_index > len(new_doors):
-            continue  # defensive: don't regen a position that doesn't exist
+    build_indices = list(range(1, len(new_doors) + 1)) if rebuild_all else []
+    for door_index in build_indices:
         door = new_doors[door_index - 1]
         door_desc = _format_door_description(door)
 
@@ -2172,62 +2176,58 @@ def _edit_bc_quote_lines(
                 "parts_count": 0, "success": False, "error": str(e),
             })
 
-        # WRAP stays the last line of the regenerated door. A dash here
-        # would sit under it. Edit still appends one quote-level freight
-        # line after these lines; a brand-new quote puts freight under
-        # each door as the lines are created.
+        # WRAP stays the last product line. Freight placeholders are inserted
+        # under it below, one per door, before anything is posted.
+
+    if rebuild_all and (delivery_type or "").lower() != "pickup" and not provides_install:
+        freight_item = "FREIGHT"
+        if db:
+            try:
+                freight_item = get_freight_config(db).get("freight_item_number", "FREIGHT")
+            except Exception:
+                freight_item = "FREIGHT"
+        all_new_lines = interleave_door_freight(all_new_lines, freight_item)
 
     # Warm BC cost cache for regenerated parts
-    item_pns = [l["part_number"] for l in all_new_lines if l.get("part_number")]
+    item_pns = [l["part_number"] for l in all_new_lines if l.get("part_number") and not l.get("is_door_freight")]
     if item_pns:
         warm_bc_cost_cache(item_pns)
 
-    # ── Step 2: Delete old door lines for changed/removed doors ─────────────
-    # Done AFTER precompute so a precompute failure leaves BC untouched.
-    # Done BEFORE move remap so we delete from the ORIGINAL position keys.
-    for idx in indices_to_delete:
-        line_ids = line_map["doors"].pop(str(idx), [])
-        if line_ids:
-            _delete_bc_lines(bc_quote_id, line_ids)
-            logger.info(f"Deleted {len(line_ids)} line(s) for door {idx}")
-
-    # ── Step 2b: Remap line_map for doors that just moved position ──────────
-    # An identity-based diff produces "moved" entries when a door's content is
-    # unchanged but its index shifted (e.g. the user removed door 1 so door 2
-    # is now door 1). The BC lines don't need to change — only our internal
-    # index → line-id mapping.
-    if moves:
-        moving_old_keys = {str(old_pos) for old_pos, _ in moves}
-        relocations = {
-            str(new_pos): line_map["doors"].get(str(old_pos), [])
-            for old_pos, new_pos in moves
-        }
-        target_keys = set(relocations.keys())
-        preserved = {
-            k: v for k, v in line_map["doors"].items()
-            if k not in moving_old_keys and k not in target_keys
-        }
-        line_map["doors"] = {**preserved, **relocations}
-        logger.info(f"Remapped {len(moves)} door position(s) without BC writes: {moves}")
-
-    # ── Step 3: Delete all shared lines (always regenerated) ────────────────
-    for bucket, line_ids in list(line_map["shared"].items()):
-        _delete_bc_lines(bc_quote_id, line_ids)
-    line_map["shared"] = {}
-
-    # Belt-and-suspenders: sweep any freight lines that line_map missed. Without
-    # this, leftover freight gets folded into `totalAmountExcludingTax` below
-    # and the recomputed freight stacks at × 1.05 per edit (see SQ-002500).
-    try:
-        freight_item_no = get_freight_config(db).get("freight_item_number", "FREIGHT")
-    except Exception:
-        freight_item_no = "FREIGHT"
-    _sweep_freight_lines(bc_quote_id, freight_item=freight_item_no)
-
-    # ── Step 4: Push new lines to BC with tier pricing ──────────────────────
     lines_added = 0
     lines_failed: List[dict] = []
+    door_freight_slots: List[dict] = []
+    door_product_ids: Dict[Any, List[str]] = {}
+    door_order: List[Any] = []
 
+    if rebuild_all:
+        # Delete every door's lines, then shared freight/install, then any
+        # freight the line map missed. Re-posting in door order is what keeps
+        # WRAP directly above that door's freight share.
+        stale_ids: List[str] = []
+        for ids in line_map["doors"].values():
+            stale_ids.extend(ids)
+        if stale_ids:
+            _delete_bc_lines(bc_quote_id, stale_ids)
+        line_map["doors"] = {}
+        for bucket, line_ids in list(line_map["shared"].items()):
+            _delete_bc_lines(bc_quote_id, line_ids)
+        line_map["shared"] = {}
+        try:
+            freight_item_no = get_freight_config(db).get("freight_item_number", "FREIGHT") if db else "FREIGHT"
+        except Exception:
+            freight_item_no = "FREIGHT"
+        _sweep_freight_lines(bc_quote_id, freight_item=freight_item_no)
+    elif (delivery_type or "").lower() == "pickup":
+        # Same doors, now pickup: drop the per-door freight lines. WRAP is
+        # already the last line of each door, so the packages stay intact.
+        try:
+            freight_item_no = get_freight_config(db).get("freight_item_number", "FREIGHT") if db else "FREIGHT"
+        except Exception:
+            freight_item_no = "FREIGHT"
+        _sweep_freight_lines(bc_quote_id, freight_item=freight_item_no)
+        line_map["shared"].pop("freight", None)
+
+    # ── Push rebuilt lines. A no-op edit (PO only) posts nothing. ───────────
     for line in all_new_lines:
         try:
             if line.get("lineType") == "Comment":
@@ -2241,8 +2241,14 @@ def _edit_bc_quote_lines(
                 }
             added_line = bc_client.add_quote_line(bc_quote_id, line_data)
             lines_added += 1
+            remember_added_door_line(
+                line, added_line, door_order, door_product_ids, door_freight_slots,
+            )
             di = line.get("door_index")
-            if di and added_line and added_line.get("id"):
+            if line.get("is_door_freight"):
+                if added_line and added_line.get("id"):
+                    line_map["shared"].setdefault("freight", []).append(added_line["id"])
+            elif di and added_line and added_line.get("id"):
                 line_map["doors"].setdefault(str(di), []).append(added_line["id"])
 
             needs_output = line.get("is_door_desc") or line.get("category") in ("operator",)
@@ -2313,48 +2319,60 @@ def _edit_bc_quote_lines(
     except Exception as e:
         logger.warning(f"Could not fetch pricing after edit: {e}")
 
-    # ── Step 6: Re-add freight ──────────────────────────────────────────────
-    # Skipped for home-builder accounts — install travel already covers the trip.
+    # ── Step 6: Price the per-door freight placeholders ─────────────────────
+    # Home-builder accounts get an installation line instead. Pickup quotes
+    # have no placeholders. A PO-only edit leaves the existing lines alone.
     freight_info = None
-    if pricing and not _account_provides_install(customer_user_id, db):
+    if rebuild_all and pricing and not provides_install:
         try:
             customer_province = None
-            bc_cust = db.query(BCCustomer).filter(BCCustomer.bc_customer_id == bc_customer_id).first()
-            if bc_cust and bc_cust.address:
-                customer_province = bc_cust.address.get("province")
+            if db:
+                bc_cust = db.query(BCCustomer).filter(BCCustomer.bc_customer_id == bc_customer_id).first()
+                if bc_cust and bc_cust.address:
+                    customer_province = bc_cust.address.get("province")
             freight = calculate_freight(
                 product_subtotal=pricing["subtotal"],
                 province=customer_province,
                 delivery_type=delivery_type, db=db,
             )
             freight_info = freight
-            if not freight["skip"] and freight["amount"] > 0:
-                freight_config = get_freight_config(db)
-                freight_item = freight_config.get("freight_item_number", "FREIGHT")
+            if door_freight_slots and not freight["skip"] and freight["amount"] > 0:
                 try:
-                    added_freight = bc_client.add_quote_line(bc_quote_id, {
-                        "lineType": "Item", "lineObjectNumber": freight_item,
-                        "description": freight["description"], "quantity": 1,
-                    })
-                    etag = added_freight.get("@odata.etag", "*")
-                    bc_client.update_quote_line(bc_quote_id, added_freight["id"], etag, {"unitPrice": freight["amount"]})
-                    if added_freight.get("id"):
-                        line_map["shared"].setdefault("freight", []).append(added_freight["id"])
-                    _set_output_true(bc_quote_number, added_freight, label="freight")
-                except Exception as fe:
-                    logger.warning(f"Could not add freight as Item: {fe}")
-                    if freight_config.get("fallback_to_comment", True):
+                    priced_lines = bc_client.get_quote_lines(bc_quote_id)
+                except Exception:
+                    priced_lines = []
+                amounts = door_freight_amounts(
+                    priced_lines, door_freight_slots, door_product_ids, freight["amount"],
+                )
+                kept_ids = []
+                for slot, amount in zip(door_freight_slots, amounts):
+                    if amount <= 0:
                         try:
-                            added_fc = bc_client.add_quote_line(bc_quote_id, {
-                                "lineType": "Comment",
-                                "description": f"{freight['description']}: ${freight['amount']:.2f}",
-                            })
-                            if added_fc.get("id"):
-                                line_map["shared"].setdefault("freight", []).append(added_fc["id"])
-                        except Exception:
-                            pass
+                            bc_client.delete_quote_line(bc_quote_id, slot["id"])
+                        except Exception as del_err:
+                            logger.warning(f"Could not drop zero freight line: {del_err}")
+                        continue
+                    try:
+                        bc_client.update_quote_line(
+                            bc_quote_id, slot["id"], "*",
+                            {
+                                "unitPrice": amount,
+                                "description": freight["description"][:100],
+                            },
+                        )
+                        kept_ids.append(slot["id"])
+                        if slot.get("sequence"):
+                            _set_output_true(
+                                bc_quote_number,
+                                {"sequence": slot["sequence"]},
+                                label="freight",
+                            )
+                    except Exception as patch_err:
+                        logger.warning(f"Could not price door freight on edit: {patch_err}")
+                        kept_ids.append(slot["id"])
+                line_map["shared"]["freight"] = kept_ids
         except Exception as freight_err:
-            logger.warning(f"Could not add freight during edit: {freight_err}")
+            logger.warning(f"Could not price per-door freight during edit: {freight_err}")
 
     # ── Step 7: Re-add install block for home builder customers ─────────────
     if customer_user_id:
