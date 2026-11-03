@@ -13,7 +13,9 @@ import { useState } from 'react'
  */
 function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber, doorResults, compact = false }) {
   const [expanded, setExpanded] = useState(!compact)
-  const [expandedDoors, setExpandedDoors] = useState(new Set())
+  // Doors start open so the package order (lines, then wrapping, then freight)
+  // is visible without an extra click.
+  const [collapsedDoors, setCollapsedDoors] = useState(new Set())
 
   if (!pricing) {
     return null
@@ -59,7 +61,7 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
   }
 
   const toggleDoor = (idx) => {
-    setExpandedDoors(prev => {
+    setCollapsedDoors(prev => {
       const next = new Set(prev)
       if (next.has(idx)) next.delete(idx)
       else next.add(idx)
@@ -132,7 +134,7 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
       {doorSections.length > 0 && (
         <div className="divide-y divide-gray-100">
           {doorSections.map((door, doorIdx) => {
-            const isOpen = expandedDoors.has(doorIdx)
+            const isOpen = !collapsedDoors.has(doorIdx)
             return (
               <div key={doorIdx}>
                 <button
@@ -166,6 +168,12 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
                             </td>
                             <td className="py-0.5 text-right whitespace-nowrap text-gray-500">
                               {item.line_type !== 'Note' && `qty ${item.quantity}`}
+                            </td>
+                            <td className="py-0.5 pl-3 text-right whitespace-nowrap text-gray-500">
+                              {item.line_type !== 'Note' && item.unit_price != null && formatCurrency(item.unit_price)}
+                            </td>
+                            <td className="py-0.5 pl-3 text-right whitespace-nowrap text-gray-700">
+                              {item.line_type !== 'Note' && formatCurrency(item.line_total)}
                             </td>
                           </tr>
                         ))}

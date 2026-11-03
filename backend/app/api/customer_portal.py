@@ -21,7 +21,16 @@ from app.services.part_number_service import get_parts_for_door_config
 from app.services.pricing_service import calculate_selling_price, warm_bc_cost_cache
 from app.services.spring_data_service import get_bc_spring_inventory
 from app.services.quote_review_service import save_quote_snapshot
-from app.services.freight_service import calculate_freight, get_freight_config
+from app.services.freight_service import (
+    allocate_freight_across_doors,
+    apply_freight_to_line_pricing,
+    calculate_freight,
+    door_freight_amounts,
+    get_freight_config,
+    interleave_door_freight,
+    remember_added_door_line,
+    sum_line_amounts,
+)
 from app.services.install_pricing_service import install_pricing_service
 
 
@@ -613,7 +622,6 @@ def duplicate_saved_quote(
 LINE_ORDER = [
     "comment", "panel", "v130g_section", "v130g_glass",
     "aluminum_section", "aluminum_glazing", "aluminum_glass", "glazing_comment", "commercial_window",
-    "wrapping",
     "retainer", "astragal", "top_seal", "strut", "window",
     "track", "highlift_comment", "highlift_track", "hardware", "spring_comment", "spring", "spring_accessory",
     "shaft", "weather_stripping", "accessory", "operator",
@@ -633,6 +641,10 @@ def _sort_parts_by_category(parts: List[dict]) -> List[dict]:
         # Cone sets should stay inline with their spring pair, not sort separately
         if category == "spring_accessory":
             category = "spring"
+        # WRAP is the last line of each door package, immediately above that
+        # door's freight line. WRAPALU stays aluminum_wrapping.
+        if category == "wrapping":
+            return 10_000
         try:
             return LINE_ORDER.index(category)
         except ValueError:
@@ -1023,17 +1035,9 @@ def _generate_bc_quote_with_items(
                 "error": str(e),
             })
 
-        # Blank separator after every door (including last — separates from freight).
-        # NBSP (U+00A0), not a regular space: BC's API drops whitespace-only
-        # comment descriptions server-side, which used to make doors run
-        # together in the printed quote with no visual break between them.
-        all_lines.append({
-            "lineType": "Comment",
-            "description": "-",
-            "category": "COMMENT",
-            "door_index": door_index,
-            "is_separator": True,
-        })
+        # No trailing dash. WRAP has to be the last line of this door, and
+        # the freight placeholder (added below for delivery) sits immediately
+        # under it. The next door's header comment is the break between doors.
 
     # Step 2: Create BC Quote
     # Note: requestedDeliveryDate is not available on the v2.0 salesQuotes entity.
@@ -1089,9 +1093,23 @@ def _generate_bc_quote_with_items(
         f"PRICING MODE: trust_bc=True, enable_volume_curve={enable_volume_curve}"
     )
 
+    # Delivery quotes get a freight line under each door, immediately after
+    # WRAP. Pickup and home-builder (install) quotes do not.
+    if (delivery_type or "").lower() != "pickup" and not provides_install:
+        freight_item = "FREIGHT"
+        if db:
+            try:
+                freight_item = get_freight_config(db).get("freight_item_number", "FREIGHT")
+            except Exception:
+                freight_item = "FREIGHT"
+        all_lines = interleave_door_freight(all_lines, freight_item)
+
     # Step 4: Add line items
     lines_added = 0
     lines_failed = []
+    door_freight_slots = []
+    door_product_ids = {}
+    door_order = []
     bc_items_cache: dict = {}  # category prefix → list of BC items (populated lazily)
     tier_prices_by_line_id = {}  # Track per-line metadata for escalating margin
 
@@ -1126,7 +1144,13 @@ def _generate_bc_quote_with_items(
 
             added_line = bc_client.add_quote_line(bc_quote_id, line_data)
             lines_added += 1
-            _track_door_line(line.get("door_index"), added_line)
+            remember_added_door_line(
+                line, added_line, door_order, door_product_ids, door_freight_slots,
+            )
+            if line.get("is_door_freight"):
+                _track_shared_line("freight", added_line)
+            else:
+                _track_door_line(line.get("door_index"), added_line)
 
             # Set Output=True on door descriptions, operators, and accessories
             # so BC shows them on printed quotes and subtotals correctly.
@@ -1519,15 +1543,19 @@ def _generate_bc_quote_with_items(
     # Skip entirely for home-builder accounts — their INSTALLATION line already
     # bills per-km crew travel, so freight would charge the same trip twice.
     freight_info = None
-    if pricing and db and not _account_provides_install(customer_user_id, db):
+    charge_freight = bool(door_freight_slots) or (
+        db and not _account_provides_install(customer_user_id, db)
+    )
+    if pricing and charge_freight:
         try:
             # Get customer province
             customer_province = None
-            bc_cust = db.query(BCCustomer).filter(
-                BCCustomer.bc_customer_id == bc_customer_id
-            ).first()
-            if bc_cust and bc_cust.address:
-                customer_province = bc_cust.address.get("province")
+            if db:
+                bc_cust = db.query(BCCustomer).filter(
+                    BCCustomer.bc_customer_id == bc_customer_id
+                ).first()
+                if bc_cust and bc_cust.address:
+                    customer_province = bc_cust.address.get("province")
 
             freight = calculate_freight(
                 product_subtotal=pricing["subtotal"],
@@ -1537,7 +1565,46 @@ def _generate_bc_quote_with_items(
             )
             freight_info = freight
 
-            if not freight["skip"] and freight["amount"] > 0:
+            if not freight["skip"] and freight["amount"] > 0 and door_freight_slots:
+                freight_added = False
+                try:
+                    priced_lines = bc_client.get_quote_lines(bc_quote_id)
+                except Exception:
+                    priced_lines = []
+                amounts = door_freight_amounts(
+                    priced_lines, door_freight_slots, door_product_ids, freight["amount"],
+                )
+                for slot, amount in zip(door_freight_slots, amounts):
+                    if amount <= 0:
+                        try:
+                            bc_client.delete_quote_line(bc_quote_id, slot["id"])
+                        except Exception as del_err:
+                            logger.warning(f"Could not drop zero freight line: {del_err}")
+                        continue
+                    try:
+                        bc_client.update_quote_line(
+                            bc_quote_id, slot["id"], "*",
+                            {
+                                "unitPrice": amount,
+                                "description": freight["description"][:100],
+                            },
+                        )
+                        freight_added = True
+                        logger.info(
+                            f"Door freight ${amount:.2f} under door {slot.get('door_index')}"
+                        )
+                        if slot.get("sequence"):
+                            _set_output_true(
+                                bc_quote_number,
+                                {"sequence": slot["sequence"]},
+                                label="freight",
+                            )
+                    except Exception as patch_err:
+                        logger.warning(f"Could not price door freight: {patch_err}")
+                line_pricing = apply_freight_to_line_pricing(
+                    line_pricing, amounts, freight["description"],
+                )
+            elif not freight["skip"] and freight["amount"] > 0:
                 freight_config = get_freight_config(db)
                 freight_item = freight_config.get("freight_item_number", "FREIGHT")
                 freight_added = False
@@ -2105,10 +2172,10 @@ def _edit_bc_quote_lines(
                 "parts_count": 0, "success": False, "error": str(e),
             })
 
-        all_new_lines.append({
-            "lineType": "Comment", "description": "-", "category": "COMMENT",
-            "door_index": door_index, "is_separator": True,
-        })
+        # WRAP stays the last line of the regenerated door. A dash here
+        # would sit under it. Edit still appends one quote-level freight
+        # line after these lines; a brand-new quote puts freight under
+        # each door as the lines are created.
 
     # Warm BC cost cache for regenerated parts
     item_pns = [l["part_number"] for l in all_new_lines if l.get("part_number")]
@@ -2523,19 +2590,13 @@ def _estimate_pricing_locally(
                 "error": str(e),
             })
 
-        # Blank separator after every door — NBSP for parity with the BC
-        # path (description=" " gets stripped server-side, leaving doors
-        # running together with no break).
-        all_lines.append({
-            "lineType": "Comment",
-            "description": "-",
-            "category": "COMMENT",
-            "door_index": door_index,
-            "is_separator": True,
-        })
+        # WRAP stays the last line of the door. Freight rows are inserted
+        # under it once the door subtotals are known.
 
     # Warm the BC cost cache so pricing uses live production costs
-    item_pns = [l["part_number"] for l in all_lines if l.get("part_number")]
+    if (delivery_type or "").lower() != "pickup":
+        all_lines = interleave_door_freight(all_lines)
+    item_pns = [l["part_number"] for l in all_lines if l.get("part_number") and not l.get("is_door_freight")]
     warm_bc_cost_cache(item_pns)
 
     # Build line pricing locally using calculate_selling_price
@@ -2597,11 +2658,25 @@ def _estimate_pricing_locally(
         freight_info = freight
 
         if not freight["skip"] and freight["amount"] > 0:
+            door_subs = []
+            seen_door = False
+            for row in line_pricing:
+                if row.get("line_type") == "Comment":
+                    door_subs.append(0.0)
+                    seen_door = True
+                elif seen_door and row.get("part_number") != "FREIGHT":
+                    door_subs[-1] += row.get("line_total") or 0
+            amounts = allocate_freight_across_doors(door_subs, freight["amount"])
+            line_pricing = apply_freight_to_line_pricing(
+                line_pricing, amounts, freight["description"],
+            )
             subtotal_with_freight = round(subtotal + freight["amount"], 2)
         else:
+            line_pricing = [row for row in line_pricing if row.get("part_number") != "FREIGHT"]
             subtotal_with_freight = subtotal
     except Exception as freight_err:
         logger.warning(f"Could not calculate freight for local estimate: {freight_err}")
+        line_pricing = [row for row in line_pricing if row.get("part_number") != "FREIGHT"]
         subtotal_with_freight = subtotal
 
     return {
