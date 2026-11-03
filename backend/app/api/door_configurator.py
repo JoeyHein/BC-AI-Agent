@@ -21,7 +21,16 @@ from app.services.configurator_quote_tag import (
     external_document_number,
     resolve_creator_tag,
 )
-from app.services.freight_service import calculate_freight, get_freight_config
+from app.services.freight_service import (
+    allocate_freight_across_doors,
+    apply_freight_to_line_pricing,
+    calculate_freight,
+    door_freight_amounts,
+    get_freight_config,
+    interleave_door_freight,
+    remember_added_door_line,
+    sum_line_amounts,
+)
 from app.services.operator_service import find_operator_by_part_number
 from app.integrations.bc.client import bc_client
 from app.api.staff_principal import require_staff
@@ -1143,7 +1152,6 @@ LINE_ORDER = [
     "aluminum_glass",    # 2e. Aluminum glass glazing
     "glazing_comment",   # 2e-note. Glazing substitution note (unstocked combo)
     "commercial_window", # 2f. Commercial thermopane windows
-    "wrapping",          # 2g. Door-package wrapping (WRAP). Not WRAPALU.
     "retainer",          # 3. Retainer (top/bottom)
     "astragal",          # 4. Astragal (bottom rubber)
     "top_seal",          # 5. Top seal (commercial/aluminium)
@@ -1177,6 +1185,11 @@ def _sort_parts_by_category(parts: List[dict]) -> List[dict]:
         # Cone sets should stay inline with their spring pair, not sort separately
         if category == "spring_accessory":
             category = "spring"
+        # WRAP is the last line of each door package, immediately above that
+        # door's freight line. WRAPALU stays aluminum_wrapping and is not
+        # pulled down here.
+        if category == "wrapping":
+            return 10_000
         try:
             return LINE_ORDER.index(category)
         except ValueError:
@@ -1886,9 +1899,23 @@ def build_bc_quote_from_doors(
                 })
                 logger.warning(f"Part {pn} not in BC — no close match, will add as comment")
 
+        # Delivery quotes get a freight line under each door, immediately
+        # after WRAP. Pickup and home-builder quotes do not.
+        if (request.deliveryType or "").lower() != "pickup" and not is_home_builder:
+            freight_item = "FREIGHT"
+            if db:
+                try:
+                    freight_item = get_freight_config(db).get("freight_item_number", "FREIGHT")
+                except Exception:
+                    freight_item = "FREIGHT"
+            all_lines = interleave_door_freight(all_lines, freight_item)
+
         # Step 4: Add line items to the quote in proper order
         lines_added = 0
         lines_failed = []
+        door_freight_slots = []
+        door_product_ids = {}
+        door_order = []
         # Track tier prices per BC line ID for escalating margin (avoids re-fetch race)
         tier_prices_by_line_id = {}  # { bc_line_id: { "price": float, "qty": float } }
 
@@ -1911,6 +1938,9 @@ def build_bc_quote_from_doors(
 
                 added_line = bc_client.add_quote_line(bc_quote_id, line_data)
                 lines_added += 1
+                remember_added_door_line(
+                    line, added_line, door_order, door_product_ids, door_freight_slots,
+                )
 
                 # Set Output=True on door descriptions, operators, and accessories
                 # so BC shows them on printed quotes and subtotals correctly.
@@ -2163,7 +2193,49 @@ def build_bc_quote_from_doors(
                 )
                 freight_info = freight
 
-                if not freight["skip"] and freight["amount"] > 0:
+                if not freight["skip"] and freight["amount"] > 0 and door_freight_slots:
+                    # Placeholders were posted under each door, right after WRAP.
+                    # Split the same quote-level freight total across those lines.
+                    freight_added = False
+                    try:
+                        priced_lines = bc_client.get_quote_lines(bc_quote_id)
+                    except Exception:
+                        priced_lines = []
+                    amounts = door_freight_amounts(
+                        priced_lines, door_freight_slots, door_product_ids, freight["amount"],
+                    )
+                    for slot, amount in zip(door_freight_slots, amounts):
+                        if amount <= 0:
+                            try:
+                                bc_client.delete_quote_line(bc_quote_id, slot["id"])
+                            except Exception as del_err:
+                                logger.warning(f"Could not drop zero freight line: {del_err}")
+                            continue
+                        try:
+                            bc_client.update_quote_line(
+                                bc_quote_id, slot["id"], "*",
+                                {
+                                    "unitPrice": amount,
+                                    "description": freight["description"][:100],
+                                },
+                            )
+                            freight_added = True
+                            logger.info(
+                                f"Door freight ${amount:.2f} under door {slot.get('door_index')}"
+                            )
+                            if slot.get("sequence"):
+                                try:
+                                    bc_client.set_quote_line_output(
+                                        bc_quote_number, slot["sequence"], output=True
+                                    )
+                                except Exception as out_err:
+                                    logger.warning(f"Failed to set Output flag on freight line: {out_err}")
+                        except Exception as patch_err:
+                            logger.warning(f"Could not price door freight: {patch_err}")
+                    line_pricing = apply_freight_to_line_pricing(
+                        line_pricing, amounts, freight["description"],
+                    )
+                elif not freight["skip"] and freight["amount"] > 0:
                     freight_config = get_freight_config(db)
                     freight_item = freight_config.get("freight_item_number", "FREIGHT")
                     freight_added = False
