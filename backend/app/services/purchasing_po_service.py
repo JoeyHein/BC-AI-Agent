@@ -285,6 +285,12 @@ class PurchasingPOService:
             "excluded_weatherstrip": excluded_weatherstrip,
             **receipt.public_dict(),
         }
+        if draft_id and bc_po_number:
+            try:
+                from app.services.ops_po_mail import note_po_review_draft
+                note_po_review_draft(db, bc_po_number, vendor_name, draft_web_link)
+            except Exception:
+                logger.exception("Could not log the unsent purchase-order draft")
 
     def create_review_draft_for_existing(
         self,

@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db.models import (
     OpsActionItem,
+    OpsActivity,
     OpsFieldAudit,
     OpsOutboundMessage,
     OpsTrackedLine,
@@ -78,6 +79,15 @@ _SKIP_SUBJECTS = ("automatic reply", "out of office", "undeliverable", "delivery
 
 STRUCTURAL_KINDS = ("missing_po", "missing_po_line", "missing_ack", "missing_expected")
 HEARD_FROM_SUPPLIER = {"acknowledged", "revised", "cancelled"}
+LIFECYCLES = ("drafted", "waiting_ack", "acknowledged", "shipped", "received", "issue")
+LIFECYCLE_LABELS = {
+    "drafted": "Drafted",
+    "waiting_ack": "Waiting on acknowledgement",
+    "acknowledged": "Acknowledged",
+    "shipped": "Shipped",
+    "received": "Received",
+    "issue": "Issue / missing item",
+}
 
 
 class OpsTrackerError(Exception):
@@ -225,6 +235,134 @@ def _audit(
             created_at=datetime.utcnow(),
         )
     )
+
+
+def record_activity(
+    db: Session,
+    *,
+    event_type: str,
+    body: str,
+    so_number: Optional[str] = None,
+    po_number: Optional[str] = None,
+    vendor_number: Optional[str] = None,
+    vendor_name: Optional[str] = None,
+    actor: Optional[Actor] = None,
+    dedupe_key: Optional[str] = None,
+    follow_up_on: Optional[date] = None,
+    action_id: Optional[int] = None,
+    direction: Optional[str] = None,
+    web_link: Optional[str] = None,
+    message_id: Optional[str] = None,
+    needs_review: bool = False,
+    confidence: Optional[str] = None,
+    extracted_json: Optional[dict] = None,
+    attachment_name: Optional[str] = None,
+) -> Optional[OpsActivity]:
+    """Append one timeline row. A repeated system event with the same key is skipped."""
+    if dedupe_key:
+        existing = db.query(OpsActivity).filter(OpsActivity.dedupe_key == dedupe_key).one_or_none()
+        if existing is not None:
+            return existing
+    row = OpsActivity(
+        so_number=(so_number or "").strip().upper() or None,
+        po_number=(po_number or "").strip() or None,
+        vendor_number=(vendor_number or "").strip() or None,
+        vendor_name=(vendor_name or "").strip() or None,
+        event_type=event_type,
+        body=body.strip(),
+        dedupe_key=dedupe_key,
+        follow_up_on=follow_up_on,
+        action_id=action_id,
+        direction=direction,
+        web_link=web_link,
+        message_id=message_id,
+        needs_review=bool(needs_review),
+        confidence=confidence,
+        extracted_json=extracted_json,
+        attachment_name=attachment_name,
+        actor_user_id=actor.user_id if actor else None,
+        actor_email=(actor.email if actor else None) or "Business Central",
+        created_at=datetime.utcnow(),
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def refresh_lifecycle(po: OpsTrackedPo) -> str:
+    """Move a PO along Drafted → Waiting on acknowledgement → Acknowledged → Received.
+
+    A locked value is a staff correction and is left alone. An open Business
+    Central status counts as sent. An Outlook draft does not.
+    """
+    if po.lifecycle_locked and po.lifecycle:
+        return po.lifecycle
+    if po.missing_summary and not po.fully_received:
+        po.lifecycle = "issue"
+        return po.lifecycle
+    if po.fully_received or po.receipt_date:
+        po.lifecycle = "received"
+        return po.lifecycle
+    if (po.status or "").lower() == "shipped":
+        po.lifecycle = "shipped"
+        return po.lifecycle
+    if po.ack_status in HEARD_FROM_SUPPLIER or po.vendor_order_no:
+        po.lifecycle = "acknowledged"
+        return po.lifecycle
+    if po.sent_at or (po.status or "").lower() not in {"", "draft"}:
+        po.lifecycle = "waiting_ack"
+        return po.lifecycle
+    po.lifecycle = "drafted"
+    return po.lifecycle
+
+
+def _log_po_events(db: Session, row: OpsTrackedPo, created: bool, old_status: str, old_ack: str, old_expected: Optional[date], actor: Optional[Actor]) -> None:
+    vendor = row.vendor_name or row.vendor_number or "the supplier"
+    sos = ", ".join(row.so_numbers_json or []) or "no sales order yet"
+    so_number = (row.so_numbers_json or [None])[0]
+    common = {
+        "so_number": so_number,
+        "po_number": row.po_number,
+        "vendor_number": row.vendor_number,
+        "vendor_name": row.vendor_name,
+        "actor": actor,
+    }
+    if created:
+        record_activity(
+            db,
+            event_type="po_recorded",
+            body=f"{row.po_number} recorded from Business Central ({row.status or 'unknown'}) for {vendor}. Covers {sos}.",
+            dedupe_key=f"po-recorded:{row.po_number}",
+            **common,
+        )
+    status = (row.status or "").lower()
+    sent_now = status not in {"", "draft"} and (created or (old_status or "").lower() == "draft")
+    if sent_now:
+        record_activity(
+            db,
+            event_type="po_sent",
+            body=f"{row.po_number} sent to {vendor}.",
+            dedupe_key=f"po-sent:{row.po_number}",
+            **common,
+        )
+    if old_ack not in HEARD_FROM_SUPPLIER and row.ack_status in HEARD_FROM_SUPPLIER:
+        when = row.expected_date.isoformat() if row.expected_date else "not set"
+        order_no = row.vendor_order_no or "no vendor order number"
+        record_activity(
+            db,
+            event_type="ack_received",
+            body=f"Acknowledgement received for {row.po_number} ({order_no}). Expected date {when}.",
+            dedupe_key=f"ack:{row.po_number}:{row.ack_status}:{row.vendor_order_no or ''}:{_iso(row.expected_date) or ''}",
+            **common,
+        )
+    if not created and old_expected and row.expected_date and old_expected != row.expected_date:
+        record_activity(
+            db,
+            event_type="expected_date_changed",
+            body=f"Expected date for {row.po_number} moved from {old_expected.isoformat()} to {row.expected_date.isoformat()}.",
+            dedupe_key=f"po-expected:{row.po_number}:{row.expected_date.isoformat()}",
+            **common,
+        )
 
 
 def _assign(db: Session, obj: Any, entity_type: str, entity_key: str, field: str, new: Any, actor: Optional[Actor], audit: bool) -> bool:
@@ -704,6 +842,17 @@ def _queue_supplier_reminders(db: Session, today: date) -> None:
                     updated_at=now,
                 )
             )
+            record_activity(
+                db,
+                event_type="reminder_drafted",
+                body=f"Supplier reminder drafted for {po.po_number}. It is waiting for approval and has not been sent.",
+                so_number=(po.so_numbers_json or [None])[0],
+                po_number=po.po_number,
+                vendor_number=po.vendor_number,
+                vendor_name=po.vendor_name,
+                actor=Actor(email="order-tracker", source="system"),
+                dedupe_key=f"reminder-draft:{po.po_number}:{cycle}",
+            )
         elif not pending.to_email and po.vendor_email:
             pending.to_email = po.vendor_email
             pending.updated_at = now
@@ -807,6 +956,9 @@ def apply_snapshot(
             po_dicts[number] = raw
             row = db.query(OpsTrackedPo).filter(OpsTrackedPo.po_number == number).one_or_none()
             created = row is None
+            old_status = "" if created else (row.status or "")
+            old_ack = "" if created else (row.ack_status or "")
+            old_expected = None if created else row.expected_date
             if created:
                 row = OpsTrackedPo(po_number=number, created_at=datetime.utcnow())
                 db.add(row)
@@ -818,19 +970,25 @@ def apply_snapshot(
                 row.vendor_email = vendor_email
             row.status = raw.get("status") or row.status
             row.order_date = parse_date(raw.get("order_date")) or row.order_date
-            row.expected_date = expected
+            if expected:
+                row.expected_date = expected
             if number.upper() in receipt_on:
                 row.receipt_date = receipt_on[number.upper()]
-            row.vendor_order_no = vendor_order
-            row.ack_status = ack_status
+            if vendor_order:
+                row.vendor_order_no = vendor_order
+            if ack_status != "none":
+                row.ack_status = ack_status
+            elif row.vendor_order_no and (row.ack_status or "none") == "none":
+                row.ack_status = "acknowledged"
             if received_at:
                 row.ack_received_at = received_at
             row.so_numbers_json = _so_numbers_from_po(raw)
             row.fully_received = _fully_received(raw)
             row.bc_open = True
             row.updated_at = datetime.utcnow()
-            if created:
-                db.flush()
+            db.flush()
+            _log_po_events(db, row, created, old_status, old_ack, old_expected, actor)
+            refresh_lifecycle(row)
         if seen_pos or allow_empty or orders_in:
             for row in db.query(OpsTrackedPo).all():
                 if row.po_number not in seen_pos:
@@ -981,6 +1139,16 @@ def apply_snapshot(
             order.expected_receipt = order.supplier_expected
             if audit and _text(previous) != _text(order.expected_receipt):
                 _audit(db, "order", key, "expected_receipt", previous, order.expected_receipt, actor)
+            if previous and order.expected_receipt and previous != order.expected_receipt:
+                record_activity(
+                    db,
+                    event_type="expected_date_changed",
+                    body=f"Expected receipt for {order.so_number} moved from {previous.isoformat()} to {order.expected_receipt.isoformat()}.",
+                    so_number=order.so_number,
+                    po_number=order.upwardor_po_number or None,
+                    actor=actor,
+                    dedupe_key=f"so-expected:{order.so_number}:{order.expected_receipt.isoformat()}",
+                )
         active_items = [line.item_no or "" for line in order.lines if line.active]
         if any(item.upper().startswith("GK") for item in active_items) and not order.window_kits:
             order.window_kits = "Not Started"
@@ -1004,8 +1172,40 @@ def apply_snapshot(
     _queue_supplier_reminders(db, today)
     if "emails" in snapshot and snapshot.get("emails") is not None:
         _reconcile_mail(db, snapshot.get("emails") or {}, today)
+        from app.services.ops_po_mail import apply_mailbox
+        apply_mailbox(db, snapshot.get("emails") or {}, stock_lookup=snapshot.get("stock_lookup"))
+    _refresh_order_po_links(db)
     db.flush()
     return {"orders": len(seen_orders), "purchase_orders": len(seen_pos)}
+
+
+def _refresh_order_po_links(db: Session) -> None:
+    pos = db.query(OpsTrackedPo).filter(OpsTrackedPo.bc_open.is_(True)).all()
+    for order in db.query(OpsTrackedOrder).all():
+        related = [po for po in pos if order.so_number in (po.so_numbers_json or [])]
+        order.po_links_json = [_po_link(po) for po in related]
+        upwardor = [po.po_number for po in related if _is_upwardor(po.vendor_number, po.vendor_name)]
+        order.upwardor_po_number = ", ".join(upwardor) or None
+
+
+def _po_link(po: OpsTrackedPo) -> dict:
+    return {
+        "po_number": po.po_number,
+        "vendor_number": po.vendor_number,
+        "vendor_name": po.vendor_name,
+        "vendor_email": po.vendor_email,
+        "status": po.status,
+        "lifecycle": po.lifecycle or "drafted",
+        "lifecycle_label": LIFECYCLE_LABELS.get(po.lifecycle or "drafted", po.lifecycle),
+        "order_date": _iso(po.order_date),
+        "expected_date": _iso(po.expected_date),
+        "sent_at": po.sent_at.isoformat() if po.sent_at else None,
+        "ack_status": po.ack_status,
+        "vendor_order_no": po.vendor_order_no,
+        "ack_needs_review": bool(po.ack_needs_review),
+        "ack_confidence": po.ack_confidence,
+        "missing_summary": po.missing_summary,
+    }
 
 
 def snapshot_from_bc(bc: Any, db: Session) -> dict:
@@ -1140,6 +1340,8 @@ def read_mailbox(graph: Any, mailbox: Optional[str] = None) -> dict:
 def run_sync(db: Session, bc: Any, graph: Any, actor: Optional[Actor] = None, today: Optional[date] = None, allow_empty: bool = False) -> dict:
     snapshot = snapshot_from_bc(bc, db)
     snapshot["emails"] = read_mailbox(graph)
+    from app.services.ops_po_mail import lookup_stock_from_bc
+    snapshot["stock_lookup"] = lambda item_no: lookup_stock_from_bc(bc, item_no)
     return apply_snapshot(db, snapshot, actor=actor, today=today, allow_empty=allow_empty)
 
 
@@ -1217,11 +1419,20 @@ def patch_line(db: Session, line_id: int, fields: dict, actor: Actor, today: Opt
         if not code:
             raise OpsTrackerError("Choose a supplier.")
         label = (fields.get("source_label") or "").strip() or _label_for(code, options)
-        _assign(db, line, "line", key, "source_code", code, actor, True)
+        source_changed = _assign(db, line, "line", key, "source_code", code, actor, True)
         line.source_label = label
         line.source_locked = True
         if code == SOURCE_STOCK and not line.ack_locked:
             line.ack_status = "not_required"
+        if source_changed:
+            record_activity(
+                db,
+                event_type="sourcing_changed",
+                body=f"{line.item_no or 'Line'} on {line.so_number} sourcing set to {line.source_label}.",
+                so_number=line.so_number,
+                po_number=line.linked_po_number,
+                actor=actor,
+            )
     if "linked_po_number" in fields:
         number = (fields.get("linked_po_number") or "").strip() or None
         _assign(db, line, "line", key, "linked_po_number", number, actor, True)
@@ -1271,6 +1482,21 @@ def patch_po(db: Session, po_number: str, fields: dict, actor: Actor) -> dict:
         for message in pending:
             if not message.to_email:
                 message.to_email = po.vendor_email
+    if "vendor_order_no" in fields:
+        _assign(db, po, "po", key, "vendor_order_no", (fields.get("vendor_order_no") or "").strip() or None, actor, True)
+        po.ack_needs_review = False
+        if po.vendor_order_no:
+            po.ack_status = "acknowledged"
+    if "lifecycle" in fields:
+        _assign(db, po, "po", key, "lifecycle", _choice(fields.get("lifecycle"), LIFECYCLES, "PO status"), actor, True)
+        po.lifecycle_locked = True
+    if fields.get("clear_review"):
+        po.ack_needs_review = False
+        po.lifecycle_locked = False
+    if "expected_date" in fields:
+        _assign(db, po, "po", key, "expected_date", parse_date(fields.get("expected_date")), actor, True)
+    if not po.lifecycle_locked:
+        refresh_lifecycle(po)
     po.updated_at = datetime.utcnow()
     db.flush()
     return _po_dict(po, date.today())
@@ -1372,6 +1598,16 @@ def approve_message(
     message.send_error = None
     message.updated_at = now
     _audit(db, "message", f"message:{message.id}", "status", "pending", "sent", actor)
+    if message.kind == "supplier_reminder":
+        record_activity(
+            db,
+            event_type="reminder_sent",
+            body=f"Supplier reminder for {message.po_number} approved and sent to {message.to_email}.",
+            so_number=message.so_number,
+            po_number=message.po_number,
+            actor=actor,
+            dedupe_key=f"reminder-sent:{message.id}",
+        )
     if message.kind == "customer_update" and message.so_number:
         order = db.query(OpsTrackedOrder).filter(OpsTrackedOrder.so_number == message.so_number).one_or_none()
         new_date = parse_date((message.context_json or {}).get("new_date"))
@@ -1391,6 +1627,16 @@ def reject_message(db: Session, message_id: int, actor: Actor) -> dict:
     message.rejected_at = datetime.utcnow()
     message.updated_at = datetime.utcnow()
     _audit(db, "message", f"message:{message.id}", "status", "pending", "rejected", actor)
+    if message.kind == "supplier_reminder":
+        record_activity(
+            db,
+            event_type="reminder_rejected",
+            body=f"Supplier reminder for {message.po_number} was rejected and was not sent.",
+            so_number=message.so_number,
+            po_number=message.po_number,
+            actor=actor,
+            dedupe_key=f"reminder-rejected:{message.id}",
+        )
     db.flush()
     return _message_dict(message)
 
@@ -1420,6 +1666,11 @@ def _line_dict(line: OpsTrackedLine) -> dict:
         "supplier_expected": _iso(line.supplier_expected),
         "expected_date_locked": line.expected_date_locked,
         "notes": line.notes or "",
+        "missing_flag": bool(line.missing_flag),
+        "missing_detail": line.missing_detail or "",
+        "stock_qty": line.stock_qty,
+        "stock_location": line.stock_location,
+        "stock_source": line.stock_source,
         "active": line.active,
     }
 
@@ -1482,6 +1733,12 @@ def _po_dict(po: OpsTrackedPo, today: date) -> dict:
         "vendor_order_no": po.vendor_order_no,
         "ack_status": po.ack_status,
         "ack_received_at": po.ack_received_at.isoformat() if po.ack_received_at else None,
+        "lifecycle": po.lifecycle or "drafted",
+        "lifecycle_label": LIFECYCLE_LABELS.get(po.lifecycle or "drafted", po.lifecycle),
+        "sent_at": po.sent_at.isoformat() if po.sent_at else None,
+        "ack_needs_review": bool(po.ack_needs_review),
+        "ack_confidence": po.ack_confidence,
+        "missing_summary": po.missing_summary,
         "so_numbers": po.so_numbers_json or [],
         "fully_received": po.fully_received,
         "bc_open": po.bc_open,
@@ -1547,6 +1804,14 @@ def list_tracker(db: Session, today: Optional[date] = None, **filters) -> dict:
         .all()
     )
     by_so: Dict[str, List[dict]] = {}
+    activity_by_so: Dict[str, List[dict]] = {}
+    activity_by_po: Dict[str, List[dict]] = {}
+    for entry in db.query(OpsActivity).order_by(OpsActivity.created_at.desc(), OpsActivity.id.desc()).limit(400).all():
+        item = _activity_dict(entry)
+        if entry.so_number:
+            activity_by_so.setdefault(entry.so_number, []).append(item)
+        if entry.po_number:
+            activity_by_po.setdefault(entry.po_number, []).append(item)
     for message in sent:
         if message.so_number:
             by_so.setdefault(message.so_number, []).append(_message_dict(message))
@@ -1556,8 +1821,12 @@ def list_tracker(db: Session, today: Optional[date] = None, **filters) -> dict:
     supplier = (filters.get("supplier") or "").strip().lower()
     query_text = (filters.get("q") or "").strip().lower()
     at_risk_only = bool(filters.get("at_risk"))
+    po_status = (filters.get("po_status") or "").strip()
     for order in orders:
         payload = _order_dict(order, today, (by_so.get(order.so_number) or [])[:5])
+        payload["communications"] = (activity_by_so.get(order.so_number) or [])[:40]
+        for link in payload.get("purchase_orders") or []:
+            link["communications"] = (activity_by_po.get(link.get("po_number")) or [])[:20]
         if customer and customer not in (order.customer_name or "").lower() and customer not in (order.customer_number or "").lower():
             continue
         if status and order.order_status != status:
@@ -1569,6 +1838,8 @@ def list_tracker(db: Session, today: Optional[date] = None, **filters) -> dict:
             if supplier not in labels:
                 continue
         if at_risk_only and not payload["at_risk"]:
+            continue
+        if po_status and po_status not in {po.get("lifecycle") for po in (payload.get("purchase_orders") or [])}:
             continue
         if query_text:
             blob = " ".join([
@@ -1589,7 +1860,7 @@ def list_tracker(db: Session, today: Optional[date] = None, **filters) -> dict:
     return {
         "orders": rows,
         "purchase_orders": [
-            _po_dict(po, today)
+            {**_po_dict(po, today), "communications": (activity_by_po.get(po.po_number) or [])[:20]}
             for po in db.query(OpsTrackedPo).filter(OpsTrackedPo.bc_open.is_(True)).order_by(OpsTrackedPo.po_number).all()
         ],
         "vendors": meta.vendors_json or _vendor_options(),
@@ -1601,6 +1872,7 @@ def list_tracker(db: Session, today: Optional[date] = None, **filters) -> dict:
             "emergency_build": list(BUILD_STATES),
             "shipping_status": SHIPPING_STATES,
             "ack_status": ACK_STATES,
+            "lifecycle": [{"value": key, "label": LIFECYCLE_LABELS[key]} for key in LIFECYCLES],
         },
         "mail": {"available": bool(meta.mail_available), "reason": meta.mail_reason},
         "synced_at": meta.last_sync_at.isoformat() if meta.last_sync_at else None,
@@ -1777,6 +2049,138 @@ def weekly_summary(db: Session, as_of: Optional[date] = None) -> dict:
             "customer_updates": "Drafted, sent, and rejected counts for the Monday–Sunday week that contains as_of. pending_now is the queue waiting for an approval click.",
             "nothing_sends_automatically": "Supplier reminders and customer updates stay pending until POST /api/ops/messages/{id}/approve.",
         },
+    }
+
+
+def _activity_dict(row: OpsActivity) -> dict:
+    return {
+        "id": row.id,
+        "so_number": row.so_number,
+        "po_number": row.po_number,
+        "vendor_number": row.vendor_number,
+        "vendor_name": row.vendor_name,
+        "event_type": row.event_type,
+        "body": row.body,
+        "follow_up_on": _iso(row.follow_up_on),
+        "action_id": row.action_id,
+        "actor_email": row.actor_email,
+        "actor_user_id": row.actor_user_id,
+        "direction": row.direction,
+        "web_link": row.web_link,
+        "message_id": row.message_id,
+        "needs_review": bool(row.needs_review),
+        "confidence": row.confidence,
+        "attachment_name": row.attachment_name,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+def add_note(db: Session, fields: dict, actor: Actor) -> dict:
+    body = (fields.get("body") or "").strip()
+    if not body:
+        raise OpsTrackerError("Write the note before saving it.")
+    so_number = (fields.get("so_number") or "").strip().upper() or None
+    po_number = (fields.get("po_number") or "").strip() or None
+    if not so_number and not po_number:
+        raise OpsTrackerError("A note needs a sales order or a purchase order.")
+    vendor_name = None
+    vendor_number = None
+    if po_number:
+        po = db.query(OpsTrackedPo).filter(OpsTrackedPo.po_number == po_number).one_or_none()
+        if po is not None:
+            vendor_name = po.vendor_name
+            vendor_number = po.vendor_number
+            if not so_number and po.so_numbers_json:
+                so_number = po.so_numbers_json[0]
+    follow_up_on = parse_date(fields.get("follow_up_on"))
+    action_id = None
+    if follow_up_on:
+        created = create_follow_up(db, {
+            "title": body[:180],
+            "detail": body,
+            "so_number": so_number,
+            "po_number": po_number,
+            "due_on": follow_up_on.isoformat(),
+        }, actor)
+        action_id = created["id"]
+    row = record_activity(
+        db,
+        event_type="note",
+        body=body,
+        so_number=so_number,
+        po_number=po_number,
+        vendor_number=vendor_number,
+        vendor_name=vendor_name,
+        actor=actor,
+        follow_up_on=follow_up_on,
+        action_id=action_id,
+    )
+    return _activity_dict(row)
+
+
+def list_activity(
+    db: Session,
+    *,
+    so_number: Optional[str] = None,
+    po_number: Optional[str] = None,
+    vendor: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 100,
+) -> dict:
+    query = db.query(OpsActivity)
+    if so_number:
+        query = query.filter(OpsActivity.so_number == so_number.strip().upper())
+    if po_number:
+        query = query.filter(OpsActivity.po_number == po_number.strip())
+    rows = query.order_by(OpsActivity.created_at.desc(), OpsActivity.id.desc()).limit(max(1, min(limit, 300))).all()
+    vendor_text = (vendor or "").strip().lower()
+    query_text = (q or "").strip().lower()
+    kept = []
+    for row in rows:
+        if vendor_text:
+            blob = f"{row.vendor_name or ''} {row.vendor_number or ''}".lower()
+            if vendor_text not in blob:
+                continue
+        if query_text:
+            blob = " ".join([
+                row.body or "",
+                row.so_number or "",
+                row.po_number or "",
+                row.vendor_name or "",
+                row.event_type or "",
+                row.actor_email or "",
+            ]).lower()
+            if query_text not in blob:
+                continue
+        kept.append(_activity_dict(row))
+    return {"activity": kept}
+
+
+PURCHASING_ACTION_KINDS = ("missing_po", "missing_po_line", "missing_ack", "missing_expected", "follow_up")
+
+
+def purchasing_work(db: Session, today: Optional[date] = None) -> dict:
+    """Purchasing slice of the order-tracker to-do list and supplier reminders.
+
+    Uses the same rows the dashboard and the order tracker already maintain.
+    """
+    today = today or date.today()
+    actions = list_actions(db, today=today, status="open")
+    kept = []
+    for row in actions["actions"]:
+        if row["kind"] in {"missing_po", "missing_po_line", "missing_ack", "missing_expected"}:
+            kept.append(row)
+        elif row["kind"] == "follow_up" and (row.get("so_number") or row.get("po_number")):
+            kept.append(row)
+    reminders = [
+        row for row in list_messages(db, status="pending")["messages"]
+        if row["kind"] == "supplier_reminder"
+    ]
+    return {
+        "actions": kept,
+        "reminders": reminders,
+        "mail": actions["mail"],
+        "counts": {"actions": len(kept), "reminders": len(reminders)},
     }
 
 

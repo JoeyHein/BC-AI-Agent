@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { opsApi } from '../api/client'
+import { ActivityLog } from './Purchasing/ActivityLog'
 
 const TABS = [
   ['tracker', 'Orders'],
@@ -26,6 +27,42 @@ function Pill({ children, tone = 'gray' }) {
   return <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${tones[tone] || tones.gray}`}>{children}</span>
 }
 
+function PoStack({ pos }) {
+  if (!pos.length) return <span className="text-gray-400">No PO</span>
+  return (
+    <div className="space-y-2">
+      {pos.map((po) => (
+        <div key={po.po_number} className="rounded-md bg-gray-50 px-2 py-1 text-xs">
+          <div className="font-medium text-gray-900">{po.po_number} · {po.vendor_name || po.vendor_number || 'Vendor'}</div>
+          <div className="text-gray-600">{po.lifecycle_label || po.status || '—'}</div>
+          <div className="text-gray-600">Ack {po.vendor_order_no || '—'} · {po.expected_date || 'no date'}</div>
+          <Communications rows={po.communications || []} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function Communications({ rows }) {
+  if (!rows.length) return null
+  return (
+    <details className="mt-1">
+      <summary className="cursor-pointer text-odc-800">Communications ({rows.length})</summary>
+      <ol className="mt-1 space-y-1">
+        {rows.map((row) => (
+          <li key={row.id}>
+            <span className="text-gray-500">{(row.created_at || '').replace('T', ' ').slice(0, 16)} · {row.event_type}</span>
+            <div>{row.body}</div>
+            {row.needs_review && <span className="text-amber-800">Needs review ({row.confidence || 'low'})</span>}
+            {row.web_link && <a className="ml-1 text-odc-800 underline" href={row.web_link}>Open message</a>}
+            {row.attachment_name && <span className="ml-1 text-gray-500">{row.attachment_name}</span>}
+          </li>
+        ))}
+      </ol>
+    </details>
+  )
+}
+
 function Select({ label, value, options, onChange }) {
   return (
     <select
@@ -47,7 +84,7 @@ function ProductionTracker() {
   const queryClient = useQueryClient()
   const [params, setParams] = useSearchParams()
   const tab = params.get('tab') || 'tracker'
-  const [filters, setFilters] = useState({ q: '', customer: '', status: '', supplier: '', at_risk: false })
+  const [filters, setFilters] = useState({ q: '', customer: '', status: '', supplier: '', at_risk: false, po_status: '' })
   const [expanded, setExpanded] = useState(null)
   const [banner, setBanner] = useState('')
 
@@ -59,6 +96,7 @@ function ProductionTracker() {
       status: filters.status || undefined,
       supplier: filters.supplier || undefined,
       at_risk: filters.at_risk || undefined,
+      po_status: filters.po_status || undefined,
     })).data,
   })
 
@@ -219,6 +257,12 @@ function OrderTable({ data, filters, setFilters, choices, vendors, expanded, set
           options={[{ value: '', label: 'Any supplier' }, ...vendorOptions]}
           onChange={(supplier) => setFilters({ ...filters, supplier })}
         />
+        <Select
+          label="Filter by PO status"
+          value={filters.po_status}
+          options={[{ value: '', label: 'Any PO status' }, ...((choices.lifecycle || []).map((item) => ({ value: item.value, label: item.label })))]}
+          onChange={(po_status) => setFilters({ ...filters, po_status })}
+        />
         <label className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-white px-3 text-sm text-gray-700 ring-1 ring-gray-200">
           <input
             type="checkbox"
@@ -232,7 +276,7 @@ function OrderTable({ data, filters, setFilters, choices, vendors, expanded, set
         <table className="min-w-[1100px] w-full text-left text-sm">
           <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
             <tr>
-              {['SO', 'Customer', 'Tag', 'Order', 'PO date', 'Fulfillment', 'Upwardor PO', 'Status', 'Expected', 'Operators', 'Window kits', 'Emergency', 'Shipping'].map((heading) => (
+              {['SO', 'Customer', 'Tag', 'Order', 'PO date', 'Fulfillment', 'Purchase orders', 'Status', 'Expected', 'Operators', 'Window kits', 'Emergency', 'Shipping'].map((heading) => (
                 <th key={heading} className={`whitespace-nowrap px-3 py-2 font-medium ${heading === 'SO' ? 'sticky left-0 z-10 bg-gray-50' : ''}`}>{heading}</th>
               ))}
             </tr>
@@ -284,7 +328,9 @@ function OrderBlock({ order, choices, vendorOptions, open, onToggle, onSave }) {
         <td className="px-3 py-2">
           <Select label={`Fulfillment for ${order.so_number}`} value={order.fulfillment} options={choices.fulfillment || []} onChange={(fulfillment) => onSave('order', order.so_number, { fulfillment })} />
         </td>
-        <td className="px-3 py-2 whitespace-nowrap">{order.upwardor_po_number || '—'}</td>
+        <td className="px-3 py-2 align-top">
+          <PoStack pos={order.purchase_orders || []} />
+        </td>
         <td className="px-3 py-2">
           <Select label={`Status for ${order.so_number}`} value={order.order_status} options={choices.order_status || []} onChange={(order_status) => onSave('order', order.so_number, { order_status })} />
         </td>
@@ -350,6 +396,11 @@ function OrderBlock({ order, choices, vendorOptions, open, onToggle, onSave }) {
                       <td className="px-2 py-2">
                         <div className="font-medium">{line.item_no}</div>
                         <div className="text-xs text-gray-500">{line.description}</div>
+                        {line.missing_flag && (
+                          <p className="mt-1 text-xs text-red-700">
+                            Missing. On hand {line.stock_qty ?? 'unknown'} at {line.stock_location || 'Redcliff'} ({line.stock_source || 'not checked'}).
+                          </p>
+                        )}
                       </td>
                       <td className="px-2 py-2 tabular-nums">{line.quantity}</td>
                       <td className="px-2 py-2">
@@ -410,6 +461,13 @@ function OrderBlock({ order, choices, vendorOptions, open, onToggle, onSave }) {
               </div>
             )}
             <div className="mt-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Communications</p>
+              <Communications rows={order.communications || []} />
+            </div>
+            <div className="mt-3">
+              <ActivityLog soNumber={order.so_number} title={`Notes for ${order.so_number}`} />
+            </div>
+            <div className="mt-3">
               <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Changes</p>
               <ul className="mt-1 space-y-1 text-xs text-gray-600">
                 {(audit.data?.audit || []).slice(0, 8).map((row) => (
@@ -433,7 +491,9 @@ function choicesForAck(line) {
 }
 
 function PoTable({ rows, onSave }) {
+  const [logPo, setLogPo] = useState(null)
   return (
+    <div className="space-y-3">
     <div className="overflow-x-auto rounded-2xl bg-white ring-1 ring-gray-200">
       <table className="min-w-[900px] w-full text-left text-sm">
         <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
@@ -447,7 +507,10 @@ function PoTable({ rows, onSave }) {
           {rows.length === 0 && <tr><td colSpan={10} className="px-3 py-8 text-center text-gray-500">No open purchase orders on the tracker yet.</td></tr>}
           {rows.map((po) => (
             <tr key={po.po_number} className="border-t border-gray-100">
-              <td className="px-3 py-2 font-medium">{po.po_number}{po.needs_ack && <div className="mt-1"><Pill tone="amber">Needs ack</Pill></div>}</td>
+              <td className="px-3 py-2 font-medium">
+                {po.po_number}
+                <div className="mt-1"><Pill tone={po.lifecycle === 'waiting_ack' ? 'amber' : po.lifecycle === 'issue' ? 'red' : 'gray'}>{po.lifecycle_label || po.lifecycle}</Pill></div>
+              </td>
               <td className="px-3 py-2">{po.vendor_name || po.vendor_number}</td>
               <td className="px-3 py-2">{po.status}</td>
               <td className="px-3 py-2">{po.order_date || '—'}</td>
@@ -472,11 +535,16 @@ function PoTable({ rows, onSave }) {
                   onBlur={(event) => onSave(po.po_number, { notes: event.target.value })}
                   className="w-40 rounded-md border border-gray-300 px-2 py-1 text-xs"
                 />
+                <button type="button" onClick={() => setLogPo(logPo === po.po_number ? null : po.po_number)} className="mt-1 block text-xs text-odc-800">
+                  {logPo === po.po_number ? 'Hide log' : 'Activity log'}
+                </button>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+    </div>
+    {logPo && <ActivityLog poNumber={logPo} title={`Notes for ${logPo}`} />}
     </div>
   )
 }

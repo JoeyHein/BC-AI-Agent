@@ -519,6 +519,18 @@ def permission_for(method: str, path: str):
         return _level(method, "inventory.view", "inventory.edit")
     if path.startswith("/production"):
         return _level(method, "production.view", "production.edit")
+    if path.startswith("/api/ops/activity") or path.startswith("/api/ops/purchasing-work"):
+        # Purchasing staff do not all have the production page. They can read
+        # and write the shared to-do list and the activity log.
+        if method in _SAFE:
+            return ("any", "production.view", "purchase_orders.view")
+        return ("any", "production.edit", "purchase_orders.edit")
+    if path.startswith("/api/ops/messages/") and (path.endswith("/approve") or path.endswith("/reject")):
+        # Supplier reminders are purchasing mail. Customer updates are checked
+        # again in the route so a purchasing login cannot send one.
+        if path.endswith("/approve"):
+            return ("any", "production.edit", "purchase_orders.send")
+        return ("any", "production.edit", "purchase_orders.edit")
     if path.startswith("/api/ops"):
         # Reads are the tracker, to-do list, and weekly summary. Writes edit
         # rows or approve a queued email. Approval is still an explicit click;
