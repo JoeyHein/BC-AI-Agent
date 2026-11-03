@@ -53,12 +53,9 @@ class BCAgentService:
         context_info = ""
         if context:
             page = context.get("page", "unknown")
-            if page == "production_calendar":
-                selected_date = context.get("selectedDate")
+            if page in ("production_calendar", "order_tracker"):
                 context_info = f"""
-The user is currently on the Production Calendar page.
-{"They have selected the date: " + selected_date if selected_date else "No specific date is selected."}
-When they ask about "today" or "this date", use the selected date if available, otherwise use today's date ({today}).
+The user is on the Order Tracker (the production page). It is one row per sales order, with line items for sourcing, purchase orders, acknowledgements, and expected dates. The old production calendar is gone. Today is {today}.
 """
             elif page == "orders":
                 context_info = f"""

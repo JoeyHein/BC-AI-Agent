@@ -10,7 +10,7 @@ import Analytics from './components/Analytics'
 import EmailSettings from './components/EmailSettings'
 import DoorConfigurator from './components/DoorConfigurator'
 import CustomerManagement from './components/CustomerManagement'
-import ProductionCalendar from './components/ProductionCalendar'
+import ProductionTracker from './components/ProductionTracker'
 import OrderManagement from './components/OrderManagement'
 import ChatBox from './components/Chat/ChatBox'
 import SettingsPage from './components/Settings/SettingsPage'
@@ -160,7 +160,7 @@ function AppContent() {
 
           <Route path="/production" element={
             <ProtectedRoute permission="production.view">
-              <ProductionCalendar />
+              <ProductionTracker />
             </ProtectedRoute>
           } />
 

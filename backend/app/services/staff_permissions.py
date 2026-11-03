@@ -519,6 +519,11 @@ def permission_for(method: str, path: str):
         return _level(method, "inventory.view", "inventory.edit")
     if path.startswith("/production"):
         return _level(method, "production.view", "production.edit")
+    if path.startswith("/api/ops"):
+        # Reads are the tracker, to-do list, and weekly summary. Writes edit
+        # rows or approve a queued email. Approval is still an explicit click;
+        # the permission only decides who is allowed to make that click.
+        return _level(method, "production.view", "production.edit")
     if path.startswith("/api/settings"):
         # Selling-price view is not enough. These screens show margins and rates.
         if any(part in path for part in ("pricing", "freight", "bc-group")):
