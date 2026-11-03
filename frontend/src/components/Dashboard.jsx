@@ -19,6 +19,7 @@ import {
 } from 'recharts'
 import { kpiApi } from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
+import OpsAttention from './OpsAttention'
 
 const HELP = {
   soToPo: 'Average days from the sales order date to the day the purchase order was sent. The sent date is the portal email time when that was recorded, otherwise the purchase order date once the order is open.',
@@ -779,7 +780,7 @@ function Operations({ data, coverage }) {
 }
 
 function Dashboard() {
-  const { isAdmin } = useAuth()
+  const { isAdmin, can } = useAuth()
   const [month, setMonth] = useState('')
   const [recalcError, setRecalcError] = useState('')
 
@@ -810,6 +811,7 @@ function Dashboard() {
 
   return (
     <div className="space-y-8 px-3 pb-10 sm:px-0">
+      {can('production.view') && <OpsAttention />}
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-xl font-semibold tracking-tight text-gray-900 sm:text-2xl">KPI dashboard</h1>

@@ -833,6 +833,23 @@ export const serviceKeysApi = {
 
 // Partner external API keys (Settings → External API keys). Admin JWT only.
 // Create and rotate return plaintext once; list and revoke never do.
+export const opsApi = {
+  tracker: (params) => apiClient.get('/api/ops/tracker', { params }),
+  sync: () => apiClient.post('/api/ops/sync'),
+  patchOrder: (soNumber, body) => apiClient.patch(`/api/ops/tracker/orders/${encodeURIComponent(soNumber)}`, body),
+  patchLine: (lineId, body) => apiClient.patch(`/api/ops/tracker/lines/${lineId}`, body),
+  patchPo: (poNumber, body) => apiClient.patch(`/api/ops/tracker/pos/${encodeURIComponent(poNumber)}`, body),
+  audit: (soNumber) => apiClient.get(`/api/ops/tracker/orders/${encodeURIComponent(soNumber)}/audit`),
+  actions: (status = 'open') => apiClient.get('/api/ops/actions', { params: { status } }),
+  followUp: (body) => apiClient.post('/api/ops/actions', body),
+  done: (id) => apiClient.post(`/api/ops/actions/${id}/done`),
+  messages: (status) => apiClient.get('/api/ops/messages', { params: status ? { status } : {} }),
+  editMessage: (id, body) => apiClient.patch(`/api/ops/messages/${id}`, body),
+  approve: (id) => apiClient.post(`/api/ops/messages/${id}/approve`),
+  reject: (id) => apiClient.post(`/api/ops/messages/${id}/reject`),
+  weekly: (asOf) => apiClient.get('/api/ops/weekly-summary', { params: asOf ? { as_of: asOf } : {} }),
+}
+
 export const externalKeysApi = {
   list: () => apiClient.get('/api/external-keys'),
   create: (body) => apiClient.post('/api/external-keys', body),

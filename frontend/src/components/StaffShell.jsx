@@ -20,7 +20,7 @@ const SECTIONS = [
   {
     label: 'Operations',
     items: [
-      { path: '/production', label: 'Production', icon: 'calendar' },
+      { path: '/production', label: 'Order Tracker', icon: 'rows' },
       { path: '/install-referrals', label: 'Installs', icon: 'truck' },
       { path: '/cut-work-orders', label: 'Cut Orders', icon: 'cut' },
       { path: '/purchasing', label: 'Purchasing', icon: 'cart' },
@@ -62,6 +62,7 @@ function Icon({ name }) {
     check: 'M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11',
     squares: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
     calendar: 'M5 5h14a1 1 0 011 1v14H4V6a1 1 0 011-1zM4 10h16M8 3v4M16 3v4',
+    rows: 'M4 6h16M4 12h16M4 18h16M8 6v.01M8 12v.01M8 18v.01',
     truck: 'M3 7h11v10H3zM14 11h4l3 3v3h-7M6.5 19a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM17.5 19a1.5 1.5 0 100-3 1.5 1.5 0 000 3z',
     cut: 'M7 5l5 7-5 7M17 5l-5 7 5 7',
     cart: 'M3 4h2l2.2 11h11.3l1.8-7H7M9 20a1 1 0 100-2 1 1 0 000 2zM18 20a1 1 0 100-2 1 1 0 000 2z',

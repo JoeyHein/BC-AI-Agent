@@ -156,6 +156,17 @@ class SchedulerService:
         )
         logger.info("✓ Scheduled: Production schedule refresh 04:30/12:30/16:30 America/Edmonton")
 
+        # Draft supplier reminders and refresh the order tracker. Never sends.
+        # Sending stays on POST /api/ops/messages/{id}/approve.
+        self.scheduler.add_job(
+            func=self._ops_tracker_job,
+            trigger=CronTrigger(day_of_week='mon-fri', hour=7, minute=15, timezone='America/Edmonton'),
+            id='ops_tracker',
+            name='Order tracker - draft reminders, do not send',
+            replace_existing=True,
+        )
+        logger.info("✓ Scheduled: Order tracker draft refresh 07:15 America/Edmonton (Mon-Fri)")
+
         # Nightly auto-PO — 05:00 America/Edmonton, Mon-Fri. Runs after the 4:00
         # planning workbook / 4:30 production schedule and before the 7:00
         # purchasing digest, so the digest reports what was drafted overnight.
@@ -449,6 +460,42 @@ class SchedulerService:
             logger.info(f"Production schedule refresh complete: {result}")
         except Exception as e:
             logger.error(f"Production schedule job failed: {e}", exc_info=True)
+
+    def _ops_tracker_job(self):
+        """Refresh the order tracker and draft reminder emails. Does not send.
+
+        A failed Business Central pull is logged and leaves the stored rows
+        alone. Queued customer updates and supplier reminders stay pending
+        until someone approves them in the portal.
+        """
+        db = None
+        try:
+            db = SessionLocal()
+            from app.integrations.bc.client import bc_client
+            from app.integrations.email.client import graph_client
+            from app.services.ops_tracker_service import Actor, run_sync
+
+            run_sync(
+                db,
+                bc_client,
+                graph_client,
+                actor=Actor(email="order-tracker", source="sync"),
+            )
+            db.commit()
+            logger.info("Order tracker refresh drafted reminders without sending")
+        except Exception as e:
+            logger.error(f"Order tracker refresh failed: {e}", exc_info=True)
+            if db is not None:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+        finally:
+            if db is not None:
+                try:
+                    db.close()
+                except Exception:
+                    pass
 
     def _invoice_intake_job(self):
         """Poll the monitored mailbox for new vendor invoice attachments and

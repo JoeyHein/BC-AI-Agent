@@ -2554,3 +2554,216 @@ class KpiSnapshot(Base):
 
     def __repr__(self):
         return f"<KpiSnapshot({self.month_key} {self.status} frozen={self.frozen})>"
+
+
+# ============================================================================
+# INTERNAL OPS TRACKER
+# One row per open sales order, portal-owned fields BC does not store,
+# and an audit row for every change. Mail never leaves this database
+# until someone approves it in the portal.
+# ============================================================================
+
+
+class OpsTrackerMeta(Base):
+    """Singleton (id=1) for the last Business Central pull and mailbox state."""
+
+    __tablename__ = "ops_tracker_meta"
+
+    id = Column(Integer, primary_key=True)
+    last_sync_at = Column(DateTime, nullable=True)
+    last_sync_error = Column(Text, nullable=True)
+    mail_available = Column(Boolean, nullable=False, default=False)
+    mail_reason = Column(Text, nullable=True)
+    last_mail_check_at = Column(DateTime, nullable=True)
+    vendors_json = Column(JSON, nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class OpsTrackedOrder(Base):
+    """Portal record for one sales order. BC fields refresh; hand-set fields stay."""
+
+    __tablename__ = "ops_tracked_orders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    so_number = Column(String(50), nullable=False, unique=True, index=True)
+    bc_order_id = Column(String(100), nullable=True)
+    customer_number = Column(String(50), nullable=True, index=True)
+    customer_name = Column(String(255), nullable=True)
+    customer_email = Column(String(255), nullable=True)
+    external_document_number = Column(String(100), nullable=True)
+    order_date = Column(Date, nullable=True)
+    po_date = Column(Date, nullable=True)
+    bc_status = Column(String(40), nullable=True)
+    fulfillment = Column(String(40), nullable=False, default="Buy Complete")
+    upwardor_po_number = Column(String(200), nullable=True)
+    order_status = Column(String(40), nullable=False, default="Waiting to Order")
+    expected_receipt = Column(Date, nullable=True)
+    expected_receipt_locked = Column(Boolean, nullable=False, default=False)
+    supplier_expected = Column(Date, nullable=True)
+    customer_update_baseline = Column(Date, nullable=True)
+    updates_baselined = Column(Boolean, nullable=False, default=False)
+    operators = Column(String(40), nullable=False, default="")
+    window_kits = Column(String(40), nullable=False, default="")
+    emergency_build = Column(String(40), nullable=False, default="")
+    shipping_status = Column(String(40), nullable=False, default="Not Ready")
+    notes = Column(Text, nullable=True)
+    fully_shipped = Column(Boolean, nullable=False, default=False)
+    bc_open = Column(Boolean, nullable=False, default=True, index=True)
+    po_links_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    lines = relationship(
+        "OpsTrackedLine",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="OpsTrackedLine.bc_line_no",
+    )
+
+    def __repr__(self):
+        return f"<OpsTrackedOrder({self.so_number} {self.order_status})>"
+
+
+class OpsTrackedLine(Base):
+    """One sales-order line, with the sourcing BC does not keep."""
+
+    __tablename__ = "ops_tracked_lines"
+    __table_args__ = (
+        UniqueConstraint("so_number", "bc_line_no", name="uq_ops_tracked_line"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("ops_tracked_orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    so_number = Column(String(50), nullable=False, index=True)
+    bc_line_no = Column(Integer, nullable=False)
+    item_no = Column(String(100), nullable=True)
+    description = Column(Text, nullable=True)
+    quantity = Column(Float, nullable=False, default=0)
+    quantity_shipped = Column(Float, nullable=False, default=0)
+    line_type = Column(String(20), nullable=True)
+    source_code = Column(String(40), nullable=False, default="UPW")
+    source_label = Column(String(120), nullable=False, default="Upwardor")
+    source_locked = Column(Boolean, nullable=False, default=False)
+    linked_po_number = Column(String(40), nullable=True, index=True)
+    po_locked = Column(Boolean, nullable=False, default=False)
+    ack_status = Column(String(20), nullable=False, default="none")
+    ack_locked = Column(Boolean, nullable=False, default=False)
+    expected_date = Column(Date, nullable=True)
+    expected_date_locked = Column(Boolean, nullable=False, default=False)
+    supplier_expected = Column(Date, nullable=True)
+    notes = Column(Text, nullable=True)
+    active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    order = relationship("OpsTrackedOrder", back_populates="lines")
+
+    def __repr__(self):
+        return f"<OpsTrackedLine({self.so_number} {self.item_no} {self.source_code})>"
+
+
+class OpsTrackedPo(Base):
+    """One purchase order the tracker is watching, including hand-written notes."""
+
+    __tablename__ = "ops_tracked_pos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    po_number = Column(String(40), nullable=False, unique=True, index=True)
+    vendor_number = Column(String(40), nullable=True, index=True)
+    vendor_name = Column(String(255), nullable=True)
+    vendor_email = Column(String(255), nullable=True)
+    vendor_email_locked = Column(Boolean, nullable=False, default=False)
+    status = Column(String(40), nullable=True)
+    order_date = Column(Date, nullable=True)
+    expected_date = Column(Date, nullable=True)
+    receipt_date = Column(Date, nullable=True)
+    vendor_order_no = Column(String(40), nullable=True)
+    ack_status = Column(String(20), nullable=False, default="none")
+    ack_received_at = Column(DateTime, nullable=True)
+    so_numbers_json = Column(JSON, nullable=True)
+    fully_received = Column(Boolean, nullable=False, default=False)
+    bc_open = Column(Boolean, nullable=False, default=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<OpsTrackedPo({self.po_number} {self.ack_status})>"
+
+
+class OpsFieldAudit(Base):
+    """Who changed a tracker field, and the value before and after."""
+
+    __tablename__ = "ops_field_audit"
+
+    id = Column(Integer, primary_key=True, index=True)
+    entity_type = Column(String(20), nullable=False, index=True)
+    entity_key = Column(String(80), nullable=False, index=True)
+    field_name = Column(String(60), nullable=False)
+    old_value = Column(Text, nullable=True)
+    new_value = Column(Text, nullable=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    actor_email = Column(String(255), nullable=True)
+    source = Column(String(20), nullable=False, default="portal")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    def __repr__(self):
+        return f"<OpsFieldAudit({self.entity_key} {self.field_name})>"
+
+
+class OpsActionItem(Base):
+    """A to-do. Auto items close when the underlying gap is gone.
+
+    Scheduled follow-ups (auto_managed=False) stay open until someone
+    marks them done, even if the order later looks fine.
+    """
+
+    __tablename__ = "ops_action_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    kind = Column(String(40), nullable=False, index=True)
+    auto_key = Column(String(160), nullable=True, unique=True, index=True)
+    auto_managed = Column(Boolean, nullable=False, default=True)
+    title = Column(String(300), nullable=False)
+    detail = Column(Text, nullable=True)
+    so_number = Column(String(50), nullable=True, index=True)
+    po_number = Column(String(40), nullable=True, index=True)
+    line_id = Column(Integer, nullable=True)
+    due_at = Column(DateTime, nullable=True, index=True)
+    status = Column(String(20), nullable=False, default="open", index=True)
+    source_ref = Column(String(300), nullable=True)
+    payload_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    closed_at = Column(DateTime, nullable=True)
+    closed_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    def __repr__(self):
+        return f"<OpsActionItem({self.kind} {self.status} {self.title})>"
+
+
+class OpsOutboundMessage(Base):
+    """An email waiting for an approval click. status stays pending until then."""
+
+    __tablename__ = "ops_outbound_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    kind = Column(String(40), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    dedupe_key = Column(String(160), nullable=False, index=True)
+    to_email = Column(String(255), nullable=True)
+    subject = Column(String(300), nullable=False)
+    body_text = Column(Text, nullable=False)
+    so_number = Column(String(50), nullable=True, index=True)
+    po_number = Column(String(40), nullable=True, index=True)
+    context_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    approved_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    sent_at = Column(DateTime, nullable=True)
+    rejected_at = Column(DateTime, nullable=True)
+    send_error = Column(Text, nullable=True)
+
+    def __repr__(self):
+        return f"<OpsOutboundMessage({self.kind} {self.status} {self.dedupe_key})>"

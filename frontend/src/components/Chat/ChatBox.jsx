@@ -41,7 +41,7 @@ function ChatBox({ onAction }) {
     const context = { page: 'dashboard' }
 
     if (path.includes('production')) {
-      context.page = 'production_calendar'
+      context.page = 'order_tracker'
     } else if (path.includes('orders')) {
       context.page = 'orders'
     } else if (path.includes('reviews') || path.includes('quotes')) {
