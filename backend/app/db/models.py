@@ -2653,6 +2653,11 @@ class OpsTrackedLine(Base):
     expected_date_locked = Column(Boolean, nullable=False, default=False)
     supplier_expected = Column(Date, nullable=True)
     notes = Column(Text, nullable=True)
+    missing_flag = Column(Boolean, nullable=False, default=False)
+    missing_detail = Column(Text, nullable=True)
+    stock_qty = Column(Float, nullable=True)
+    stock_location = Column(String(80), nullable=True)
+    stock_source = Column(String(40), nullable=True)
     active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -2685,11 +2690,20 @@ class OpsTrackedPo(Base):
     fully_received = Column(Boolean, nullable=False, default=False)
     bc_open = Column(Boolean, nullable=False, default=True)
     notes = Column(Text, nullable=True)
+    # drafted | waiting_ack | acknowledged | shipped | received | issue
+    lifecycle = Column(String(30), nullable=False, default="drafted", index=True)
+    lifecycle_locked = Column(Boolean, nullable=False, default=False)
+    sent_at = Column(DateTime, nullable=True)
+    sent_source = Column(String(20), nullable=True)
+    ack_confidence = Column(String(20), nullable=True)
+    ack_needs_review = Column(Boolean, nullable=False, default=False)
+    ack_extracted_json = Column(JSON, nullable=True)
+    missing_summary = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     def __repr__(self):
-        return f"<OpsTrackedPo({self.po_number} {self.ack_status})>"
+        return f"<OpsTrackedPo({self.po_number} {self.lifecycle})>"
 
 
 class OpsFieldAudit(Base):
@@ -2767,3 +2781,40 @@ class OpsOutboundMessage(Base):
 
     def __repr__(self):
         return f"<OpsOutboundMessage({self.kind} {self.status} {self.dedupe_key})>"
+
+
+class OpsActivity(Base):
+    """Timestamped note or system event on a sales order and/or purchase order.
+
+    Business Central still owns the documents. This table is the portal's
+    record of what someone wrote down and what the tracker already observed
+    (a PO showing up, an acknowledgement, a date move, a reminder).
+    ``dedupe_key`` stops a refresh from writing the same system event twice.
+    A note can carry ``follow_up_on``, which also opens an ops follow-up.
+    """
+
+    __tablename__ = "ops_activity"
+
+    id = Column(Integer, primary_key=True, index=True)
+    so_number = Column(String(50), nullable=True, index=True)
+    po_number = Column(String(40), nullable=True, index=True)
+    vendor_number = Column(String(40), nullable=True)
+    vendor_name = Column(String(255), nullable=True)
+    event_type = Column(String(40), nullable=False, index=True)
+    body = Column(Text, nullable=False)
+    dedupe_key = Column(String(200), nullable=True, unique=True)
+    follow_up_on = Column(Date, nullable=True)
+    action_id = Column(Integer, ForeignKey("ops_action_items.id", ondelete="SET NULL"), nullable=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    actor_email = Column(String(255), nullable=True)
+    direction = Column(String(20), nullable=True)
+    web_link = Column(String(500), nullable=True)
+    message_id = Column(String(300), nullable=True)
+    needs_review = Column(Boolean, nullable=False, default=False)
+    confidence = Column(String(20), nullable=True)
+    extracted_json = Column(JSON, nullable=True)
+    attachment_name = Column(String(255), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    def __repr__(self):
+        return f"<OpsActivity({self.event_type} {self.so_number} {self.po_number})>"

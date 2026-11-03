@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.api.ops_tracker import get_current_admin, get_db, router as ops_router
 from app.db.models import (
     OpsActionItem,
+    OpsActivity,
     OpsFieldAudit,
     OpsOutboundMessage,
     OpsTrackedLine,
@@ -30,17 +31,21 @@ from app.db.models import (
     OpsTrackerMeta,
     VendorOrderAck,
 )
+from app.services.ops_po_mail import apply_mailbox, extract_acknowledgement, note_po_review_draft
 from app.services.ops_tracker_service import (
     Actor,
     OpsTrackerError,
+    add_note,
     apply_snapshot,
     approve_message,
     complete_action,
     create_follow_up,
     feed_mail,
     list_actions,
+    list_activity,
     patch_line,
     patch_order,
+    purchasing_work,
     reject_message,
     snapshot_from_bc,
     weekly_summary,
@@ -68,6 +73,7 @@ def _db():
         OpsFieldAudit.__table__,
         OpsActionItem.__table__,
         OpsOutboundMessage.__table__,
+        OpsActivity.__table__,
     ):
         table.create(engine)
     return sessionmaker(bind=engine)()
@@ -451,7 +457,9 @@ def test_snapshot_from_bc_maps_orders_pos_and_acks():
 def test_permissions_gate_reads_and_approval():
     assert permission_for("GET", "/api/ops/tracker") == ("perm", "production.view")
     assert permission_for("GET", "/api/ops/weekly-summary") == ("perm", "production.view")
-    assert permission_for("POST", "/api/ops/messages/4/approve") == ("perm", "production.edit")
+    assert permission_for("POST", "/api/ops/messages/4/approve") == ("any", "production.edit", "purchase_orders.send")
+    assert permission_for("GET", "/api/ops/purchasing-work") == ("any", "production.view", "purchase_orders.view")
+    assert permission_for("POST", "/api/ops/activity") == ("any", "production.edit", "purchase_orders.edit")
     assert permission_for("POST", "/api/ops/sync") == ("perm", "production.edit")
 
 
@@ -466,7 +474,7 @@ def test_api_approve_is_the_only_send_and_filters_search():
 
     app.dependency_overrides[get_db] = _override_db
     app.dependency_overrides[get_current_admin] = lambda: SimpleNamespace(
-        id=7, email="joey@opendc.ca", is_active=True
+        id=7, email="joey@opendc.ca", is_active=True, role="owner", user_type="INTERNAL", permissions=None
     )
     client = TestClient(app)
     import app.api.ops_tracker as api_mod
@@ -497,3 +505,195 @@ def test_api_approve_is_the_only_send_and_filters_search():
         refused = client.post(f"/api/ops/messages/{rejected_pool[0]['id']}/reject")
         assert refused.status_code == 200
         assert sent == [sent[0]]
+
+
+def test_activity_log_records_events_once_and_notes_can_open_a_follow_up():
+    db = _db()
+    _apply(db, [_order()], [_po(status="Draft", order_date="2026-11-01")])
+    recorded = db.query(OpsActivity).filter_by(event_type="po_recorded").count()
+    assert recorded == 1
+    assert db.query(OpsActivity).filter_by(event_type="po_sent").count() == 0
+    _apply(db, [_order()], [_po(status="Open", order_date="2026-10-01", expected="2026-11-05")])
+    assert db.query(OpsActivity).filter_by(event_type="po_recorded").count() == 1
+    assert db.query(OpsActivity).filter_by(event_type="po_sent").one().body.startswith("PO-000956 sent")
+    _apply(db, [_order()], [_po(status="Open", order_date="2026-10-01", expected="2026-11-05")])
+    assert db.query(OpsActivity).filter_by(event_type="po_sent").count() == 1
+    drafted = db.query(OpsActivity).filter_by(event_type="reminder_drafted").one()
+    assert "has not been sent" in drafted.body
+    work = purchasing_work(db, today=TODAY)
+    assert work["reminders"][0]["po_number"] == "PO-000956"
+    assert "needs_reply" not in {row["kind"] for row in work["actions"]}
+    sent = []
+    approve_message(db, work["reminders"][0]["id"], ACTOR, lambda message: sent.append(message), now=datetime(2026, 11, 3, 16))
+    assert sent[0]["po_number"] == "PO-000956"
+    assert db.query(OpsActivity).filter_by(event_type="reminder_sent").count() == 1
+
+    _apply(
+        db,
+        [_order()],
+        [_po(status="Open", order_date="2026-10-01", expected="2026-11-20")],
+        acks=[{
+            "po_number": "PO-000956",
+            "status": "confirmed",
+            "completion_date": "2026-11-14",
+            "received_at": "2026-11-02T10:00:00",
+            "vendor_order_no": "S-ORD1",
+        }],
+    )
+    ack = db.query(OpsActivity).filter_by(event_type="ack_received").one()
+    assert "S-ORD1" in ack.body
+    assert "2026-11-14" in ack.body
+    assert db.query(OpsActivity).filter_by(event_type="expected_date_changed").count() >= 1
+
+    line = db.query(OpsTrackedLine).one()
+    patch_line(db, line.id, {"source_code": "LYNX", "source_label": "Lynx"}, ACTOR, today=TODAY)
+    sourcing = db.query(OpsActivity).filter_by(event_type="sourcing_changed").one()
+    assert "Lynx" in sourcing.body
+    assert sourcing.actor_email == "joey@opendc.ca"
+
+    note = add_note(db, {
+        "body": "Ian says package waiting for waybill",
+        "po_number": "PO-000956",
+        "follow_up_on": "2026-11-06",
+    }, ACTOR)
+    assert note["event_type"] == "note"
+    assert note["vendor_name"] == "Upwardor"
+    follow = db.query(OpsActionItem).filter_by(kind="follow_up", status="open").one()
+    assert follow.po_number == "PO-000956"
+    found = list_activity(db, vendor="upward", q="waybill")
+    assert [row["id"] for row in found["activity"]] == [note["id"]]
+    again = purchasing_work(db, today=TODAY)
+    assert any(row["kind"] == "follow_up" for row in again["actions"])
+
+
+def _line(item, description, qty=1, line_no=10000):
+    return {
+        "line_no": line_no, "item_no": item, "description": description,
+        "quantity": qty, "shipped_quantity": 0, "line_type": "Item",
+    }
+
+
+def test_one_sales_order_shows_every_vendor_po_and_mail_moves_lifecycle():
+    db = _db()
+    order = _order(
+        lines=None,
+        extra_lines=None,
+    )
+    order["lines"] = [
+        _line("PN10-WHT", "Door section"),
+        _line("OP-LM", "Operator", line_no=20000),
+        _line("TR02", "Track", line_no=30000),
+    ]
+    pos = [
+        _po(number="PO-001078", vendor_number="ULTRA", vendor_name="Ultra-Lite", vendor_email="parts@ultralitedoors.ca", status="Draft", item="OP-LM", expected=""),
+        _po(number="PO-001079", vendor_number="LYNX", vendor_name="Lynx", vendor_email="indervir.singh@lynx-nsw.com", status="Draft", item="PN10-WHT", expected=""),
+        _po(number="PO-001080", vendor_number="NWD", vendor_name="Northwest Door", vendor_email="m.luong@hormann.ca", status="Draft", item="TR02", expected=""),
+    ]
+    for po, item in zip(pos, ("OP-LM", "PN10-WHT", "TR02")):
+        po["lines"] = [{"item_no": item, "description": f"Built from SO-10421 {item}", "quantity": 1, "received_quantity": 0, "line_type": "Item"}]
+    _apply(db, [order], pos)
+    stored = db.query(OpsTrackedOrder).one()
+    numbers = {row["po_number"] for row in stored.po_links_json}
+    assert numbers == {"PO-001078", "PO-001079", "PO-001080"}
+    assert all(row["lifecycle"] == "drafted" for row in stored.po_links_json)
+    linked = {line.item_no: line.linked_po_number for line in db.query(OpsTrackedLine).all()}
+    assert linked["OP-LM"] == "PO-001078"
+    assert linked["TR02"] == "PO-001080"
+
+    sent = [{
+        "id": "sent-1078",
+        "conversation_id": "thread-1078",
+        "sent_at": "2026-11-01T15:04:00",
+        "from_email": "joey@opendc.ca",
+        "to_emails": ["parts@ultralitedoors.ca"],
+        "subject": "PO-001078 Ultra-Lite",
+        "body_text": "Please see attached PO-001078.pdf",
+        "attachments": [{"name": "PO-001078.pdf"}],
+        "web_link": "https://outlook.office.com/mail/sent/1078",
+    }]
+    apply_mailbox(db, {"available": True, "mailbox": "joey@opendc.ca", "sent": sent, "inbox": []})
+    ultra = db.query(OpsTrackedPo).filter_by(po_number="PO-001078").one()
+    assert ultra.lifecycle == "waiting_ack"
+    assert ultra.sent_at is not None
+    assert ultra.sent_source == "graph_sent"
+    mailed = db.query(OpsActivity).filter_by(event_type="po_emailed", po_number="PO-001078").one()
+    assert mailed.web_link.endswith("/1078")
+    assert mailed.attachment_name == "PO-001078.pdf"
+
+    reply = {
+        "id": "reply-kaveh",
+        "conversation_id": "thread-1078",
+        "received_at": "2026-11-02T18:10:00",
+        "from_email": "kaveh@ultralitedoors.ca",
+        "subject": "Re: PO-001078",
+        "body_text": "Order confirmation for PO-001078. Our order number UL-44921. Ship date November 14, 2026. OP-LM is backordered, 2 short. Price is now $410.",
+        "attachments": [{"name": "UL-44921.pdf"}],
+        "web_link": "https://outlook.office.com/mail/inbox/kaveh",
+    }
+    def stock(item_no):
+        return {"qty": 3, "location": "Redcliff", "source": "item_card", "item_no": item_no}
+
+    apply_mailbox(db, {"available": True, "mailbox": "joey@opendc.ca", "sent": sent, "inbox": [reply]}, stock_lookup=stock)
+    ultra = db.query(OpsTrackedPo).filter_by(po_number="PO-001078").one()
+    assert ultra.vendor_order_no == "UL-44921"
+    assert ultra.expected_date == date(2026, 11, 14)
+    assert ultra.ack_needs_review is True
+    assert ultra.lifecycle == "issue"
+    line = db.query(OpsTrackedLine).filter_by(item_no="OP-LM").one()
+    assert line.missing_flag is True
+    assert line.stock_qty == 3
+    assert line.stock_location == "Redcliff"
+    reply_row = db.query(OpsActivity).filter_by(event_type="supplier_reply").one()
+    assert reply_row.attachment_name == "UL-44921.pdf"
+    assert reply_row.needs_review is True
+
+    # A second scan does not duplicate the sent or reply rows.
+    apply_mailbox(db, {"available": True, "mailbox": "joey@opendc.ca", "sent": sent, "inbox": [reply]}, stock_lookup=stock)
+    assert db.query(OpsActivity).filter_by(event_type="po_emailed", po_number="PO-001078").count() == 1
+    assert db.query(OpsActivity).filter_by(event_type="supplier_reply").count() == 1
+
+    lynx_reply = {
+        "id": "lynx-1",
+        "from_email": "indervir.singh@lynx-nsw.com",
+        "subject": "PO-001079 confirmation",
+        "body_text": "Our order number LX-88. Ship date 2026-11-20.",
+        "web_link": "https://outlook.office.com/mail/inbox/lynx",
+    }
+    nwd_reply = {
+        "id": "nwd-1",
+        "from_email": "m.luong@hormann.ca",
+        "subject": "Northwest Door PO-001080",
+        "body_text": "Acknowledgement number NWD-17. Ship date 2026-11-18.",
+    }
+    apply_mailbox(db, {"available": True, "sent": [], "inbox": [lynx_reply, nwd_reply]})
+    assert db.query(OpsTrackedPo).filter_by(po_number="PO-001079").one().vendor_order_no == "LX-88"
+    assert db.query(OpsTrackedPo).filter_by(po_number="PO-001080").one().lifecycle == "acknowledged"
+
+    # iControls has no PO number in the body; the vendor domain matches the one open iControls PO.
+    ic = _po(number="PO-001090", vendor_number="IC", vendor_name="iControls", vendor_email="izinn@icontrols.ca", status="Open", item="PULSE", expected="")
+    ic["lines"] = [{"item_no": "PULSE", "description": "iControls Pulse", "quantity": 1, "received_quantity": 0, "line_type": "Item"}]
+    ic["external_document_number"] = "SO-10421"
+    _apply(db, [order], pos + [ic])
+    pulse = {
+        "id": "pulse-1",
+        "from_email": "izinn@icontrols.ca",
+        "subject": "Pulse order",
+        "body_text": "Your Pulse order is confirmed. Our order number IC-55. Ship date 2026-11-22.",
+    }
+    apply_mailbox(db, {"available": True, "sent": [], "inbox": [pulse]})
+    assert db.query(OpsTrackedPo).filter_by(po_number="PO-001090").one().vendor_order_no == "IC-55"
+
+    note_po_review_draft(db, "PO-001083", "Ultra-Lite", "https://outlook.office.com/mail/draft/1083")
+    draft_row = db.query(OpsActivity).filter_by(event_type="po_draft_saved").one()
+    assert "has not been sent" in draft_row.body
+    parsed = extract_acknowledgement("Ship date November 2, 2026 only")
+    assert parsed["needs_review"] is True
+    assert parsed["confidence"] == "medium"
+
+    view = list_tracker = None
+    from app.services.ops_tracker_service import list_tracker
+    rows = list_tracker(db, today=TODAY, po_status="waiting_ack")
+    assert rows["orders"] == [] or all(
+        "waiting_ack" in {po["lifecycle"] for po in order_row["purchase_orders"]}
+        for order_row in rows["orders"]
+    )

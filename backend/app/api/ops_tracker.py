@@ -22,13 +22,14 @@ from sqlalchemy.orm import Session
 
 from app.api.staff_principal import service_user_if_key
 from app.db.database import SessionLocal
-from app.db.models import User
+from app.db.models import OpsOutboundMessage, User
 from app.integrations.bc.client import bc_client
 from app.integrations.email.client import graph_client
 from app.services.auth_service import auth_service
 from app.services.ops_tracker_service import (
     Actor,
     OpsTrackerError,
+    add_note,
     apply_snapshot,
     approve_message,
     complete_action,
@@ -36,18 +37,20 @@ from app.services.ops_tracker_service import (
     default_sender,
     feed_mail,
     list_actions,
+    list_activity,
     list_audit,
     list_messages,
     list_tracker,
     patch_line,
     patch_order,
     patch_po,
+    purchasing_work,
     reject_message,
     run_sync,
     update_message,
     weekly_summary,
 )
-from app.services.staff_permissions import enforce_staff_permission
+from app.services.staff_permissions import enforce_staff_permission, has_permission
 
 router = APIRouter(prefix="/api/ops", tags=["ops-tracker"])
 logger = logging.getLogger(__name__)
@@ -149,6 +152,13 @@ class IngestBody(BaseModel):
     allow_empty: bool = False
 
 
+class NoteBody(BaseModel):
+    body: str
+    so_number: Optional[str] = None
+    po_number: Optional[str] = None
+    follow_up_on: Optional[str] = None
+
+
 class InboxBody(BaseModel):
     inbox: list = Field(default_factory=list)
     sent: list = Field(default_factory=list)
@@ -167,6 +177,7 @@ async def get_tracker(
     status: Optional[str] = None,
     supplier: Optional[str] = None,
     at_risk: bool = False,
+    po_status: Optional[str] = None,
     q: Optional[str] = None,
     include_closed: bool = False,
     db: Session = Depends(get_db),
@@ -178,6 +189,7 @@ async def get_tracker(
         status=status,
         supplier=supplier,
         at_risk=at_risk,
+        po_status=po_status,
         q=q,
         include_closed=include_closed,
     ))
@@ -321,6 +333,20 @@ async def edit_message(
     return _run(db, lambda: update_message(db, message_id, _present(body), _actor(user)))
 
 
+def _require_message_permission(db: Session, user: User, message_id: int, *, sending: bool) -> None:
+    """Customer updates stay on production.edit. Supplier reminders follow purchasing send."""
+    message = db.query(OpsOutboundMessage).filter(OpsOutboundMessage.id == message_id).one_or_none()
+    if message is None:
+        raise HTTPException(status_code=404, detail="Email not found.")
+    if message.kind == "supplier_reminder":
+        allowed = has_permission(user, "purchase_orders.send" if sending else "purchase_orders.edit")
+        allowed = allowed or has_permission(user, "production.edit")
+    else:
+        allowed = has_permission(user, "production.edit")
+    if not allowed:
+        raise HTTPException(status_code=403, detail="You do not have permission to do that")
+
+
 @router.post("/messages/{message_id}/approve")
 async def approve(
     message_id: int,
@@ -328,6 +354,7 @@ async def approve(
     user: User = Depends(get_current_admin),
 ):
     """Send one queued email. This is the only route that sends mail."""
+    _require_message_permission(db, user, message_id, sending=True)
     return _run(db, lambda: approve_message(db, message_id, _actor(user), default_sender))
 
 
@@ -337,6 +364,7 @@ async def reject(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_admin),
 ):
+    _require_message_permission(db, user, message_id, sending=False)
     return _run(db, lambda: reject_message(db, message_id, _actor(user)))
 
 
@@ -354,3 +382,33 @@ async def get_weekly_summary(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="as_of must be an ISO date.") from exc
     return weekly_summary(db, day)
+
+
+@router.get("/purchasing-work")
+async def get_purchasing_work(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_admin),
+):
+    """Purchasing to-dos and supplier reminders. Same rows as the order tracker."""
+    return _run(db, lambda: purchasing_work(db))
+
+
+@router.get("/activity")
+async def get_activity(
+    so_number: Optional[str] = None,
+    po_number: Optional[str] = None,
+    vendor: Optional[str] = None,
+    q: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_admin),
+):
+    return list_activity(db, so_number=so_number, po_number=po_number, vendor=vendor, q=q)
+
+
+@router.post("/activity")
+async def post_activity(
+    body: NoteBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_admin),
+):
+    return _run(db, lambda: add_note(db, body.model_dump(), _actor(user)))

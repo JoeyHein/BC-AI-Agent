@@ -848,6 +848,9 @@ export const opsApi = {
   approve: (id) => apiClient.post(`/api/ops/messages/${id}/approve`),
   reject: (id) => apiClient.post(`/api/ops/messages/${id}/reject`),
   weekly: (asOf) => apiClient.get('/api/ops/weekly-summary', { params: asOf ? { as_of: asOf } : {} }),
+  purchasingWork: () => apiClient.get('/api/ops/purchasing-work'),
+  activity: (params) => apiClient.get('/api/ops/activity', { params }),
+  addNote: (body) => apiClient.post('/api/ops/activity', body),
 }
 
 export const externalKeysApi = {

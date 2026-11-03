@@ -1,5 +1,6 @@
 import { Fragment, useState, useEffect } from 'react';
 import { purchasingApi } from '../../api/client';
+import { ActivityLog, PurchasingWork } from './ActivityLog';
 
 const UNASSIGNED = 'Unassigned';
 
@@ -189,6 +190,9 @@ export default function PurchasingDashboard() {
       </div>
 
       {message && <div className={`p-3 rounded-lg ${msgClass[message.type]}`}>{message.text}</div>}
+
+      <PurchasingWork />
+      <ActivityLog title="Order and PO notes" />
 
       <MorningBrief data={brief} busy={busy === 'brief'} onRefresh={refreshBrief} />
 
