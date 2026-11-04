@@ -24,6 +24,7 @@ attached.
 
 import html
 import logging
+import re
 from datetime import datetime
 from typing import List, Optional
 
@@ -34,6 +35,11 @@ from app.config import settings
 from app.db.models import POAgentLog
 from app.integrations.bc.client import bc_client
 from app.integrations.email.client import graph_client
+from app.services.po_customer_disclosure import (
+    guard_vendor_texts,
+    lookup_sales_order,
+    sales_order_numbers_from_texts,
+)
 from app.services.po_line_order import BC_DESCRIPTION_MAX, order_item_rows, order_request_lines
 from app.services.po_line_price import apply_direct_unit_cost
 from app.services.weatherstrip_policy import (
@@ -87,6 +93,79 @@ def _recipient_label(to) -> Optional[str]:
     return str(to)
 
 
+def _reject_customer_disclosure(vendor_no, vendor_name, texts, so_numbers) -> None:
+    """Refuse notes and comments that would show the customer to this vendor.
+
+    Runs before any Business Central write or Outlook draft. Allowlisted
+    vendors (Elton, Upwardor, Nice/Micanan) are not checked.
+    """
+    guard_vendor_texts(
+        vendor_no,
+        vendor_name,
+        texts,
+        so_numbers,
+        lookup=lambda number: lookup_sales_order(bc_client, number),
+    )
+
+
+def _comment_descriptions(lines) -> List[str]:
+    return [
+        str(ln.get("description") or "")
+        for ln in lines
+        if _is_comment_request(ln)
+    ]
+
+
+def _lines_on_purchase_order(po: dict) -> List[dict]:
+    """Comment scan needs the lines. A GUID lookup does not expand them."""
+    lines = po.get("purchaseOrderLines")
+    if lines is not None:
+        return list(lines)
+    po_id = po.get("id")
+    fn = getattr(bc_client, "get_purchase_order_with_lines", None)
+    if not callable(fn) or not po_id:
+        return []
+    try:
+        fresh = fn(po_id)
+    except Exception:
+        logger.warning(
+            "Could not load lines for %s before the review draft",
+            po.get("number") or po_id,
+            exc_info=True,
+        )
+        return []
+    if not isinstance(fresh, dict):
+        return []
+    return list(fresh.get("purchaseOrderLines") or [])
+
+
+def _existing_po_disclosure_texts(po: dict, notes: Optional[str], lines: List[dict]) -> List[str]:
+    """Notes, comment lines, and a header that is not just our SO number.
+
+    The BC PDF prints every comment, so a review draft is refused when a
+    comment already names the customer. Item descriptions are catalog text
+    and are not scanned here.
+    """
+    texts: List[str] = []
+    if notes:
+        texts.append(notes)
+    header = str(po.get("externalDocumentNumber") or "").strip()
+    if header and not re.fullmatch(r"SO-\d+", header, re.IGNORECASE):
+        texts.append(header)
+    for ln in lines:
+        if (ln.get("lineType") or "").lower() != "comment":
+            continue
+        texts.append(str(ln.get("description") or ""))
+    return texts
+
+
+def _existing_po_sales_orders(po: dict, notes: Optional[str], lines: List[dict]) -> List[str]:
+    chunks = [notes or "", str(po.get("externalDocumentNumber") or "")]
+    for ln in lines:
+        chunks.append(str(ln.get("description") or ""))
+    return sales_order_numbers_from_texts(chunks)
+
+
 def _empty_review_fields() -> dict:
     return {
         "review_draft_created": False,
@@ -133,7 +212,21 @@ class PurchasingPOService:
         Business Central has already accepted it. `create_review_draft` false
         skips both the PDF fetch and Graph so a Draft can be created without
         touching a mailbox.
+
+        For every vendor except Elton, Upwardor, and Nice/Micanan, notes
+        and comment lines are refused when they name the sales order's
+        customer, the customer's PO, or say "customer PO". The purchase
+        order is not created.
         """
+        comment_texts = _comment_descriptions(lines)
+        disclosure_texts = comment_texts + ([notes] if notes else [])
+        _reject_customer_disclosure(
+            vendor_no,
+            vendor_name,
+            disclosure_texts,
+            sales_order_numbers_from_texts(disclosure_texts),
+        )
+
         excluded_weatherstrip: List[dict] = []
         if is_upwardor_vendor(vendor_no or "", vendor_name or ""):
             kept: List[dict] = []
@@ -337,6 +430,13 @@ class PurchasingPOService:
             or vendor_no
             or "Vendor"
         )
+        po_lines = _lines_on_purchase_order(po)
+        _reject_customer_disclosure(
+            vendor_no,
+            vendor_name,
+            _existing_po_disclosure_texts(po, notes, po_lines),
+            _existing_po_sales_orders(po, notes, po_lines),
+        )
         mailbox = settings.NOTIFICATION_SENDER_EMAIL
         (
             draft_to,
@@ -419,7 +519,17 @@ class PurchasingPOService:
         Each call creates a new Draft PO. Nothing is deduped. When every SO
         line is an operator, wrapping, or service line, no PO is created and
         Graph is not called.
+
+        Notes that would show the customer to any vendor except Elton,
+        Upwardor, and Nice/Micanan are refused before the purchase order
+        is created.
         """
+        vendor_no = (vendor_no or "").strip() or "UPW"
+        vendor_name = (vendor_name or "").strip() or "UPWARDOR"
+        if notes:
+            _reject_customer_disclosure(
+                vendor_no, vendor_name, [notes], [so_number],
+            )
         plan = self._complete_plan(so_number, vendor_no, vendor_name, dry_run=False)
         view = self._complete_plan_view(plan)
         bc_po_id = plan.get("bc_po_id")

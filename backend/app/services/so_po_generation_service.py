@@ -45,6 +45,11 @@ from app.services.vendor_receipt_lead_time import (
 )
 from app.services.purchasing_demand_service import NON_STOCK_ITEMS, _buy_complete
 from app.services.panorama_sheet_purchasing import replace_panorama_polycarbonate
+from app.services.po_customer_disclosure import (
+    find_customer_leaks,
+    vendor_may_see_customer_info,
+    CustomerIdentity,
+)
 from app.services.po_line_order import order_item_rows
 from app.services.weatherstrip_policy import (
     WEATHERSTRIP_EXCLUSION_REASON,
@@ -586,23 +591,54 @@ def _group_by_door(door_labels: Dict[int, str],
     return by_door, shared
 
 
-def _write_plan_lines(po_id: str, plan: dict, so_number: str) -> int:
+def _so_link_comment(plan: dict, so_number: str) -> str:
+    """The vendor-safe SO link. Our SO number, the date, and who built it."""
+    mode = "(complete order)" if plan.get("mode") == "complete" else "(netted vs stock)"
+    return f"Built from {so_number} - {date.today().isoformat()} - opendc purchasing {mode}"
+
+
+def _write_plan_lines(
+    po_id: str,
+    plan: dict,
+    so_number: str,
+    vendor_no: str = "",
+    vendor_name: str = "",
+) -> int:
     """Write one netted plan's lines onto a PO that already exists and has
     NO lines on it yet (a fresh PO, or one just cleared by the caller).
     Returns the count of Item lines written. Shared by build_upwardor_po
     (brand-new PO) and rewrite_po_lines (an existing PO being corrected).
+
+    Elton, Upwardor, and Nice/Micanan get the customer name as the first
+    comment. Every other vendor gets only the "Built from SO-…" line.
+    The staff preview still carries ``customer_name`` on the plan.
     """
-    bc_client.add_purchase_order_line(po_id, {
-        "sequence": 10000, "lineType": "Comment",
-        "description": plan["customer_name"],
-    })
-    bc_client.add_purchase_order_line(po_id, {
-        "sequence": 20000, "lineType": "Comment",
-        "description": (f"Built from {so_number} - {date.today().isoformat()} - opendc purchasing "
-                        + ("(complete order)" if plan.get("mode") == "complete" else "(netted vs stock)")),
-    })
-    seq = 30000
+    disclose = vendor_may_see_customer_info(vendor_no, vendor_name)
+    identity = CustomerIdentity(customer_name=str(plan.get("customer_name") or ""))
+    seq = 10000
     item_count = 0
+
+    def _add_comment(text: str, *, force: bool = False) -> None:
+        nonlocal seq
+        body = (text or "").strip()
+        if not body:
+            return
+        if not force and not disclose and find_customer_leaks(body, [identity]):
+            logger.info(
+                "Omitted a comment that names the customer from %s PO for %s",
+                vendor_no or vendor_name or "vendor",
+                so_number,
+            )
+            return
+        # BC Comment lines cap at 100 chars (Application_StringExceededLength).
+        bc_client.add_purchase_order_line(po_id, {
+            "sequence": seq, "lineType": "Comment", "description": body[:100],
+        })
+        seq += 10000
+
+    if disclose:
+        _add_comment(identity.customer_name, force=True)
+    _add_comment(_so_link_comment(plan, so_number), force=True)
 
     def _add_item(row: dict) -> None:
         nonlocal seq, item_count
@@ -618,14 +654,6 @@ def _write_plan_lines(po_id: str, plan: dict, so_number: str) -> int:
         bc_client.add_purchase_order_line(po_id, line_body)
         seq += 10000
         item_count += 1
-
-    def _add_comment(text: str) -> None:
-        nonlocal seq
-        # BC Comment lines cap at 100 chars (Application_StringExceededLength).
-        bc_client.add_purchase_order_line(po_id, {
-            "sequence": seq, "lineType": "Comment", "description": text[:100],
-        })
-        seq += 10000
 
     by_door = plan["by_door"]
     shared = plan["shared"]
@@ -785,7 +813,7 @@ def build_upwardor_po(so_number: str, vendor_no: str = "UPW", vendor_name: str =
     )
     result.update(applied.public_dict())
     po_id, po_number = bc_po["id"], bc_po["number"]
-    _write_plan_lines(po_id, plan, so_number)
+    _write_plan_lines(po_id, plan, so_number, vendor_no=vendor_no, vendor_name=vendor_name)
 
     result["bc_po_number"] = po_number
     result["bc_po_id"] = po_id
@@ -837,7 +865,13 @@ def rewrite_po_lines(po_number: str, so_number: str, mode: str = "complete") -> 
     )
     item_count = 0
     if plan["included"] or plan["component_shortfall"]:
-        item_count = _write_plan_lines(po["id"], plan, so_number)
+        item_count = _write_plan_lines(
+            po["id"],
+            plan,
+            so_number,
+            vendor_no=po.get("vendorNumber") or "",
+            vendor_name=po.get("vendorName") or "",
+        )
 
     return {
         **plan, "po_number": po_number, "lines_deleted": len(old_lines), "lines_written": item_count,

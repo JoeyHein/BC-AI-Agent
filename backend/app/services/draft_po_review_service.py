@@ -34,6 +34,13 @@ from app.services.so_po_generation_service import (
     _ALWAYS_FULL_QTY_KEYWORDS,
     _always_full_qty,
 )
+from app.services.po_customer_disclosure import (
+    CustomerDisclosureError,
+    find_customer_leaks,
+    load_customer_identities,
+    lookup_sales_order,
+    vendor_may_see_customer_info,
+)
 from app.services.weatherstrip_policy import (
     WEATHERSTRIP_EXCLUSION_REASON,
     is_upwardor_vendor,
@@ -263,6 +270,8 @@ def validate_po(po: dict) -> dict:
     except Exception:
         logger.exception("Purchase price check failed for %s", po.get("number"))
 
+    issues.extend(_customer_disclosure_issues(po, summary["sales_orders"]))
+
     return {
         **{k: summary[k] for k in (
             "id", "number", "vendor_number", "vendor_name", "status",
@@ -279,6 +288,46 @@ def validate_po(po: dict) -> dict:
         "issue_count": len(issues),
         "issues": issues,
     }
+
+
+def _customer_disclosure_issues(po: dict, sales_orders: Sequence[str]) -> List[dict]:
+    """Flag comments that name the customer on a vendor who must not see them.
+
+    Validate does not delete the line. Elton, Upwardor, and Nice/Micanan
+    are allowlisted. A "Built from SO-…" line that does not also name the
+    customer is not a leak — our sales-order number is fine.
+    """
+    vendor_no = po.get("vendorNumber") or ""
+    vendor_name = po.get("vendorName") or po.get("payToVendorName") or ""
+    if vendor_may_see_customer_info(vendor_no, vendor_name):
+        return []
+    identities = load_customer_identities(
+        sales_orders,
+        lambda number: lookup_sales_order(bc_client, number),
+    )
+    texts: List[tuple] = []
+    header = str(po.get("externalDocumentNumber") or "").strip()
+    if header and not re.fullmatch(r"SO-\d+", header, re.IGNORECASE):
+        texts.append(("header", header))
+    for ln in po.get("purchaseOrderLines") or []:
+        if (ln.get("lineType") or "").lower() != "comment":
+            continue
+        description = str(ln.get("description") or "").strip()
+        if description:
+            texts.append(("comment", description))
+    issues: List[dict] = []
+    for where, text in texts:
+        kinds = find_customer_leaks(text, identities)
+        if not kinds:
+            continue
+        issues.append({
+            "code": "customer_info_on_vendor_po",
+            "severity": "error",
+            "where": where,
+            "description": text[:100],
+            "message": str(CustomerDisclosureError(kinds)),
+        })
+    return issues
 
 
 def _line_direct_cost(ln: dict) -> Optional[float]:

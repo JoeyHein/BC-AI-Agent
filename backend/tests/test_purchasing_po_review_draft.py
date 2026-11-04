@@ -27,6 +27,7 @@ from app.api.purchasing import (
 )
 from app.db.models import POAgentLog, User, UserRole
 from app.integrations.email.client import GraphEmailClient
+from app.services.po_customer_disclosure import CustomerDisclosureError
 from app.services.purchasing_po_service import purchasing_po_service
 
 
@@ -144,6 +145,35 @@ def _attachment(graph):
     atts = graph.drafts[0]["attachments"]
     assert len(atts) == 1
     return atts[0]
+
+
+class TestCustomerDisclosureOnGeneratePo:
+    def test_notes_and_comment_lines_are_refused_before_bc(self, db, bc_graph):
+        bc, graph = bc_graph
+        with pytest.raises(CustomerDisclosureError, match="cannot see the customer"):
+            _create(db, vendor_no="ULTR", vendor_name="Ultra-Lite", notes="cust PO 44")
+        assert bc.created == []
+        assert graph.drafts == []
+
+        with pytest.raises(CustomerDisclosureError):
+            _create(
+                db,
+                vendor_no="LYNX",
+                vendor_name="Lynx",
+                lines=[
+                    {"line_type": "Comment", "description": "Customer PO 9"},
+                    {"item_no": "PN10-1", "description": "Panel", "quantity": 2, "unit_cost": 10.5},
+                ],
+            )
+        assert bc.created == []
+        assert graph.drafts == []
+
+    def test_upwardor_notes_may_name_the_customer_po(self, db, bc_graph):
+        bc, graph = bc_graph
+        result = _create(db, vendor_no="UPW", vendor_name="UPWARDOR", notes="cust PO 44")
+        assert result["success"] is True
+        assert bc.created
+        assert "cust PO 44" in graph.drafts[0]["html_body"]
 
 
 class TestReviewDraftFlag:
