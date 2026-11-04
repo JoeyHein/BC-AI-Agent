@@ -24,6 +24,7 @@ from app.services.staff_permissions import enforce_staff_permission
 from app.services.purchasing_demand_service import purchasing_demand_service
 from app.services.vendor_map_service import vendor_map_service
 from app.services.purchasing_report_service import purchasing_report_service
+from app.services.po_customer_disclosure import CustomerDisclosureError
 from app.services.purchasing_po_service import purchasing_po_service
 from app.services.purchasing_brief_service import purchasing_brief_service
 from app.services.planning_workbook_service import planning_workbook_service, XLSX_MIME
@@ -414,7 +415,9 @@ async def generate_po(
     joey@opendc.ca) via Graph createMessage in Drafts, with the BC
     purchase-order PDF attached (`get_purchase_order_pdf`) and To set to the
     configured review-draft recipients for that vendor, or the BC vendor
-    email when none are configured. The API does not send mail to the vendor. A failed PDF
+    email when none are configured. The API does not send mail to the vendor.
+    Notes and comment lines that name the customer are refused (422) unless
+    the vendor is Elton, Upwardor, or Nice/Micanan. A failed PDF
     download or Graph save is returned on the JSON (`pdf_error`, `draft_error`)
     and does not roll back the BC PO. `create_review_draft=false` (or the
     deprecated `send_email=false`) skips the PDF fetch and Graph.
@@ -432,6 +435,9 @@ async def generate_po(
         )
         db.commit()
         return result
+    except CustomerDisclosureError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -551,6 +557,9 @@ async def create_complete_so_po(
         )
         db.commit()
         return result
+    except CustomerDisclosureError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
     except ValueError as e:
         db.rollback()
         _raise_complete_so_po_error(e)

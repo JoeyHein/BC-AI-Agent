@@ -390,8 +390,11 @@ Within each door group:
    configurator door header (`(1) 18'0" x 8'0" …`, same pattern as the
    sales-order writer) or a section banner (`ITEMS SHARED ACROSS…`,
    `RAW MATERIALS…`). Comments before the first item of the group stay
-   with that header. Customer name and "Built from SO-…" comments before
-   the first door stay above door 1.
+   with that header. A customer-name comment (only when the vendor is
+   Elton, Upwardor, or Nice/Micanan) and "Built from SO-…" comments before
+   the first door stay above door 1. Every other vendor's SO link is only
+   "Built from SO-xxxxxx" — the customer name, their PO, the job, and the
+   ship-to are not written on the purchase order.
 2. Insulated sections.
 3. Glass sections and glazing.
 4. Everything else, in the order it already had. A comment between items

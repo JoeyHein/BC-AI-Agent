@@ -193,6 +193,45 @@ class TestExistingPoReviewDraft:
         assert att["content_type"] == "application/pdf"
         assert att["name"] == "PO_PO-000962.pdf"
 
+    def test_notes_that_name_a_customer_po_are_refused(self, client, bc_graph):
+        bc, graph = bc_graph
+        bc.by_number[PO_NUMBER]["vendorNumber"] = "ULTR"
+        bc.by_number[PO_NUMBER]["vendorName"] = "Ultra-Lite"
+        res = _post(client, notes="please quote customer PO 12")
+        assert res.status_code == 422, res.text
+        assert "cannot see the customer" in res.json()["detail"]
+        assert graph.drafts == []
+        assert bc.pdf_calls == []
+
+    def test_existing_leaky_comment_blocks_the_review_draft(self, client, bc_graph):
+        bc, graph = bc_graph
+        po = bc.by_number[PO_NUMBER]
+        po["vendorNumber"] = "DEK"
+        po["vendorName"] = "DEK Canada"
+        po["purchaseOrderLines"] = [{
+            "lineType": "Comment",
+            "description": "Cust PO 88",
+            "quantity": 0,
+        }]
+        res = _post(client)
+        assert res.status_code == 422, res.text
+        assert graph.drafts == []
+        assert bc.pdf_calls == []
+
+    def test_upwardor_review_draft_may_include_the_customer_po(self, client, bc_graph):
+        bc, graph = bc_graph
+        po = bc.by_number[PO_NUMBER]
+        po["vendorNumber"] = "UPW"
+        po["vendorName"] = "UPWARDOR"
+        po["purchaseOrderLines"] = [{
+            "lineType": "Comment",
+            "description": "customer PO 12",
+            "quantity": 0,
+        }]
+        res = _post(client, notes="customer PO 12")
+        assert res.status_code == 200, res.text
+        assert "customer PO 12" in graph.drafts[0]["html_body"]
+
     def test_empty_body_is_enough(self, client, bc_graph):
         _, graph = bc_graph
         res = _post(client)

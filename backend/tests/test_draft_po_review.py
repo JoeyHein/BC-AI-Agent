@@ -268,6 +268,85 @@ class TestSummarizeAndValidate:
         zeros = [i for i in result["issues"] if i["code"] == "companion_zero_qty"]
         assert [i["keyword"] for i in zeros] == ["RETAINER"]
 
+    def test_ultra_lite_customer_comment_is_flagged(self, monkeypatch):
+        def _so(number):
+            assert number == "SO-001300"
+            return {
+                "number": number,
+                "customerName": "Prairie Door Co",
+                "externalDocumentNumber": "JOB-8841",
+            }
+
+        monkeypatch.setattr(mod.bc_client, "get_sales_order_by_number", _so)
+        po = _po(
+            vendor="Ultra-Lite",
+            vendor_no="ULTR",
+            lines=[
+                _line(None, 0, desc="Built from SO-001300 - 2026-11-04 - opendc purchasing (complete order)",
+                      ltype="Comment", seq=10000),
+                _line(None, 0, desc="Prairie Door Co", ltype="Comment", seq=20000),
+                _line("PN45-24405-1000", 2, desc="SECTION TX450", seq=30000),
+            ],
+        )
+        result = validate_po(po)
+        leaks = [i for i in result["issues"] if i["code"] == "customer_info_on_vendor_po"]
+        assert result["ok"] is False
+        assert len(leaks) == 1
+        assert leaks[0]["severity"] == "error"
+        assert leaks[0]["description"] == "Prairie Door Co"
+        assert "customer name" in leaks[0]["message"]
+
+    def test_customer_po_phrase_is_flagged_without_a_sales_order(self):
+        po = _po(
+            vendor="DEK Canada",
+            vendor_no="DEK",
+            lines=[_line(None, 0, desc="please reference customer PO 5521", ltype="Comment")],
+        )
+        result = validate_po(po)
+        leaks = [i for i in result["issues"] if i["code"] == "customer_info_on_vendor_po"]
+        assert len(leaks) == 1
+        assert "customer PO" in leaks[0]["message"]
+
+    def test_upwardor_may_keep_the_customer_name(self, monkeypatch):
+        monkeypatch.setattr(
+            mod.bc_client, "get_sales_order_by_number",
+            lambda number: {"customerName": "Prairie Door Co", "externalDocumentNumber": "JOB-8841"},
+        )
+        po = _po(lines=[
+            _line(None, 0, desc="Built from SO-001300", ltype="Comment", seq=10000),
+            _line(None, 0, desc="Prairie Door Co — cust PO JOB-8841", ltype="Comment", seq=20000),
+            _line("HK02-14120-RC", 1, desc="HARDWARE BOX", seq=30000),
+        ])
+        result = validate_po(po)
+        assert [i for i in result["issues"] if i["code"] == "customer_info_on_vendor_po"] == []
+        assert result["ok"] is True
+
+    def test_built_from_line_alone_is_not_a_leak(self, monkeypatch):
+        monkeypatch.setattr(
+            mod.bc_client, "get_sales_order_by_number",
+            lambda number: {
+                "customerName": "Prairie Door Co",
+                "externalDocumentNumber": "JOB-8841",
+                "shipToAddressLine1": "100 8 Avenue SW",
+                "phoneNumber": "780-555-0199",
+            },
+        )
+        po = _po(
+            vendor="Ultra-Lite",
+            vendor_no="ULTR",
+            lines=[
+                _line(
+                    None, 0,
+                    desc="Built from SO-001300 - 2026-11-04 - opendc purchasing (complete order)",
+                    ltype="Comment",
+                ),
+                _line("HK02-14120-RC", 1, desc="HARDWARE BOX"),
+            ],
+        )
+        result = validate_po(po)
+        assert [i for i in result["issues"] if i["code"] == "customer_info_on_vendor_po"] == []
+        assert result["ok"] is True
+
     def test_freight_lines_ignored(self):
         po = _po(lines=[
             _line("HK02-14120-RC", 1, desc="HARDWARE BOX"),

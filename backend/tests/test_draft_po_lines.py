@@ -231,6 +231,56 @@ class TestEdits:
         assert retainer["unit_cost"] == 1.25
         assert retainer["panel_class"] == "rest"
 
+    def test_non_allowlisted_comment_rejects_a_customer_po(self, client, mem):
+        mem.po["vendorNumber"] = "ULTR"
+        mem.po["vendorName"] = "Ultra-Lite"
+        res = client.post(
+            f"/api/admin/purchasing/draft-pos/{PO_NUMBER}/lines",
+            json={"line_type": "Comment", "description": "customer PO 9912"},
+        )
+        assert res.status_code == 422, res.text
+        assert "cannot see the customer" in res.json()["detail"]
+        assert mem.adds == 0
+        stored = [ln["description"] for ln in mem.po["purchaseOrderLines"]]
+        assert "customer PO 9912" not in stored
+
+    def test_non_allowlisted_comment_rejects_the_sales_order_customer(self, client, mem):
+        mem.po["vendorNumber"] = "DEK"
+        mem.po["vendorName"] = "DEK Canada"
+        mem.po["purchaseOrderLines"].insert(
+            0, _comment("so", "Built from SO-001300 - 2026-11-04 - opendc purchasing", 5000),
+        )
+
+        def _so(number):
+            assert number == "SO-001300"
+            return {"customerName": "Prairie Door Co", "externalDocumentNumber": "JOB-8841"}
+
+        mem.get_sales_order_by_number = _so
+        res = client.post(
+            f"/api/admin/purchasing/draft-pos/{PO_NUMBER}/lines",
+            json={"line_type": "blank", "description": "job for Prairie Door Co"},
+        )
+        assert res.status_code == 422, res.text
+        assert mem.adds == 0
+
+        patched = client.patch(
+            f"/api/admin/purchasing/draft-pos/{PO_NUMBER}/lines/c1",
+            json={"description": "use JOB-8841"},
+        )
+        assert patched.status_code == 422, patched.text
+        stored = next(ln for ln in mem.po["purchaseOrderLines"] if ln["id"] == "c1")
+        assert stored["description"] == '(1) 18\'0" x 8\'0" TX450, BLACK'
+
+    def test_upwardor_may_add_a_customer_po_comment(self, client, mem):
+        mem.po["vendorNumber"] = "UPW"
+        mem.po["vendorName"] = "UPWARDOR"
+        res = client.post(
+            f"/api/admin/purchasing/draft-pos/{PO_NUMBER}/lines",
+            json={"line_type": "Comment", "description": "customer PO 9912"},
+        )
+        assert res.status_code == 200, res.text
+        assert any(ln["description"] == "customer PO 9912" for ln in res.json()["lines"])
+
     def test_comment_rejects_item_number(self, client, mem):
         res = client.patch(
             f"/api/admin/purchasing/draft-pos/{PO_NUMBER}/lines/c1",

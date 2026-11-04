@@ -30,6 +30,12 @@ from typing import Any, Dict, List, Optional, Sequence
 import requests
 
 from app.integrations.bc.client import bc_client
+from app.services.po_customer_disclosure import (
+    CustomerDisclosureError,
+    guard_vendor_texts,
+    lookup_sales_order,
+    sales_order_numbers_from_texts,
+)
 from app.services.po_line_price import apply_direct_unit_cost, explicit_override
 from app.services.weatherstrip_policy import (
     WEATHERSTRIP_EXCLUSION_REASON,
@@ -166,6 +172,8 @@ class DraftPoLinesService:
         line = self._find_line(po, line_id)
         patch = self._patch_from_changes(line, changes)
         self._reject_upwardor_weatherstrip(po, line, patch)
+        if "description" in patch:
+            self._reject_customer_disclosure(po, [patch.get("description")])
         if not patch:
             raise DraftPoEditError(400, "No line changes were provided")
         logger.info(
@@ -193,6 +201,7 @@ class DraftPoLinesService:
     def add_line(self, kind: str, value: str, body: dict, *, actor: str = "") -> dict:
         po = self._load_editable(kind, value)
         payload = self._create_payload(po, body)
+        self._reject_customer_disclosure(po, [payload.get("description")])
         if (payload.get("lineType") or "") == "Item" and self._is_upwardor_weatherstrip(
             po, payload.get("lineObjectNumber"), payload.get("description"),
         ):
@@ -308,6 +317,32 @@ class DraftPoLinesService:
         if not is_upwardor_vendor(po.get("vendorNumber") or "", po.get("vendorName") or ""):
             return False
         return is_weatherstrip_item(str(item_no or ""), str(description or ""))
+
+    @staticmethod
+    def _reject_customer_disclosure(po: dict, texts: Sequence[str]) -> None:
+        """Refuse a line whose text would show the customer to this vendor.
+
+        Elton, Upwardor, and Nice/Micanan are the exception. The check runs
+        before Business Central is written. A comment already on the PO is
+        left for /draft-pos/validate to flag.
+        """
+        pending = [str(text) for text in texts if text and str(text).strip()]
+        if not pending:
+            return
+        chunks = list(pending)
+        chunks.append(str(po.get("externalDocumentNumber") or ""))
+        for ln in po.get("purchaseOrderLines") or []:
+            chunks.append(str(ln.get("description") or ""))
+        try:
+            guard_vendor_texts(
+                po.get("vendorNumber"),
+                po.get("vendorName"),
+                pending,
+                sales_order_numbers_from_texts(chunks),
+                lookup=lambda number: lookup_sales_order(bc_client, number),
+            )
+        except CustomerDisclosureError as exc:
+            raise DraftPoEditError(422, str(exc)) from exc
 
     def _reject_upwardor_weatherstrip(self, po: dict, line: dict, patch: dict) -> None:
         """Block turning a line into weatherstrip on an Upwardor draft.

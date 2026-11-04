@@ -319,6 +319,7 @@ class TestCreate:
         assert DOOR_1 in comments
         assert DOOR_2 in comments
         assert any("(complete order)" in text for text in comments)
+        assert "Acme Doors" in comments
 
         assert graph.sent == []
         assert len(graph.drafts) == 1
@@ -350,6 +351,37 @@ class TestCreate:
             {"item_no": "PN45-24405-1200", "qty": 29},
             {"item_no": "SH12-11810-00", "qty": 1},
         ]
+
+    def test_dek_notes_that_name_the_customer_do_not_create_a_po(self, client, bc_graph):
+        bc, graph = bc_graph
+        res = self._post(
+            client,
+            vendor_no="DEK",
+            vendor_name="DEK Canada",
+            notes="Ship for Acme Doors",
+            create_review_draft=True,
+        )
+        assert res.status_code == 422, res.text
+        assert "cannot see the customer" in res.json()["detail"]
+        assert bc.created == []
+        assert graph.drafts == []
+
+    def test_ultra_lite_po_has_no_customer_comment(self, client, bc_graph):
+        bc, _graph = bc_graph
+        res = self._post(
+            client,
+            vendor_no="ULTR",
+            vendor_name="Ultra-Lite",
+            create_review_draft=False,
+            notes="ship dock 2",
+        )
+        assert res.status_code == 200, res.text
+        data = res.json()
+        assert data["customer_name"] == "Acme Doors"
+        assert data["created"] is True
+        comments = [body["description"] for _, body in bc.lines if body["lineType"] == "Comment"]
+        assert any(text.startswith("Built from SO-001299") for text in comments)
+        assert all("Acme" not in text for text in comments)
 
     def test_create_review_draft_false_skips_pdf_and_graph(self, client, bc_graph, db):
         bc, graph = bc_graph

@@ -755,7 +755,60 @@ class TestBuildPo:
         assert kinds[0] == ("Comment", None)
         assert kinds[1] == ("Comment", None)
         assert kinds[2] == ("Item", "SHORT-01")
+        assert bc.lines[0][1]["description"] == "Acme"
+        assert bc.lines[1][1]["description"].startswith("Built from SO-TEST - ")
+        assert "(netted vs stock)" in bc.lines[1][1]["description"]
         assert bc.lines[2][1]["quantity"] == 5
+
+    def test_upwardor_complete_po_keeps_the_customer_name(self, monkeypatch):
+        so = {"id": "so-1", "number": "SO-001300", "customerName": "Prairie Door Co",
+              "externalDocumentNumber": "JOB-8841",
+              "salesOrderLines": [_line("PN45-24405-1200", 2)]}
+        bc, _ = _setup(monkeypatch, so, [])
+        result = svc.build_upwardor_po("SO-001300", dry_run=False)
+        assert result["customer_name"] == "Prairie Door Co"
+        comments = [body["description"] for _, body in bc.lines if body["lineType"] == "Comment"]
+        assert comments[0] == "Prairie Door Co"
+        assert comments[1].startswith("Built from SO-001300 - ")
+        assert "opendc purchasing (complete order)" in comments[1]
+
+    def test_ultra_lite_and_dek_pos_omit_the_customer_line(self, monkeypatch):
+        """Staff still see the customer on the preview. The PO does not."""
+        so = {"id": "so-1", "number": "SO-001300", "customerName": "Prairie Door Co",
+              "externalDocumentNumber": "JOB-8841",
+              "shipToAddressLine1": "100 8 Avenue SW",
+              "phoneNumber": "780-555-0199",
+              "salesOrderLines": [_line("PN45-24405-1200", 2)]}
+        for vendor_no, vendor_name in (("ULTR", "Ultra-Lite"), ("DEK", "DEK Canada")):
+            bc, _ = _setup(monkeypatch, so, [])
+            result = svc.build_upwardor_po(
+                "SO-001300", vendor_no=vendor_no, vendor_name=vendor_name, dry_run=False,
+            )
+            assert result["customer_name"] == "Prairie Door Co"
+            comments = [body["description"] for _, body in bc.lines if body["lineType"] == "Comment"]
+            assert len(comments) == 1
+            assert comments[0].startswith("Built from SO-001300 - ")
+            assert "opendc purchasing (complete order)" in comments[0]
+            blob = " ".join(comments)
+            assert "Prairie" not in blob
+            assert "JOB-8841" not in blob
+            assert "8 Avenue" not in blob
+            assert "780" not in blob
+
+    def test_elton_and_nice_keep_the_customer_name(self, monkeypatch):
+        so = {"id": "so-1", "number": "SO-001300", "customerName": "Prairie Door Co",
+              "salesOrderLines": [_line("PN45-24405-1200", 2)]}
+        for vendor_no, vendor_name in (
+            ("ELT", "Elton Manufacturing"),
+            ("", "Nice Canada"),
+            ("NICE", "Micanan"),
+        ):
+            bc, _ = _setup(monkeypatch, so, [])
+            svc.build_upwardor_po(
+                "SO-001300", vendor_no=vendor_no, vendor_name=vendor_name, dry_run=False,
+            )
+            comments = [body["description"] for _, body in bc.lines if body["lineType"] == "Comment"]
+            assert comments[0] == "Prairie Door Co", vendor_name
 
     def test_commit_appends_component_shortfall_after_a_marker_comment(self, monkeypatch):
         """A sales order that's ENTIRELY manufactured items (no direct
@@ -789,9 +842,12 @@ class TestRewritePoLines:
     own (possibly wrong) quantities look like "already on order" and
     silently suppress real demand — confirmed live 2026-09-09."""
 
-    def _existing_po(self, lines):
+    def _existing_po(self, lines, vendor_no="UPW", vendor_name="UPWARDOR"):
+        # These rewrites model an Upwardor draft, which may still carry the
+        # customer name. A non-allowlisted vendor is covered separately.
         return {"PO-EXIST-001": {
             "id": "po-existing-1", "number": "PO-EXIST-001", "status": "Draft",
+            "vendorNumber": vendor_no, "vendorName": vendor_name,
             "purchaseOrderLines": lines,
         }}
 
@@ -857,6 +913,18 @@ class TestRewritePoLines:
         kinds = [(b["lineType"], b.get("lineObjectNumber"), b.get("description")) for _, b in bc.lines]
         assert kinds[2][2].startswith("(1) 8'0\"")
         assert kinds[3] == ("Item", "DOOR1-ONLY", "desc DOOR1-ONLY")
+
+    def test_ultra_lite_rewrite_drops_the_customer_line(self, monkeypatch):
+        old_lines = [{"id": "old-line-1", "lineType": "Comment", "description": "Prairie Door Co",
+                      "quantity": 0, "receivedQuantity": 0}]
+        existing = self._existing_po(old_lines, vendor_no="ULTR", vendor_name="Ultra-Lite")
+        so = {"id": "so-1", "number": "SO-001300", "customerName": "Prairie Door Co",
+              "salesOrderLines": [_line("PN45-24405-1200", 2)]}
+        bc, _ = _setup(monkeypatch, so, [], existing_po=existing)
+        svc.rewrite_po_lines("PO-EXIST-001", "SO-001300", mode="complete")
+        comments = [body["description"] for _, body in bc.lines if body["lineType"] == "Comment"]
+        assert comments[0].startswith("Built from SO-001300 - ")
+        assert all("Prairie" not in text for text in comments)
 
     def test_nothing_to_order_still_clears_old_lines(self, monkeypatch):
         old_lines = [{"id": "old-line-1", "lineType": "Item",
