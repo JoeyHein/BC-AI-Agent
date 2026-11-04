@@ -37,6 +37,7 @@ from app.integrations.bc.client import bc_client
 from app.services.draft_po_review_service import draft_po_review_service
 from app.services.draft_po_lines_service import DraftPoEditError, draft_po_lines_service
 from app.services.draft_po_receipt_service import draft_po_receipt_service
+from app.services.po_release_service import PurchaseOrderReleaseError, po_release_service
 
 router = APIRouter(prefix="/api/admin/purchasing", tags=["purchasing"])
 logger = logging.getLogger(__name__)
@@ -194,6 +195,17 @@ class DraftPoReceiptBackfillRequest(BaseModel):
     """
     dry_run: bool = True
     as_of: Optional[str] = None
+
+
+class ReleasePurchaseOrderRequest(BaseModel):
+    """Release one purchase order. Nothing is released unless confirm is true.
+
+    ``dry_run`` runs the checks and does not call Business Central.
+    ``approved_by`` is the person who said to release this specific order.
+    """
+    confirm: bool = False
+    approved_by: str = ""
+    dry_run: bool = False
 
 
 class ExistingPOReviewDraftRequest(BaseModel):
@@ -656,8 +668,10 @@ async def so_po_links(
 
 # ==================== Draft PO review (CoS) ====================
 # List, validate, and PDF download are read-only. review-draft saves an
-# unsent Outlook message; it does not send or release the PO. Line routes
-# under /draft-pos/{po}/lines edit a Draft PO only. requested-receipt sets
+# unsent Outlook message; it does not send or release the PO.
+# POST /draft-pos/{po}/release is the only route that releases a PO, and
+# only when the body sets confirm to true. Line routes under
+# /draft-pos/{po}/lines edit a Draft PO only. requested-receipt sets
 # the header date on Draft POs only.
 
 @router.get("/draft-pos")
@@ -849,6 +863,42 @@ def download_po_pdf_by_number(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/draft-pos/{po_number}/release")
+async def release_purchase_order(
+    po_number: str,
+    body: ReleasePurchaseOrderRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Release one purchase order in Business Central.
+
+    Draft (Business Central status Open, not yet released) is the only
+    status that can be released. API status Open, or a literal Released,
+    is HTTP 409 and does not call Business Central again. ``dry_run`` runs
+    the checks and does not release. A real release requires ``confirm``
+    true and ``approved_by``. One PO per call. Does not receive, invoice,
+    email, or change any other order.
+    """
+    kind, value = normalize_staff_po_ref(po_number)
+    actor = getattr(admin, "email", None) or "staff"
+    logger.info(
+        "Admin %s release request for %s (dry_run=%s confirm=%s)",
+        actor, value, body.dry_run, body.confirm,
+    )
+    try:
+        return po_release_service.release(
+            kind,
+            value,
+            confirm=body.confirm,
+            approved_by=body.approved_by,
+            dry_run=body.dry_run,
+            actor=actor,
+            db=db,
+        )
+    except PurchaseOrderReleaseError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 @router.post("/draft-pos/{po_number}/review-draft")

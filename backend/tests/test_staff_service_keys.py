@@ -29,6 +29,7 @@ from app.services.auth_service import AuthService, auth_service
 from app.services import staff_service_keys_service as staff_keys
 from app.services.staff_service_keys_service import (
     AUTOMATION_SCOPES,
+    RELEASE_PO,
     SERVICE_USER_EMAIL,
     create_key,
     evaluate,
@@ -143,6 +144,10 @@ class TestCreateAndVerify:
     def test_automation_preset_expands(self):
         assert normalize_scopes(["automation"]) == AUTOMATION_SCOPES
         assert normalize_scopes(None) == AUTOMATION_SCOPES
+        assert RELEASE_PO not in AUTOMATION_SCOPES
+        both = normalize_scopes(["automation", RELEASE_PO])
+        assert RELEASE_PO in both
+        assert set(AUTOMATION_SCOPES).issubset(both)
 
     def test_past_expiry_rejected(self, session, admin_user):
         with pytest.raises(ValueError, match="future"):
@@ -225,6 +230,10 @@ class TestScopeRules:
             "POST", "/api/admin/purchasing/draft-pos/requested-receipt/backfill",
             b'{"dry_run": false}', granted,
         )[0] is True
+        release = "/api/admin/purchasing/draft-pos/PO-000962/release"
+        release_body = b'{"confirm": true, "approved_by": "joey@opendc.ca"}'
+        assert route_allowed("POST", release, release_body, granted)[0] is False
+        assert route_allowed("POST", release, release_body, {RELEASE_PO})[0] is True
 
     def test_generate_po_requires_send_email_false(self):
         granted = set(AUTOMATION_SCOPES)
@@ -316,7 +325,11 @@ class TestBcReadAllowlist:
         granted = set(AUTOMATION_SCOPES)
         for method, path in examples:
             body = b'{"send_email": false}' if path.endswith("generate-po") else b""
-            ok, reason = route_allowed(method, path, body, granted)
+            scopes = set(granted)
+            # Release is documented, but it is not on the automation preset.
+            if path.rstrip("/").endswith("/release"):
+                scopes.add(RELEASE_PO)
+            ok, reason = route_allowed(method, path, body, scopes)
             assert ok, (method, path, reason)
         for method, path in denied:
             ok, _reason = route_allowed(method, path, b"", granted)

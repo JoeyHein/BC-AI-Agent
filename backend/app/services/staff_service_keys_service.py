@@ -45,6 +45,9 @@ GENERATE_PO = "purchasing:generate_po"
 REVIEW_DRAFT = "purchasing:review_draft"
 VENDOR_ACKS_RUN = "vendor_acks:run"
 QUOTES_READ = "quotes:read"
+# Not part of the automation preset. A key releases a purchase order only
+# when an admin puts this name on that key. The hourly job must not get it.
+RELEASE_PO = "purchasing:release_po"
 
 # The KPI dashboard reads orders, purchasing, quotes, and inventory.
 # A key needs every one of these. Existing automation keys already have them.
@@ -61,7 +64,7 @@ AUTOMATION_SCOPES = [
     QUOTES_READ,
 ]
 
-_KNOWN_SCOPES = set(AUTOMATION_SCOPES)
+_KNOWN_SCOPES = set(AUTOMATION_SCOPES) | {RELEASE_PO}
 _PRESETS = {"automation": list(AUTOMATION_SCOPES)}
 
 # (method, path regex, scope, extra check)
@@ -115,6 +118,8 @@ _RULES: list[tuple[str, re.Pattern[str], str, Optional[str]]] = [
     ("POST", re.compile(r"^/api/admin/purchasing/draft-pos/[^/]+/requested-receipt$"), DRAFT_PO_LINES, None),
     ("POST", re.compile(r"^/api/admin/purchasing/generate-po$"), GENERATE_PO, "generate_po"),
     ("POST", re.compile(r"^/api/admin/purchasing/draft-pos/[^/]+/review-draft$"), REVIEW_DRAFT, None),
+    # One PO per call. Not granted by the automation preset.
+    ("POST", re.compile(r"^/api/admin/purchasing/draft-pos/[^/]+/release$"), RELEASE_PO, None),
     # Vendor acknowledgement intake.
     ("GET", re.compile(r"^/api/admin/vendor-acks$"), VENDOR_ACKS_RUN, None),
     ("POST", re.compile(r"^/api/admin/vendor-acks/run$"), VENDOR_ACKS_RUN, None),
@@ -232,7 +237,7 @@ def normalize_scopes(scopes: Optional[list[str]]) -> list[str]:
         elif name in _KNOWN_SCOPES:
             expanded.append(name)
         else:
-            known = ", ".join(["automation", *AUTOMATION_SCOPES])
+            known = ", ".join(["automation", *AUTOMATION_SCOPES, RELEASE_PO])
             raise ValueError(f"Unknown scope '{name}'. Use one of: {known}")
     seen: set[str] = set()
     out: list[str] = []

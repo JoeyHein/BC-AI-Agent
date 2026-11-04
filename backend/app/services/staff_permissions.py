@@ -596,6 +596,10 @@ def _purchasing(method: str, path: str):
         return ("perm", "purchase_orders.view")
     if path.endswith("/requested-receipt") or path.endswith("/requested-receipt/backfill"):
         return ("any", "purchase_orders.edit", "receiving.edit")
+    # Releasing is a separate explicit action. Line edits stay on
+    # purchase_orders.edit. A login that can only edit a draft cannot release it.
+    if "/draft-pos/" in path and path.endswith("/release"):
+        return ("perm", "purchase_orders.send")
     send_suffixes = (
         "/generate-po",
         "/send-report",

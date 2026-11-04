@@ -124,6 +124,11 @@ class Settings(BaseSettings):
     # not expose Vendor Order No. (Purchase Header field 66).
     VENDOR_ACK_BC_ODATA_ENTITY: str = "PurchaseOrder"
     VENDOR_ACK_BC_ODATA_FIELD: str = "Vendor_Order_No"
+    # Full prefix for the OPENDC purchase-order release API, without
+    # /companies(...). Leave empty to use api/opendc/purchasing/v1.0 under
+    # BC_BASE_URL. The standard api/v2.0 purchaseOrders entity has no release
+    # action. See docs/STAFF_PO_RELEASE.md.
+    PO_RELEASE_BC_API_URL: Optional[str] = None
 
     # Outlook review-draft To addresses, by BC vendor number, used instead of
     # the vendor card email. Format: VENDOR=addr1|addr2;VENDOR2=addr
@@ -193,6 +198,21 @@ class Settings(BaseSettings):
         return (
             f"{self.BC_BASE_URL}/{self.BC_TENANT_ID}/{self.BC_ENVIRONMENT}"
             f"/api/upwardor/picking/v1.0"
+        )
+
+    @property
+    def bc_purchasing_api_url(self) -> str:
+        """Custom API that releases one purchase order.
+
+        Lives under api/opendc/purchasing/v1.0, not api/v2.0. The page is
+        bc-extension/purchase-order-release. Empty until BC_TENANT_ID and
+        BC_ENVIRONMENT are set.
+        """
+        if not all([self.BC_TENANT_ID, self.BC_ENVIRONMENT]):
+            return ""
+        return (
+            f"{self.BC_BASE_URL}/{self.BC_TENANT_ID}/{self.BC_ENVIRONMENT}"
+            f"/api/opendc/purchasing/v1.0"
         )
 
     @property

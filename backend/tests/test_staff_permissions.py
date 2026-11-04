@@ -288,6 +288,9 @@ class TestPermissionMap:
             "any", "quotes.edit", "configurator.use",
         )
         assert permission_for("POST", "/api/admin/purchasing/generate-po") == ("perm", "purchase_orders.send")
+        assert permission_for("POST", "/api/admin/purchasing/draft-pos/PO-000962/release") == (
+            "perm", "purchase_orders.send",
+        )
         assert permission_for("GET", "/api/admin/purchasing/vendors") == ("perm", "purchase_orders.view")
 
     def test_backfill_promotes_joey_and_keeps_other_staff_equivalent(self):

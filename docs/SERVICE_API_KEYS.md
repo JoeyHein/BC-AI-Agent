@@ -69,7 +69,7 @@ Anything not in the list above is refused. That includes:
 - Approving or rejecting quotes, or creating quotes in Business Central
 - Shipping orders, posting invoices, or converting quotes to orders
 - Creating the purchase order from that sales-order preview
-- Releasing or deleting a Business Central document
+- Releasing a purchase order, unless that key was created with the extra scope `purchasing:release_po`. A normal automation key does not have it. Deleting a Business Central document is still refused
 - Sending email
 - Creating a purchase order that also saves an Outlook draft. That call must set `send_email` to false. Saving a draft is a separate step (`review-draft`) and does not send mail.
 
