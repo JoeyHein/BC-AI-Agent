@@ -49,6 +49,20 @@ Authorization: Bearer <staff admin access_token>
 
 Single-PO only; loop in curl for several POs. Full notes: `docs/STAFF_DRAFT_POS.md`.
 
+## Release one purchase order
+
+This is explicit and one PO at a time. It does not run as part of creating a draft or saving a review email. API status `Draft` is Business Central status Open (not released). API status `Open` is already Released and returns 409.
+
+```
+POST https://portal.opendc.ca/api/admin/purchasing/draft-pos/PO-000962/release
+Authorization: Bearer <staff admin access_token>
+Content-Type: application/json
+
+{"confirm": true, "approved_by": "joey@opendc.ca"}
+```
+
+`{"dry_run": true}` runs the checks and does not release. A service key needs scope `purchasing:release_po` (not on the default automation key). Full notes: `docs/STAFF_PO_RELEASE.md`.
+
 ## API Endpoints
 
 ### Base URLs

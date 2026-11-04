@@ -23,6 +23,12 @@ that date on every Draft from today. Open and Released POs are not written.
 After review, the finance email can still be drafted in Outlook from the
 JSON; that is separate from the vendor review draft.
 
+Releasing a purchase order is a separate call,
+`POST /api/admin/purchasing/draft-pos/{po_number}/release`, and it runs
+only when the body sets `confirm` to true. List, validate, line edits,
+requested receipt, and review-draft do not release. See
+[STAFF_PO_RELEASE.md](STAFF_PO_RELEASE.md).
+
 Customer-portal routes are unchanged.
 
 ## Auth

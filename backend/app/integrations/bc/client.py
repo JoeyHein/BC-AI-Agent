@@ -42,6 +42,41 @@ def _prefer_order_row(rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     return rows[0]
 
 
+# Bound action on bc-extension/purchase-order-release (page "OPENDC API PO Release").
+# The standard api/v2.0 purchaseOrders page only publishes ReceiveAndInvoice.
+PURCHASE_ORDER_RELEASE_ACTION = "Microsoft.NAV.Release"
+
+
+class PurchaseOrderReleaseNotPublished(RuntimeError):
+    """The OPENDC purchase-order release page is not callable in this company."""
+
+    def __init__(self, message: str, *, status_code: Optional[int] = None):
+        self.status_code = status_code
+        super().__init__(message)
+
+
+def _bc_error_message(response: requests.Response) -> str:
+    try:
+        body = response.json()
+    except Exception:
+        return (response.text or "")[:500]
+    if isinstance(body, dict):
+        error = body.get("error")
+        if isinstance(error, dict) and error.get("message"):
+            return str(error.get("message"))[:500]
+    return (response.text or "")[:500]
+
+
+def _release_action_missing(message: str) -> bool:
+    text = (message or "").lower()
+    return (
+        "was not found" in text
+        or "methodnotfound" in text
+        or "resource not found" in text
+        or "no http resource was found" in text
+    )
+
+
 def _is_transient_bc_error(exc: Exception) -> bool:
     response = getattr(exc, "response", None)
     if response is None:
@@ -1405,6 +1440,70 @@ class BusinessCentralClient:
             except ValueError:
                 pass
         return {"number": po_number, field: vendor_order_no}
+
+    def release_purchase_order(self, po_id: str, company_id: Optional[str] = None
+                               ) -> Dict[str, Any]:
+        """Release one purchase order. Does not receive or invoice it.
+
+        api/v2.0 ``purchaseOrders`` (page 30066 "APIV2 - Purchase Orders")
+        publishes ``ReceiveAndInvoice`` only, and that page is
+        ``Extensible = false``. Page 50's Release button is not
+        ``[ServiceEnabled]``, so the ``PurchaseOrder`` web service used for
+        Vendor Order No. cannot release either.
+
+        This POSTs ``Microsoft.NAV.Release`` on API page
+        ``OPENDC API PO Release`` (publisher ``opendc``, group
+        ``purchasing``, version ``v1.0``). ``po_id`` is the purchase header
+        system id, the same id ``purchaseOrders`` returns.
+
+        Raises ``PurchaseOrderReleaseNotPublished`` when that page or action
+        is missing, and ``requests.HTTPError`` when Business Central rejects
+        the release. Callers decide whether an "already released" message is
+        a no-op.
+        """
+        if not (po_id or "").strip():
+            raise ValueError("po_id is required")
+        cid = company_id or self.company_id
+        if not cid:
+            raise RuntimeError("BC company id is not configured")
+        base = (settings.PO_RELEASE_BC_API_URL or "").strip().rstrip("/")
+        if not base:
+            base = (settings.bc_purchasing_api_url or "").rstrip("/")
+        if not base:
+            raise RuntimeError("BC purchasing API URL is not configured")
+        url = (
+            f"{base}/companies({cid})/purchaseOrders({po_id})"
+            f"/{PURCHASE_ORDER_RELEASE_ACTION}"
+        )
+        token = self._get_access_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        logger.info(
+            "Releasing purchase order %s via %s",
+            po_id, PURCHASE_ORDER_RELEASE_ACTION,
+        )
+        response = requests.post(url, headers=headers, timeout=120)
+        if response.status_code >= 400:
+            message = _bc_error_message(response)
+            if response.status_code == 404 or _release_action_missing(message):
+                raise PurchaseOrderReleaseNotPublished(
+                    message or f"HTTP {response.status_code}",
+                    status_code=response.status_code,
+                )
+            raise requests.HTTPError(
+                f"{response.status_code} releasing purchase order {po_id}: {message}",
+                response=response,
+            )
+        if not response.content:
+            return {}
+        try:
+            body = response.json()
+        except ValueError:
+            return {}
+        return body if isinstance(body, dict) else {}
 
     def get_purchase_order_pdf(self, po_id: str, company_id: Optional[str] = None
                                 ) -> bytes:

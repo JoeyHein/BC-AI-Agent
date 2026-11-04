@@ -2,7 +2,7 @@
 
 A staff service key (`Authorization: Bearer osk_live_...` or `X-API-Key`) can call only the routes below. Anything else is refused with `This service key is not allowed to call this route.`
 
-A new key gets every scope. These reads use scopes the automation key already has (`quotes:read`, `orders:read`, `purchasing:read`, `inventory:read`), so an existing key can call them without being recreated.
+A new key gets the automation scopes. `purchasing:release_po` is not one of them: an admin has to put that name on a key before it can release a purchase order. These reads use scopes the automation key already has (`quotes:read`, `orders:read`, `purchasing:read`, `inventory:read`), so an existing key can call them without being recreated.
 
 Writes that create, convert, post, ship, or email a Business Central document are not on this list, except the Draft purchase-order edits that were already allowed.
 
@@ -88,6 +88,9 @@ The same inventory paths are also accepted without the `/api` prefix.
 | `purchasing:draft_po_lines` | `POST /api/admin/purchasing/draft-pos/PO-000962/requested-receipt` |
 | `purchasing:generate_po` | `POST /api/admin/purchasing/generate-po` |
 | `purchasing:review_draft` | `POST /api/admin/purchasing/draft-pos/PO-000962/review-draft` |
+| `purchasing:release_po` | `POST /api/admin/purchasing/draft-pos/PO-000962/release` |
+
+`purchasing:release_po` is not included when a key is created with the automation preset or with no scope list. The body must set `confirm` to true and `approved_by`. `dry_run: true` checks only. See [STAFF_PO_RELEASE.md](STAFF_PO_RELEASE.md).
 
 `POST /api/admin/purchasing/generate-po` is allowed only when the body sets `send_email` to false (or `create_review_draft` to false). That skips the Outlook draft. Open and Released purchase orders are refused by the receipt-date route.
 
