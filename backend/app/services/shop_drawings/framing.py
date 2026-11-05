@@ -19,6 +19,8 @@ import ezdxf
 from ezdxf.enums import TextEntityAlignment
 from ezdxf.layouts import Modelspace
 
+from app.services.track_defaults import resolve_track_thickness
+
 logger = logging.getLogger(__name__)
 
 # ─── Sheet geometry ────────────────────────────────────────────────────────
@@ -2947,7 +2949,11 @@ def build_context_from_config(
         high_lift_inches=(float(door["highLiftInches"]) if door.get("highLiftInches") else None),
         lhr_mount=str(door.get("lhrMount") or "front"),
         track_radius_in=float(door.get("trackRadius") or 15),
-        track_thickness_ga=str(door.get("trackThickness") or "2"),
+        track_thickness_ga=resolve_track_thickness(
+            door.get("trackThickness") if "trackThickness" in door else None,
+            series,
+            door_type,
+        ),
         track_mount=str(door.get("trackMount") or "bracket"),
         jamb_type="steel" if door_type == "commercial" else "wood",
         insulated=True,

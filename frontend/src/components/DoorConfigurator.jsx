@@ -19,6 +19,7 @@ import {
   collectDoorsDimensionErrors,
   formatLimitFt,
 } from '../utils/doorDimensions'
+import { isAluminumDoor } from '../utils/trackDefaults'
 
 const STEPS = [
   { id: 'type', title: 'Door Type', description: 'Select door category' },
@@ -517,7 +518,26 @@ function DoorConfigurator() {
           <DoorTypeStep
             doorTypes={config.doorTypes}
             selected={currentDoor.doorType}
-            onSelect={(type) => updateCurrentDoor({ doorType: type, doorSeries: '', panelColor: '', panelDesign: '', hasWindows: false, windowInsert: null, windowPositions: [], windowQty: 0, windowPanels: undefined, windowSection: 1, glassPaneType: null, glassColor: null, trackMount: 'bracket', mountSurface: 'wood' })}
+            onSelect={(type) => updateCurrentDoor({
+              doorType: type,
+              doorSeries: '',
+              panelColor: '',
+              panelDesign: '',
+              hasWindows: false,
+              windowInsert: null,
+              windowPositions: [],
+              windowQty: 0,
+              windowPanels: undefined,
+              windowSection: 1,
+              glassPaneType: null,
+              glassColor: null,
+              trackMount: 'bracket',
+              mountSurface: 'wood',
+              // Residential steel stays 2". Commercial and aluminum standard to 3".
+              // 12" radius cannot take 3" track, so aluminum bumps off that radius.
+              trackThickness: type === 'residential' ? '2' : '3',
+              ...(type === 'aluminium' && currentDoor.trackRadius === '12' ? { trackRadius: '15' } : {}),
+            })}
           />
         )}
 
@@ -543,7 +563,10 @@ function DoorConfigurator() {
                 windowSection: 1,
                 glassPaneType: null,
                 glassColor: null,
-                ...(isCommercialSeries ? { trackThickness: '3' } : {}),
+                // Commercial steel and every aluminum series standard to 3" track.
+                // 2" stays selectable on the hardware step. Other series are unchanged.
+                ...(isCommercialSeries || isAluminumSeries ? { trackThickness: '3' } : {}),
+                ...(isAluminumSeries && currentDoor.trackRadius === '12' ? { trackRadius: '15' } : {}),
                 ...(isAluminumSeries ? {
                   glazingType: isGlassSeries ? 'glass' : 'polycarbonate',
                   glassPaneType: isGlassSeries ? 'INSULATED' : null,
@@ -2638,6 +2661,11 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
             )
           })}
         </div>
+        {isAluminumDoor(door.doorSeries, door.doorType) && (
+          <p className="mt-2 text-xs text-gray-500">
+            3&quot; track is standard for aluminum doors. Choose 2&quot; when the opening needs it.
+          </p>
+        )}
       </div>
 
       {/* Track Mount — bracket vs continuous angle. Applies to every

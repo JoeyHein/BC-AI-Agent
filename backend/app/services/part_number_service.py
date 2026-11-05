@@ -49,6 +49,8 @@ import logging
 import math
 import os
 from typing import Dict, List, Any, Optional, Tuple
+
+from app.services.track_defaults import default_track_thickness, resolve_track_thickness
 from dataclasses import dataclass
 from enum import Enum
 
@@ -132,7 +134,9 @@ class DoorConfiguration:
     glass_type: Optional[str] = "ANNEALED"  # 'ANNEALED' or 'TEMPERED' (safety)
     glass_color: Optional[str] = None      # 'CLEAR', 'ETCHED', 'SUPER_GREY'
     track_radius: str = "15"
-    track_thickness: str = "2"
+    # None means "not chosen". Aluminum doors then standard to 3"; steel stays 2".
+    # An explicit "2" or "3" is kept — 2" is still a valid aluminum option.
+    track_thickness: Optional[str] = None
     hardware: Dict[str, bool] = None
     operator: Optional[str] = None
     operator_accessories: Optional[List[str]] = None  # list of accessory part numbers
@@ -160,6 +164,9 @@ class DoorConfiguration:
         # Enforce minimum 10,000 cycle standard on all springs
         if self.target_cycles < 10000:
             self.target_cycles = 10000
+        self.track_thickness = resolve_track_thickness(
+            self.track_thickness, self.door_series, self.door_type,
+        )
     include_pusher_springs: bool = False  # Upgrade: adds TR13-00031-00 + TR13-00032-00
     # ─── Additional optional extras (mirror configurator checklist) ───
     # BC item codes for each of these are configured in OPTIONAL_EXTRA_PARTS
@@ -1043,7 +1050,9 @@ class PartNumberService:
         # hardware. A face/panels-only order has no tracks, so omit those details.
         face_only = scope_label in ("DOOR FACE ONLY", "PANELS ONLY")
         if not face_only:
-            track_size = int(config.track_thickness) if config.track_thickness else 2
+            track_size = int(config.track_thickness) if config.track_thickness else int(
+                default_track_thickness(config.door_series, config.door_type)
+            )
             mount_label = "ANGLE MOUNT" if config.track_mount == 'angle' else "BRACKET MOUNT"
             comment_desc += f" | {track_size}\" {mount_label}"
 
@@ -1947,7 +1956,9 @@ class PartNumberService:
 
         # Round UP to next whole foot for BC part number (track must cover full door height)
         door_height_feet = math.ceil(config.door_height / 12)
-        track_size = int(config.track_thickness) if config.track_thickness else 2
+        track_size = int(config.track_thickness) if config.track_thickness else int(
+            default_track_thickness(config.door_series, config.door_type)
+        )
         radius_inches = int(config.track_radius) if config.track_radius else 12
 
         # Commercial: 2" track only allowed if height ≤14' AND width ≤18' per rulebook
@@ -2097,7 +2108,9 @@ class PartNumberService:
 
         # Select the correct drum for this lift type
         # 3" track forces D525-216 minimum (no D400 drums)
-        track_size = int(config.track_thickness) if config.track_thickness else 2
+        track_size = int(config.track_thickness) if config.track_thickness else int(
+            default_track_thickness(config.door_series, config.door_type)
+        )
         high_lift_inches = config.high_lift_inches or 0
         effective_height = config.door_height + high_lift_inches if dc_lift_type == 'high' else config.door_height
         drums = door_calculator._select_drum(
@@ -4730,7 +4743,11 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         glass_type=(config_dict.get("glassType") or "ANNEALED").upper(),
         glass_color=config_dict.get("glassColor"),
         track_radius=config_dict.get("trackRadius", "15"),
-        track_thickness=config_dict.get("trackThickness", "2"),
+        track_thickness=resolve_track_thickness(
+            config_dict.get("trackThickness") if "trackThickness" in config_dict else None,
+            config_dict.get("doorSeries"),
+            config_dict.get("doorType"),
+        ),
         track_mount=config_dict.get("trackMount", "bracket"),
         lift_type=config_dict.get("liftType", "standard"),
         high_lift_inches=config_dict.get("highLiftInches"),

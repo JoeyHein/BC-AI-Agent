@@ -19,6 +19,7 @@ from app.services.part_number_service import (
     DoorConfiguration,
     PartSelection,
 )
+from app.services.track_defaults import resolve_track_thickness
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +126,6 @@ class QuoteGenerationService:
         height_in = door_spec.get("height_in", 0) or 0
         color = door_spec.get("color")
         glazing = door_spec.get("glazing")
-        track_type = door_spec.get("track_type", "2")
 
         if not model:
             logger.warning("Door spec missing model, skipping")
@@ -150,6 +150,11 @@ class QuoteGenerationService:
         # Map color to standard color code
         panel_color = self._map_color_to_code(color, door_series)
 
+        # Null/omitted track follows the series default (3" aluminum, 2" steel).
+        track_thickness = resolve_track_thickness(
+            door_spec.get("track_type"), door_series, door_type,
+        )
+
         # Create DoorConfiguration for the part number service
         try:
             config = DoorConfiguration(
@@ -163,8 +168,8 @@ class QuoteGenerationService:
                 window_insert=None,  # TODO: parse from glazing
                 window_section=None,
                 glazing_type=glazing.upper() if glazing else None,
-                track_radius="15" if track_type == "2" else "12",
-                track_thickness=track_type or "2",
+                track_radius="15" if track_thickness == "2" else "12",
+                track_thickness=track_thickness,
                 hardware={
                     "tracks": True,
                     "springs": True,
@@ -207,9 +212,11 @@ class QuoteGenerationService:
                         unit_price, part.category, part.part_number, context
                     )
 
-                # Calculate total (quantity from part × door quantity)
+                # Calculate total (quantity from part × door quantity).
+                # Some lines (aluminum wrap) carry a float quantity; Decimal
+                # cannot multiply that directly.
                 total_quantity = part.quantity * quantity
-                total_price = unit_price * total_quantity
+                total_price = unit_price * Decimal(str(total_quantity))
 
                 items.append({
                     "item_type": part.category,
@@ -271,6 +278,7 @@ class QuoteGenerationService:
             "KANATA": "KANATA",
             "CRAFT": "CRAFT",
             "SOLALITE": "AL976",  # Solalite is aluminum series
+            "PANORAMA": "PANORAMA",
         }
 
         for key, series in series_map.items():
@@ -295,7 +303,7 @@ class QuoteGenerationService:
             return "commercial"
 
         # Aluminum
-        if any(x in model_upper for x in ["AL976", "ALUMINUM", "ALUMINIUM", "SOLALITE", "SWD"]):
+        if any(x in model_upper for x in ["AL976", "ALUMINUM", "ALUMINIUM", "SOLALITE", "SWD", "PANORAMA"]):
             return "aluminium"
 
         # Size-based heuristic: very large doors are likely commercial
@@ -497,8 +505,13 @@ class QuoteGenerationService:
         sq_ft = width_ft * height_ft
         door_weight = self._estimate_door_weight(model, sq_ft)
 
-        # Get track radius from spec or default to 15"
-        track_type = door_spec.get("track_type", "2")
+        # Get track radius from spec. Omitted track follows the series default
+        # (3" on aluminum, 2" on steel) so the spring length matches the track.
+        door_series = self._map_model_to_series(model)
+        door_type = self._determine_door_type(model, width_inches, height_inches)
+        track_type = resolve_track_thickness(
+            door_spec.get("track_type"), door_series, door_type,
+        )
         track_radius = 15 if track_type == "2" else 12  # Standard radius by track type
 
         # Calculate springs using Canimex methodology

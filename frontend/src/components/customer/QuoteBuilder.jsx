@@ -20,6 +20,7 @@ import {
   collectDoorsDimensionErrors,
   formatLimitFt,
 } from '../../utils/doorDimensions'
+import { isAluminumDoor } from '../../utils/trackDefaults'
 
 const STEPS = [
   { id: 'type', title: 'Door Type', description: 'Select door category' },
@@ -538,9 +539,11 @@ function QuoteBuilder() {
                 glassColor: null,
                 trackMount: 'bracket',
                 mountSurface: 'wood',
-                // Set track defaults based on door type
-                trackRadius: type === 'commercial' ? '15' : '12',
-                trackThickness: type === 'commercial' ? '3' : '2',
+                // Residential steel: 12" radius / 2" track.
+                // Commercial and aluminum: 15" radius / 3" track.
+                // 12" radius is 2" track only, so aluminum cannot keep it.
+                trackRadius: type === 'commercial' || type === 'aluminium' ? '15' : '12',
+                trackThickness: type === 'commercial' || type === 'aluminium' ? '3' : '2',
               })}
             />
           </div>
@@ -566,7 +569,10 @@ function QuoteBuilder() {
                 windowQty: 0,
                 glassPaneType: null,
                 glassColor: null,
-                ...(isCommercialSeries ? { trackThickness: '3' } : {}),
+                // Commercial steel and every aluminum series standard to 3" track.
+                // 2" stays selectable on the hardware step. Other series are unchanged.
+                ...(isCommercialSeries || isAluminumSeries ? { trackThickness: '3' } : {}),
+                ...(isAluminumSeries && currentDoor.trackRadius === '12' ? { trackRadius: '15' } : {}),
                 ...(isAluminumSeries ? {
                   glassPaneType: isGlassSeries ? 'INSULATED' : null,
                   glassColor: 'CLEAR',
@@ -2571,6 +2577,11 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
               })}
             </div>
           </div>
+          {isAluminumDoor(door.doorSeries, door.doorType) && (
+            <p className="md:col-span-2 text-xs text-gray-500">
+              3&quot; track is standard for aluminum doors. Choose 2&quot; when the opening needs it.
+            </p>
+          )}
         </div>
       )}
 

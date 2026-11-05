@@ -88,7 +88,7 @@ Analyze the following email and extract structured quote request information.
    - Color/finish
    - Glazing type (if applicable: thermopane, single glass, polycarbonate, etc.)
    - Panel configuration (18", 21", 24" sections)
-   - Track type (2" or 3")
+   - Track type (2" or 3"). Leave null when the email does not say. Aluminium / full-view doors (AL976, SWD, Panorama, Solalite) standard to 3" when null; steel stays null so the quote service keeps its own default.
    - Any special features or notes
 
 3. **Project Information:**
@@ -458,8 +458,8 @@ EVERY field, using the defaults shown when the email is silent:
   "hasWindows": false,
   "windowQty": 0,                   // commercial window/section count if windows requested
   "glazingType": null,              // e.g. "THERMOPANE", "SINGLE", "POLYCARBONATE" if mentioned
-  "trackThickness": "2",           // "2" (default) or "3"
-  "trackRadius": "15",             // "15" (default, for 2\" track) or "12" (for 3\" track)
+  "trackThickness": "2",           // Steel default "2" when the email is silent. Aluminium full-view (AL976, SWD, Panorama, Solalite) default "3" when the email is silent. Use "2" on an aluminium door only when the email asks for 2\" track.
+  "trackRadius": "15",             // "15" (default) or "12" (2\" track only)
   "trackMount": "bracket",
   "liftType": "standard",          // "standard" (default), "low_headroom", "high_lift", "vertical"
   "highLiftInches": null,           // integer if liftType is high_lift
@@ -591,8 +591,9 @@ OUTPUT FORMAT — JSON only, no prose:
             if not design:
                 design = "FLUSH" if door_type == "commercial" else "SHXL"
 
-            track_thickness = str(d.get("trackThickness", "2")).strip()
-            track_thickness = "3" if track_thickness.startswith("3") else "2"
+            from app.services.track_defaults import resolve_track_thickness
+            raw_track = d.get("trackThickness") if "trackThickness" in d else None
+            track_thickness = resolve_track_thickness(raw_track, series, door_type)
             track_radius = str(d.get("trackRadius", "") or "").strip()
             if track_radius not in {"12", "15"}:
                 track_radius = "12" if track_thickness == "3" else "15"
