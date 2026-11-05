@@ -16,6 +16,7 @@ import { exportAsSVG, exportAsPNG, exportAsPDF, printDrawing, exportDrawingPacka
 import { doorConfigApi } from '../api/client'
 import { savedQuotesApi, customerDoorConfigApi } from '../api/customerClient'
 import { extrasFromConfig, extrasFromLineItems } from '../utils/doorExtras'
+import { isAluminumDoor } from '../utils/trackDefaults'
 
 const TABS = [
   { id: 'preview', label: 'Door Preview', icon: '\u{1F6AA}' },
@@ -73,7 +74,7 @@ function DoorDrawings({
     doorType = 'residential',
     doorSeries = 'KANATA',
     trackRadius = '15',
-    trackThickness = '2',
+    trackThickness,
     liftType: configLiftType = null,
     highLiftInches = null,
     trackMount = 'bracket',
@@ -85,7 +86,7 @@ function DoorDrawings({
   const widthInches = parseInt(doorWidth) || 96
   const heightInches = parseInt(doorHeight) || 84
   const radius = parseInt(trackRadius) || 15
-  const trackSize = parseInt(trackThickness) || 2
+  const trackSize = parseInt(trackThickness) || (isAluminumDoor(doorSeries, doorType) ? 3 : 2)
 
   // Use config-provided lift type, or derive from track settings as fallback
   const liftType = configLiftType || (radius === 12 ? 'low_headroom' : 'standard')

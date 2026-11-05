@@ -32,6 +32,17 @@ from app.services.freight_service import (
     sum_line_amounts,
 )
 from app.services.install_pricing_service import install_pricing_service
+from app.services.track_defaults import resolve_track_thickness
+
+
+def _door_track_thickness(door: dict) -> str:
+    """Track size for a portal door dict.
+
+    A missing or blank trackThickness follows the series default (3\" for
+    aluminum, 2\" for steel). An explicit \"2\" or \"3\" is kept.
+    """
+    raw = door.get("trackThickness") if "trackThickness" in door else None
+    return resolve_track_thickness(raw, door.get("doorSeries"), door.get("doorType"))
 
 
 def _mount_surface_note(door: dict) -> Optional[str]:
@@ -663,7 +674,7 @@ def _format_door_description(door: dict) -> str:
     width_str = f"{width_ft}'{width_in}\""
     height_str = f"{height_ft}'{height_in}\""
 
-    track_display = _format_mount_label(door.get("trackMount", "bracket"), door.get("trackThickness", "2"))
+    track_display = _format_mount_label(door.get("trackMount", "bracket"), _door_track_thickness(door))
     lift_type = _format_lift_label(
         door.get("liftType", "standard"),
         door.get("highLiftInches"),
@@ -952,7 +963,7 @@ def _generate_bc_quote_with_items(
             "glassType": door.get("glassType", "ANNEALED"),
             "glassColor": door.get("glassColor"),
             "trackRadius": door.get("trackRadius", "15"),
-            "trackThickness": door.get("trackThickness", "2"),
+            "trackThickness": _door_track_thickness(door),
             "trackMount": door.get("trackMount", "bracket"),
             "mountSurface": door.get("mountSurface", "wood"),
             "liftType": door.get("liftType", "standard"),
@@ -1993,7 +2004,7 @@ def _build_door_config_dict(door: dict, is_home_builder: bool = False) -> dict:
         "glassType": door.get("glassType", "ANNEALED"),
         "glassColor": door.get("glassColor"),
         "trackRadius": door.get("trackRadius", "15"),
-        "trackThickness": door.get("trackThickness", "2"),
+        "trackThickness": _door_track_thickness(door),
         "trackMount": door.get("trackMount", "bracket"),
         "mountSurface": door.get("mountSurface", "wood"),
         "liftType": door.get("liftType", "standard"),
@@ -2525,7 +2536,7 @@ def _estimate_pricing_locally(
             "glassType": door.get("glassType", "ANNEALED"),
             "glassColor": door.get("glassColor"),
             "trackRadius": door.get("trackRadius", "15"),
-            "trackThickness": door.get("trackThickness", "2"),
+            "trackThickness": _door_track_thickness(door),
             "trackMount": door.get("trackMount", "bracket"),
             "mountSurface": door.get("mountSurface", "wood"),
             "liftType": door.get("liftType", "standard"),

@@ -165,6 +165,20 @@ def map_ai_door_to_upwardor(ai_door: Dict[str, Any], client: UpwardorAPIClient) 
     config = client.build_door_config(door_width=door_width, door_height=door_height, panel_color=panel_color, stamp_pattern=stamp_pattern, track_radius=track_radius)
     config["categoryType"] = category_info["type"]
     config["categoryValue"] = category_info["value"]
+    # track_type on this payload is a radius ("12"/"15") unless it is 2 or 3.
+    # Aluminum doors standard to 3" track; an explicit 2" is kept. Steel
+    # keeps the 2" value build_door_config already set.
+    from app.services.track_defaults import is_aluminum_door, resolve_track_thickness
+    if is_aluminum_door(model_raw, category_info["type"]):
+        thickness_hint = ai_door.get("track_thickness")
+        if thickness_hint in (None, ""):
+            raw_track = str(ai_door.get("track_type") or "").strip()
+            if raw_track.startswith("2") or raw_track.startswith("3"):
+                thickness_hint = raw_track
+            else:
+                thickness_hint = None
+        size = resolve_track_thickness(thickness_hint, model_raw, category_info["type"])
+        config["trackThickness"] = f"{size} INCH TRACK"
     glazing = ai_door.get("glazing")
     if glazing and glazing.lower() not in ["none", "no", ""]:
         config["window"] = "yes"

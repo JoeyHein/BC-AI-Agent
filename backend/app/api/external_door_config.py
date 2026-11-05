@@ -5,7 +5,9 @@ POST /api/external/door-config/resolve-parts
     Body: { "supplierAccountCode": "ED-001", "doorConfig": { ...widget config... } }
 
 Lift fields on doorConfig (all optional; omitting them keeps today's
-standard-lift, 15" radius, 2" bracket-mount resolution):
+standard-lift, 15" radius, bracket-mount resolution). Track thickness
+omitted on an aluminium door (AL976, SWD, Panorama, Solalite) resolves
+to 3"; omitted on any other door stays 2". An explicit "2" stays 2".
 
     liftType          standard | low_headroom | high_lift | vertical
                       Also accepted: standard_12, standard_15, lhr_front,
@@ -18,7 +20,7 @@ standard-lift, 15" radius, 2" bracket-mount resolution):
     highLiftInches    whole inches of high lift. Also accepted as highLiftIn.
     trackRadius       "12" or "15" (any positive whole number). standard_12 /
                       standard_15 set this when trackRadius is omitted.
-    trackThickness    "2" or "3". Omitted → the resolver's 2" default.
+    trackThickness    "2" or "3". Omitted on aluminium → 3". Omitted otherwise → 2".
     trackMount        bracket | angle. Omitted → bracket.
 
 Response (200) is unchanged:
@@ -174,8 +176,9 @@ def _lift_fields(cfg: Dict[str, Any]) -> Dict[str, Any]:
     """Lift / track keys the part resolver already understands.
 
     Only keys the caller actually sent are returned. Missing keys stay
-    missing so get_parts_for_door_config keeps its current defaults
-    (standard lift, 15" radius, 2" track, bracket mount, front LHR).
+    missing so get_parts_for_door_config keeps its defaults (standard
+    lift, 15" radius, bracket mount, front LHR). Track thickness
+    defaults to 3" for aluminium doors and 2" otherwise.
     """
     extra: Dict[str, Any] = {}
     encoded_mount: Optional[str] = None

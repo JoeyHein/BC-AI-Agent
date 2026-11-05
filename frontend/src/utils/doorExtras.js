@@ -11,6 +11,8 @@
  * Both return a deduplicated array of uppercase strings.
  */
 
+import { isAluminumDoor } from './trackDefaults'
+
 const LIFT_LABELS = {
   standard: 'STANDARD LIFT',
   high_lift: 'HIGH LIFT',
@@ -22,7 +24,7 @@ export function extrasFromConfig(doorConfig = {}) {
   const items = []
   const cfg = doorConfig
 
-  const ts = parseInt(cfg.trackThickness) || 2
+  const ts = parseInt(cfg.trackThickness) || (isAluminumDoor(cfg.doorSeries, cfg.doorType) ? 3 : 2)
   items.push(`${ts}" TRACK APPLICATION`)
 
   const isResidential = (cfg.doorType || 'residential') === 'residential'

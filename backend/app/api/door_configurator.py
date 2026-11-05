@@ -6,7 +6,7 @@ Based on Upwardor brochure specifications (Residential 2025 & Commercial 2023)
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from typing import Optional, List, Dict, Any, Tuple
 import logging
 import re
@@ -785,6 +785,9 @@ class DoorConfigRequest(BaseModel):
     glassColor: Optional[str] = None     # 'CLEAR', 'ETCHED', 'SUPER_GREY'
     glassPocketsPerSection: Optional[Dict[str, int]] = None  # Per-section pocket overrides: {"0": 4, "1": 3, ...}
     trackRadius: str = "15"
+    # Omitted track size: aluminum doors standard to 3" (see validator).
+    # Steel keeps 2" here; commercial steel is set to 3" by the portal UI.
+    # An explicit "2" on an aluminum door stays 2".
     trackThickness: str = "2"
     trackMount: str = "bracket"  # 'bracket' or 'angle'
     mountSurface: str = "wood"  # 'wood', 'steel', or 'concrete' — install method; steel/concrete add a builder install premium + quote comment (door product price unaffected)
@@ -801,6 +804,17 @@ class DoorConfigRequest(BaseModel):
     includeTopSeal: bool = False  # optional upgrade for commercial doors
     includePusherSprings: bool = False  # optional upgrade: adds TR13-00031-00 + TR13-00032-00
     bumperSpring: bool = False  # leaf bumper spring pair: TR13-00029-00 + TR13-00030-00
+
+    @model_validator(mode="after")
+    def _default_aluminum_track(self):
+        """Aluminum doors standard to 3\" track when the client omits the field.
+
+        Explicit 2\" or 3\" is left alone. Steel doors keep the 2\" field default.
+        """
+        from app.services.track_defaults import default_track_thickness
+        if "trackThickness" not in self.model_fields_set:
+            self.trackThickness = default_track_thickness(self.doorSeries, self.doorType)
+        return self
 
 
 class QuoteGenerationRequest(BaseModel):
@@ -1265,7 +1279,9 @@ def _parse_door_header(comment: str) -> Optional[Dict[str, Any]]:
         scope_label = segments.pop()
 
     lift_type, high_lift_inches, lhr_mount = "standard", None, "front"
-    track_thickness, track_mount = "2", "bracket"
+    # None until a track segment is parsed. Aluminum then standards to 3";
+    # steel stays 2". A header that says 2" is restored as 2".
+    track_thickness, track_mount = None, "bracket"
 
     if scope_label:
         # Face/panels-only doors never emit a track+lift segment — nothing
@@ -1305,6 +1321,10 @@ def _parse_door_header(comment: str) -> Optional[Dict[str, Any]]:
     door_type = SERIES_TO_DOOR_TYPE.get(door_series.upper()) or SERIES_TO_DOOR_TYPE.get(door_series)
     if not door_type:
         warnings.append(f"Unknown door series '{door_series}' — select door type/series manually.")
+
+    if track_thickness is None:
+        from app.services.track_defaults import default_track_thickness
+        track_thickness = default_track_thickness(door_series, door_type)
 
     return {
         "doorCount": int(qty),
