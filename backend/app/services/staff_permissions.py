@@ -542,7 +542,7 @@ def permission_for(method: str, path: str):
             return ("perm", "pricing.edit")
         return _level(method, "settings.view", "settings.edit")
     if path.startswith("/api/metrics"):
-        return _metrics(path)
+        return _metrics(path, method)
     if path.startswith("/api/kpi"):
         if method not in _SAFE:
             return ("perm", "users.manage")
@@ -638,7 +638,19 @@ def _bc(method: str, path: str):
     return ("perm", "users.manage")
 
 
-def _metrics(path: str):
+def _metrics(path: str, method: str = "GET"):
+    method = (method or "GET").upper()
+    if path == "/api/metrics/upwardor-plan" or path.startswith("/api/metrics/upwardor-plan/"):
+        if method not in _SAFE:
+            return ("perm", "users.manage")
+        return (
+            "any",
+            "users.manage",
+            "quotes.edit",
+            "sales_orders.edit",
+            "purchase_orders.view",
+            "sales_orders.view",
+        )
     if path == "/api/metrics/executive":
         return ("perm", "users.manage")
     if path == "/api/metrics/operations":

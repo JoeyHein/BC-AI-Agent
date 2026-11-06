@@ -30,6 +30,7 @@ const SECTIONS = [
     label: 'Reports',
     items: [
       { path: '/business', label: 'Business', icon: 'chart' },
+      { path: '/business/upwardor', label: 'Upwardor plan', icon: 'flag' },
       { path: '/analytics', label: 'Sales Analytics', icon: 'chart' },
       { path: '/analytics/quoting', label: 'Quoting', icon: 'chart' },
       { path: '/analytics/order-age', label: 'Order Age Tracker', icon: 'clock' },
@@ -67,6 +68,7 @@ function Icon({ name }) {
     cut: 'M7 5l5 7-5 7M17 5l-5 7 5 7',
     cart: 'M3 4h2l2.2 11h11.3l1.8-7H7M9 20a1 1 0 100-2 1 1 0 000 2zM18 20a1 1 0 100-2 1 1 0 000 2z',
     chart: 'M4 19V5M4 19h16M8 16v-5M12 16V8M16 16v-3',
+    flag: 'M5 21V4M5 4h9l-1.5 3L14 10H5',
     clock: 'M12 7v5l3 2M12 21a9 9 0 110-18 9 9 0 010 18z',
     mail: 'M4 6h16v12H4zM4 7l8 6 8-6',
     cog: 'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9c.3.6.9 1 1.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z',
