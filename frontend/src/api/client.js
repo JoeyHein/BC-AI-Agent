@@ -773,6 +773,13 @@ export const metricsApi = {
     apiClient.get(`/api/metrics/sales-analytics?period=${period}&compare=${compare}`),
 };
 
+// Upwardor payable plan ($500K by Christmas). Read-only Business Central, plus admin lever/actuals.
+export const upwardorPlanApi = {
+  get: () => apiClient.get('/api/metrics/upwardor-plan'),
+  updateLever: (body) => apiClient.patch('/api/metrics/upwardor-plan/levers', body),
+  updateActuals: (body) => apiClient.patch('/api/metrics/upwardor-plan/actuals', body),
+};
+
 // Staff KPI dashboard. Read-only. from/to are YYYY-MM-DD.
 export const kpiApi = {
   dashboard: ({ month } = {}) =>

@@ -25,6 +25,7 @@ from app.api import ops_tracker
 from app.api import public
 from app.api import email_agent
 from app.api import metrics
+from app.api import upwardor_plan
 from app.api import integrations
 from app.api import pricing_diagnostic
 from app.api import customer_team
@@ -377,6 +378,8 @@ app.include_router(email_agent.router)
 # Business Metrics router
 logger.info(f"Including metrics router: {metrics.router.prefix}")
 app.include_router(metrics.router)
+logger.info(f"Including upwardor plan router: {upwardor_plan.router.prefix}")
+app.include_router(upwardor_plan.router)
 logger.info(f"Including kpi dashboard router: {kpi_dashboard.router.prefix}")
 app.include_router(kpi_dashboard.router)
 
