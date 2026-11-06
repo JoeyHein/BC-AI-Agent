@@ -7,7 +7,8 @@ from datetime import datetime
 from typing import Optional
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Date, Boolean, Float,
-    ForeignKey, JSON, Enum as SQLEnum, ARRAY, Numeric, UniqueConstraint
+    ForeignKey, JSON, Enum as SQLEnum, ARRAY, Numeric, UniqueConstraint,
+    LargeBinary,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.mutable import MutableDict, MutableList
@@ -976,6 +977,15 @@ class SavedQuoteConfig(Base):
     creator_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     creator_email = Column(String(255), nullable=True)
     creator_tag = Column(String(35), nullable=True, index=True)
+
+    # Issued shop drawing. Revision starts at 0 and increments each time the
+    # door config changes. The PDF and DXF are the drawing as issued.
+    shop_drawing_number = Column(String(40), nullable=True)
+    shop_drawing_revision = Column(Integer, nullable=True)
+    shop_drawing_pdf = Column(LargeBinary, nullable=True)
+    shop_drawing_dxf = Column(LargeBinary, nullable=True)
+    shop_drawn_by = Column(String(255), nullable=True)
+    shop_drawing_generated_at = Column(DateTime, nullable=True)
 
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
