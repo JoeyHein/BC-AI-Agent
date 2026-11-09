@@ -2602,6 +2602,10 @@ class OpsTrackedOrder(Base):
     supplier_expected = Column(Date, nullable=True)
     customer_update_baseline = Column(Date, nullable=True)
     updates_baselined = Column(Boolean, nullable=False, default=False)
+    # BC requestedDeliveryDate. The date the customer was given.
+    promised_date = Column(Date, nullable=True)
+    # BC shipmentDate on the order, or the earliest line shipment date.
+    shipment_date = Column(Date, nullable=True)
     operators = Column(String(40), nullable=False, default="")
     window_kits = Column(String(40), nullable=False, default="")
     emergency_build = Column(String(40), nullable=False, default="")
@@ -2699,6 +2703,8 @@ class OpsTrackedPo(Base):
     ack_needs_review = Column(Boolean, nullable=False, default=False)
     ack_extracted_json = Column(JSON, nullable=True)
     missing_summary = Column(Text, nullable=True)
+    # Missing-ack chase stays hidden until this date. Set from the to-do list.
+    ack_snooze_until = Column(Date, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
@@ -2818,3 +2824,29 @@ class OpsActivity(Base):
 
     def __repr__(self):
         return f"<OpsActivity({self.event_type} {self.so_number} {self.po_number})>"
+
+
+class UpwardorReconRun(Base):
+    """One weekly match of Upwardor's open-order list against our POs.
+
+    The file itself is not kept. `exceptions_json` is the report, so last
+    week's run can be compared with this week's without the spreadsheet.
+    """
+
+    __tablename__ = "upwardor_recon_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_by_email = Column(String(255), nullable=True)
+    source = Column(String(20), nullable=False, default="paste")
+    filename = Column(String(255), nullable=True)
+    column_map_json = Column(JSON, nullable=True)
+    row_count = Column(Integer, nullable=False, default=0)
+    exceptions_json = Column(JSON, nullable=True)
+    summary_json = Column(JSON, nullable=True)
+    comparison_json = Column(JSON, nullable=True)
+    previous_run_id = Column(Integer, ForeignKey("upwardor_recon_runs.id", ondelete="SET NULL"), nullable=True)
+
+    def __repr__(self):
+        return f"<UpwardorReconRun(id={self.id} rows={self.row_count})>"

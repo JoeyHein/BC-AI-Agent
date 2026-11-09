@@ -858,6 +858,20 @@ export const opsApi = {
   purchasingWork: () => apiClient.get('/api/ops/purchasing-work'),
   activity: (params) => apiClient.get('/api/ops/activity', { params }),
   addNote: (body) => apiClient.post('/api/ops/activity', body),
+  snoozeAck: (poNumber, followUpOn) => apiClient.post(
+    `/api/ops/tracker/pos/${encodeURIComponent(poNumber)}/snooze-ack`,
+    { follow_up_on: followUpOn },
+  ),
+  upwardorRecon: () => apiClient.get('/api/ops/upwardor-recon'),
+  upwardorReconRun: (id) => apiClient.get(`/api/ops/upwardor-recon/${id}`),
+  upwardorReconPaste: (text) => apiClient.post('/api/ops/upwardor-recon', { text }),
+  upwardorReconUpload: (file) => {
+    const body = new FormData()
+    body.append('file', file)
+    return apiClient.post('/api/ops/upwardor-recon', body, {
+      headers: { 'Content-Type': undefined },
+    })
+  },
 }
 
 export const externalKeysApi = {

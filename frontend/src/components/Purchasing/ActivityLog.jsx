@@ -15,6 +15,10 @@ const LABELS = {
   reminder_drafted: 'Reminder drafted',
   reminder_sent: 'Reminder sent',
   reminder_rejected: 'Reminder rejected',
+  ack_snoozed: 'Ack snoozed',
+  customer_update_drafted: 'Customer update drafted',
+  customer_update_sent: 'Customer update sent',
+  customer_update_rejected: 'Customer update rejected',
   sourcing_changed: 'Sourcing',
   follow_up: 'Follow-up',
   po_emailed: 'PO emailed',
@@ -121,6 +125,43 @@ export function ActivityLog({ soNumber = '', poNumber = '', title = 'Activity' }
   )
 }
 
+export function SnoozeAck({ poNumber, onDone }) {
+  const [day, setDay] = useState('')
+  const [error, setError] = useState('')
+  const snooze = useMutation({
+    mutationFn: () => opsApi.snoozeAck(poNumber, day),
+    onSuccess: () => {
+      setDay('')
+      setError('')
+      onDone()
+    },
+    onError: (err) => setError(detailOf(err, 'Could not snooze that chase.')),
+  })
+  if (!poNumber) return null
+  return (
+    <form
+      className="flex flex-wrap items-center gap-2"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (day) snooze.mutate()
+      }}
+    >
+      <input
+        required
+        aria-label={`Follow-up date for ${poNumber}`}
+        type="date"
+        value={day}
+        onChange={(event) => setDay(event.target.value)}
+        className="min-h-9 rounded-lg border px-2 text-sm"
+      />
+      <button type="submit" disabled={snooze.isPending} className="rounded-lg px-3 py-1.5 text-sm ring-1 ring-gray-300">
+        Snooze
+      </button>
+      {error && <span className="text-xs text-red-700">{error}</span>}
+    </form>
+  )
+}
+
 export function PurchasingWork() {
   const queryClient = useQueryClient()
   const [error, setError] = useState('')
@@ -194,6 +235,13 @@ export function PurchasingWork() {
             </div>
             <div className="flex items-center gap-2">
               {row.overdue && <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">Overdue</span>}
+              {row.kind === 'missing_ack' && row.po_number && (
+                <SnoozeAck poNumber={row.po_number} onDone={() => {
+                  queryClient.invalidateQueries({ queryKey: ['ops-purchasing-work'] })
+                  queryClient.invalidateQueries({ queryKey: ['ops-actions'] })
+                  queryClient.invalidateQueries({ queryKey: ['ops-tracker'] })
+                }} />
+              )}
               {row.kind === 'follow_up' && (
                 <button type="button" onClick={() => done.mutate(row.id)} className="rounded-lg px-3 py-1.5 text-sm ring-1 ring-gray-300">Done</button>
               )}
