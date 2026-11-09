@@ -21,6 +21,7 @@ from app.integrations.bc.client import bc_client
 from app.services.upwardor_plan import (
     EDMONTON,
     GNB_PO_NUMBER,
+    PLAN_BY_WEEK,
     PLAN_START,
     PLAN_WEEKS,
     build_forecast,
@@ -34,6 +35,10 @@ logger = logging.getLogger(__name__)
 
 SETTINGS_KEY = "upwardor_plan_overrides"
 VENDOR_NUMBERS = ("UPW", "UPWARDOR")
+# api/v2.0 vendors expose `balance` (the amount still owed). `balanceDue` is a
+# customer field. Selecting it returns HTTP 400 "Could not find a property
+# named 'balanceDue'" and the tracker used to drop the whole read.
+VENDOR_BALANCE_FIELD = "balance"
 PLAN_START_ISO = PLAN_START.isoformat()
 _CACHE_SECONDS = 60
 _cache_lock = threading.Lock()
@@ -53,6 +58,7 @@ def empty_snapshot(error: str) -> dict[str, Any]:
     return {
         "balance": None,
         "balance_source": "unavailable",
+        "balance_as_of": None,
         "weeks": {},
         "invoices_known": False,
         "payments_known": False,
@@ -86,20 +92,27 @@ def _fetch_bc_snapshot() -> dict[str, Any]:
     if not _configured():
         return empty_snapshot("Business Central is not configured on this server.")
     errors: list[str] = []
+    balance = None
+    balance_as_of = None
     try:
         vendor = _find_vendor()
     except Exception as exc:
+        # A failed vendor read is an outage. Keep the statement opening and
+        # say why — do not swallow the Business Central message.
         logger.warning("Upwardor vendor lookup failed: %s", exc)
         return empty_snapshot(f"Vendor lookup failed: {exc}")
 
     if vendor is None:
         errors.append("No Upwardor vendor (UPW) was returned by Business Central.")
         vendor_no = "UPW"
-        balance = None
     else:
         vendor_no = str(vendor.get("number") or "UPW")
-        raw_balance = vendor.get("balanceDue")
-        balance = money(raw_balance) if raw_balance is not None else None
+        balance, balance_error = _vendor_balance(vendor, vendor_no)
+        if balance_error:
+            logger.warning("Upwardor vendor balance missing: %s", balance_error)
+            errors.append(balance_error)
+        elif balance is not None:
+            balance_as_of = datetime.now(EDMONTON).isoformat()
 
     weeks: dict[str, dict] = {}
     invoices_known = False
@@ -126,7 +139,9 @@ def _fetch_bc_snapshot() -> dict[str, Any]:
 
     if not credits_known:
         for posted, amount, source in credit_memos:
-            key = _monday(posted).isoformat()
+            key = _plan_week_key(posted)
+            if key is None:
+                continue
             slot = weeks.setdefault(key, {})
             slot["credits"] = float(slot.get("credits") or 0) + amount
             slot["credits_source"] = source
@@ -149,6 +164,7 @@ def _fetch_bc_snapshot() -> dict[str, Any]:
     return {
         "balance": balance,
         "balance_source": "business_central" if balance is not None else "unavailable",
+        "balance_as_of": balance_as_of,
         "weeks": weeks,
         "invoices_known": invoices_known,
         "payments_known": payments_known,
@@ -181,17 +197,28 @@ def _odata_get(relative: str) -> dict:
     return {"value": rows}
 
 
+def _vendor_select() -> str:
+    return f"number,displayName,{VENDOR_BALANCE_FIELD}"
+
+
+def _vendor_balance(vendor: dict, vendor_no: str) -> tuple[Optional[int], Optional[str]]:
+    """Read the vendor's open balance. Never reads balanceDue."""
+    if VENDOR_BALANCE_FIELD not in vendor or vendor.get(VENDOR_BALANCE_FIELD) is None:
+        return None, f"Business Central vendor {vendor_no} did not include a balance."
+    return money(vendor.get(VENDOR_BALANCE_FIELD)), None
+
+
 def _find_vendor() -> Optional[dict]:
+    select = _vendor_select()
     for number in VENDOR_NUMBERS:
         safe = number.replace("'", "''")
         payload = _odata_get(
-            "vendors?$select=number,displayName,balanceDue"
-            f"&$filter=number eq '{safe}'"
+            f"vendors?$select={select}&$filter=number eq '{safe}'"
         )
         rows = payload.get("value") or []
         if rows:
             return rows[0]
-    payload = _odata_get("vendors?$select=number,displayName,balanceDue&$top=500")
+    payload = _odata_get(f"vendors?$select={select}&$top=500")
     for row in payload.get("value") or []:
         name = str(row.get("displayName") or "").upper()
         number = str(row.get("number") or "").upper()
@@ -231,7 +258,9 @@ def _bucket_invoices(weeks: dict[str, dict], rows: list[dict], basis: str) -> li
         if amount < 0:
             credits.append((posted, abs(amount), source))
             continue
-        key = _monday(posted).isoformat()
+        key = _plan_week_key(posted)
+        if key is None:
+            continue
         slot = weeks.setdefault(key, {})
         slot["invoices"] = float(slot.get("invoices") or 0) + amount
         slot["invoices_source"] = source
@@ -294,7 +323,9 @@ def _bucket_ledger(weeks: dict[str, dict], rows: list[dict], *, use_invoices: bo
         if raw is None:
             continue
         magnitude = abs(float(raw))
-        key = _monday(posted).isoformat()
+        key = _plan_week_key(posted)
+        if key is None:
+            continue
         slot = weeks.setdefault(key, {})
         if "payment" in doc:
             slot["payments"] = float(slot.get("payments") or 0) + magnitude
@@ -369,8 +400,21 @@ def _parse_date(value: Any) -> Optional[date]:
         return None
 
 
-def _monday(day: date) -> date:
-    return day - timedelta(days=day.weekday())
+def _plan_week_key(day: date) -> Optional[str]:
+    """Published week that contains this posting date.
+
+    The schedule starts Tuesday, Nov 3, 2026, and each row covers the next
+    seven days. Calendar Monday is the wrong key: Nov 3 and Nov 6 would land
+    on Nov 2, which the plan never reads, and the real week would be filled
+    with zero.
+    """
+    if day < PLAN_START:
+        return None
+    elapsed = (day - PLAN_START).days
+    week = PLAN_START + timedelta(days=(elapsed // 7) * 7)
+    if week not in PLAN_BY_WEEK:
+        return None
+    return week.isoformat()
 
 
 def read_overrides(db) -> dict:
@@ -427,6 +471,7 @@ def build_report(db, *, as_of: Optional[datetime] = None, snapshot: Optional[dic
         levers,
         balance=snapshot.get("balance"),
         balance_source=snapshot.get("balance_source") or "unavailable",
+        balance_as_of=snapshot.get("balance_as_of"),
         purchase_orders=snapshot.get("purchase_orders"),
         errors=list(snapshot.get("errors") or []),
     )

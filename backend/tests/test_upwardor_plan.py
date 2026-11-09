@@ -37,6 +37,7 @@ from app.services.upwardor_plan import (
     resolve_lever_choices,
     week_state,
 )
+from app.services import upwardor_plan_service as plan_service
 from app.services.upwardor_plan_service import empty_snapshot
 
 NOON = datetime(2026, 11, 6, 12, 0, tzinfo=EDMONTON)
@@ -225,6 +226,81 @@ class TestActualsMerge:
         assert choices["gnb_january"]["status"] == "moved"
         assert choices["gnb_january"]["source"] == "business_central"
 
+    def test_live_balance_already_includes_payments_so_they_are_not_subtracted_again(self):
+        # Nov 3 statement 831,405, before that day's payment.
+        # Posted since then: 30,032.41 (Nov 3) + 7,000 (Nov 6) = 37,032.41,
+        # and 1,161.45 of invoices. 831,405 + 1,161.45 - 37,032.41 = 795,534.04.
+        # Whole dollars: 831,405 + 1,161 - 795,534 = 37,032.
+        merged = merge_actuals(
+            {"2026-11-03": {"invoices": 1161.45, "invoices_source": "business_central"}},
+            {},
+            balance=795534.04,
+            as_of=NOON,
+        )
+        assert merged["2026-11-03"]["payments"] == 37032
+        assert merged["2026-11-03"]["payments_source"] == "derived_from_balance"
+        report = _forecast(
+            NOON,
+            merged,
+            balance=795534.04,
+            balance_source="business_central",
+            balance_as_of="2026-11-09T14:40:00-06:00",
+        )
+        assert report["current_balance"] == 795534
+        assert report["current_balance_source"] == "business_central"
+        assert report["balance_as_of"] == "2026-11-09T14:40:00-06:00"
+        assert report["gap_to_target"] == 795534 - TARGET
+        assert report["current_balance"] != OPENING_BALANCE - 37032
+        assert _week(report, "2026-11-03")["actual_payments"] == 37032
+        actual = next(point for point in report["chart"] if point["week_of"] == "2026-11-03")
+        assert actual["actual"] == 795534
+
+    def test_ledger_payments_are_kept_once_when_the_balance_is_live(self):
+        merged = merge_actuals(
+            {
+                "2026-11-03": {
+                    "invoices": 1161.45,
+                    "invoices_source": "business_central",
+                    "payments": 37032.41,
+                    "payments_source": "business_central_vendor_ledger",
+                },
+            },
+            {},
+            balance=795534.04,
+            as_of=NOON,
+        )
+        assert merged["2026-11-03"]["payments"] == 37032
+        assert merged["2026-11-03"]["payments_source"] == "business_central_vendor_ledger"
+        report = _forecast(NOON, merged, balance=795534.04, balance_source="business_central")
+        assert report["current_balance"] == 795534
+        assert _week(report, "2026-11-03")["actual_payments"] == 37032
+
+    def test_a_second_open_week_is_not_guessed_from_the_balance(self):
+        later = datetime(2026, 11, 12, 12, 0, tzinfo=EDMONTON)
+        merged = merge_actuals(
+            {"2026-11-03": {"invoices": 1161, "invoices_source": "business_central"}},
+            {},
+            balance=795534,
+            as_of=later,
+        )
+        assert merged["2026-11-03"]["payments"] is None
+        report = _forecast(later, merged, balance=795534, balance_source="business_central")
+        assert report["current_balance"] == 795534
+        assert report["current_balance_source"] == "business_central"
+        assert _week(report, "2026-11-03")["actual_payments"] is None
+
+    def test_statement_fallback_names_the_business_central_failure(self):
+        reason = "Vendor lookup failed: HTTP 400: Could not find a property named 'balanceDue'"
+        report = _forecast(NOON, errors=[reason])
+        assert report["current_balance"] == OPENING_BALANCE
+        assert report["current_balance_source"] == "statement_nov_3"
+        assert report["balance_as_of"] is None
+        notes = " ".join(report["sources"]["notes"])
+        assert "Nov 3 statement opening" in notes
+        assert "did not return the Upwardor balance" in notes
+        assert "balance due" not in notes.lower()
+        assert reason in report["sources"]["errors"]
+
     def test_staff_can_keep_gnb_in_the_november_plan(self):
         choices = resolve_lever_choices(
             {"levers": {"gnb_january": {"status": "in_plan"}}},
@@ -234,6 +310,163 @@ class TestActualsMerge:
         )
         assert choices["gnb_january"]["status"] == "in_plan"
         assert choices["gnb_january"]["source"] == "staff"
+
+
+class TestVendorBalanceRead:
+    def test_postings_land_on_the_published_week_not_calendar_monday(self):
+        assert plan_service._plan_week_key(datetime(2026, 11, 3).date()) == "2026-11-03"
+        assert plan_service._plan_week_key(datetime(2026, 11, 6).date()) == "2026-11-03"
+        assert plan_service._plan_week_key(datetime(2026, 11, 9).date()) == "2026-11-03"
+        assert plan_service._plan_week_key(datetime(2026, 11, 10).date()) == "2026-11-10"
+        assert plan_service._plan_week_key(datetime(2026, 11, 2).date()) is None
+    def test_snapshot_reads_balance_and_does_not_select_balance_due(self, monkeypatch):
+        calls = []
+
+        def fake_odata(relative):
+            calls.append(relative)
+            if relative.startswith("vendors"):
+                assert "balanceDue" not in relative
+                assert "balance" in relative
+                if "number eq 'UPW'" in relative:
+                    return {"value": [{
+                        "number": "UPW",
+                        "displayName": "Upwardor",
+                        "balanceDue": 1,
+                        "balance": 795534.04,
+                    }]}
+                return {"value": []}
+            if relative.startswith("purchaseInvoices"):
+                return {"value": [{
+                    "number": "PI-1",
+                    "postingDate": "2026-11-04",
+                    "vendorNumber": "UPW",
+                    "totalAmountIncludingTax": 1161.45,
+                    "status": "Open",
+                }]}
+            if relative.startswith("purchaseOrders"):
+                return {"value": []}
+            raise AssertionError(relative)
+
+        monkeypatch.setattr(plan_service, "_configured", lambda: True)
+        monkeypatch.setattr(plan_service, "_odata_get", fake_odata)
+        monkeypatch.setattr(plan_service, "_vendor_ledger", lambda vendor_no: None)
+        plan_service.clear_snapshot_cache()
+        try:
+            snapshot = plan_service._fetch_bc_snapshot()
+            report = plan_service.build_report(None, as_of=NOON, snapshot=snapshot)
+        finally:
+            plan_service.clear_snapshot_cache()
+
+        assert calls
+        assert all("balanceDue" not in call for call in calls)
+        assert snapshot["balance"] == 795534
+        assert snapshot["balance_source"] == "business_central"
+        assert snapshot["balance_as_of"]
+        assert snapshot["errors"] == []
+        assert report["current_balance"] == 795534
+        assert report["current_balance_source"] == "business_central"
+        assert report["balance_as_of"] == snapshot["balance_as_of"]
+        week = next(row for row in report["weeks"] if row["week_of"] == "2026-11-03")
+        assert week["actual_payments"] == 37032
+        assert week["payment_source"] == "derived_from_balance"
+        assert not any("Nov 3 statement opening" in note for note in report["sources"]["notes"])
+
+    def test_posted_payments_are_not_derived_on_top_of_the_live_balance(self, monkeypatch):
+        def fake_odata(relative):
+            if relative.startswith("vendors"):
+                return {"value": [{"number": "UPW", "displayName": "Upwardor", "balance": 795534.04}]}
+            if relative.startswith("purchaseInvoices"):
+                return {"value": [{
+                    "postingDate": "2026-11-04",
+                    "totalAmountIncludingTax": 1161.45,
+                    "status": "Open",
+                }]}
+            if relative.startswith("purchaseOrders"):
+                return {"value": []}
+            raise AssertionError(relative)
+
+        def fake_ledger(vendor_no):
+            assert vendor_no == "UPW"
+            return [
+                {"postingDate": "2026-11-03", "documentType": "Payment", "amount": -30032.41},
+                {"postingDate": "2026-11-06", "documentType": "Payment", "amount": -7000},
+            ]
+
+        monkeypatch.setattr(plan_service, "_configured", lambda: True)
+        monkeypatch.setattr(plan_service, "_odata_get", fake_odata)
+        monkeypatch.setattr(plan_service, "_vendor_ledger", fake_ledger)
+        plan_service.clear_snapshot_cache()
+        try:
+            snapshot = plan_service._fetch_bc_snapshot()
+            report = plan_service.build_report(None, as_of=NOON, snapshot=snapshot)
+        finally:
+            plan_service.clear_snapshot_cache()
+
+        week = snapshot["weeks"]["2026-11-03"]
+        assert "2026-11-02" not in snapshot["weeks"]
+        assert round(week["payments"], 2) == 37032.41
+        assert week["payments_source"] == "business_central_vendor_ledger"
+        assert round(week["invoices"], 2) == 1161.45
+        assert report["current_balance"] == 795534
+        shown = next(row for row in report["weeks"] if row["week_of"] == "2026-11-03")
+        assert shown["actual_payments"] == 37032
+        assert shown["payment_source"] == "business_central_vendor_ledger"
+
+    def test_vendor_outage_uses_the_statement_and_records_the_reason(self, monkeypatch, caplog):
+        def fake_odata(relative):
+            if relative.startswith("vendors"):
+                raise RuntimeError("HTTP 400: Could not find a property named 'balanceDue'")
+            raise AssertionError(relative)
+
+        monkeypatch.setattr(plan_service, "_configured", lambda: True)
+        monkeypatch.setattr(plan_service, "_odata_get", fake_odata)
+        plan_service.clear_snapshot_cache()
+        try:
+            with caplog.at_level("WARNING"):
+                snapshot = plan_service._fetch_bc_snapshot()
+            report = plan_service.build_report(None, as_of=NOON, snapshot=snapshot)
+        finally:
+            plan_service.clear_snapshot_cache()
+
+        assert snapshot["balance"] is None
+        assert snapshot["balance_source"] == "unavailable"
+        assert snapshot["balance_as_of"] is None
+        assert any("balanceDue" in err for err in snapshot["errors"])
+        assert any("balanceDue" in rec.message for rec in caplog.records)
+        assert report["current_balance"] == OPENING_BALANCE
+        assert report["current_balance_source"] == "statement_nov_3"
+        assert report["balance_as_of"] is None
+        assert any("balanceDue" in err for err in report["sources"]["errors"])
+        assert any("Nov 3 statement opening" in note for note in report["sources"]["notes"])
+
+    def test_vendor_without_a_balance_is_not_silent(self, monkeypatch, caplog):
+        def fake_odata(relative):
+            if relative.startswith("vendors"):
+                return {"value": [{"number": "UPW", "displayName": "Upwardor"}]}
+            if relative.startswith("purchaseInvoices"):
+                raise RuntimeError("HTTP 503: purchase invoices unavailable")
+            if relative.startswith("purchaseOrders"):
+                return {"value": []}
+            raise AssertionError(relative)
+
+        monkeypatch.setattr(plan_service, "_configured", lambda: True)
+        monkeypatch.setattr(plan_service, "_odata_get", fake_odata)
+        monkeypatch.setattr(plan_service, "_vendor_ledger", lambda vendor_no: None)
+        plan_service.clear_snapshot_cache()
+        try:
+            with caplog.at_level("WARNING"):
+                snapshot = plan_service._fetch_bc_snapshot()
+            report = plan_service.build_report(None, as_of=NOON, snapshot=snapshot)
+        finally:
+            plan_service.clear_snapshot_cache()
+
+        assert snapshot["balance"] is None
+        assert any("did not include a balance" in err for err in snapshot["errors"])
+        assert any("purchase invoices" in err.lower() for err in snapshot["errors"])
+        assert any("did not include a balance" in rec.message for rec in caplog.records)
+        assert report["current_balance_source"] == "statement_nov_3"
+        assert any("did not include a balance" in err for err in report["sources"]["errors"])
+        assert any("Nov 3 statement opening" in note for note in report["sources"]["notes"])
 
 
 class TestAccess:
