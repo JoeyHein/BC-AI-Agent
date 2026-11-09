@@ -47,9 +47,11 @@ from app.services.ops_tracker_service import (
     purchasing_work,
     reject_message,
     run_sync,
+    snooze_ack,
     update_message,
     weekly_summary,
 )
+from app.services.upwardor_open_order_recon import get_run, import_upwardor_recon, list_runs
 from app.services.staff_permissions import enforce_staff_permission, has_permission
 
 router = APIRouter(prefix="/api/ops", tags=["ops-tracker"])
@@ -157,6 +159,15 @@ class NoteBody(BaseModel):
     so_number: Optional[str] = None
     po_number: Optional[str] = None
     follow_up_on: Optional[str] = None
+
+
+class SnoozeBody(BaseModel):
+    follow_up_on: str
+
+
+class ReconPasteBody(BaseModel):
+    text: str
+    filename: Optional[str] = None
 
 
 class InboxBody(BaseModel):
@@ -293,6 +304,74 @@ async def post_follow_up(
     user: User = Depends(get_current_admin),
 ):
     return _run(db, lambda: create_follow_up(db, body.model_dump(), _actor(user)))
+
+
+@router.post("/tracker/pos/{po_number}/snooze-ack")
+async def snooze_po_ack(
+    po_number: str,
+    body: SnoozeBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_admin),
+):
+    """Hide a missing acknowledgement until the follow-up date. Does not send email."""
+    return _run(db, lambda: snooze_ack(db, po_number, body.follow_up_on, _actor(user)))
+
+
+@router.get("/upwardor-recon")
+async def upwardor_recon_list(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_admin),
+):
+    """Past Upwardor open-order comparisons, newest first, and the column guide."""
+    return list_runs(db)
+
+
+@router.get("/upwardor-recon/{run_id}")
+async def upwardor_recon_detail(
+    run_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_admin),
+):
+    try:
+        return get_run(db, run_id)
+    except OpsTrackerError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@router.post("/upwardor-recon")
+async def upwardor_recon_import(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_admin),
+):
+    """Upload a CSV or Excel file, or paste rows as JSON `{"text": "..."}`.
+
+    Nothing is written to Business Central. The report is stored so it can
+    be compared with the previous run.
+    """
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        payload = ReconPasteBody(**(await request.json()))
+        raw = payload.text.encode("utf-8")
+        filename = payload.filename
+        source = "paste"
+    else:
+        form = await request.form()
+        upload = form.get("file")
+        pasted = form.get("text") or ""
+        if upload is not None and getattr(upload, "filename", None):
+            raw = await upload.read()
+            filename = upload.filename
+            source = "upload"
+        else:
+            raw = str(pasted).encode("utf-8")
+            filename = None
+            source = "paste"
+    if not raw or not raw.strip():
+        raise HTTPException(status_code=400, detail="Paste the open-order rows, or choose a CSV or Excel file.")
+    return _run(db, lambda: import_upwardor_recon(
+        db, raw, filename=filename, source=source, actor=_actor(user),
+    ))
 
 
 @router.post("/actions/{action_id}/done")

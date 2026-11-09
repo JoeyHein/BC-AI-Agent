@@ -2,13 +2,15 @@ import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { opsApi } from '../api/client'
-import { ActivityLog } from './Purchasing/ActivityLog'
+import { ActivityLog, SnoozeAck } from './Purchasing/ActivityLog'
+import UpwardorRecon from './Purchasing/UpwardorRecon'
 
 const TABS = [
   ['tracker', 'Orders'],
   ['pos', 'Purchase orders'],
   ['todo', 'To-do'],
   ['approvals', 'Approvals'],
+  ['upwardor', 'Upwardor'],
   ['week', 'This week'],
 ]
 
@@ -36,6 +38,8 @@ function PoStack({ pos }) {
           <div className="font-medium text-gray-900">{po.po_number} · {po.vendor_name || po.vendor_number || 'Vendor'}</div>
           <div className="text-gray-600">{po.lifecycle_label || po.status || '—'}</div>
           <div className="text-gray-600">Ack {po.vendor_order_no || '—'} · {po.expected_date || 'no date'}</div>
+          {po.ack_overdue && <div className="mt-1"><Pill tone="red">No acknowledgement</Pill></div>}
+          {po.ack_snooze_until && <div className="text-amber-800">Snoozed until {po.ack_snooze_until}</div>}
           <Communications rows={po.communications || []} />
         </div>
       ))}
@@ -209,9 +213,10 @@ function ProductionTracker() {
           onSave={(kind, id, body) => save.mutate({ kind, id, body })}
         />
       )}
-      {tab === 'pos' && data && <PoTable rows={data.purchase_orders || []} onSave={(id, body) => save.mutate({ kind: 'po', id, body })} />}
+      {tab === 'pos' && data && <PoTable rows={data.purchase_orders || []} onSave={(id, body) => save.mutate({ kind: 'po', id, body })} onSnoozed={refreshAll} />}
       {tab === 'todo' && <TodoList query={actions} onChanged={refreshAll} />}
       {tab === 'approvals' && <ApprovalQueue query={messages} onChanged={refreshAll} />}
+      {tab === 'upwardor' && <UpwardorRecon />}
       {tab === 'week' && <WeekPanel query={weekly} />}
     </div>
   )
@@ -317,6 +322,7 @@ function OrderBlock({ order, choices, vendorOptions, open, onToggle, onSave }) {
             {open ? '▾' : '▸'} {order.so_number}
           </button>
           {order.at_risk && <div className="mt-1"><Pill tone="red">{order.days_late}d late</Pill></div>}
+          {order.customer_update_needed && <div className="mt-1"><Pill tone="blue">Customer update</Pill></div>}
         </td>
         <td className="px-3 py-2">
           <div>{order.customer_name}</div>
@@ -490,7 +496,7 @@ function choicesForAck(line) {
   }))
 }
 
-function PoTable({ rows, onSave }) {
+function PoTable({ rows, onSave, onSnoozed }) {
   const [logPo, setLogPo] = useState(null)
   return (
     <div className="space-y-3">
@@ -509,7 +515,7 @@ function PoTable({ rows, onSave }) {
             <tr key={po.po_number} className="border-t border-gray-100">
               <td className="px-3 py-2 font-medium">
                 {po.po_number}
-                <div className="mt-1"><Pill tone={po.lifecycle === 'waiting_ack' ? 'amber' : po.lifecycle === 'issue' ? 'red' : 'gray'}>{po.lifecycle_label || po.lifecycle}</Pill></div>
+                <div className="mt-1"><Pill tone={po.ack_overdue ? 'red' : po.lifecycle === 'waiting_ack' ? 'amber' : po.lifecycle === 'issue' ? 'red' : 'gray'}>{po.ack_overdue ? 'No acknowledgement' : (po.lifecycle_label || po.lifecycle)}</Pill></div>
               </td>
               <td className="px-3 py-2">{po.vendor_name || po.vendor_number}</td>
               <td className="px-3 py-2">{po.status}</td>
@@ -538,6 +544,7 @@ function PoTable({ rows, onSave }) {
                 <button type="button" onClick={() => setLogPo(logPo === po.po_number ? null : po.po_number)} className="mt-1 block text-xs text-odc-800">
                   {logPo === po.po_number ? 'Hide log' : 'Activity log'}
                 </button>
+                {po.ack_overdue && <div className="mt-2"><SnoozeAck poNumber={po.po_number} onDone={onSnoozed} /></div>}
               </td>
             </tr>
           ))}
@@ -600,6 +607,7 @@ function TodoList({ query, onChanged }) {
             </div>
             <div className="flex items-center gap-2">
               {row.overdue && <Pill tone="red">Overdue</Pill>}
+              {row.kind === 'missing_ack' && row.po_number && <SnoozeAck poNumber={row.po_number} onDone={onChanged} />}
               {(row.kind === 'follow_up' || row.kind === 'needs_reply') && (
                 <button type="button" onClick={() => done.mutate(row.id)} className="rounded-lg px-3 py-1.5 text-sm font-medium text-odc-800 ring-1 ring-gray-200">
                   {row.kind === 'follow_up' ? 'Done' : 'Dismiss'}
@@ -657,6 +665,7 @@ function ApprovalQueue({ query, onChanged }) {
             <div className="flex flex-wrap items-center gap-2">
               <Pill tone={message.kind === 'customer_update' ? 'blue' : 'amber'}>{message.kind === 'customer_update' ? 'Customer update' : 'Supplier reminder'}</Pill>
               <span className="text-xs text-gray-500">{message.so_number} {message.po_number}</span>
+              {message.context?.reason && <span className="text-xs text-gray-600">{message.context.reason}</span>}
             </div>
             <label className="block text-xs text-gray-500">
               To

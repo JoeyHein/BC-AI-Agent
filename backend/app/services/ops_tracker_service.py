@@ -20,6 +20,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.services.alberta_business_days import add_business_days, business_days_between
 from app.db.models import (
     OpsActionItem,
     OpsActivity,
@@ -57,7 +58,9 @@ ACK_STATES = ["none", "pending", "acknowledged", "revised", "cancelled", "not_re
 _ORDER_RANK = {name: index for index, name in enumerate(ORDER_STATES)}
 _SHIP_RANK = {name: index for index, name in enumerate(SHIPPING_STATES)}
 
-ACK_GRACE_DAYS = 3
+# A sent PO with no acknowledgement is flagged once this many Alberta
+# business days have passed. Weekends and Alberta holidays do not count.
+ACK_BUSINESS_DAYS = 2
 REMINDER_INTERVAL_DAYS = 3
 REPLY_LOOKBACK_DAYS = 21
 ACK_TURNAROUND_DAYS = 90
@@ -172,6 +175,53 @@ def _iso(value: Optional[date]) -> Optional[str]:
 
 def _at(day: Optional[date]) -> Optional[datetime]:
     return datetime.combine(day, time(hour=8)) if day else None
+
+
+def _long_date(day: Optional[date]) -> str:
+    if not day:
+        return "not on file"
+    return f"{day.strftime('%B')} {day.day}, {day.year}"
+
+
+def sent_on(po: OpsTrackedPo) -> Optional[date]:
+    """When the PO left us. Outlook wins. Otherwise the BC order date once it is not a draft."""
+    if po.sent_at:
+        return po.sent_at.date()
+    status = (po.status or "").lower()
+    if status in {"", "draft"}:
+        return None
+    return po.order_date
+
+
+def _has_acknowledgement(po: OpsTrackedPo) -> bool:
+    if po.ack_status in HEARD_FROM_SUPPLIER or po.ack_status == "not_required":
+        return True
+    return bool((po.vendor_order_no or "").strip())
+
+
+def ack_due_on(po: OpsTrackedPo) -> Optional[date]:
+    anchor = sent_on(po)
+    if anchor is None:
+        return None
+    return add_business_days(anchor, ACK_BUSINESS_DAYS)
+
+
+def ack_is_overdue(po: OpsTrackedPo, today: date) -> bool:
+    """Sent, still open, no acknowledgement, and the 2-business-day wait is over.
+
+    A follow-up date in the future hides the flag. It comes back that morning
+    if the acknowledgement is still missing.
+    """
+    if not po.bc_open or po.fully_received:
+        return False
+    if po.ack_snooze_until and today < po.ack_snooze_until:
+        return False
+    if _has_acknowledgement(po):
+        return False
+    anchor = sent_on(po)
+    if anchor is None:
+        return False
+    return business_days_between(anchor, today) >= ACK_BUSINESS_DAYS
 
 
 def _po_key(number: Optional[str]) -> str:
@@ -316,7 +366,7 @@ def refresh_lifecycle(po: OpsTrackedPo) -> str:
     return po.lifecycle
 
 
-def _log_po_events(db: Session, row: OpsTrackedPo, created: bool, old_status: str, old_ack: str, old_expected: Optional[date], actor: Optional[Actor]) -> None:
+def _log_po_events(db: Session, row: OpsTrackedPo, created: bool, old_status: str, old_ack: str, old_expected: Optional[date], actor: Optional[Actor], slips: Optional[List[dict]] = None) -> None:
     vendor = row.vendor_name or row.vendor_number or "the supplier"
     sos = ", ".join(row.so_numbers_json or []) or "no sales order yet"
     so_number = (row.so_numbers_json or [None])[0]
@@ -363,6 +413,13 @@ def _log_po_events(db: Session, row: OpsTrackedPo, created: bool, old_status: st
             dedupe_key=f"po-expected:{row.po_number}:{row.expected_date.isoformat()}",
             **common,
         )
+        if slips is not None and row.expected_date > old_expected:
+            slips.append({
+                "po_number": row.po_number,
+                "old": old_expected,
+                "new": row.expected_date,
+                "so_numbers": list(row.so_numbers_json or []),
+            })
 
 
 def _assign(db: Session, obj: Any, entity_type: str, entity_key: str, field: str, new: Any, actor: Optional[Actor], audit: bool) -> bool:
@@ -561,28 +618,84 @@ def messages_needing_reply(inbox: Sequence[dict], sent: Sequence[dict], mailbox:
     return needed
 
 
-def _customer_body(order: OpsTrackedOrder, new_date: date, old_date: Optional[date]) -> str:
-    tag = f" ({order.external_document_number})" if order.external_document_number else ""
-    previous = old_date.isoformat() if old_date else "not set yet"
+def _short_lines(order: OpsTrackedOrder) -> List[OpsTrackedLine]:
+    found = []
+    for line in order.lines or []:
+        if not line.active:
+            continue
+        outstanding = float(line.quantity or 0) - float(line.quantity_shipped or 0)
+        if outstanding > 1e-6:
+            found.append(line)
+    return found
+
+
+def _short_text(lines: Sequence[OpsTrackedLine]) -> str:
+    if not lines:
+        return ""
+    bits = []
+    for line in lines:
+        outstanding = float(line.quantity or 0) - float(line.quantity_shipped or 0)
+        label = line.item_no or "Item"
+        desc = f" {line.description}" if line.description else ""
+        bits.append(f"- {label}{desc}, {outstanding:g} short")
+    return "\n\nStill short:\n" + "\n".join(bits)
+
+
+def _order_ref(order: OpsTrackedOrder) -> str:
+    tag = f", your PO {order.external_document_number}" if order.external_document_number else ""
+    return f"order {order.so_number}{tag}"
+
+
+def _customer_body(
+    order: OpsTrackedOrder,
+    new_date: Optional[date],
+    old_date: Optional[date],
+    *,
+    po_numbers: Optional[Sequence[str]] = None,
+    reason: str = "slip",
+    due_label: str = "date",
+) -> str:
+    """Plain note in Joey's voice. Dates stay ISO so the old and new day are unambiguous."""
     who = order.customer_name or "there"
+    ref = _order_ref(order)
+    # Vendor PO numbers stay on the approval record and the timeline.
+    # The email uses the customer's own PO, which is already in ref.
+    _ = po_numbers
+    shorts = _short_text(_short_lines(order))
+    closing = "I'll write again if that date moves.\n\nJoey\nOpen Distribution\n"
+    if reason == "overdue":
+        due = old_date.isoformat() if old_date else "the date we had"
+        new_bit = f" The date I have now is {new_date.isoformat()}." if new_date else " I don't have a new date yet."
+        return (
+            f"Hello {who},\n\n"
+            f"{ref[:1].upper()}{ref[1:]} is past the {due_label} of {due} and it has not shipped. "
+            f"Sorry this one got ahead of us.{new_bit}{shorts}\n\n"
+            f"{closing}"
+        )
+    previous = old_date.isoformat() if old_date else "not set yet"
+    current = new_date.isoformat() if new_date else "not set"
     return (
         f"Hello {who},\n\n"
-        f"An update on order {order.so_number}{tag}: the expected date is now {new_date.isoformat()}. "
-        f"The previous date we had was {previous}.\n\n"
-        "We will write again if that date moves.\n\n"
-        "Open Distribution\n"
+        f"Update on {ref}. "
+        f"The date moved from {previous} to {current}. "
+        f"Sorry for the change.{shorts}\n\n"
+        f"{closing}"
     )
 
 
 def _supplier_body(po: OpsTrackedPo, customers: str) -> str:
-    sos = ", ".join(po.so_numbers_json or []) or "the related sales order"
-    extra = f" for {customers}" if customers else ""
+    sent = sent_on(po)
+    sent_text = _long_date(sent) if sent else "the day we sent it"
+    need = _long_date(po.expected_date) if po.expected_date else "the need-by date on the order"
+    extra = f" ({customers})" if customers else ""
     return (
         f"Hello,\n\n"
-        f"Please send the acknowledgement and expected ship date for {po.po_number}{extra}.\n\n"
-        f"This purchase order covers {sos}.\n\n"
-        "Thank you,\n"
-        "Open Distribution\n"
+        f"I'm following up on purchase order {po.po_number}, sent {sent_text}{extra}. "
+        f"We need it by {need}.\n\n"
+        f"Could you send the acknowledgement and a ship date?\n\n"
+        f"Thank you,\n"
+        f"Joey\n"
+        f"Open Distribution\n"
     )
 
 
@@ -670,108 +783,331 @@ def _refresh_structural(db: Session, today: date) -> None:
                 "due_at": _at((order.order_date or today) + timedelta(days=2)),
             })
     for po in pos.values():
-        status = (po.status or "").lower()
-        if status == "draft" or po.fully_received:
-            continue
-        if po.ack_status in HEARD_FROM_SUPPLIER or po.ack_status == "not_required":
-            continue
-        if po.vendor_order_no and po.ack_status == "acknowledged":
+        if not ack_is_overdue(po, today):
             continue
         key = f"missing_ack:{po.po_number}"
         keep.add(key)
-        anchor = po.order_date or (po.created_at.date() if po.created_at else today)
+        sent = sent_on(po)
+        need = po.expected_date.isoformat() if po.expected_date else "—"
+        waited = business_days_between(sent, today) if sent else ACK_BUSINESS_DAYS
         _upsert_auto(db, key, {
             "kind": "missing_ack",
             "title": f"{po.po_number} has no supplier acknowledgement",
-            "detail": f"{po.vendor_name or 'Supplier'} · sales orders {', '.join(po.so_numbers_json or []) or '—'}",
+            "detail": (
+                f"{po.vendor_name or 'Supplier'} · sent {sent.isoformat() if sent else '—'} · "
+                f"need-by {need} · {waited} Alberta business days with no acknowledgement"
+            ),
             "so_number": (po.so_numbers_json or [None])[0],
             "po_number": po.po_number,
-            "due_at": _at(anchor + timedelta(days=ACK_GRACE_DAYS)),
+            "due_at": _at(ack_due_on(po) or today),
         })
     _close_missing(db, STRUCTURAL_KINDS, keep)
 
 
-def _queue_customer_update(db: Session, order: OpsTrackedOrder, from_edit: bool = False) -> None:
-    """Draft a customer email when the expected date moves.
-
-    The first date recorded from Business Central is the baseline and does
-    not email the whole open book. A later move does. A date typed in the
-    portal (`from_edit`) drafts as soon as it differs from that baseline.
-    """
-    if not order.updates_baselined:
-        order.customer_update_baseline = order.expected_receipt
-        order.updates_baselined = True
-        if not from_edit:
-            return
-    new_date = order.expected_receipt
-    if not from_edit and order.customer_update_baseline is None and new_date is not None:
-        order.customer_update_baseline = new_date
-        return
-    if new_date is None or new_date == order.customer_update_baseline:
-        pending = (
-            db.query(OpsOutboundMessage)
-            .filter(
-                OpsOutboundMessage.kind == "customer_update",
-                OpsOutboundMessage.so_number == order.so_number,
-                OpsOutboundMessage.status == "pending",
-            )
-            .all()
-        )
-        for row in pending:
-            row.status = "withdrawn"
-            row.updated_at = datetime.utcnow()
-        return
-    dedupe = f"customer:{order.so_number}:{new_date.isoformat()}"
-    already = (
+def _customer_handled(db: Session, dedupe: str) -> bool:
+    return (
         db.query(OpsOutboundMessage)
         .filter(
             OpsOutboundMessage.dedupe_key == dedupe,
             OpsOutboundMessage.status.in_(["sent", "rejected"]),
         )
         .first()
+        is not None
     )
-    if already:
-        return
-    body = _customer_body(order, new_date, order.customer_update_baseline)
-    subject = f"Production update for {order.so_number}"
-    context = {
-        "old_date": _iso(order.customer_update_baseline),
-        "new_date": new_date.isoformat(),
-        "customer_name": order.customer_name,
-    }
-    pending = (
+
+
+def _pending_customer(db: Session, so_number: str, trigger: str) -> List[OpsOutboundMessage]:
+    rows = (
         db.query(OpsOutboundMessage)
         .filter(
             OpsOutboundMessage.kind == "customer_update",
-            OpsOutboundMessage.so_number == order.so_number,
+            OpsOutboundMessage.so_number == so_number,
             OpsOutboundMessage.status == "pending",
         )
-        .one_or_none()
+        .all()
     )
+    return [row for row in rows if (row.context_json or {}).get("trigger", "order_date") == trigger]
+
+
+def _withdraw_customer(db: Session, so_number: str, trigger: str) -> None:
     now = datetime.utcnow()
-    if pending is None:
-        db.add(
-            OpsOutboundMessage(
-                kind="customer_update",
-                status="pending",
-                dedupe_key=dedupe,
-                to_email=order.customer_email or None,
-                subject=subject,
-                body_text=body,
-                so_number=order.so_number,
-                context_json=context,
-                created_at=now,
-                updated_at=now,
-            )
-        )
+    for row in _pending_customer(db, so_number, trigger):
+        row.status = "withdrawn"
+        row.updated_at = now
+        _close_customer_action(db, row.dedupe_key, handled=False)
+
+
+def _close_customer_action(db: Session, dedupe: str, handled: bool, actor: Optional[Actor] = None) -> None:
+    key = f"customer_update:{dedupe}"
+    row = db.query(OpsActionItem).filter(OpsActionItem.auto_key == key).one_or_none()
+    if row is None or row.status != "open":
         return
-    pending.dedupe_key = dedupe
-    pending.subject = subject
-    pending.body_text = body
-    pending.context_json = context
-    pending.updated_at = now
-    if not pending.to_email and order.customer_email:
-        pending.to_email = order.customer_email
+    row.status = "done"
+    row.closed_at = datetime.utcnow()
+    row.auto_managed = not handled
+    if handled and actor is not None:
+        row.closed_by_user_id = actor.user_id
+
+
+def _sync_customer_action(db: Session, order: OpsTrackedOrder, dedupe: str, title: str, detail: str, po_number: Optional[str]) -> None:
+    key = f"customer_update:{dedupe}"
+    row = db.query(OpsActionItem).filter(OpsActionItem.auto_key == key).one_or_none()
+    if row is not None and row.status == "done" and not row.auto_managed:
+        return
+    if row is None:
+        row = OpsActionItem(auto_key=key, auto_managed=True, status="open", created_at=datetime.utcnow())
+        db.add(row)
+    row.kind = "customer_update"
+    row.auto_managed = True
+    row.title = title
+    row.detail = detail
+    row.so_number = order.so_number
+    row.po_number = po_number
+    row.status = "open"
+    row.closed_at = None
+    row.closed_by_user_id = None
+    row.due_at = _at(date.today())
+
+
+def _log_customer_draft(db: Session, order: OpsTrackedOrder, dedupe: str, po_number: Optional[str], body: str) -> None:
+    record_activity(
+        db,
+        event_type="customer_update_drafted",
+        body=body,
+        so_number=order.so_number,
+        po_number=po_number,
+        actor=Actor(email="order-tracker", source="system"),
+        dedupe_key=f"customer-draft:{dedupe}",
+    )
+
+
+def _save_customer_draft(
+    db: Session,
+    order: OpsTrackedOrder,
+    *,
+    trigger: str,
+    dedupe: str,
+    subject: str,
+    body: str,
+    context: dict,
+    title: str,
+    detail: str,
+    po_number: Optional[str],
+) -> Optional[OpsOutboundMessage]:
+    if _customer_handled(db, dedupe):
+        return None
+    pending_rows = _pending_customer(db, order.so_number, trigger)
+    now = datetime.utcnow()
+    pending = pending_rows[0] if pending_rows else None
+    if pending is None:
+        pending = OpsOutboundMessage(
+            kind="customer_update",
+            status="pending",
+            dedupe_key=dedupe,
+            to_email=order.customer_email or None,
+            subject=subject,
+            body_text=body,
+            so_number=order.so_number,
+            po_number=po_number,
+            context_json=context,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(pending)
+    else:
+        old_key = pending.dedupe_key
+        if old_key != dedupe:
+            _close_customer_action(db, old_key, handled=False)
+        pending.dedupe_key = dedupe
+        pending.subject = subject
+        pending.body_text = body
+        pending.context_json = context
+        pending.po_number = po_number
+        pending.updated_at = now
+        if not pending.to_email and order.customer_email:
+            pending.to_email = order.customer_email
+    _sync_customer_action(db, order, dedupe, title, detail, po_number)
+    _log_customer_draft(
+        db,
+        order,
+        dedupe,
+        po_number,
+        f"Customer update drafted for {order.so_number}. It is waiting for approval and has not been sent.",
+    )
+    return pending
+
+
+def _slips_for(order: OpsTrackedOrder, slips: Optional[Sequence[dict]]) -> List[dict]:
+    return [
+        slip for slip in (slips or [])
+        if order.so_number in (slip.get("so_numbers") or []) and slip["new"] > slip["old"]
+    ]
+
+
+def _queue_customer_update(
+    db: Session,
+    order: OpsTrackedOrder,
+    from_edit: bool = False,
+    slips: Optional[Sequence[dict]] = None,
+) -> Optional[OpsOutboundMessage]:
+    """Draft a customer email when the expected date moves later.
+
+    The first date recorded from Business Central is the baseline and does
+    not email the whole open book. A later move does. An earlier move does
+    not. A date typed in the portal drafts when it is later than the baseline.
+    """
+    if not order.updates_baselined:
+        order.customer_update_baseline = order.expected_receipt
+        order.updates_baselined = True
+        if not from_edit:
+            return None
+    new_date = order.expected_receipt
+    baseline = order.customer_update_baseline
+    if not from_edit and baseline is None and new_date is not None:
+        order.customer_update_baseline = new_date
+        return None
+    later = bool(new_date and baseline and new_date > baseline)
+    if not later:
+        _withdraw_customer(db, order.so_number, "order_date")
+        return None
+    dedupe = f"customer:{order.so_number}:{new_date.isoformat()}"
+    related = [slip for slip in _slips_for(order, slips) if slip["new"] == new_date]
+    po_numbers = []
+    for slip in related:
+        if slip["po_number"] not in po_numbers:
+            po_numbers.append(slip["po_number"])
+    if not po_numbers and order.upwardor_po_number:
+        po_numbers = [part.strip() for part in order.upwardor_po_number.split(",") if part.strip()]
+    body = _customer_body(order, new_date, baseline, po_numbers=po_numbers, reason="slip")
+    context = {
+        "trigger": "order_date",
+        "old_date": _iso(baseline),
+        "new_date": new_date.isoformat(),
+        "customer_name": order.customer_name,
+        "po_numbers": po_numbers,
+        "reason": f"Expected date moved from {_iso(baseline)} to {new_date.isoformat()}",
+    }
+    return _save_customer_draft(
+        db,
+        order,
+        trigger="order_date",
+        dedupe=dedupe,
+        subject=f"Update on {order.so_number}",
+        body=body,
+        context=context,
+        title=f"Customer update needed: {order.so_number} date moved to {new_date.isoformat()}",
+        detail=context["reason"],
+        po_number=po_numbers[0] if po_numbers else None,
+    )
+
+
+def _queue_uncovered_slips(
+    db: Session,
+    order: OpsTrackedOrder,
+    slips: Optional[Sequence[dict]],
+    covered: Optional[OpsOutboundMessage],
+) -> None:
+    """A linked PO date moved later and the order's own expected date did not.
+
+    The timeline already has expected_date_changed. This drafts the customer
+    note from that same move. A slip already covered by the order-level draft,
+    or already sent or rejected, is left alone.
+    """
+    covered_date = None
+    if covered is not None:
+        covered_date = parse_date((covered.context_json or {}).get("new_date"))
+    for slip in _slips_for(order, slips):
+        if covered_date and slip["new"] == covered_date:
+            continue
+        order_key = f"customer:{order.so_number}:{slip['new'].isoformat()}"
+        dedupe = f"customer:{order.so_number}:slip:{slip['po_number']}:{slip['new'].isoformat()}"
+        if _customer_handled(db, dedupe) or _customer_handled(db, order_key):
+            continue
+        body = _customer_body(order, slip["new"], slip["old"], po_numbers=[slip["po_number"]], reason="slip")
+        context = {
+            "trigger": "po_slip",
+            "old_date": slip["old"].isoformat(),
+            "new_date": slip["new"].isoformat(),
+            "customer_name": order.customer_name,
+            "po_numbers": [slip["po_number"]],
+            "reason": f"{slip['po_number']} ship date moved from {slip['old'].isoformat()} to {slip['new'].isoformat()}",
+        }
+        _save_customer_draft(
+            db,
+            order,
+            trigger="po_slip",
+            dedupe=dedupe,
+            subject=f"Update on {order.so_number}",
+            body=body,
+            context=context,
+            title=f"Customer update needed: {slip['po_number']} date moved later on {order.so_number}",
+            detail=context["reason"],
+            po_number=slip["po_number"],
+        )
+
+
+def _past_customer_dates(order: OpsTrackedOrder, today: date) -> List[tuple]:
+    found = []
+    if order.promised_date and order.promised_date < today:
+        found.append(("promised date", order.promised_date))
+    if order.shipment_date and order.shipment_date < today:
+        if not order.promised_date or order.shipment_date != order.promised_date:
+            found.append(("shipment date", order.shipment_date))
+    return found
+
+
+def _order_is_shipped(order: OpsTrackedOrder) -> bool:
+    return bool(order.fully_shipped or order.shipping_status == "Shipped" or not order.bc_open)
+
+
+def _queue_overdue_updates(db: Session, today: date) -> None:
+    """Draft when a promised or shipment date has passed and the order has not shipped."""
+    orders = db.query(OpsTrackedOrder).filter(OpsTrackedOrder.bc_open.is_(True)).all()
+    for order in orders:
+        past = _past_customer_dates(order, today)
+        if _order_is_shipped(order) or not past:
+            _withdraw_customer(db, order.so_number, "overdue")
+            continue
+        parts = [f"{label}:{day.isoformat()}" for label, day in past]
+        dedupe = f"customer:{order.so_number}:overdue:{'|'.join(parts)}"
+        if _customer_handled(db, dedupe):
+            continue
+        label, due = min(past, key=lambda item: item[1])
+        po_numbers = [part.strip() for part in (order.upwardor_po_number or "").split(",") if part.strip()]
+        if not po_numbers:
+            po_numbers = []
+            for line in order.lines or []:
+                if line.active and line.linked_po_number and line.linked_po_number not in po_numbers:
+                    po_numbers.append(line.linked_po_number)
+        body = _customer_body(
+            order,
+            order.expected_receipt,
+            due,
+            po_numbers=po_numbers,
+            reason="overdue",
+            due_label=label,
+        )
+        reason = " and ".join(f"{name} {day.isoformat()}" for name, day in past)
+        context = {
+            "trigger": "overdue",
+            "old_date": due.isoformat(),
+            "new_date": _iso(order.expected_receipt),
+            "customer_name": order.customer_name,
+            "po_numbers": po_numbers,
+            "reason": f"Past {reason} and not shipped",
+        }
+        _save_customer_draft(
+            db,
+            order,
+            trigger="overdue",
+            dedupe=dedupe,
+            subject=f"Update on {order.so_number}",
+            body=body,
+            context=context,
+            title=f"Customer update needed: {order.so_number} is past its {label}",
+            detail=context["reason"],
+            po_number=po_numbers[0] if po_numbers else None,
+        )
 
 
 def _queue_supplier_reminders(db: Session, today: date) -> None:
@@ -781,15 +1117,8 @@ def _queue_supplier_reminders(db: Session, today: date) -> None:
         for order in db.query(OpsTrackedOrder).all()
     }
     for po in pos:
-        status = (po.status or "").lower()
-        if status == "draft" or po.fully_received:
+        if not ack_is_overdue(po, today):
             _withdraw_supplier(db, po.po_number)
-            continue
-        if po.ack_status in HEARD_FROM_SUPPLIER:
-            _withdraw_supplier(db, po.po_number)
-            continue
-        anchor = po.order_date or (po.created_at.date() if po.created_at else today)
-        if (today - anchor).days < ACK_GRACE_DAYS:
             continue
         pending = (
             db.query(OpsOutboundMessage)
@@ -947,6 +1276,7 @@ def apply_snapshot(
 
     seen_pos = set()
     po_dicts: Dict[str, dict] = {}
+    slips: List[dict] = []
     if "purchase_orders" in snapshot:
         for raw in snapshot.get("purchase_orders") or []:
             number = (raw.get("number") or "").strip()
@@ -980,6 +1310,8 @@ def apply_snapshot(
                 row.ack_status = ack_status
             elif row.vendor_order_no and (row.ack_status or "none") == "none":
                 row.ack_status = "acknowledged"
+            if row.ack_status in HEARD_FROM_SUPPLIER or row.vendor_order_no:
+                row.ack_snooze_until = None
             if received_at:
                 row.ack_received_at = received_at
             row.so_numbers_json = _so_numbers_from_po(raw)
@@ -987,7 +1319,7 @@ def apply_snapshot(
             row.bc_open = True
             row.updated_at = datetime.utcnow()
             db.flush()
-            _log_po_events(db, row, created, old_status, old_ack, old_expected, actor)
+            _log_po_events(db, row, created, old_status, old_ack, old_expected, actor, slips)
             refresh_lifecycle(row)
         if seen_pos or allow_empty or orders_in:
             for row in db.query(OpsTrackedPo).all():
@@ -1019,6 +1351,10 @@ def apply_snapshot(
         )
         order.bc_order_id = raw.get("id") or order.bc_order_id
         order.order_date = parse_date(raw.get("order_date")) or order.order_date
+        if "promised_date" in raw or "requested_delivery_date" in raw:
+            order.promised_date = parse_date(raw.get("promised_date") if "promised_date" in raw else raw.get("requested_delivery_date"))
+        if "shipment_date" in raw:
+            order.shipment_date = parse_date(raw.get("shipment_date"))
         order.bc_status = raw.get("status") or order.bc_status
         order.fully_shipped = bool(raw.get("fully_shipped"))
         order.bc_open = True
@@ -1155,7 +1491,8 @@ def apply_snapshot(
         if any(item.upper().startswith("OP") for item in active_items) and not order.operators:
             order.operators = "Waiting to Order"
         order.updated_at = datetime.utcnow()
-        _queue_customer_update(db, order)
+        queued = _queue_customer_update(db, order, slips=slips)
+        _queue_uncovered_slips(db, order, slips, queued)
 
     for order in db.query(OpsTrackedOrder).all():
         if order.so_number not in seen_orders:
@@ -1170,6 +1507,7 @@ def apply_snapshot(
     db.flush()
     _refresh_structural(db, today)
     _queue_supplier_reminders(db, today)
+    _queue_overdue_updates(db, today)
     if "emails" in snapshot and snapshot.get("emails") is not None:
         _reconcile_mail(db, snapshot.get("emails") or {}, today)
         from app.services.ops_po_mail import apply_mailbox
@@ -1247,9 +1585,21 @@ def snapshot_from_bc(bc: Any, db: Session) -> dict:
     }
 
 
+def _line_shipment_date(lines: Sequence[dict]) -> Optional[str]:
+    found = []
+    for line in lines or []:
+        parsed = parse_date(line.get("shipmentDate") or line.get("shipment_date"))
+        if parsed:
+            found.append(parsed)
+    if not found:
+        return None
+    return min(found).isoformat()
+
+
 def _normalize_sales_order(row: dict) -> dict:
+    raw_lines = row.get("salesOrderLines") or row.get("lines") or []
     lines = []
-    for line in row.get("salesOrderLines") or row.get("lines") or []:
+    for line in raw_lines:
         lines.append({
             "line_no": line.get("sequence") or line.get("lineNo") or line.get("line_no") or 0,
             "item_no": line.get("lineObjectNumber") or line.get("item_no") or "",
@@ -1263,9 +1613,11 @@ def _normalize_sales_order(row: dict) -> dict:
         "id": row.get("id"),
         "customer_number": row.get("customerNumber") or row.get("customer_number"),
         "customer_name": row.get("customerName") or row.get("customer_name"),
-        "customer_email": row.get("email") or row.get("customer_email"),
+        "customer_email": row.get("email") or row.get("sellToEmail") or row.get("customer_email"),
         "external_document_number": row.get("externalDocumentNumber") or row.get("external_document_number") or "",
         "order_date": row.get("orderDate") or row.get("order_date"),
+        "promised_date": row.get("requestedDeliveryDate") or row.get("promisedDeliveryDate") or row.get("promised_date"),
+        "shipment_date": row.get("shipmentDate") or row.get("shipment_date") or _line_shipment_date(raw_lines),
         "status": row.get("status"),
         "fully_shipped": bool(row.get("fullyShipped") or row.get("fully_shipped")),
         "lines": lines,
@@ -1525,6 +1877,41 @@ def create_follow_up(db: Session, fields: dict, actor: Actor) -> dict:
     return _action_dict(row, date.today())
 
 
+def snooze_ack(db: Session, po_number: str, follow_up_on: Any, actor: Actor, today: Optional[date] = None) -> dict:
+    """Hide the missing-ack flag until a follow-up date. Nothing is emailed."""
+    today = today or date.today()
+    po = db.query(OpsTrackedPo).filter(OpsTrackedPo.po_number == (po_number or "").strip()).one_or_none()
+    if po is None:
+        raise OpsTrackerError(f"No purchase order {po_number}.", status=404)
+    due = parse_date(follow_up_on)
+    if due is None or due <= today:
+        raise OpsTrackerError("Pick a follow-up date after today.")
+    po.ack_snooze_until = due
+    po.updated_at = datetime.utcnow()
+    so_number = (po.so_numbers_json or [None])[0]
+    record_activity(
+        db,
+        event_type="ack_snoozed",
+        body=f"Acknowledgement chase for {po.po_number} snoozed until {due.isoformat()}. It comes back that day if there is still no acknowledgement.",
+        so_number=so_number,
+        po_number=po.po_number,
+        vendor_number=po.vendor_number,
+        vendor_name=po.vendor_name,
+        actor=actor,
+        follow_up_on=due,
+    )
+    create_follow_up(db, {
+        "title": f"Check acknowledgement for {po.po_number}",
+        "detail": f"Snoozed until {due.isoformat()}.",
+        "so_number": so_number,
+        "po_number": po.po_number,
+        "due_on": due.isoformat(),
+    }, actor)
+    _refresh_queues(db, today)
+    db.flush()
+    return _po_dict(po, today)
+
+
 def complete_action(db: Session, action_id: int, actor: Actor) -> dict:
     row = db.query(OpsActionItem).filter(OpsActionItem.id == action_id).one_or_none()
     if row is None:
@@ -1610,11 +1997,28 @@ def approve_message(
         )
     if message.kind == "customer_update" and message.so_number:
         order = db.query(OpsTrackedOrder).filter(OpsTrackedOrder.so_number == message.so_number).one_or_none()
-        new_date = parse_date((message.context_json or {}).get("new_date"))
-        if order and new_date:
+        context = message.context_json or {}
+        new_date = parse_date(context.get("new_date"))
+        trigger = context.get("trigger", "order_date")
+        if order and new_date and trigger == "order_date":
             previous = order.customer_update_baseline
             order.customer_update_baseline = new_date
             _audit(db, "order", f"order:{order.so_number}", "customer_update_sent", previous, new_date, actor)
+        po_numbers = list(context.get("po_numbers") or [])
+        if message.po_number and message.po_number not in po_numbers:
+            po_numbers.append(message.po_number)
+        targets = po_numbers or [None]
+        for po_number in targets:
+            record_activity(
+                db,
+                event_type="customer_update_sent",
+                body=f"Customer update for {message.so_number} approved and sent to {message.to_email}.",
+                so_number=message.so_number,
+                po_number=po_number,
+                actor=actor,
+                dedupe_key=f"customer-sent:{message.id}:{po_number or 'so'}",
+            )
+        _close_customer_action(db, message.dedupe_key, handled=True, actor=actor)
     db.flush()
     return _message_dict(message)
 
@@ -1637,6 +2041,17 @@ def reject_message(db: Session, message_id: int, actor: Actor) -> dict:
             actor=actor,
             dedupe_key=f"reminder-rejected:{message.id}",
         )
+    if message.kind == "customer_update":
+        record_activity(
+            db,
+            event_type="customer_update_rejected",
+            body=f"Customer update for {message.so_number} was rejected and was not sent.",
+            so_number=message.so_number,
+            po_number=message.po_number,
+            actor=actor,
+            dedupe_key=f"customer-rejected:{message.id}",
+        )
+        _close_customer_action(db, message.dedupe_key, handled=True, actor=actor)
     db.flush()
     return _message_dict(message)
 
@@ -1709,6 +2124,9 @@ def _order_dict(order: OpsTrackedOrder, today: date, communications: List[dict])
         "notes": order.notes or "",
         "bc_open": order.bc_open,
         "fully_shipped": order.fully_shipped,
+        "promised_date": _iso(order.promised_date),
+        "shipment_date": _iso(order.shipment_date),
+        "customer_update_needed": False,
         "at_risk": at_risk,
         "days_late": late_days,
         "lines": lines,
@@ -1744,6 +2162,10 @@ def _po_dict(po: OpsTrackedPo, today: date) -> dict:
         "bc_open": po.bc_open,
         "notes": po.notes or "",
         "age_days": age,
+        "sent_on": _iso(sent_on(po)),
+        "ack_due_on": _iso(ack_due_on(po)),
+        "ack_snooze_until": _iso(po.ack_snooze_until),
+        "ack_overdue": ack_is_overdue(po, today),
         "needs_ack": po.bc_open and not po.fully_received and (po.status or "").lower() != "draft" and po.ack_status not in HEARD_FROM_SUPPLIER,
     }
 
@@ -1788,11 +2210,16 @@ def _message_dict(row: OpsOutboundMessage) -> dict:
     }
 
 
-def list_tracker(db: Session, today: Optional[date] = None, **filters) -> dict:
-    today = today or date.today()
+def _refresh_queues(db: Session, today: date) -> None:
     _refresh_structural(db, today)
     _queue_supplier_reminders(db, today)
+    _queue_overdue_updates(db, today)
     db.flush()
+
+
+def list_tracker(db: Session, today: Optional[date] = None, **filters) -> dict:
+    today = today or date.today()
+    _refresh_queues(db, today)
     query = db.query(OpsTrackedOrder)
     if not filters.get("include_closed"):
         query = query.filter(OpsTrackedOrder.bc_open.is_(True))
@@ -1815,6 +2242,19 @@ def list_tracker(db: Session, today: Optional[date] = None, **filters) -> dict:
     for message in sent:
         if message.so_number:
             by_so.setdefault(message.so_number, []).append(_message_dict(message))
+    po_rows = [
+        {**_po_dict(po, today), "communications": (activity_by_po.get(po.po_number) or [])[:20]}
+        for po in db.query(OpsTrackedPo).filter(OpsTrackedPo.bc_open.is_(True)).order_by(OpsTrackedPo.po_number).all()
+    ]
+    po_by_number = {row["po_number"]: row for row in po_rows}
+    update_needed = {
+        row.so_number
+        for row in db.query(OpsActionItem).filter(
+            OpsActionItem.status == "open",
+            OpsActionItem.kind == "customer_update",
+        ).all()
+        if row.so_number
+    }
     rows = []
     customer = (filters.get("customer") or "").strip().lower()
     status = (filters.get("status") or "").strip()
@@ -1824,8 +2264,13 @@ def list_tracker(db: Session, today: Optional[date] = None, **filters) -> dict:
     po_status = (filters.get("po_status") or "").strip()
     for order in orders:
         payload = _order_dict(order, today, (by_so.get(order.so_number) or [])[:5])
+        payload["customer_update_needed"] = order.so_number in update_needed
         payload["communications"] = (activity_by_so.get(order.so_number) or [])[:40]
         for link in payload.get("purchase_orders") or []:
+            extra = po_by_number.get(link.get("po_number")) or {}
+            link["ack_overdue"] = bool(extra.get("ack_overdue"))
+            link["ack_snooze_until"] = extra.get("ack_snooze_until")
+            link["sent_on"] = extra.get("sent_on")
             link["communications"] = (activity_by_po.get(link.get("po_number")) or [])[:20]
         if customer and customer not in (order.customer_name or "").lower() and customer not in (order.customer_number or "").lower():
             continue
@@ -1859,10 +2304,7 @@ def list_tracker(db: Session, today: Optional[date] = None, **filters) -> dict:
     pending = db.query(OpsOutboundMessage).filter(OpsOutboundMessage.status == "pending").count()
     return {
         "orders": rows,
-        "purchase_orders": [
-            {**_po_dict(po, today), "communications": (activity_by_po.get(po.po_number) or [])[:20]}
-            for po in db.query(OpsTrackedPo).filter(OpsTrackedPo.bc_open.is_(True)).order_by(OpsTrackedPo.po_number).all()
-        ],
+        "purchase_orders": po_rows,
         "vendors": meta.vendors_json or _vendor_options(),
         "choices": {
             "fulfillment": FULFILLMENT_CHOICES,
@@ -1887,8 +2329,7 @@ def list_tracker(db: Session, today: Optional[date] = None, **filters) -> dict:
 
 def list_actions(db: Session, today: Optional[date] = None, status: str = "open") -> dict:
     today = today or date.today()
-    _refresh_structural(db, today)
-    db.flush()
+    _refresh_queues(db, today)
     query = db.query(OpsActionItem)
     if status != "all":
         query = query.filter(OpsActionItem.status == status)
@@ -2165,6 +2606,7 @@ def purchasing_work(db: Session, today: Optional[date] = None) -> dict:
     Uses the same rows the dashboard and the order tracker already maintain.
     """
     today = today or date.today()
+    _refresh_queues(db, today)
     actions = list_actions(db, today=today, status="open")
     kept = []
     for row in actions["actions"]:

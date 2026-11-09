@@ -519,6 +519,13 @@ def permission_for(method: str, path: str):
         return _level(method, "inventory.view", "inventory.edit")
     if path.startswith("/production"):
         return _level(method, "production.view", "production.edit")
+    if path.startswith("/api/ops/upwardor-recon"):
+        # Purchasing runs the weekly Upwardor comparison. Production can read it too.
+        if method in _SAFE:
+            return ("any", "production.view", "purchase_orders.view")
+        return ("any", "production.edit", "purchase_orders.edit")
+    if path.startswith("/api/ops/tracker/pos/") and path.endswith("/snooze-ack"):
+        return ("any", "production.edit", "purchase_orders.edit")
     if path.startswith("/api/ops/activity") or path.startswith("/api/ops/purchasing-work"):
         # Purchasing staff do not all have the production page. They can read
         # and write the shared to-do list and the activity log.
