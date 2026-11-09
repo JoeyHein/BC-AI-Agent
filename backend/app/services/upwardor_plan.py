@@ -144,7 +144,8 @@ def merge_actuals(
 
     When the vendor balance is live and exactly one week has started, payments
     for that week are implied by the balance identity if the ledger did not
-    return them. Later weeks are not guessed apart.
+    return them. The live balance already includes those payments, so the
+    displayed balance stays equal to it. Later weeks are not guessed apart.
     """
     saved = (overrides or {}).get("weeks") or {}
     bc_weeks = bc_weeks or {}
@@ -185,6 +186,8 @@ def _derive_open_week_payments(merged: dict[str, dict], *, balance: Optional[flo
     # credit is part of the identity and we have not seen it.
     if week["credits"] and row["credits"] is None:
         return
+    # live balance = opening + invoices - credits - payments.
+    # Payments are solved once. They are not subtracted from the live balance.
     implied = OPENING_BALANCE + row["invoices"] - credits - money(balance)
     if implied < -TOLERANCE:
         return
@@ -287,6 +290,7 @@ def build_forecast(
     *,
     balance: Optional[float] = None,
     balance_source: str = "unavailable",
+    balance_as_of: Optional[str] = None,
     purchase_orders: Optional[list[dict]] = None,
     errors: Optional[list[str]] = None,
 ) -> dict[str, Any]:
@@ -453,6 +457,7 @@ def build_forecast(
         "target": TARGET,
         "current_balance": current,
         "current_balance_source": current_source,
+        "balance_as_of": balance_as_of if current_source == "business_central" else None,
         "gap_to_target": current - TARGET,
         "plan_christmas": PLAN_CHRISTMAS,
         "live_christmas": live_christmas,
@@ -718,10 +723,14 @@ def _sources(rows: list[dict], balance_source: str, errors: list[str]) -> dict:
         )
     elif payment_source == "derived_from_balance":
         notes.append(
-            "Payments this week are the opening balance plus invoices minus the live vendor balance."
+            "Payments this week are the opening balance plus invoices minus the live vendor balance. "
+            "That balance already includes those payments, so they are not subtracted again."
         )
     if balance_source == "statement_nov_3":
-        notes.append("Vendor balance is the Nov 3 statement until Business Central returns Upwardor balance due.")
+        notes.append(
+            "Vendor balance is the Nov 3 statement opening because Business Central "
+            "did not return the Upwardor balance."
+        )
     return {
         "balance": balance_source,
         "invoices": rollup("invoice_source"),

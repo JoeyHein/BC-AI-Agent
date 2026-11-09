@@ -72,6 +72,16 @@ function sourceLabel(key) {
   return SOURCE[key] || key || '—'
 }
 
+function balanceCaption(data) {
+  const source = data?.current_balance_source
+  if (source === 'business_central') {
+    const when = formatAsOf(data.balance_as_of || data.as_of)
+    return when ? `Business Central, as of ${when}` : 'Business Central'
+  }
+  if (source === 'statement_nov_3') return 'Nov 3 statement — Business Central unavailable'
+  return sourceLabel(source)
+}
+
 function formatAsOf(iso) {
   if (!iso) return ''
   const [day, rest] = String(iso).split('T')
@@ -171,8 +181,8 @@ export default function UpwardorPlan() {
             Get the Upward Door payable balance under $500,000 by the week of Dec 22.
           </p>
           <p className="mt-1 text-xs text-gray-400">
-            As of {formatAsOf(data.as_of)}. Weeks start Monday. {data.timezone}.
-            {' '}Balance: {sourceLabel(data.sources?.balance)}. Invoices: {sourceLabel(data.sources?.invoices)}. Payments: {sourceLabel(data.sources?.payments)}.
+            As of {formatAsOf(data.as_of)}. Each week is the seven days from the date shown. {data.timezone}.
+            {' '}Balance: {balanceCaption(data)}. Invoices: {sourceLabel(data.sources?.invoices)}. Payments: {sourceLabel(data.sources?.payments)}.
           </p>
         </div>
         <button
@@ -195,7 +205,7 @@ export default function UpwardorPlan() {
         <Card
           title="Upwardor balance"
           value={money(data.current_balance)}
-          sub={sourceLabel(data.current_balance_source)}
+          sub={balanceCaption(data)}
         />
         <Card
           title="Gap to $500K"
@@ -232,7 +242,7 @@ export default function UpwardorPlan() {
             {(data.sources.errors || []).map((note) => <li key={note}>{note}</li>)}
           </ul>
           <p className="mt-2 text-xs text-amber-900">
-            Balance: {sourceLabel(data.sources.balance)}. Invoices: {sourceLabel(data.sources.invoices)}. Payments: {sourceLabel(data.sources.payments)}.
+            Balance: {balanceCaption(data)}. Invoices: {sourceLabel(data.sources.invoices)}. Payments: {sourceLabel(data.sources.payments)}.
           </p>
         </div>
       )}
