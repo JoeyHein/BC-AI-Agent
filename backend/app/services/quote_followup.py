@@ -14,6 +14,7 @@ from typing import Any, List, Optional
 from sqlalchemy.orm import Session
 
 from app.db.models import CustomerOrderApproval, EmailLog, OpsOutboundMessage, QuoteRequest
+from app.services.email_text import fresh_message_text, reply_recipient
 from app.services.inbox_settings import (
     CUSTOMER_APPROVAL,
     MISSING_INFO_REPLY,
@@ -28,11 +29,23 @@ _STRONG_RE = re.compile(
     r"\b(?:go ahead|po attached|purchase order attached|please proceed|we accept(?: the quote)?)\b",
     re.I,
 )
+_GO_AHEAD_CHANGE = re.compile(
+    r"\bgo ahead\b(?:\s+and)?\s+(?:change|revise|update|modify|adjust)\b",
+    re.I,
+)
+_NEGATED_APPROVAL = re.compile(
+    r"\b(?:not|never|no|n't)\b(?:\s+\w+){0,3}\s+approved\b|\bapproved\b(?:\s+\w+){0,2}\s+yet\b",
+    re.I,
+)
+_PREVIOUS_SQ = re.compile(
+    r"\b(?:previous|last|old|earlier|prior)\b.{0,60}\bSQ-?\d+\b|\bSQ-?\d+\b.{0,40}\bwas approved\b",
+    re.I,
+)
 _APPROVED_RE = re.compile(r"\bapproved\b", re.I)
 _NEW_QUOTE_RE = re.compile(r"\b(?:please quote|need a quote|quote request|rfq|request for quote)\b", re.I)
 _PO_FILE_RE = re.compile(r"\bPO[-_\s]?([A-Z0-9]*\d[A-Z0-9\-]*)", re.I)
 _PO_BODY_RE = re.compile(
-    r"\b(?:P\.?O\.?|purchase order)\s*(?:number|no\.?|#)?\s*[:#]?\s*([A-Z0-9][A-Z0-9\-]{1,})",
+    r"\b(?:P\.?O\.?|purchase order)(?:\s+(?:number|no\.?|#|is))?\s*[:#]?\s*([A-Z0-9][A-Z0-9\-]{2,})",
     re.I,
 )
 _SIZE_HINT_RE = re.compile(r"\d\s*(?:'|ft|feet|x|×)", re.I)
@@ -50,14 +63,26 @@ _ASSUMPTION_FIELDS = (
 
 
 def is_customer_approval(category: str, subject: str, body: str) -> bool:
-    """True when this message is a go-ahead rather than a new quote request."""
-    text = f"{subject or ''}\n{body or ''}"
-    if category == "order_confirmation":
-        return True
+    """True when the new writing is a go-ahead, not a change or a new request.
+
+    Quoted older mail is ignored. "Not approved yet" and "go ahead and
+    change the colour" are not approvals. A new request that mentions an
+    older SQ having been approved is not an approval either.
+    """
+    text = fresh_message_text(f"{subject or ''}\n{body or ''}")
+    if _NEGATED_APPROVAL.search(text) or _GO_AHEAD_CHANGE.search(text):
+        return False
+    new_request = bool(_NEW_QUOTE_RE.search(text) or _SIZE_HINT_RE.search(text))
+    if new_request and _PREVIOUS_SQ.search(text):
+        return False
+    if new_request and category in {"quote_request", "quote_modification", ""}:
+        return False
     has_sq = _SQ_RE.search(text) is not None
     strong = _STRONG_RE.search(text) is not None
     approved = _APPROVED_RE.search(text) is not None
-    if category == "quote_request" and not has_sq and (_NEW_QUOTE_RE.search(text) or _SIZE_HINT_RE.search(text)):
+    if category == "order_confirmation" and (strong or approved or has_sq):
+        return True
+    if category == "order_confirmation":
         return False
     if strong:
         return True
@@ -82,7 +107,7 @@ def handle_customer_approval(
     mode = inbox_mode(db, CUSTOMER_APPROVAL)
     if mode == "off":
         return None
-    text = f"{subject or ''}\n{body or ''}"
+    text = fresh_message_text(f"{subject or ''}\n{body or ''}")
     candidates = match_sales_quotes(db, text, from_address, subject, email_log.id)
     po_number, po_source = customer_po_number(text, filenames or [])
     payload = {
@@ -108,17 +133,20 @@ def handle_customer_approval(
     )
     if existing is not None:
         return existing
-    status = "ready" if len(candidates) == 1 else "needs_choice"
+    duplicate = _duplicate_approval(db, candidates)
+    if duplicate is not None:
+        return duplicate
+    status, chosen_sq = _decision(candidates)
     row = CustomerOrderApproval(
         email_log_id=email_log.id,
         status=status,
         match_method=payload["match_method"],
-        bc_quote_number=payload["bc_quote_number"],
-        quote_request_id=candidates[0].get("quote_request_id") if len(candidates) == 1 else None,
+        bc_quote_number=chosen_sq,
+        quote_request_id=candidates[0].get("quote_request_id") if status == "ready" else None,
         candidates=candidates,
         customer_po=po_number,
         po_source=po_source,
-        excerpt=(body or "")[:500],
+        excerpt=text[:500],
         from_address=from_address,
         subject=subject,
         graph_message_id=graph_message_id,
@@ -141,18 +169,18 @@ def match_sales_quotes(
     subject: str,
     email_log_id: Optional[int],
 ) -> List[dict]:
-    numbered = _quotes_for_numbers(db, _sq_numbers(text))
+    numbered = _quotes_for_numbers(db, _sq_numbers(text), from_address)
     if numbered:
         return numbered
     threaded = _quotes_on_thread(db, from_address, subject, email_log_id)
-    if len(threaded) == 1:
+    if threaded:
         return threaded
-    if len(threaded) > 1:
-        return threaded
+    # A recent quote is a suggestion. It is never a ready match on its own.
     return _recent_customer_quotes(db, from_address)
 
 
 def customer_po_number(text: str, filenames: List[str]):
+    text = fresh_message_text(text or "")
     for name in filenames:
         match = _PO_FILE_RE.search(name or "")
         if match and re.search(r"\d", match.group(1)):
@@ -210,6 +238,8 @@ def queue_missing_info(
         return None
     subject = email_log.subject if email_log and email_log.subject else "your quote"
     body = missing_info_body(quote.customer_name, unknowns, assumptions)
+    to_email, forwarded = _draft_recipient(email_log, quote.contact_email)
+    reply_subject = f"Re: {subject}"
     payload = {
         "unknowns": unknowns,
         "assumptions": assumptions,
@@ -227,13 +257,16 @@ def queue_missing_info(
         db,
         kind="missing_info_reply",
         dedupe=f"missing-info:{quote.id}",
-        to_email=quote.contact_email,
-        subject=payload["subject"],
+        to_email=to_email,
+        subject=reply_subject,
         body=body,
         context={
             "trigger": "missing_info",
             "quote_request_id": quote.id,
-            "reply_to_message_id": graph_message_id,
+            "reply_to_message_id": None if forwarded else graph_message_id,
+            "reply_to_address": to_email,
+            "reply_subject": reply_subject,
+            "forwarded": forwarded,
             "mailbox": mailbox,
             "unknowns": unknowns,
             "assumptions": assumptions,
@@ -255,7 +288,9 @@ def queue_quote_send(
         return None
     assumptions, deviations = _quote_notes(quote)
     subject_src = email_log.subject if email_log and email_log.subject else "your quote"
-    body = quote_send_body(quote.bc_quote_id, assumptions, deviations)
+    body = quote_send_body(quote.bc_quote_id, assumptions)
+    to_email, forwarded = _draft_recipient(email_log, quote.contact_email)
+    reply_subject = f"Re: {subject_src}"
     payload = {"subject": f"Quote {quote.bc_quote_id}", "body": body, "bc_quote_number": quote.bc_quote_id}
     if mode == "shadow":
         logger.info(
@@ -268,18 +303,21 @@ def queue_quote_send(
         db,
         kind="quote_send",
         dedupe=f"quote-send:{quote.id}:{quote.bc_quote_id}",
-        to_email=quote.contact_email,
-        subject=f"Re: {subject_src}",
+        to_email=to_email,
+        subject=reply_subject,
         body=body,
         context={
             "trigger": "quote_send",
             "quote_request_id": quote.id,
             "bc_quote_number": quote.bc_quote_id,
             "attach_quote_pdf": True,
-            "reply_to_message_id": graph_message_id,
+            "reply_to_message_id": None if forwarded else graph_message_id,
+            "reply_to_address": to_email,
+            "reply_subject": reply_subject,
+            "forwarded": forwarded,
             "mailbox": mailbox,
             "assumptions": assumptions,
-            "deviations": [item.get("reason") for item in deviations if isinstance(item, dict)],
+            "deviations": [item.get("reason") for item in deviations if isinstance(item, dict) and item.get("reason")],
             "reason": f"{quote.bc_quote_id} is ready. The PDF is attached when this is approved.",
         },
     )
@@ -302,21 +340,23 @@ def missing_info_body(customer_name: Optional[str], unknowns: List[str], assumpt
     return "\n".join(lines)
 
 
-def quote_send_body(sq_number: str, assumptions: List[str], deviations: List[dict]) -> str:
+def quote_send_body(sq_number: str, assumptions: List[str], deviations: Optional[List[dict]] = None) -> str:
+    """Customer-facing note. Deviation reasons stay off this draft.
+
+    ``deviations`` is accepted so older callers still work. The reasons are
+    an internal note on the approval card, not something the customer sees.
+    """
+    del deviations
     lines = [
         "Hi,",
         "",
         f"Attached is quote {sq_number}.",
     ]
-    if assumptions:
+    public = [item for item in assumptions if item and "locked" not in item.lower() and "standard is" not in item.lower()]
+    if public:
         lines.append("")
         lines.append("We assumed:")
-        lines.extend(f"- {item}" for item in assumptions)
-    reasons = [item.get("reason") for item in deviations if isinstance(item, dict) and item.get("reason")]
-    if reasons:
-        lines.append("")
-        lines.append("Please check:")
-        lines.extend(f"- {reason}" for reason in reasons)
+        lines.extend(f"- {item}" for item in public)
     lines.extend(["", "Reply on this thread if anything should change.", "", "Open Distribution"])
     return "\n".join(lines)
 
@@ -419,6 +459,11 @@ def convert_customer_approval(
         raise HTTPException(status_code=400, detail="That quote is not one of the matches")
     if not chosen:
         raise HTTPException(status_code=400, detail="No quote number to convert")
+    portal_quote = _quote_by_number(db, chosen)
+    if portal_quote is None:
+        raise HTTPException(status_code=400, detail="That quote is not in the portal")
+    if row.from_address and not _belongs_to_sender(portal_quote, row.from_address):
+        raise HTTPException(status_code=400, detail="That quote is not this customer's")
     previous = row.status
     claimed = (
         db.query(CustomerOrderApproval)
@@ -450,7 +495,7 @@ def convert_customer_approval(
     row.decided_at = datetime.utcnow()
     row.decided_by = user_email
     db.commit()
-    return _approval_result(row, already=False)
+    return _approval_result(row, already=bool(order.get("already")))
 
 
 def approval_to_dict(row: CustomerOrderApproval) -> dict:
@@ -489,6 +534,12 @@ def _convert_sq(db: Session, row: CustomerOrderApproval, sq_number: str, user_em
             quote.bc_quote_id = sq_number
             db.flush()
         result = OrderLifecycleService().convert_quote_to_order(db, quote.id, user_email)
+        if result.get("already") and result.get("bc_order_number"):
+            return {
+                "bc_order_number": result.get("bc_order_number"),
+                "bc_order_id": result.get("bc_order_id"),
+                "already": True,
+            }
         if not result.get("success"):
             raise RuntimeError(result.get("error") or "Convert failed")
         order_id = result.get("bc_order_id")
@@ -553,15 +604,15 @@ def _shadow_on_quote(quote: QuoteRequest, kind: str, payload: dict) -> None:
 
 
 def _shadow_note(email_log: EmailLog, kind: str, payload: dict) -> None:
-    """Shadow for a message that never became a quote. Stored on the email log."""
-    current = email_log.attachments
+    """Shadow for a message that never became a quote.
+
+    Stored on email_logs.inbox_shadow, not on the attachment list. Attachment
+    text is what the customer sent. A shadow note is ours.
+    """
     note = {"kind": kind, "shadow": True, **_jsonable(payload)}
-    if isinstance(current, list):
-        email_log.attachments = [*current, note]
-    elif isinstance(current, dict):
-        email_log.attachments = {**current, "inbox_shadow": [*list(current.get("inbox_shadow") or []), note]}
-    else:
-        email_log.attachments = [note]
+    current = list(email_log.inbox_shadow or [])
+    current.append(note)
+    email_log.inbox_shadow = current
 
 
 def _jsonable(value):
@@ -628,22 +679,42 @@ def _sq_key(token: Optional[str]) -> str:
     return str(int(digits))
 
 
-def _quotes_for_numbers(db: Session, numbers: List[str]) -> List[dict]:
+def _rows_for_numbers(db: Session, numbers: List[str]) -> List[QuoteRequest]:
+    """Quotes whose number matches, without loading the whole table."""
+    from sqlalchemy import or_
+    likes = []
+    keys = set()
+    for number in numbers:
+        digits = re.sub(r"\D", "", number or "")
+        if not digits:
+            continue
+        keys.add(str(int(digits)))
+        likes.append(QuoteRequest.bc_quote_id.like(f"%{digits}"))
+    if not likes:
+        return []
+    rows = db.query(QuoteRequest).filter(or_(*likes)).all()
+    return [row for row in rows if _sq_key(row.bc_quote_id) in keys]
+
+
+def _quotes_for_numbers(db: Session, numbers: List[str], from_address: str) -> List[dict]:
     if not numbers:
         return []
-    rows = db.query(QuoteRequest).filter(QuoteRequest.bc_quote_id.isnot(None)).all()
     by_key = {}
-    for row in rows:
+    for row in _rows_for_numbers(db, numbers):
+        if not _belongs_to_sender(row, from_address):
+            continue
         by_key.setdefault(_sq_key(row.bc_quote_id), row)
     found = []
+    seen = set()
     for number in numbers:
-        row = by_key.get(_sq_key(number))
-        found.append({
-            "bc_quote_number": row.bc_quote_id if row is not None else number,
-            "quote_request_id": row.id if row is not None else None,
-            "customer_name": row.customer_name if row is not None else None,
-            "method": "number",
-        })
+        key = _sq_key(number)
+        if key in seen:
+            continue
+        row = by_key.get(key)
+        if row is None:
+            continue
+        seen.add(key)
+        found.append(_quote_candidate(row, "number"))
     return found
 
 
@@ -719,9 +790,46 @@ def _candidate_has(candidates: List[dict], sq_number: str) -> bool:
 
 
 def _quote_by_number(db: Session, sq_number: str) -> Optional[QuoteRequest]:
-    wanted = _sq_key(sq_number)
-    rows = db.query(QuoteRequest).filter(QuoteRequest.bc_quote_id.isnot(None)).all()
+    rows = _rows_for_numbers(db, [sq_number])
+    return rows[0] if rows else None
+
+
+def _belongs_to_sender(row: QuoteRequest, from_address: str) -> bool:
+    sender = (from_address or "").strip().lower()
+    contact = (row.contact_email or "").strip().lower()
+    return bool(sender and contact and sender == contact)
+
+
+def _decision(candidates: List[dict]):
+    """A single numbered or threaded quote is ready. Recent history is not."""
+    if len(candidates) == 1 and candidates[0].get("method") in {"number", "thread"}:
+        return "ready", candidates[0].get("bc_quote_number")
+    return "needs_choice", None
+
+
+def _duplicate_approval(db: Session, candidates: List[dict]):
+    keys = {_sq_key(item.get("bc_quote_number")) for item in candidates if item.get("bc_quote_number")}
+    keys.discard("")
+    if not keys:
+        return None
+    rows = (
+        db.query(CustomerOrderApproval)
+        .filter(CustomerOrderApproval.status.in_(["ready", "needs_choice", "converting", "converted"]))
+        .all()
+    )
     for row in rows:
-        if _sq_key(row.bc_quote_id) == wanted:
+        row_keys = set()
+        if row.bc_quote_number:
+            row_keys.add(_sq_key(row.bc_quote_number))
+        for item in row.candidates or []:
+            if isinstance(item, dict) and item.get("bc_quote_number"):
+                row_keys.add(_sq_key(item.get("bc_quote_number")))
+        if keys & row_keys:
             return row
     return None
+
+
+def _draft_recipient(email_log: Optional[EmailLog], fallback: Optional[str]):
+    subject = email_log.subject if email_log else ""
+    body = email_log.body if email_log else ""
+    return reply_recipient(subject or "", body or "", fallback)

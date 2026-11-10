@@ -328,20 +328,31 @@ class GraphEmailClient:
         draft_id = created.get("id")
         if not draft_id:
             raise RuntimeError("Graph did not return a reply draft")
-        self._make_request(
-            "PATCH",
-            f"users/{mailbox}/messages/{draft_id}",
-            json={"body": {"contentType": "HTML", "content": html_body}},
-        )
-        for attachment in self._file_attachments(attachments):
+        try:
             self._make_request(
-                "POST",
-                f"users/{mailbox}/messages/{draft_id}/attachments",
-                json=attachment,
+                "PATCH",
+                f"users/{mailbox}/messages/{draft_id}",
+                json={"body": {"contentType": "HTML", "content": html_body}},
             )
-        self._make_request("POST", f"users/{mailbox}/messages/{draft_id}/send")
+            for attachment in self._file_attachments(attachments):
+                self._make_request(
+                    "POST",
+                    f"users/{mailbox}/messages/{draft_id}/attachments",
+                    json=attachment,
+                )
+            self._make_request("POST", f"users/{mailbox}/messages/{draft_id}/send")
+        except Exception:
+            self._delete_unsent(mailbox, draft_id)
+            raise
         logger.info("Sent reply %s on message %s from %s", draft_id, message_id, mailbox)
         return draft_id
+
+    def _delete_unsent(self, mailbox: str, draft_id: str) -> None:
+        """Remove a reply draft that was created but not sent."""
+        try:
+            self._make_request("DELETE", f"users/{mailbox}/messages/{draft_id}")
+        except Exception:
+            logger.exception("Could not delete unsent reply draft %s", draft_id)
 
     # ==================== Sending ====================
 

@@ -2654,13 +2654,21 @@ def default_sender(message: dict) -> None:
     html = text_to_html(message["body_text"])
     reply_to = context.get("reply_to_message_id")
     mailbox = context.get("mailbox") or tracker_mailbox()
-    if reply_to:
+    to_email = message.get("to_email")
+    subject = message.get("subject")
+    original_to = (context.get("reply_to_address") or "").strip().lower()
+    original_subject = context.get("reply_subject") or ""
+    edited = bool(original_to and (to_email or "").strip().lower() != original_to)
+    edited = edited or bool(original_subject and subject != original_subject)
+    # A forwarded RFQ is a new message to the customer inside the forward.
+    # An edit on the card is sent as written. An untouched reply stays on the thread.
+    if reply_to and not context.get("forwarded") and not edited:
         graph_client.send_reply(mailbox, reply_to, html, attachments or None)
         return
     graph_client.send_mail(
         from_email=tracker_mailbox(),
-        to=message["to_email"],
-        subject=message["subject"],
+        to=to_email,
+        subject=subject,
         html_body=html,
         attachments=attachments or None,
     )

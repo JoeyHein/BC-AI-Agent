@@ -571,6 +571,8 @@ OUTPUT FORMAT — JSON only, no prose:
                 door_type = "commercial"
 
             series = str(d.get("doorSeries", "")).upper().strip().replace(" ", "")
+            if series.endswith("-20S"):
+                series = series[:-1]
             if door_type == "commercial" and series not in COMMERCIAL_SERIES:
                 series = "TX450"
             elif door_type == "residential" and series not in RESIDENTIAL_SERIES:

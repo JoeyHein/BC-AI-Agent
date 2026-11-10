@@ -187,6 +187,9 @@ class EmailLog(Base):
     subject = Column(Text)
     body = Column(Text)
     attachments = Column(JSON)  # JSONB in PostgreSQL
+    # What shadow mode would have done. Kept off the attachment list, which
+    # is the customer's files.
+    inbox_shadow = Column(JSON)
     parsed_at = Column(DateTime)
     status = Column(String(50), default="pending")  # pending, parsed, quote_created, error
 

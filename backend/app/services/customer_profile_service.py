@@ -300,9 +300,19 @@ _DESIGN_PATTERNS = (
     ("MUSKOKA", r"\bmuskoka\b"),
 )
 _SERIES_RE = re.compile(
-    r"\b(TX450-20|TX500-20|TX450|TX500|TX380|TX760|KANATA|CRAFT|AL976|PANORAMA|SOLALITE|SWD)\b",
+    r"\b(TX450-20S|TX500-20S|TX450-20|TX500-20|TX450|TX500|TX380|TX760|KANATA|CRAFT|AL976|PANORAMA|SOLALITE|SWD)\b",
     re.IGNORECASE,
 )
+
+
+def canonical_series(raw: str) -> str:
+    """TX450-20S is the 20-gauge TX450, not the plain TX450."""
+    text = (raw or "").upper()
+    if text in {"TX450-20S", "TX450-20"}:
+        return "TX450-20"
+    if text in {"TX500-20S", "TX500-20"}:
+        return "TX500-20"
+    return text
 _FREIGHT_NUMBERS = frozenset({"FREIGHT", "SHIPPING", "FREIGHT-OUT"})
 _SERIES_PREFIX = {
     "PN40": "TX380",
@@ -1168,7 +1178,8 @@ def analyse_email(email_text: str, parsed_door: Optional[dict] = None) -> Dict[s
     ``low_confidence`` is a parser value below the line we will quote.
     ``silent`` means the email did not address the field.
     """
-    text = email_text or ""
+    from app.services.email_text import fresh_message_text
+    text = fresh_message_text(email_text or "")
     parsed = parsed_door or {}
     readings = {key: _silent_reading() for key in list(DOOR_KEYS.values()) + ["deliveryType"]}
 
@@ -1221,7 +1232,7 @@ def analyse_email(email_text: str, parsed_door: Optional[dict] = None) -> Dict[s
     series = _SERIES_RE.search(text)
     if series:
         readings["doorSeries"] = {
-            "basis": "explicit", "value": series.group(1).upper(),
+            "basis": "explicit", "value": canonical_series(series.group(1)),
             "confidence": TEXT_EXPLICIT_CONFIDENCE, "phrase": None,
         }
     for color_code, pattern in _COLOR_PATTERNS:

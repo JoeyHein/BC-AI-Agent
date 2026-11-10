@@ -672,6 +672,9 @@ function ApprovalQueue({ query, onChanged }) {
               <span className="text-xs text-gray-500">{message.so_number} {message.po_number}</span>
               {message.context?.reason && <span className="text-xs text-gray-600">{message.context.reason}</span>}
             </div>
+            {(message.context?.deviations || []).length > 0 && (
+              <p className="text-xs text-amber-800">Internal only, not in the email: {message.context.deviations.join(' ')}</p>
+            )}
             <label className="block text-xs text-gray-500">
               To
               <input

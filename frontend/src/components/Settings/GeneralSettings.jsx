@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { customersApi } from '../../api/client'
 
 const INBOX_SWITCHES = [
-  ['email_attachment_reading', 'Read email attachments', 'PDFs and drawings are read for door sizes. Shadow logs the openings and does not change the quote.'],
+  ['email_attachment_reading', 'Read email attachments', 'PDFs that already have text, and DXF drawings, are read for door sizes. A scanned page or a picture is listed and not read. Shadow logs the openings and does not change the quote.'],
   ['missing_info_reply', 'Missing-info reply', 'Draft one reply listing what is still unknown. It waits in the approval queue.'],
   ['quote_send_draft', 'Send-quote draft', 'When a quote is created from an email, draft a reply with the SQ PDF. It is not sent.'],
   ['customer_approval_detection', 'Customer approval', 'A go-ahead email queues a convert-to-sales-order for staff. Nothing converts on its own.'],

@@ -174,7 +174,7 @@ function Openings({ quote }) {
           <li key={file.name} className="text-sm text-gray-800">
             <span className="font-medium">{file.name}</span>
             {(file.pages || []).map((page) => (
-              <span key={page.page} className="ml-2 text-gray-500">page {page.page} · {page.method}</span>
+              <span key={page.page} className="ml-2 text-gray-500">page {page.page} · {page.method === 'ocr_unavailable' || page.method === 'no_text_layer' ? 'no text layer' : page.method}</span>
             ))}
           </li>
         ))}
@@ -198,10 +198,12 @@ function CustomerApproval({ quote, onChanged }) {
   if (!approval || approval.status === 'dismissed') return null
   const candidates = approval.candidates || []
   async function convert() {
+    const chosen = approval.status === 'needs_choice' ? choice : approval.bc_quote_number
+    if (!chosen) return
+    if (!window.confirm(`Convert ${chosen} to a sales order? This is not undone from here.`)) return
     setBusy(true)
     setMessage('')
     try {
-      const chosen = approval.status === 'needs_choice' ? choice : approval.bc_quote_number
       const response = await quotesApi.convertCustomerApproval(approval.id, chosen)
       setMessage(response.data.bc_order_number ? `Sales order ${response.data.bc_order_number}` : 'Converted')
       onChanged()

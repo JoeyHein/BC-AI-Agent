@@ -70,6 +70,8 @@ function CustomerApprovals({ onChanged }) {
   if (!rows.length) return null
   async function convert(row) {
     const picked = row.status === 'needs_choice' ? choice[row.id] : row.bc_quote_number
+    if (!picked) return
+    if (!window.confirm(`Convert ${picked} to a sales order? This is not undone from here.`)) return
     try {
       const response = await quotesApi.convertCustomerApproval(row.id, picked)
       setNote(response.data.bc_order_number ? `Created ${response.data.bc_order_number}` : 'Converted')
@@ -91,6 +93,7 @@ function CustomerApprovals({ onChanged }) {
             {row.status === 'ready' ? `Matched ${row.bc_quote_number}` : 'Choose a quote'}
             {row.customer_po ? ` · PO ${row.customer_po}` : ''}
           </p>
+          {row.excerpt && <p className="text-sm text-gray-800 whitespace-pre-wrap">{row.excerpt}</p>}
           {row.status === 'needs_choice' && (
             <select aria-label={`Quote for approval ${row.id}`} value={choice[row.id] || ''} onChange={(event) => setChoice({ ...choice, [row.id]: event.target.value })} className="border border-gray-300 rounded-md px-2 py-1 text-sm">
               <option value="">Choose a quote</option>

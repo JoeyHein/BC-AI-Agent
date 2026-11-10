@@ -429,17 +429,30 @@ def _price_mapped_quote(quote: QuoteRequest, db: Session, profile_applied: bool 
         _restore_quote_status(db, quote.id, previous)
         raise
     data = result.get("data", {}) if isinstance(result, dict) else {}
-    EmailMonitorService()._persist_quote_items_from_pricing(
-        db, quote.id, data.get("line_pricing") or [],
-    )
     number = data.get("bc_quote_number")
     if number:
         quote.bc_quote_id = number
         quote.status = "bc_created"
     else:
         quote.status = "quote_generated"
+
+    def _after_bc(action):
+        nested = db.begin_nested()
+        try:
+            action()
+            nested.commit()
+        except Exception:
+            logger.exception("Business Central quote %s was kept. A later step failed.", number)
+            try:
+                nested.rollback()
+            except Exception:
+                pass
+
+    _after_bc(lambda: EmailMonitorService()._persist_quote_items_from_pricing(
+        db, quote.id, data.get("line_pricing") or [],
+    ))
     if quote.status == "bc_created":
-        queue_quote_send_for(db, quote)
+        _after_bc(lambda: queue_quote_send_for(db, quote))
     db.commit()
     return {"priced": True, "status": quote.status, "bc_quote_number": number}
 

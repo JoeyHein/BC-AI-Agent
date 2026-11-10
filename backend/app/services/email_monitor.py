@@ -276,13 +276,22 @@ class EmailMonitorService:
         from app.services.inbox_settings import CUSTOMER_APPROVAL, inbox_mode
         from app.services.quote_followup import handle_customer_approval, is_customer_approval
         approval_mode = inbox_mode(db, CUSTOMER_APPROVAL)
-        approval_text = parse_body if pack is not None and approval_mode != "off" else body
-        if category == "order_confirmation" or (
-            approval_mode != "off" and is_customer_approval(category, subject, approval_text)
-        ):
-            if approval_mode == "off":
-                logger.info("  -> Categorized as 'order_confirmation', not processing further")
-                return "other"
+        approval_text = parse_body if pack is not None and approval_mode == "on" else body
+        looks_like_approval = approval_mode != "off" and is_customer_approval(category, subject, approval_text)
+        if looks_like_approval and approval_mode == "shadow":
+            filenames = [page.file_name for page in pack.pages] if pack is not None else []
+            handle_customer_approval(
+                db,
+                email_log,
+                subject=subject,
+                body=approval_text,
+                from_address=from_address,
+                graph_message_id=message_id,
+                mailbox=inbox_email,
+                filenames=filenames,
+            )
+            logger.info("  -> Approval shadow logged. The message continues on the normal path.")
+        elif looks_like_approval and approval_mode == "on":
             filenames = [page.file_name for page in pack.pages] if pack is not None else []
             handle_customer_approval(
                 db,
@@ -297,6 +306,9 @@ class EmailMonitorService:
             email_log.status = "informational"
             db.commit()
             return "customer_approval"
+        elif category == "order_confirmation" and approval_mode == "off":
+            logger.info("  -> Categorized as 'order_confirmation', not processing further")
+            return "other"
 
         # Step 3: If quote request or modification, parse with AI
         if is_quote_request:
@@ -360,19 +372,34 @@ class EmailMonitorService:
             )
         return read_mode, parse_body, pack
 
-    def _remember_mail(self, parsed_data, pack, applied, graph_message_id, mailbox):
+    def _remember_mail(self, parsed_data, pack, applied, graph_message_id, mailbox, record_mail=False):
         data = dict(parsed_data or {})
-        if graph_message_id or mailbox:
+        if record_mail and (graph_message_id or mailbox):
             data["mail"] = {"graph_message_id": graph_message_id, "mailbox": mailbox}
         if pack is not None:
             data["attachments_read"] = pack.staff_payload(applied)
         return data
 
     def _settle_followups(self, db, quote, email_log, mailbox, graph_message_id):
+        """Draft a follow-up. A failure here must not undo a quote already saved."""
         from app.services.quote_followup import settle_quote_followups
-        settle_quote_followups(
-            db, quote, email_log, mailbox=mailbox, graph_message_id=graph_message_id,
-        )
+        nested = None
+        try:
+            nested = db.begin_nested()
+            settle_quote_followups(
+                db, quote, email_log, mailbox=mailbox, graph_message_id=graph_message_id,
+            )
+            nested.commit()
+        except Exception:
+            logger.exception(
+                "Follow-up draft failed for quote %s. The quote status was kept.",
+                getattr(quote, "id", None),
+            )
+            if nested is not None:
+                try:
+                    nested.rollback()
+                except Exception:
+                    pass
 
     def _parse_quote_request(self, db, email_log: EmailLog, subject: str, body: str,
                             from_name: str, from_address: str,
@@ -410,12 +437,15 @@ class EmailMonitorService:
             email_log.status = "error"
             return
 
+        from app.services.inbox_settings import inbox_modes
+        record_mail = any(mode != "off" for mode in inbox_modes(db).values())
         parsed_data = self._remember_mail(
             parse_result.get("data", {}),
             attachment_pack,
             attachment_applied,
             graph_message_id,
             mailbox,
+            record_mail=record_mail,
         )
         raw_confidence = parse_result.get("confidence", 0.0)
 
