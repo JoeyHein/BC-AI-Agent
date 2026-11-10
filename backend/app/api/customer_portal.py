@@ -235,6 +235,32 @@ class InstallPriceCalculateRequest(BaseModel):
     town: Optional[str] = None  # for travel calc
 
 
+@router.get("/ordering-profile")
+def get_ordering_profile(
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db),
+):
+    """Read-only profile for the signed-in customer.
+
+    The portal uses it to prefill a quote only when quoting mode is on.
+    Shadow and off return the profile for display and do not change quotes.
+    """
+    from app.services.customer_profile_service import get_profile, profile_to_dict, quoting_mode
+    mode = quoting_mode(db)
+    customer = None
+    if current_user.bc_customer_id:
+        customer = db.query(BCCustomer).filter(
+            BCCustomer.bc_customer_id == current_user.bc_customer_id
+        ).first()
+    payload = profile_to_dict(
+        get_profile(db, current_user.bc_customer_id) if current_user.bc_customer_id else None,
+        customer,
+    )
+    payload["quoting_mode"] = mode
+    payload["apply"] = mode == "on"
+    return payload
+
+
 @router.post("/install-pricing/calculate")
 def calculate_install_price(
     data: InstallPriceCalculateRequest,
@@ -714,6 +740,44 @@ def _format_door_description(door: dict) -> str:
     return ", ".join(segments) + pocket_info
 
 
+def _apply_portal_profile(db, bc_customer_id, doors, delivery_type, config_id):
+    """Fill silent door defaults from the customer profile and remember them.
+
+    Pickup vs delivery is not overwritten. The portal already asked.
+    Replacing ``config_data`` (not mutating a nested door) is what makes
+    SQLAlchemy persist the filled values.
+    """
+    if not db or not bc_customer_id or str(bc_customer_id).startswith("TEMP-"):
+        return doors, delivery_type
+    from app.services.customer_profile_service import apply_profile_for_customer, quoting_mode
+    mode = quoting_mode(db)
+    if mode == "off":
+        return doors, delivery_type
+    applied = apply_profile_for_customer(
+        db,
+        bc_customer_id,
+        [dict(door) for door in doors],
+        delivery_type=delivery_type or "delivery",
+        delivery_explicit=True,
+    )
+    config = db.query(SavedQuoteConfig).filter(SavedQuoteConfig.id == config_id).first()
+    sources = {**applied["field_sources"], "mode": mode}
+    if config is not None and mode in {"shadow", "on"}:
+        data = dict(config.config_data or {})
+        data["field_sources"] = sources
+        data["deviations"] = applied["deviations"]
+        if mode == "on":
+            data["doors"] = applied["doors"]
+        config.config_data = data
+        logger.info(
+            "Portal profile mode=%s customer=%s config=%s deviations=%s",
+            mode, bc_customer_id, config_id, len(applied["deviations"]),
+        )
+    if mode != "on":
+        return doors, delivery_type
+    return applied["doors"], delivery_type
+
+
 def _validate_doors_config(config_data: dict) -> List[dict]:
     """Validate and extract doors from config_data. Raises HTTPException on failure."""
     from app.api.door_configurator import collect_dimension_validation
@@ -868,6 +932,13 @@ def _generate_bc_quote_with_items(
                 "Please contact OPENDC support to finish setting up your account."
             ),
         )
+
+    # Profile defaults (angle mount, usual series, and so on) for fields
+    # the saved door still has at the system default. Delivery is left
+    # alone: the portal makes the customer pick pickup or delivery.
+    doors, delivery_type = _apply_portal_profile(
+        db, bc_customer_id, doors, delivery_type, config_id
+    )
 
     # Load spring inventory so quotes use the same stocked springs as the specs tab
     spring_inventory = get_bc_spring_inventory()
@@ -2052,6 +2123,19 @@ def _edit_bc_quote_lines(
 
     old_doors = (config.config_data or {}).get("doors", [])
     new_doors = _validate_doors_config(new_config_data)
+    # Saved quotes carry an id. Unit-test stand-ins do not, and they keep
+    # the doors they posted.
+    if getattr(config, "id", None) is not None:
+        new_doors, delivery_type = _apply_portal_profile(
+            db, bc_customer_id, new_doors, delivery_type, config.id
+        )
+    if isinstance(new_config_data, dict):
+        new_config_data["doors"] = new_doors
+        saved = config.config_data or {}
+        if saved.get("field_sources") is not None:
+            new_config_data["field_sources"] = saved.get("field_sources")
+        if saved.get("deviations") is not None:
+            new_config_data["deviations"] = saved.get("deviations")
 
     diff = _diff_doors(old_doors, new_doors)
     logger.info(f"Edit diff for quote {bc_quote_number}: {diff}")

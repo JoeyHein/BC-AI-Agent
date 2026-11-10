@@ -103,6 +103,10 @@ class QuoteResponse(BaseModel):
     email_subject: Optional[str]
     email_from: Optional[str]
     bc_quote_id: Optional[str]  # BC quote ID if created
+    field_sources: Optional[dict] = None
+    deviations: Optional[list] = None
+    matched_bc_customer_id: Optional[str] = None
+    customer_match: Optional[dict] = None
 
     class Config:
         from_attributes = True
@@ -179,7 +183,11 @@ def get_pending_reviews(
             created_at=quote.created_at,
             email_subject=email_log.subject if email_log else None,
             email_from=email_log.from_address if email_log else None,
-            bc_quote_id=quote.bc_quote_id
+            bc_quote_id=quote.bc_quote_id,
+            field_sources=quote.field_sources,
+            deviations=quote.deviations,
+            matched_bc_customer_id=quote.matched_bc_customer_id,
+            customer_match=quote.customer_match,
         )
         results.append(result)
 
@@ -218,7 +226,11 @@ def get_quote(quote_id: int, db: Session = Depends(get_db)):
         created_at=quote.created_at,
         email_subject=email_log.subject if email_log else None,
         email_from=email_log.from_address if email_log else None,
-        bc_quote_id=quote.bc_quote_id
+        bc_quote_id=quote.bc_quote_id,
+        field_sources=quote.field_sources,
+        deviations=quote.deviations,
+        matched_bc_customer_id=quote.matched_bc_customer_id,
+        customer_match=quote.customer_match,
     )
 
 

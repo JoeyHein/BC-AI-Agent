@@ -232,6 +232,14 @@ class QuoteRequest(Base):
     modification_type = Column(String(50))  # dimension_change, color_change, quantity_change, spec_change, cancellation
     modification_notes = Column(Text)  # AI-detected changes summary
 
+    # How each quoted field was chosen, and where the quote stepped off
+    # what the email or the customer profile said. Shape is owned by
+    # customer_profile_service. Staff review reads these directly.
+    field_sources = Column(JSON)  # {deliveryType, doors: [{trackMount: {value, source, ...}}]}
+    deviations = Column(JSON)  # [{kind, field, reason, ...}]
+    matched_bc_customer_id = Column(String(100), index=True)
+    customer_match = Column(JSON)  # {method, confident, reason, bc_customer_id}
+
     # Relationships
     email = relationship("EmailLog", back_populates="quote_requests")
     parent_quote = relationship("QuoteRequest", remote_side=[id], backref="revisions")
@@ -579,6 +587,46 @@ class BCCustomer(Base):
 
     def __repr__(self):
         return f"<BCCustomer(id={self.bc_customer_id}, name={self.company_name})>"
+
+
+class CustomerProfile(Base):
+    """Ordering profile for one BC customer.
+
+    Keyed by the same bc_customer_id the rest of the portal uses for
+    pricing (the BC customer GUID, or a number when that is what BC
+    stored). Inferred values live in ``fields`` with evidence and
+    confidence. A staff edit sets ``locked`` on that field; a locked
+    value is not replaced by the history seed and beats an email that
+    left the field blank.
+    """
+    __tablename__ = "customer_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    bc_customer_id = Column(String(100), unique=True, nullable=False, index=True)
+    # Human BC customer number (C00123) when we know it. The row is still
+    # keyed by bc_customer_id so quoting can join it to price lists.
+    customer_number = Column(String(50), index=True)
+
+    # field key -> {value, locked, confidence, support, total, evidence, counts, source, locked_by, locked_at}
+    fields = Column(JSON, nullable=False, default=dict)
+    # [{name, email, role}] role is "quote" or "po"
+    contacts = Column(JSON, nullable=False, default=list)
+    # ["gnb.example"] — used for domain matching. Free-mail domains are not stored.
+    email_domains = Column(JSON, nullable=False, default=list)
+    # {value: {name, address, city, state, postal}, locked, evidence, source}
+    ship_to = Column(JSON, nullable=True)
+
+    contacts_locked = Column(Boolean, nullable=False, default=False)
+    domains_locked = Column(Boolean, nullable=False, default=False)
+    ship_to_locked = Column(Boolean, nullable=False, default=False)
+
+    documents_seen = Column(Integer, nullable=False, default=0)
+    last_seeded_at = Column(DateTime)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<CustomerProfile(bc_customer_id={self.bc_customer_id})>"
 
 
 class CustomerNote(Base):

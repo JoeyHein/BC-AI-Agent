@@ -62,6 +62,10 @@ class QuoteRequestResponse(BaseModel):
     status: str
     created_at: datetime
     quote_items: List[QuoteItemResponse] = []
+    field_sources: Optional[dict] = None
+    deviations: Optional[list] = None
+    matched_bc_customer_id: Optional[str] = None
+    customer_match: Optional[dict] = None
 
     class Config:
         from_attributes = True
