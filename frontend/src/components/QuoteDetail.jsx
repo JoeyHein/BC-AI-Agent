@@ -3,6 +3,103 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { quotesApi, emailFeedbackApi } from '../api/client'
 import { useState } from 'react'
 
+function sourceBadge(source) {
+  const styles = {
+    email: 'bg-blue-100 text-blue-800',
+    profile: 'bg-emerald-100 text-emerald-800',
+    default: 'bg-gray-100 text-gray-700',
+  }
+  return (
+    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${styles[source] || styles.default}`}>
+      {source || 'default'}
+    </span>
+  )
+}
+
+function FieldSources({ sources, deviations, match, status }) {
+  const doors = sources?.doors || []
+  const delivery = sources?.deliveryType
+  const rows = []
+  if (delivery) {
+    rows.push({ label: 'Pickup / delivery', ...delivery })
+  }
+  doors.forEach((door, index) => {
+    Object.entries(door || {}).forEach(([field, info]) => {
+      if (!info) return
+      rows.push({ label: `Door ${index + 1} ${field}`, ...info })
+    })
+  })
+  const deviationList = deviations || []
+  const held = status === 'held_for_customer_match'
+  if (!rows.length && !deviationList.length && !match && !held) return null
+  return (
+    <div className="bg-white shadow rounded-lg p-6 space-y-4" data-testid="quote-field-sources">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-medium text-gray-900">How this quote was filled in</h2>
+        {sources?.mode && (
+          <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
+            Mode {sources.mode}
+          </span>
+        )}
+      </div>
+      {sources?.mode === 'shadow' && (
+        <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md p-3">
+          Shadow mode. These sources were calculated and stored. The quote sent to Business Central still used the previous defaults.
+        </p>
+      )}
+      {held && (
+        <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-md p-3">
+          Held for customer match. {match?.reason || 'No confident customer, so this was not priced at retail.'}
+        </p>
+      )}
+      {match && !held && (
+        <p className="text-sm text-gray-600">
+          Customer match: {match.method} {match.confident ? '' : '(not confident)'}. {match.reason}
+        </p>
+      )}
+      {rows.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left text-gray-500">
+                <th className="py-2 pr-4 font-medium">Field</th>
+                <th className="py-2 pr-4 font-medium">Value</th>
+                <th className="py-2 pr-4 font-medium">Source</th>
+                <th className="py-2 font-medium">Evidence</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.label} className="border-t border-gray-100">
+                  <td className="py-2 pr-4 text-gray-900">{row.label}</td>
+                  <td className="py-2 pr-4 text-gray-900">{String(row.value ?? '—')}{row.locked ? ' · locked' : ''}</td>
+                  <td className="py-2 pr-4">{sourceBadge(row.source)}</td>
+                  <td className="py-2 text-gray-500">{row.evidence || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {deviationList.length > 0 && (
+        <div>
+          <h3 className="text-sm font-medium text-gray-900 mb-2">Deviations</h3>
+          <ul className="space-y-2">
+            {deviationList.map((item, index) => (
+              <li key={index} className="text-sm text-gray-800 bg-orange-50 border border-orange-200 rounded-md p-3">
+                <span className="font-medium">{item.field}</span>
+                {item.kind ? ` · ${item.kind}` : ''}
+                {item.shadow ? ' · shadow' : ''}
+                <div className="mt-1 text-gray-700">{item.reason}</div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function QuoteDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -183,6 +280,8 @@ function QuoteDetail() {
           </dl>
         </div>
       </div>
+
+      <FieldSources sources={quote.field_sources} deviations={quote.deviations} match={quote.customer_match} status={quote.status} />
 
       {/* Doors */}
       <div className="bg-white shadow rounded-lg p-6">

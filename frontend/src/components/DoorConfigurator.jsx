@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { doorConfigApi, settingsApi, adminQuotesApi } from '../api/client'
+import { doorConfigApi, settingsApi, adminQuotesApi, customersApi } from '../api/client'
 import apiClient from '../api/client'
 import DoorDrawings from './DoorDrawings'
 import DoorPreview from './DoorPreview'
@@ -41,6 +41,7 @@ function DoorConfigurator() {
   const [selectedCustomer, setSelectedCustomer] = useState(null) // { bc_customer_id, company_name }
   const [poNumber, setPoNumber] = useState('')
   const [deliveryType, setDeliveryType] = useState('delivery')
+  const deliveryTouchedRef = useRef(false)
   const [installTown, setInstallTown] = useState('')
   const [loadQuoteNumber, setLoadQuoteNumber] = useState('')
   const [loadQuoteLoading, setLoadQuoteLoading] = useState(false)
@@ -62,6 +63,29 @@ function DoorConfigurator() {
     }
     setQuoteResult(null)
     setGenerateError(null)
+    deliveryTouchedRef.current = false
+  }, [selectedCustomer?.bc_customer_id])
+
+  // When quoting is on, start from the customer's usual mount and
+  // pickup/delivery. Off and shadow leave the form on the old defaults.
+  useEffect(() => {
+    const id = selectedCustomer?.bc_customer_id
+    if (!id) return undefined
+    let cancelled = false
+    customersApi.getOrderingProfile(id).then((response) => {
+      if (cancelled || response.data?.quoting_mode !== 'on') return
+      const fields = response.data.fields || {}
+      const delivery = fields.delivery_type?.value
+      if (delivery && !deliveryTouchedRef.current) setDeliveryType(delivery)
+      const mount = fields.track_mount?.value
+      if (!mount) return
+      setDoors((prev) => prev.map((door) => {
+        if (door._touched?.trackMount) return door
+        if ((door.trackMount || 'bracket') !== 'bracket') return door
+        return { ...door, trackMount: mount }
+      }))
+    }).catch(() => {})
+    return () => { cancelled = true }
   }, [selectedCustomer?.bc_customer_id])
 
   // Manual reset: drop the held BC quote id, clear all configured doors,
@@ -225,7 +249,9 @@ function DoorConfigurator() {
   function updateCurrentDoor(updates) {
     setDoors(prev => {
       const newDoors = [...prev]
-      newDoors[currentDoorIndex] = { ...newDoors[currentDoorIndex], ...updates }
+      const touched = { ...(newDoors[currentDoorIndex]._touched || {}) }
+      Object.keys(updates).forEach((key) => { touched[key] = true })
+      newDoors[currentDoorIndex] = { ...newDoors[currentDoorIndex], ...updates, _touched: touched }
       return newDoors
     })
   }
@@ -338,6 +364,7 @@ function DoorConfigurator() {
         targetCycles: door.targetCycles || 10000,
         shaftType: door.shaftType || 'auto',
         trackMount: door.trackMount || 'bracket',
+        explicitFields: Object.keys(door._touched || {}),
         mountSurface: door.mountSurface || 'wood',
         endCapType: door.endCapType || 'auto',
         includeTopSeal: door.includeTopSeal || false,
@@ -348,6 +375,7 @@ function DoorConfigurator() {
       customerId: selectedCustomer?.bc_customer_id || null,
       poNumber: poNumber || undefined,
       deliveryType,
+      deliveryExplicit: deliveryTouchedRef.current,
       installTown: selectedCustomer?.is_home_builder ? (installTown || undefined) : undefined,
       // Reuse the existing BC quote on subsequent generations (e.g. after
       // adding another door) so the BC quote number stays the same.
@@ -685,7 +713,10 @@ function DoorConfigurator() {
             onPoNumberChange={setPoNumber}
             onAddDoor={addDoor}
             deliveryType={deliveryType}
-            onDeliveryTypeChange={setDeliveryType}
+            onDeliveryTypeChange={(value) => {
+              deliveryTouchedRef.current = true
+              setDeliveryType(value)
+            }}
             installTown={installTown}
             onInstallTownChange={setInstallTown}
             onStartNewQuote={handleStartNewQuote}
