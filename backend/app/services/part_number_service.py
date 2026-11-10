@@ -2473,43 +2473,68 @@ class PartNumberService:
                 notes=f"Inner spring: {inner_wire}\" x {inner_coil}\" x {inner_length}\" RH × {rh_count}"
             ))
 
-            # Winder/stationary sets for inner coil size — one per inner spring.
+            # Inner cones — one set per inner spring of that hand.
             # Doors over 2000 lbs take a 1-1/4" shaft; the cones have to match.
-            inner_winder = mapper.get_winder_stationary_set(
-                inner_coil, 1.25 if door_weight > 2000 else 1.0
+            self._append_winder_lines(
+                parts, mapper, inner_coil,
+                1.25 if door_weight > 2000 else 1.0,
+                lh_count, rh_count, door_weight,
             )
-            parts.append(PartSelection(
-                part_number=inner_winder.part_number,
-                description=inner_winder.description,
-                quantity=positions,
-                category="spring_accessory"
-            ))
 
-        # Add winder/stationary cone sets — universal parts (work for both LH/RH).
-        # Match the shaft: >2000 lbs is 1-1/4" keyed bar, everything else is 1".
+        # Outer cones — one line per hand, qty = springs of that hand.
+        # A normal 2-spring door is 1 LH + 1 RH. A single-spring door is
+        # LH only. Match the shaft: >2000 lbs is 1-1/4" keyed bar.
         shaft_bore = 1.25 if door_weight > 2000 else 1.0
-        winder_universal = mapper.get_winder_stationary_set(coil_id, shaft_bore)
-        parts.append(PartSelection(
-            part_number=winder_universal.part_number,
-            description=winder_universal.description,
-            quantity=positions,  # one set per (outer) spring
-            category="spring_accessory"
-        ))
-        if shaft_bore > 1 and "1-1/4" not in (winder_universal.description or ""):
+        self._append_winder_lines(
+            parts, mapper, coil_id, shaft_bore, lh_count, rh_count, door_weight,
+        )
+
+        # Shaft sizing counts shaft positions (a duplex nest is one position).
+        return parts, positions, is_tandem
+
+    def _append_winder_lines(
+        self,
+        parts: List[PartSelection],
+        mapper,
+        coil_id: float,
+        shaft_bore: float,
+        lh_count: int,
+        rh_count: int,
+        door_weight: float,
+    ) -> None:
+        """One LH cone line and one RH cone line. Never a universal -01 item.
+
+        Quantity is the number of springs of that hand, before the door-count
+        multiplier. A hand with no springs is omitted (single-spring doors).
+        """
+        emitted = []
+        for hand, count in (("LH", lh_count), ("RH", rh_count)):
+            if count <= 0:
+                continue
+            winder = mapper.get_winder_stationary_set(coil_id, shaft_bore, hand)
+            parts.append(PartSelection(
+                part_number=winder.part_number,
+                description=winder.description,
+                quantity=count,
+                category="spring_accessory",
+                notes=f"Winder set {hand} × {count}",
+            ))
+            emitted.append(winder)
+        if shaft_bore > 1 and emitted and all(
+            "1-1/4" not in (w.description or "") for w in emitted
+        ):
+            sample = emitted[0].part_number
             parts.append(PartSelection(
                 part_number="",
                 description=(
                     f"** SHAFT WARNING: Door is {door_weight:.0f} lbs so the shaft is "
                     f"1-1/4\", but no 1-1/4\" winder set is stocked for a {coil_id}\" coil. "
-                    f"Using {winder_universal.part_number}. Office to confirm the cones. **"
+                    f"Using {sample}. Office to confirm the cones. **"
                 ),
                 quantity=0,
                 category="sizing_warning",
                 notes="winder_bore_mismatch",
             ))
-
-        # Shaft sizing counts shaft positions (a duplex nest is one position).
-        return parts, positions, is_tandem
 
     def _get_shaft_parts(self, config: DoorConfiguration, spring_count: int = 2, is_tandem: bool = False) -> List[PartSelection]:
         """Get shaft part numbers using actual BC parts.

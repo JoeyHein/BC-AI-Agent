@@ -199,8 +199,53 @@ class TestNetting:
                bom_lines=boms)
 
         plan = svc.compute_netted_po_lines("SO-TEST")
-        assert [r["item_no"] for r in plan["component_shortfall"]] == ["SP12-00231-01"]
-        assert plan["component_shortfall"][0]["quantity"] == 2  # 2 sets, not 8 plugs
+        # The retired universal cone is not reordered. Qty 2 with no spring
+        # lines to read splits evenly into one LH and one RH, still bought
+        # whole — not the 8 plugs inside the cone BOM.
+        assert sorted(r["item_no"] for r in plan["component_shortfall"]) == [
+            "SP12-00231-00", "SP12-00237-00",
+        ]
+        assert [r["quantity"] for r in sorted(plan["component_shortfall"], key=lambda r: r["item_no"])] == [1, 1]
+        assert "SP12-00231-01" not in {r["item_no"] for r in plan["component_shortfall"]}
+
+    def test_so_universal_cone_line_is_bought_as_lh_rh(self, monkeypatch):
+        """A sales order that still lists the retired cone must not put that
+        item on the PO. Hands come from the spring lines; LH and RH stay
+        buy-complete even though BC marks them Prod. Order."""
+        so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme", "salesOrderLines": [
+            _line("SP12-00233-01", 10, seq=100),
+            _line("SP11-25036-01", 30, seq=110),
+            _line("SP11-25036-02", 30, seq=120),
+        ]}
+        cards = [
+            _card("SP12-00233-01", replen="Prod. Order", bom="OLD-BOM", on_hand=0),
+            _card("SP12-00233-00", replen="Prod. Order", bom="LH-BOM", on_hand=0, on_so=5),
+            _card("SP12-00239-00", replen="Prod. Order", bom="RH-BOM", on_hand=0, on_so=5),
+            _card("RAW-PLUG-01", on_hand=0),
+        ]
+        boms = [
+            _bom_line("OLD-BOM", "RAW-PLUG-01", 4.0),
+            _bom_line("LH-BOM", "RAW-PLUG-01", 4.0),
+            _bom_line("RH-BOM", "RAW-PLUG-01", 4.0),
+        ]
+        _setup(monkeypatch, so, cards, {
+            "SP12-00233-00": {"unitCost": 8.0, "baseUnitOfMeasureCode": "EA"},
+            "SP12-00239-00": {"unitCost": 8.5, "baseUnitOfMeasureCode": "EA"},
+        }, bom_lines=boms)
+
+        plan = svc.compute_netted_po_lines("SO-TEST")
+        included = {r["item_no"]: r["quantity"] for r in plan["included"]}
+        assert included["SP12-00233-00"] == 5
+        assert included["SP12-00239-00"] == 5
+        assert "SP12-00233-01" not in included
+        assert plan["component_shortfall"] == []
+        assert plan["excluded_manufactured"] == []
+
+        complete = svc.compute_complete_po_lines("SO-TEST")
+        complete_qty = {r["item_no"]: r["quantity"] for r in complete["included"]}
+        assert complete_qty["SP12-00233-00"] == 5
+        assert complete_qty["SP12-00239-00"] == 5
+        assert "SP12-00233-01" not in complete_qty
 
     def test_two_manufactured_items_sharing_a_component_aggregate(self, monkeypatch):
         so = {"id": "so-1", "number": "SO-TEST", "customerName": "Acme",
@@ -429,7 +474,7 @@ class TestBuyComplete:
 
     @pytest.mark.parametrize("kit_no", [
         "TR02-STDBM-0812", "TR02-LHR-08", "TR03-STDAM-22", "TR03-EXT7-00",
-        "SP12-00231-01", "SP12-00234-01",
+        "SP12-00233-00", "SP12-00239-00",
     ])
     def test_tr02_tr03_and_sp12_winder_sets_bought_complete(self, monkeypatch, kit_no):
         """Joey, 2026-09-10: "extend the same fix to TR02/TR03 and SP12

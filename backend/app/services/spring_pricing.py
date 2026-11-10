@@ -10,7 +10,7 @@ Costs track what part_number_service._get_spring_parts() emits so the ranking
 reflects what actually lands on the quote:
 
     springs   price/in x ceil(length) x count, per winding (LH/RH)
-    winders   one set per spring, priced by coil diameter
+    winders   one LH or RH set per spring of that hand, priced from that card
     PVC tube  6" non-duplex only (the inner spring fills a duplex outer)
     couplers  APPROXIMATED as qty//2 - 1 (see note below)
 
@@ -122,6 +122,24 @@ def _resolved_spring_price_in(wire_diameter: float, coil_diameter: float, mapper
     return lh_price, rh_price, coil_diameter
 
 
+def _winder_cost(mapper, coil_diameter: float, bore: float, lh_count: int, rh_count: int):
+    """LH card × LH springs + RH card × RH springs.
+
+    None when a hand that is actually used has no trustworthy price. A
+    retired universal -01 price is never substituted.
+    """
+    total = 0.0
+    for hand, count in (("LH", lh_count), ("RH", rh_count)):
+        if count <= 0:
+            continue
+        pn = mapper.get_winder_stationary_set(coil_diameter, bore, hand).part_number
+        price = price_of(pn)
+        if price is None:
+            return None
+        total += price * count
+    return total
+
+
 def _winding_counts(spring_qty: int) -> tuple:
     """(lh_count, rh_count) — matches part_number_service._get_spring_parts.
 
@@ -181,12 +199,12 @@ def assembly_cost(
     total += lh_price * length_in * lh_count
     total += rh_price * length_in * rh_count
 
-    # Winder/stationary sets — one per spring
-    winder_pn = mapper.get_winder_stationary_set(coil_diameter, SHAFT_BORE).part_number
-    winder_price = price_of(winder_pn)
-    if winder_price is None:
+    # Winder/stationary sets — one LH or RH set per spring of that hand.
+    # Priced from those item cards. Retired universal -01 prices are not used.
+    winder_total = _winder_cost(mapper, coil_diameter, SHAFT_BORE, lh_count, rh_count)
+    if winder_total is None:
         return None
-    total += winder_price * positions
+    total += winder_total
 
     if is_duplex:
         if not (inner_wire_diameter and inner_coil_diameter and inner_length and duplex_pairs):
@@ -198,11 +216,10 @@ def assembly_cost(
         inner_lh, inner_rh, inner_coil = inner
         total += (inner_lh * lh_count + inner_rh * rh_count) * inner_len_in
 
-        inner_winder_pn = mapper.get_winder_stationary_set(inner_coil, SHAFT_BORE).part_number
-        inner_winder_price = price_of(inner_winder_pn)
-        if inner_winder_price is None:
+        inner_winder_total = _winder_cost(mapper, inner_coil, SHAFT_BORE, lh_count, rh_count)
+        if inner_winder_total is None:
             return None
-        total += inner_winder_price * positions
+        total += inner_winder_total
     elif coil_diameter == 6.0:
         # 6" springs need a PVC tube inside each spring; duplex skips it because
         # the inner spring already fills the outer.

@@ -97,8 +97,15 @@ class TestAssemblyCost:
         for coil, expect_tube in ((6.0, True), (3.75, False)):
             lh = spring_pricing.price_of(mapper.get_spring_part_number(0.3125, coil, "LH").part_number)
             rh = spring_pricing.price_of(mapper.get_spring_part_number(0.3125, coil, "RH").part_number)
-            winder = spring_pricing.price_of(mapper.get_winder_stationary_set(coil, 1.0).part_number)
-            expected = lh * length + rh * length + winder * qty
+            # One cone per hand. LH and RH are priced from their own cards.
+            per_hand = qty // 2
+            winder_lh = spring_pricing.price_of(
+                mapper.get_winder_stationary_set(coil, 1.0, "LH").part_number
+            )
+            winder_rh = spring_pricing.price_of(
+                mapper.get_winder_stationary_set(coil, 1.0, "RH").part_number
+            )
+            expected = lh * length + rh * length + (winder_lh + winder_rh) * per_hand
             if expect_tube:
                 expected += pvc * length * qty
             actual = spring_pricing.assembly_cost(0.3125, coil, length, qty)
@@ -121,13 +128,17 @@ class TestAssemblyCost:
             return spring_pricing.price_of(pn)
 
         # 2 duplex positions = 1 LH + 1 RH outer, 1 LH + 1 RH inner, one winder
-        # set per spring, single shaft (no coupler). qty (4) counts outer+inner.
-        outer = sum(p(mapper.get_spring_part_number(0.3125, 6.0, w).part_number) * outer_len * (pairs // 2)
+        # set per spring of that hand, single shaft (no coupler).
+        # qty (4) counts outer+inner.
+        per_hand = pairs // 2
+        outer = sum(p(mapper.get_spring_part_number(0.3125, 6.0, w).part_number) * outer_len * per_hand
                     for w in ("LH", "RH"))
-        inner = sum(p(mapper.get_spring_part_number(0.2625, 3.75, w).part_number) * inner_len * (pairs // 2)
+        inner = sum(p(mapper.get_spring_part_number(0.2625, 3.75, w).part_number) * inner_len * per_hand
                     for w in ("LH", "RH"))
-        winders = (p(mapper.get_winder_stationary_set(6.0, 1.0).part_number) * pairs
-                   + p(mapper.get_winder_stationary_set(3.75, 1.0).part_number) * pairs)
+        winders = 0
+        for coil in (6.0, 3.75):
+            for wind in ("LH", "RH"):
+                winders += p(mapper.get_winder_stationary_set(coil, 1.0, wind).part_number) * per_hand
         coupler = spring_pricing.price_of(spring_pricing.COUPLER_PN) * (pairs // 2 - 1)
         assert cost == pytest.approx(outer + inner + winders + coupler, abs=0.01)
 
@@ -141,11 +152,22 @@ class TestAssemblyCost:
         assert four == pytest.approx(two * 2 + coupler, abs=0.01)
 
     def test_single_spring_has_no_rh_counterpart(self):
-        """qty=1 is one LH spring — pricing an RH would double-count."""
+        """qty=1 is one LH spring and one LH cone — pricing an RH would double-count."""
+        from app.services.bc_part_number_mapper import get_bc_mapper
+
         one = spring_pricing.assembly_cost(0.2500, 2.0, 30, 1)
         two = spring_pricing.assembly_cost(0.2500, 2.0, 30, 2)
         assert one is not None and two is not None
         assert one < two
+
+        mapper = get_bc_mapper()
+        lh_spring = spring_pricing.price_of(
+            mapper.get_spring_part_number(0.2500, 2.0, "LH").part_number
+        )
+        lh_cone = spring_pricing.price_of(
+            mapper.get_winder_stationary_set(2.0, 1.0, "LH").part_number
+        )
+        assert one == pytest.approx(lh_spring * 30 + lh_cone, abs=0.01)
 
 
 class TestCostAwareSelection:

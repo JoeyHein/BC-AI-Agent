@@ -11,7 +11,7 @@ import re
 from typing import List, Optional, Tuple
 
 import requests
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Query, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status, Query, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -120,6 +120,17 @@ class GeneratePORequest(BaseModel):
     # skips Graph. Prefer create_review_draft.
     send_email: Optional[bool] = None
     cc: Optional[List[str]] = None
+
+
+class ConeMigrationRequest(BaseModel):
+    """Replace retired universal cone lines with LH + RH.
+
+    ``apply`` defaults to false. A dry-run only reads Business Central and
+    returns the per-document diff. ``apply: true`` edits open sales orders
+    and Draft purchase orders. It does not post anything.
+    """
+    apply: bool = False
+    document_numbers: Optional[List[str]] = None
 
 
 class CompleteSoPoRequest(BaseModel):
@@ -673,6 +684,30 @@ async def so_po_links(
     """Per-sales-order purchase-order linkage (tool-created POs only)."""
     from app.services.po_so_link_service import po_so_link_service
     return {"links": po_so_link_service.links_by_so(db)}
+
+
+@router.post("/cone-migration")
+async def migrate_universal_cones(
+    body: ConeMigrationRequest = Body(default_factory=ConeMigrationRequest),
+    _admin: User = Depends(get_current_admin),
+):
+    """Staff preview (default) or apply of the universal-cone retirement.
+
+    Open (unposted) sales orders keep their extended amount: the LH and RH
+    unit prices are set so the two new lines add up to the original line,
+    including a leftover cent. Draft purchase orders use the LH and RH
+    item-card costs. Posted documents and non-Draft POs are not in the scan.
+    """
+    from app.services.cone_migration_service import cone_migration_service
+
+    try:
+        return cone_migration_service.run(
+            apply=bool(body.apply),
+            document_numbers=body.document_numbers,
+        )
+    except Exception as exc:
+        logger.exception("Universal cone migration failed")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 # ==================== Draft PO review (CoS) ====================

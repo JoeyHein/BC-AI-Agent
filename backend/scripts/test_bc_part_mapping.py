@@ -78,15 +78,21 @@ def test_winder_stationary_sets():
         (2.0, 1.0, "LH", "SP12-00231-00"),
         (2.0, 1.0, "RH", "SP12-00237-00"),
         (2.625, 1.0, "LH", "SP12-00232-00"),
+        (2.625, 1.0, "RH", "SP12-00238-00"),
         (3.75, 1.0, "LH", "SP12-00233-00"),
+        (3.75, 1.0, "RH", "SP12-00239-00"),
         (6.0, 1.0, "LH", "SP12-00234-00"),
+        (6.0, 1.0, "RH", "SP12-00240-00"),
+        (6.0, 1.25, "LH", "SP12-00236-00"),
+        (6.0, 1.25, "RH", "SP12-00242-00"),
     ]
 
     all_passed = True
     for coil, bore, wind, expected in test_cases:
         result = mapper.get_winder_stationary_set(coil, bore, wind)
-        status = "[PASS]" if result.part_number == expected else "[FAIL]"
-        if result.part_number != expected:
+        retired = result.part_number in mapper.RETIRED_UNIVERSAL_CONES
+        status = "[PASS]" if result.part_number == expected and not retired else "[FAIL]"
+        if result.part_number != expected or retired:
             all_passed = False
         print(f"{status} Coil: {coil}\", Bore: {bore}\", {wind} -> {result.part_number}")
         print(f"    Description: {result.description}")

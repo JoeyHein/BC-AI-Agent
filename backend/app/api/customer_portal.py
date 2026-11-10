@@ -791,53 +791,37 @@ def _find_ai_substitute(
 
 
 def _equalize_cone_prices(bc_quote_id: str) -> None:
-    """Equalize LH/RH winder/stationary set prices on a BC quote.
+    """Give each LH/RH winder pair one unit price on a BC quote.
 
-    LH and RH cones are different BC items (e.g. SP12-00231-00 vs SP12-00237-00)
-    which can have different unit costs/prices. Customers expect them at the same
-    price, so after all lines are priced we find LH/RH pairs and PATCH both to
-    the higher unitPrice of the two.
+    The price is the higher of the two item-card prices BC already put on
+    the lines (SP12-00231-00 vs SP12-00237-00, and the other coil sizes).
+    Retired universal -01 cones are ignored so their inflated card price
+    cannot raise the LH/RH lines. A single-spring quote (LH only) is left
+    on its own card price.
     """
+    from app.services.bc_part_number_mapper import BCPartNumberMapper
+
     quote_lines = bc_client.get_quote_lines(bc_quote_id)
 
-    # Identify winder/stationary set lines (SP12-xxxxx-00 items)
-    # They come in LH/RH pairs with sequential part numbers.
-    # Known pairs: SP12-00231-00 (LH) / SP12-00237-00 (RH) for 2" coil
-    #              SP12-00232-00 (LH) / SP12-00238-00 (RH) for 2-5/8" coil, etc.
-    cone_lines = []
-    for ql in quote_lines:
-        obj_num = ql.get("lineObjectNumber", "")
-        if obj_num.startswith("SP12-") and ql.get("lineType") == "Item":
-            desc = (ql.get("description") or "").upper()
-            if "WINDER" in desc or "STATIONARY" in desc or "CONE" in desc:
-                cone_lines.append(ql)
-
-    if len(cone_lines) < 2:
-        return
-
-    # Group by coil size — cone pairs share the same description pattern
-    # except for LH/RH. We pair them by matching description minus LH/RH.
-    import re
-
-    def _normalize_desc(d: str) -> str:
-        """Strip LH/RH from description to find pairs."""
-        return re.sub(r'\b(LH|RH|LEFT|RIGHT)\b', '', d.upper()).strip()
-
-    # Group by normalized description
     groups: Dict[str, list] = {}
-    for cl in cone_lines:
-        key = _normalize_desc(cl.get("description", ""))
-        groups.setdefault(key, []).append(cl)
-
-    for key, pair in groups.items():
-        if len(pair) < 2:
+    for ql in quote_lines:
+        if ql.get("lineType") != "Item":
             continue
-        prices = [p.get("unitPrice", 0) for p in pair]
+        pair_key = BCPartNumberMapper.cone_price_pair_key(ql.get("lineObjectNumber", ""))
+        if not pair_key:
+            continue
+        groups.setdefault(pair_key, []).append(ql)
+
+    for pair in groups.values():
+        part_numbers = {p.get("lineObjectNumber") for p in pair}
+        if len(part_numbers) < 2:
+            continue
+        prices = [p.get("unitPrice", 0) or 0 for p in pair]
         max_price = max(prices)
         if max_price <= 0:
             continue
         for line in pair:
-            if line.get("unitPrice", 0) < max_price:
+            if (line.get("unitPrice", 0) or 0) < max_price:
                 etag = line.get("@odata.etag", "*")
                 try:
                     bc_client.update_quote_line(
@@ -1400,10 +1384,8 @@ def _generate_bc_quote_with_items(
                     "error": str(line_error),
                 })
 
-    # Step 4a: Equalize LH/RH cone (winder/stationary) set prices
-    # LH and RH cones are different BC items (e.g. SP12-00231-00 vs SP12-00237-00)
-    # but should show the same unit price. After all lines are added and priced,
-    # fetch all quote lines, find cone pairs, and PATCH both to the higher price.
+    # Step 4a: Equalize LH/RH cone prices to the higher of the two item-card
+    # prices. Retired universal -01 prices are not part of the pair.
     try:
         _equalize_cone_prices(bc_quote_id)
     except Exception as cone_err:
