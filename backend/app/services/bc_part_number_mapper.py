@@ -136,11 +136,12 @@ class SpringPartNumbers:
     """Spring-related part numbers for a door"""
     spring_lh: BCPartNumber
     spring_rh: BCPartNumber
-    winder_set: BCPartNumber  # Universal winder set (works for both LH/RH)
+    # LH cone. Kept under this name so older callers still see a real part.
+    # Generators emit winder_set_lh and winder_set_rh as separate lines.
+    winder_set: BCPartNumber
     spring_length_inches: int
     quantity_per_side: int
     notes: str = ""
-    # Legacy fields kept for backwards compatibility
     winder_set_lh: BCPartNumber = None
     winder_set_rh: BCPartNumber = None
 
@@ -204,11 +205,39 @@ class BCPartNumberMapper:
         6.0: "60",
     }
 
-    # Universal winder/stationary cone set part numbers (created Mar 2026)
-    # One universal part per coil size — replaces separate LH/RH parts
-    # -01 suffix = universal (works for both LH and RH)
+    # Retired universal cones (Mar–Nov 2026). Upwardor invoices LH and RH
+    # separately, and the -01 item-card prices were inflated. Generators
+    # must not emit these. The staff migration tool still recognizes them
+    # on open sales orders and Draft POs.
+    # coil_code is the two-digit coil field on SP10/SP11 spring items, used
+    # to match a cone line to the springs on the same door. Both 6" bores
+    # share coil code 60; the cone's own part number picks the bore.
+    RETIRED_UNIVERSAL_CONES = {
+        "SP12-00231-01": {
+            "lh": "SP12-00231-00", "rh": "SP12-00237-00",
+            "coil": 2.0, "bore": 1.0, "coil_code": "20",
+        },
+        "SP12-00232-01": {
+            "lh": "SP12-00232-00", "rh": "SP12-00238-00",
+            "coil": 2.625, "bore": 1.0, "coil_code": "25",
+        },
+        "SP12-00233-01": {
+            "lh": "SP12-00233-00", "rh": "SP12-00239-00",
+            "coil": 3.75, "bore": 1.0, "coil_code": "36",
+        },
+        "SP12-00234-01": {
+            "lh": "SP12-00234-00", "rh": "SP12-00240-00",
+            "coil": 6.0, "bore": 1.0, "coil_code": "60",
+        },
+        "SP12-00236-01": {
+            "lh": "SP12-00236-00", "rh": "SP12-00242-00",
+            "coil": 6.0, "bore": 1.25, "coil_code": "60",
+        },
+    }
+
+    # (coil_inches, bore_inches) -> retired universal part. Lookup only.
+    # Kept in sync with RETIRED_UNIVERSAL_CONES. Generators do not read it.
     WINDER_SETS_UNIVERSAL = {
-        # (coil_inches, bore_inches) -> universal part_number
         (2.0, 1.0): "SP12-00231-01",
         (2.625, 1.0): "SP12-00232-01",
         (3.75, 1.0): "SP12-00233-01",
@@ -216,7 +245,7 @@ class BCPartNumberMapper:
         (6.0, 1.25): "SP12-00236-01",
     }
 
-    # Legacy LH/RH part numbers (kept as fallback if universal not in BC yet)
+    # LH/RH winder/stationary cone sets. One line per hand.
     WINDER_SETS = {
         # (coil_inches, bore_inches, wind) -> part_number
         (2.0, 1.0, "LH"): "SP12-00231-00",
@@ -582,6 +611,28 @@ class BCPartNumberMapper:
 
         return (False, wire_size, coil_id)
 
+    @classmethod
+    def retired_universal_cone(cls, part_number: str) -> Optional[dict]:
+        """Spec for a retired -01 universal cone, or None.
+
+        Generators must not sell these. The migration tool and PO builder
+        use the spec to replace one line with the LH and RH items.
+        """
+        return cls.RETIRED_UNIVERSAL_CONES.get((part_number or "").strip())
+
+    @classmethod
+    def cone_price_pair_key(cls, part_number: str) -> Optional[str]:
+        """LH part number that identifies an LH/RH cone pair.
+
+        Retired -01 items are not members of a pair. Their inflated card
+        price must not be copied onto the LH or RH line.
+        """
+        pn = (part_number or "").strip()
+        for spec in cls.RETIRED_UNIVERSAL_CONES.values():
+            if pn in (spec["lh"], spec["rh"]):
+                return spec["lh"]
+        return None
+
     def get_winder_stationary_set(
         self,
         coil_id: float,
@@ -589,56 +640,54 @@ class BCPartNumberMapper:
         wind: str = "LH"
     ) -> BCPartNumber:
         """
-        Get winder/stationary plug set part number.
+        Get the LH or RH winder/stationary plug set.
 
-        Uses universal cone parts (SP12-xxxxx-01) that work for both LH and RH.
-        Falls back to legacy separate LH/RH parts if universal not in BC yet.
+        One part per hand. Retired universal -01 items are never returned,
+        even when they are still in the BC catalog.
 
         Args:
             coil_id: Inside coil diameter in inches
             bore_size: Shaft bore size (1.0" or 1.25")
-            wind: Wind direction (kept for compatibility but universal parts ignore it)
+            wind: "LH" or "RH"
 
         Returns:
-            BCPartNumber for the winder/stationary set
+            BCPartNumber for that hand. When the requested bore is not
+            stocked, returns the 1" set of the same coil so the caller can
+            see that the description does not say 1-1/4".
         """
-        # Find closest coil size
         closest_coil = min(self.COIL_SIZE_CODES.keys(), key=lambda x: abs(x - coil_id))
-        coil_str = self._format_coil_size(closest_coil)
-        bore_str = '1"' if bore_size == 1.0 else '1-1/4"'
-
-        # Try universal part first (SP12-xxxxx-01 — works for both LH and RH),
-        # but only if it actually exists in the BC catalog. If not, fall back to
-        # legacy LH/RH parts to avoid bad substitutions at quote time.
-        universal_key = (closest_coil, bore_size)
-        if universal_key in self.WINDER_SETS_UNIVERSAL:
-            part_number = self.WINDER_SETS_UNIVERSAL[universal_key]
-            if part_number in self.bc_items:
-                return BCPartNumber(
-                    part_number=part_number,
-                    description=f"SPRING, WINDERS & STATIONARY PLUGS SET, {coil_str}\", {bore_str} BORE, UNIVERSAL",
-                    category="SPRING_ACCESSORY"
+        hand = "RH" if (wind or "").upper() == "RH" else "LH"
+        resolved_bore = bore_size
+        key = (closest_coil, bore_size, hand)
+        if key not in self.WINDER_SETS and bore_size != 1.0:
+            # No 1-1/4" cone for this coil. Same-coil 1" set keeps the
+            # warning path honest (description will not say 1-1/4").
+            fallback = (closest_coil, 1.0, hand)
+            if fallback in self.WINDER_SETS:
+                logger.info(
+                    f"No {bore_size}\" {hand} winder for coil {closest_coil} "
+                    f"— using the 1\" set"
                 )
-            else:
-                logger.info(f"Universal cone {part_number} not in BC catalog — falling back to legacy LH/RH")
-
-        # Fall back to legacy LH/RH parts
-        key = (closest_coil, bore_size, wind.upper())
-        if key in self.WINDER_SETS:
-            part_number = self.WINDER_SETS[key]
-            return BCPartNumber(
-                part_number=part_number,
-                description=f"SPRING, WINDERS & STATIONARY PLUGS SET, {coil_str}\", {bore_str} BORE, {wind.upper()}",
-                category="SPRING_ACCESSORY"
+                key = fallback
+                resolved_bore = 1.0
+        if key not in self.WINDER_SETS:
+            key = (2.0, 1.0, hand)
+            resolved_bore = 1.0
+            logger.warning(
+                f"No winder set for coil={coil_id}, bore={bore_size}, wind={hand} "
+                f"— defaulting to 2\" {hand}"
             )
 
-        # Default to 2" universal set if not found
-        default_pn = self.WINDER_SETS_UNIVERSAL.get((2.0, 1.0), "SP12-00231-01")
-        logger.warning(f"No winder set found for coil={coil_id}, bore={bore_size} — defaulting to 2\" universal")
+        part_number = self.WINDER_SETS[key]
+        coil_str = self._format_coil_size(key[0])
+        bore_str = '1"' if resolved_bore == 1.0 else '1-1/4"'
         return BCPartNumber(
-            part_number=default_pn,
-            description=f"SPRING, WINDERS & STATIONARY PLUGS SET, 2\", 1\" BORE, UNIVERSAL",
-            category="SPRING_ACCESSORY"
+            part_number=part_number,
+            description=(
+                f"SPRING, WINDERS & STATIONARY PLUGS SET, {coil_str}\", "
+                f"{bore_str} BORE, {hand}"
+            ),
+            category="SPRING_ACCESSORY",
         )
 
     def resolve_weather_strip_color(self, color: str) -> str:
@@ -1816,14 +1865,15 @@ class BCPartNumberMapper:
             coil_id=spring_coil_id,
             wind="RH"
         )
-        winder_universal = self.get_winder_stationary_set(spring_coil_id, 1.0)
+        winder_lh = self.get_winder_stationary_set(spring_coil_id, 1.0, "LH")
+        winder_rh = self.get_winder_stationary_set(spring_coil_id, 1.0, "RH")
 
         springs = SpringPartNumbers(
             spring_lh=spring_lh,
             spring_rh=spring_rh,
-            winder_set=winder_universal,
-            winder_set_lh=winder_universal,  # backwards compat
-            winder_set_rh=winder_universal,  # backwards compat
+            winder_set=winder_lh,
+            winder_set_lh=winder_lh,
+            winder_set_rh=winder_rh,
             spring_length_inches=spring_length_inches,
             quantity_per_side=spring_quantity_per_side,
             notes=f"Spring spec: {spring_wire_size}\" x {spring_coil_id}\" x {spring_length_inches}\""
@@ -1998,13 +2048,17 @@ class BCPartNumberMapper:
             "category": "SPRING"
         })
 
-        # Winder set (universal — one part for both LH and RH)
-        lines.append({
-            "part_number": springs.winder_set.part_number,
-            "description": springs.winder_set.description,
-            "quantity": springs.quantity_per_side * 2,  # total springs (both sides)
-            "category": "SPRING_ACCESSORY"
-        })
+        # Winder sets — one line per hand. quantity_per_side is the number
+        # of springs of that hand (a normal door is 1 LH + 1 RH).
+        for winder in (springs.winder_set_lh, springs.winder_set_rh):
+            if winder is None:
+                continue
+            lines.append({
+                "part_number": winder.part_number,
+                "description": winder.description,
+                "quantity": springs.quantity_per_side,
+                "category": "SPRING_ACCESSORY"
+            })
 
         # Shaft
         lines.append({

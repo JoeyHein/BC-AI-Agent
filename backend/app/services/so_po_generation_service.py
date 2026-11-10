@@ -253,6 +253,7 @@ def compute_netted_po_lines(so_number: str) -> dict:
         raise ValueError(f"{so_number} not found in BC")
     so_id = so["id"]
     lines = sorted(bc_client.get_order_lines(so_id), key=lambda l: l.get("sequence") or 0)
+    lines, cone_warnings = _expand_retired_cones(lines)
 
     so_qty: Dict[str, float] = defaultdict(float)
     line_desc: Dict[str, str] = {}
@@ -357,9 +358,10 @@ def compute_netted_po_lines(so_number: str) -> dict:
         leaf_doors: Dict[str, set] = defaultdict(set)
         for m in excluded_manufactured:
             for leaf, leaf_qty in _explode_bom(m["item_no"], m["qty"], items, boms).items():
-                raw_need[leaf] += leaf_qty
-                needed_for[leaf].add(m["item_no"])
-                leaf_doors[leaf].update(m["doors"])
+                for pn, pn_qty in _split_retired_cone_leaf(leaf, leaf_qty, cone_warnings, m["item_no"]):
+                    raw_need[pn] += pn_qty
+                    needed_for[pn].add(m["item_no"])
+                    leaf_doors[pn].update(m["doors"])
 
         for leaf, qty in sorted(raw_need.items()):
             card = items.get(leaf, {})
@@ -400,9 +402,43 @@ def compute_netted_po_lines(so_number: str) -> dict:
         "by_door": by_door,
         "shared": shared,
         "has_doors": bool(door_labels),
-        "warnings": sheet_plan["warnings"],
+        "warnings": list(sheet_plan["warnings"]) + cone_warnings,
         "panorama_sheets": sheet_plan["panorama_sheets"],
     }
+
+
+def _expand_retired_cones(lines: list) -> Tuple[list, list]:
+    """Turn retired universal cone lines into LH + RH before a PO is built.
+
+    Imported lazily so the cone helper can stay free of this module.
+    """
+    from app.services.cone_migration_service import expand_retired_cone_lines
+    return expand_retired_cone_lines(lines)
+
+
+def _split_retired_cone_leaf(item_no: str, qty: float, warnings: list, parent: str):
+    """A universal cone buried in a BOM has no spring lines to read.
+
+    Buy it as LH + RH (even split, odd quantities flagged) instead of
+    ordering the retired -01 item. Anything else passes through unchanged.
+    """
+    from app.services.cone_migration_service import split_retired_component
+    pieces = split_retired_component(item_no, qty)
+    if pieces is None:
+        return [(item_no, qty)]
+    if pieces["flags"] or pieces["lines"]:
+        warnings.append({
+            "code": "retired_universal_cone",
+            "from_item": item_no,
+            "parent": parent,
+            "split_source": "even",
+            "flags": pieces["flags"],
+            "message": (
+                f"BOM component {item_no} is a retired universal cone. "
+                f"Buying LH/RH instead ({pieces['flags'] or 'even split'})."
+            ),
+        })
+    return pieces["lines"]
 
 
 # Complete-order mode — Joey, 2026-09-28: "we're going to be ordering all the
@@ -442,6 +478,7 @@ def compute_complete_po_lines(so_number: str) -> dict:
     if not so:
         raise ValueError(f"{so_number} not found in BC")
     lines = sorted(bc_client.get_order_lines(so["id"]), key=lambda l: l.get("sequence") or 0)
+    lines, cone_warnings = _expand_retired_cones(lines)
 
     so_qty: Dict[str, float] = defaultdict(float)
     line_desc: Dict[str, str] = {}
@@ -502,7 +539,7 @@ def compute_complete_po_lines(so_number: str) -> dict:
         "trimmed": sheet_plan["trimmed"],
         "component_shortfall": [], "component_covered": [],
         "by_door": by_door, "shared": shared, "has_doors": bool(door_labels),
-        "warnings": sheet_plan["warnings"],
+        "warnings": list(sheet_plan["warnings"]) + cone_warnings,
         "panorama_sheets": sheet_plan["panorama_sheets"],
     }
 

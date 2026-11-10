@@ -1754,6 +1754,17 @@ class BusinessCentralClient:
         )
         return result
 
+    def delete_order_line(self, order_id: str, line_id: str,
+                          company_id: Optional[str] = None) -> bool:
+        """DELETE one sales-order line. Callers only use this on unposted orders."""
+        cid = company_id or self.company_id
+        self._make_request(
+            "DELETE",
+            f"companies({cid})/salesOrders({order_id})/salesOrderLines({line_id})",
+            headers={"If-Match": "*"},
+        )
+        return True
+
     # ==================== Quote to Order Conversion ====================
 
     def convert_quote_to_order(self, quote_id: str, company_id: Optional[str] = None) -> Dict[str, Any]:
