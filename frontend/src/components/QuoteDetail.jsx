@@ -22,7 +22,7 @@ function displayValue(value) {
   return String(value)
 }
 
-function FieldSources({ sources, deviations, match, status, onConfirmCustomer, confirming }) {
+function FieldSources({ sources, deviations, match, status, onConfirmCustomer, confirming, onRelease, releasing }) {
   const doors = sources?.doors || []
   const delivery = sources?.deliveryType
   const rows = []
@@ -62,6 +62,14 @@ function FieldSources({ sources, deviations, match, status, onConfirmCustomer, c
           {deviationList.map((item, index) => (
             <p key={index}>{item.reason}</p>
           ))}
+          <button
+            type="button"
+            onClick={onRelease}
+            disabled={releasing}
+            className="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium text-white bg-odc-600 hover:bg-odc-700 disabled:opacity-50"
+          >
+            {releasing ? 'Pricing…' : 'Release and price with email values'}
+          </button>
         </div>
       )}
       {heldMatch && (
@@ -77,7 +85,7 @@ function FieldSources({ sources, deviations, match, status, onConfirmCustomer, c
               disabled={confirming}
               className="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium text-white bg-odc-600 hover:bg-odc-700 disabled:opacity-50"
             >
-              {confirming ? 'Saving…' : `Confirm ${match.bc_customer_id} and remember this email`}
+              {confirming ? 'Saving…' : `Confirm ${match.bc_customer_id}, remember this email, and price`}
             </button>
           )}
         </div>
@@ -157,6 +165,7 @@ function QuoteDetail() {
   const [notes, setNotes] = useState('')
   const [showQuote, setShowQuote] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [releasing, setReleasing] = useState(false)
 
   const { data: quote, isLoading } = useQuery({
     queryKey: ['quote', id],
@@ -338,6 +347,7 @@ function QuoteDetail() {
         match={quote.customer_match}
         status={quote.status}
         confirming={confirming}
+        releasing={releasing}
         onConfirmCustomer={async () => {
           setConfirming(true)
           try {
@@ -347,6 +357,17 @@ function QuoteDetail() {
             alert(err.response?.data?.detail || 'Could not confirm the customer')
           } finally {
             setConfirming(false)
+          }
+        }}
+        onRelease={async () => {
+          setReleasing(true)
+          try {
+            await apiClient.post(`/api/quotes/${quote.id}/release`)
+            queryClient.invalidateQueries({ queryKey: ['quote', id] })
+          } catch (err) {
+            alert(err.response?.data?.detail || 'Could not price the quote')
+          } finally {
+            setReleasing(false)
           }
         }}
       />
