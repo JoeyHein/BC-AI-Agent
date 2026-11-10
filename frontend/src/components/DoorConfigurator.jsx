@@ -122,7 +122,7 @@ function DoorConfigurator() {
       const data = response.data.data
 
       const loadedDoors = data.doors.map((d) => {
-        const { _parseWarnings, _rawLineCount, ...doorFields } = d
+        const { _parseWarnings, _rawLineCount, _touched, explicitFields, ...doorFields } = d
         return {
           ...createEmptyDoor(),
           ...doorFields,

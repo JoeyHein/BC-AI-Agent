@@ -5,7 +5,7 @@ import { customersApi } from '../api/client'
 const MODE_HELP = {
   off: 'Off. Quotes ignore this profile. This is the production default.',
   shadow: 'Shadow. The profile is calculated and saved on the quote, and the quote sent to Business Central stays the old one.',
-  on: 'On. Silent fields use this profile. A locked value wins, and an unmatched sender is held instead of priced at retail.',
+  on: 'On. An explicit email is what gets quoted. The profile fills a field the email left blank, and a conflict with a locked or usual value is held for review.',
 }
 
 function confidenceLabel(field) {
@@ -44,15 +44,6 @@ export default function CustomerProfilePanel({ bcCustomerId }) {
       setMessage('Profile saved. A changed value is locked.')
     },
     onError: (err) => setMessage(err.response?.data?.detail || 'Save failed'),
-  })
-
-  const setMode = useMutation({
-    mutationFn: (mode) => customersApi.setProfileQuotingMode(mode),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['customer-profile', bcCustomerId] })
-      setMessage('Quoting mode updated. It applies to the next quote.')
-    },
-    onError: (err) => setMessage(err.response?.data?.detail || 'Could not change mode'),
   })
 
   if (!bcCustomerId) {
@@ -128,19 +119,9 @@ export default function CustomerProfilePanel({ bcCustomerId }) {
             {data.last_seeded_at ? ` · seeded ${data.last_seeded_at}` : ''}
           </p>
         </div>
-        <label className="text-sm text-gray-700">
-          <span className="block text-xs font-medium text-gray-500 mb-1">Quoting mode</span>
-          <select
-            aria-label="Quoting mode"
-            value={mode}
-            onChange={(event) => setMode.mutate(event.target.value)}
-            className="border border-gray-300 rounded-md px-2 py-1 text-sm"
-          >
-            <option value="off">Off</option>
-            <option value="shadow">Shadow</option>
-            <option value="on">On</option>
-          </select>
-        </label>
+        <p className="text-sm text-gray-600">
+          Quoting is <span className="font-medium">{mode}</span>. Change it under Settings.
+        </p>
       </div>
       <p className="text-sm text-gray-600">{MODE_HELP[mode]}</p>
 

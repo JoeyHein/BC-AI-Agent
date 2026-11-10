@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useParams, useNavigate } from 'react-router-dom'
 import { quotesApi, emailFeedbackApi } from '../api/client'
+import apiClient from '../api/client'
 import { useState } from 'react'
 
 function sourceBadge(source) {
@@ -16,7 +17,12 @@ function sourceBadge(source) {
   )
 }
 
-function FieldSources({ sources, deviations, match, status }) {
+function displayValue(value) {
+  if (value == null || value === '') return '—'
+  return String(value)
+}
+
+function FieldSources({ sources, deviations, match, status, onConfirmCustomer, confirming }) {
   const doors = sources?.doors || []
   const delivery = sources?.deliveryType
   const rows = []
@@ -29,9 +35,12 @@ function FieldSources({ sources, deviations, match, status }) {
       rows.push({ label: `Door ${index + 1} ${field}`, ...info })
     })
   })
-  const deviationList = deviations || []
-  const held = status === 'held_for_customer_match'
-  if (!rows.length && !deviationList.length && !match && !held) return null
+  const deviationList = (deviations || []).filter((item) => item.kind === 'deviation_from_customer_standard' || item.kind === 'locked_rule')
+  const otherDeviations = (deviations || []).filter((item) => item.kind !== 'deviation_from_customer_standard' && item.kind !== 'locked_rule')
+  const heldMatch = status === 'held_for_customer_match'
+  const heldStandard = status === 'held_for_standard_deviation'
+  const suggested = !!(match?.suggested && match?.bc_customer_id)
+  if (!rows.length && !(deviations || []).length && !match && !heldMatch && !heldStandard) return null
   return (
     <div className="bg-white shadow rounded-lg p-6 space-y-4" data-testid="quote-field-sources">
       <div className="flex items-center justify-between gap-3">
@@ -47,14 +56,35 @@ function FieldSources({ sources, deviations, match, status }) {
           Shadow mode. These sources were calculated and stored. The quote sent to Business Central still used the previous defaults.
         </p>
       )}
-      {held && (
-        <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-md p-3">
-          Held for customer match. {match?.reason || 'No confident customer, so this was not priced at retail.'}
-        </p>
+      {heldStandard && (
+        <div className="text-sm text-red-900 bg-red-50 border border-red-300 rounded-md p-4 space-y-2">
+          <p className="font-semibold">Held for review. This email differs from the customer standard, so it was not sent to Business Central.</p>
+          {deviationList.map((item, index) => (
+            <p key={index}>{item.reason}</p>
+          ))}
+        </div>
       )}
-      {match && !held && (
+      {heldMatch && (
+        <div className="text-sm text-red-900 bg-red-50 border border-red-300 rounded-md p-4 space-y-3">
+          <p className="font-semibold">
+            {suggested ? 'Suggested customer. Confirm before this quote is priced.' : 'Held for customer match.'}
+          </p>
+          <p>{match?.reason || 'No confident customer, so this was not priced at retail.'}</p>
+          {suggested && (
+            <button
+              type="button"
+              onClick={onConfirmCustomer}
+              disabled={confirming}
+              className="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium text-white bg-odc-600 hover:bg-odc-700 disabled:opacity-50"
+            >
+              {confirming ? 'Saving…' : `Confirm ${match.bc_customer_id} and remember this email`}
+            </button>
+          )}
+        </div>
+      )}
+      {match && !heldMatch && !heldStandard && (
         <p className="text-sm text-gray-600">
-          Customer match: {match.method} {match.confident ? '' : '(not confident)'}. {match.reason}
+          Customer match: {match.method}. {match.reason}
         </p>
       )}
       {rows.length > 0 && (
@@ -63,38 +93,58 @@ function FieldSources({ sources, deviations, match, status }) {
             <thead>
               <tr className="text-left text-gray-500">
                 <th className="py-2 pr-4 font-medium">Field</th>
-                <th className="py-2 pr-4 font-medium">Value</th>
-                <th className="py-2 pr-4 font-medium">Source</th>
-                <th className="py-2 font-medium">Evidence</th>
+                <th className="py-2 pr-4 font-medium">Email says</th>
+                <th className="py-2 pr-4 font-medium">Profile says</th>
+                <th className="py-2 pr-4 font-medium">Used</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
                 <tr key={row.label} className="border-t border-gray-100">
-                  <td className="py-2 pr-4 text-gray-900">{row.label}</td>
-                  <td className="py-2 pr-4 text-gray-900">{String(row.value ?? '—')}{row.locked ? ' · locked' : ''}</td>
-                  <td className="py-2 pr-4">{sourceBadge(row.source)}</td>
-                  <td className="py-2 text-gray-500">{row.evidence || '—'}</td>
+                  <td className="py-2 pr-4 text-gray-900">
+                    {row.label}
+                    {row.marked ? <span className="ml-2 text-xs text-amber-700">marked</span> : null}
+                  </td>
+                  <td className="py-2 pr-4 text-gray-900">
+                    {displayValue(row.email_says)}
+                    {row.email_confidence != null && row.email_basis && row.email_basis !== 'silent'
+                      ? <span className="ml-1 text-xs text-gray-500">{Math.round(row.email_confidence * 100)}%</span>
+                      : null}
+                  </td>
+                  <td className="py-2 pr-4 text-gray-700">
+                    {displayValue(row.profile_says)}
+                    {row.profile_locked || row.locked ? ' · locked' : ''}
+                    {row.profile_evidence || row.evidence ? <div className="text-xs text-gray-500">{row.profile_evidence || row.evidence}</div> : null}
+                  </td>
+                  <td className="py-2 pr-4">
+                    <span className="mr-2">{displayValue(row.used ?? row.value)}</span>
+                    {sourceBadge(row.source)}
+                    {row.note ? <div className="text-xs text-amber-800 mt-1">{row.note}</div> : null}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-      {deviationList.length > 0 && (
-        <div>
-          <h3 className="text-sm font-medium text-gray-900 mb-2">Deviations</h3>
-          <ul className="space-y-2">
-            {deviationList.map((item, index) => (
-              <li key={index} className="text-sm text-gray-800 bg-orange-50 border border-orange-200 rounded-md p-3">
-                <span className="font-medium">{item.field}</span>
-                {item.kind ? ` · ${item.kind}` : ''}
-                {item.shadow ? ' · shadow' : ''}
-                <div className="mt-1 text-gray-700">{item.reason}</div>
-              </li>
-            ))}
-          </ul>
+      {deviationList.length > 0 && !heldStandard && (
+        <div className="text-sm text-orange-950 bg-orange-50 border border-orange-300 rounded-md p-4 space-y-2">
+          <p className="font-semibold">Deviation from customer standard</p>
+          {deviationList.map((item, index) => (
+            <p key={index}>{item.reason}</p>
+          ))}
         </div>
+      )}
+      {otherDeviations.length > 0 && (
+        <ul className="space-y-2">
+          {otherDeviations.map((item, index) => (
+            <li key={index} className="text-sm text-gray-800 bg-orange-50 border border-orange-200 rounded-md p-3">
+              <span className="font-medium">{item.field}</span>
+              {item.kind ? ` · ${item.kind}` : ''}
+              <div className="mt-1">{item.reason}</div>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   )
@@ -106,6 +156,7 @@ function QuoteDetail() {
   const queryClient = useQueryClient()
   const [notes, setNotes] = useState('')
   const [showQuote, setShowQuote] = useState(false)
+  const [confirming, setConfirming] = useState(false)
 
   const { data: quote, isLoading } = useQuery({
     queryKey: ['quote', id],
@@ -281,7 +332,24 @@ function QuoteDetail() {
         </div>
       </div>
 
-      <FieldSources sources={quote.field_sources} deviations={quote.deviations} match={quote.customer_match} status={quote.status} />
+      <FieldSources
+        sources={quote.field_sources}
+        deviations={quote.deviations}
+        match={quote.customer_match}
+        status={quote.status}
+        confirming={confirming}
+        onConfirmCustomer={async () => {
+          setConfirming(true)
+          try {
+            await apiClient.post(`/api/quotes/${quote.id}/confirm-customer`)
+            queryClient.invalidateQueries({ queryKey: ['quote', id] })
+          } catch (err) {
+            alert(err.response?.data?.detail || 'Could not confirm the customer')
+          } finally {
+            setConfirming(false)
+          }
+        }}
+      />
 
       {/* Doors */}
       <div className="bg-white shadow rounded-lg p-6">
