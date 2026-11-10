@@ -77,6 +77,7 @@ The same inventory paths are also accepted without the `/api` prefix.
 | `purchasing:read` | `GET /api/admin/purchasing/draft-pos/validate` |
 | `purchasing:read` | `GET /api/admin/purchasing/draft-pos/PO-000962/validate` |
 | `purchasing:read` | `GET /api/admin/purchasing/draft-pos/PO-000962/pdf` |
+| `purchasing:read` | `POST /api/admin/purchasing/cone-migration` |
 | `purchasing:read` | `GET /api/admin/purchasing/so-complete-po/preview` |
 | `purchasing:draft_po_lines` | `GET /api/admin/purchasing/draft-pos/PO-000962/lines` |
 | `purchasing:draft_po_lines` | `PATCH /api/admin/purchasing/draft-pos/PO-000962/lines/10` |
@@ -93,6 +94,8 @@ The same inventory paths are also accepted without the `/api` prefix.
 `purchasing:release_po` is not included when a key is created with the automation preset or with no scope list. The body must set `confirm` to true and `approved_by`. `dry_run: true` checks only. See [STAFF_PO_RELEASE.md](STAFF_PO_RELEASE.md).
 
 `POST /api/admin/purchasing/generate-po` is allowed only when the body sets `send_email` to false (or `create_review_draft` to false). That skips the Outlook draft. Open and Released purchase orders are refused by the receipt-date route.
+
+`POST /api/admin/purchasing/cone-migration` is the dry-run only. Omit `apply`, or set it to false. `apply: true` edits open sales orders and Draft purchase orders, and a service key is refused; a staff sign-in is required for that. The automation key already has `purchasing:read`, so it can preview without being recreated.
 
 ## Quotes already on the portal
 

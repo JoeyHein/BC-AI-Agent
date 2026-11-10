@@ -60,7 +60,14 @@ async def staff_service_key_middleware(request: Request, call_next):
 
     body = b""
     path = staff_keys.normalize_path(request.url.path)
-    if request.method.upper() == "POST" and path == "/api/admin/purchasing/generate-po":
+    # These two POSTs are allow-listed only for some bodies. The body has to
+    # be read here; an empty body would look like the safe default and the
+    # route would then perform the edit. request.body() is cached, so the
+    # route still sees it.
+    if request.method.upper() == "POST" and path in (
+        "/api/admin/purchasing/generate-po",
+        "/api/admin/purchasing/cone-migration",
+    ):
         body = await request.body()
 
     db = staff_keys.new_session()

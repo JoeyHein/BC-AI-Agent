@@ -6,6 +6,7 @@ and that a normal staff JWT still behaves the way it did before keys existed.
 from __future__ import annotations
 
 import ast
+import json
 import os
 import re
 import sys
@@ -17,7 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import bcrypt
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -29,6 +30,7 @@ from app.services.auth_service import AuthService, auth_service
 from app.services import staff_service_keys_service as staff_keys
 from app.services.staff_service_keys_service import (
     AUTOMATION_SCOPES,
+    CONE_MIGRATION_APPLY_DENIED,
     RELEASE_PO,
     SERVICE_USER_EMAIL,
     create_key,
@@ -245,6 +247,23 @@ class TestScopeRules:
         # create_review_draft wins. true means an Outlook draft, which this call must not do.
         both = b'{"send_email": false, "create_review_draft": true}'
         assert route_allowed("POST", path, both, granted)[0] is False
+
+    def test_cone_migration_preview_only(self):
+        granted = set(AUTOMATION_SCOPES)
+        path = "/api/admin/purchasing/cone-migration"
+        for body in (b"", b"{}", b'{"apply": false}', b'{"apply": false, "document_numbers": ["SO-1"]}'):
+            ok, reason = route_allowed("POST", path, body, granted)
+            assert ok, (body, reason)
+        denied, detail = route_allowed("POST", path, b'{"apply": true}', granted)
+        assert denied is False
+        assert detail == CONE_MIGRATION_APPLY_DENIED
+        # A string is not the boolean false, so it is not a preview.
+        assert route_allowed("POST", path, b'{"apply": "false"}', granted)[0] is False
+        # Other writes stay denied. This route being previewable does not open them.
+        assert route_allowed("POST", "/api/admin/purchasing/so-complete-po", b"{}", granted)[0] is False
+        narrow, narrow_reason = route_allowed("POST", path, b"{}", {"orders:read"})
+        assert narrow is False
+        assert narrow_reason == "This service key does not include permission for this route."
 
     def test_narrow_key_cannot_call_purchasing(self):
         granted = {"orders:read"}
@@ -471,6 +490,17 @@ def client(db_factory, monkeypatch):
     @test_app.get("/api/admin/purchasing/so-po-links")
     def links(admin: User = Depends_user(purchasing.get_current_admin)):
         return _who(admin)
+
+    @test_app.post("/api/admin/purchasing/cone-migration")
+    async def cone_migration(
+        request: Request,
+        admin: User = Depends_user(purchasing.get_current_admin),
+    ):
+        raw = await request.body()
+        apply = False
+        if raw.strip():
+            apply = json.loads(raw).get("apply") is True
+        return {"apply": apply, **_who(admin)}
 
     @test_app.post("/api/admin/purchasing/generate-po")
     def generate_po(
@@ -736,6 +766,37 @@ class TestHttpAuth:
         assert allowed.status_code == 200, allowed.text
         assert allowed.json()["send_email"] is False
         assert allowed.json()["type"] == "SERVICE"
+
+    def test_cone_migration_service_key_is_preview_only(self, client):
+        admin = _login(client, "admin@example.com")
+        created = client.post(
+            "/api/admin/service-keys",
+            json={"name": "Cone preview"},
+            headers=_auth(admin),
+        )
+        assert created.status_code == 201, created.text
+        plaintext = created.json()["plaintext"]
+        headers = {**_auth(plaintext), "Content-Type": "application/json"}
+        path = "/api/admin/purchasing/cone-migration"
+
+        omitted = client.post(path, headers=headers, content=b"")
+        assert omitted.status_code == 200, omitted.text
+        assert omitted.json()["apply"] is False
+        assert omitted.json()["type"] == "SERVICE"
+
+        dry_run = client.post(path, headers=headers, json={"apply": False})
+        assert dry_run.status_code == 200, dry_run.text
+        assert dry_run.json()["apply"] is False
+
+        applied = client.post(path, headers=headers, json={"apply": True})
+        assert applied.status_code == 403
+        assert applied.json()["detail"] == CONE_MIGRATION_APPLY_DENIED
+
+        # A person's JWT can still apply. The service-key gate does not run.
+        as_staff = client.post(path, headers=_auth(admin), json={"apply": True})
+        assert as_staff.status_code == 200, as_staff.text
+        assert as_staff.json()["apply"] is True
+        assert as_staff.json()["email"] == "admin@example.com"
 
     def test_past_expiry_on_create_is_400(self, client):
         admin = _login(client, "admin@example.com")
