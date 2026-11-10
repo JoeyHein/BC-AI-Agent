@@ -663,7 +663,12 @@ function ApprovalQueue({ query, onChanged }) {
         return (
           <article key={message.id} className="space-y-3 rounded-2xl bg-white p-4 ring-1 ring-gray-200">
             <div className="flex flex-wrap items-center gap-2">
-              <Pill tone={message.kind === 'customer_update' ? 'blue' : 'amber'}>{message.kind === 'customer_update' ? 'Customer update' : 'Supplier reminder'}</Pill>
+              <Pill tone={message.kind === 'customer_update' || message.kind === 'quote_send' || message.kind === 'missing_info_reply' ? 'blue' : 'amber'}>
+                {message.kind === 'customer_update' ? 'Customer update'
+                  : message.kind === 'quote_send' ? 'Quote to customer'
+                  : message.kind === 'missing_info_reply' ? 'Missing info'
+                  : 'Supplier reminder'}
+              </Pill>
               <span className="text-xs text-gray-500">{message.so_number} {message.po_number}</span>
               {message.context?.reason && <span className="text-xs text-gray-600">{message.context.reason}</span>}
             </div>

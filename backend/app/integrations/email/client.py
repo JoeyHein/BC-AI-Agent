@@ -309,6 +309,40 @@ class GraphEmailClient:
         )
         return result
 
+    def send_reply(
+        self,
+        mailbox: str,
+        message_id: str,
+        html_body: str,
+        attachments: Optional[List[Dict[str, Any]]] = None,
+    ) -> Optional[str]:
+        """Send a reply on an existing thread. Called only after a person approves.
+
+        createReply makes an unsent draft. The body and files are written
+        onto that draft, then /send is called. This is not used while a
+        message is only sitting in the approval queue.
+        """
+        created = self._make_request(
+            "POST", f"users/{mailbox}/messages/{message_id}/createReply",
+        )
+        draft_id = created.get("id")
+        if not draft_id:
+            raise RuntimeError("Graph did not return a reply draft")
+        self._make_request(
+            "PATCH",
+            f"users/{mailbox}/messages/{draft_id}",
+            json={"body": {"contentType": "HTML", "content": html_body}},
+        )
+        for attachment in self._file_attachments(attachments):
+            self._make_request(
+                "POST",
+                f"users/{mailbox}/messages/{draft_id}/attachments",
+                json=attachment,
+            )
+        self._make_request("POST", f"users/{mailbox}/messages/{draft_id}/send")
+        logger.info("Sent reply %s on message %s from %s", draft_id, message_id, mailbox)
+        return draft_id
+
     # ==================== Sending ====================
 
     def send_mail(

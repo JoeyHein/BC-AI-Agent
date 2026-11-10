@@ -1,8 +1,10 @@
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { quotesApi } from '../api/client'
 import { Link } from 'react-router-dom'
 
 function ReviewQueue() {
+  const queryClient = useQueryClient()
   const { data: quotes, isLoading, refetch } = useQuery({
     queryKey: ['pendingQuotes'],
     queryFn: async () => {
@@ -52,6 +54,56 @@ function ReviewQueue() {
           </div>
         )}
       </div>
+      <CustomerApprovals onChanged={() => queryClient.invalidateQueries({ queryKey: ['customer-approvals'] })} />
+    </div>
+  )
+}
+
+function CustomerApprovals({ onChanged }) {
+  const { data, refetch } = useQuery({
+    queryKey: ['customer-approvals'],
+    queryFn: async () => (await quotesApi.getCustomerApprovals()).data,
+  })
+  const rows = (data || []).filter((row) => row.status === 'ready' || row.status === 'needs_choice')
+  const [choice, setChoice] = useState({})
+  const [note, setNote] = useState('')
+  if (!rows.length) return null
+  async function convert(row) {
+    const picked = row.status === 'needs_choice' ? choice[row.id] : row.bc_quote_number
+    try {
+      const response = await quotesApi.convertCustomerApproval(row.id, picked)
+      setNote(response.data.bc_order_number ? `Created ${response.data.bc_order_number}` : 'Converted')
+      refetch()
+      onChanged()
+    } catch (err) {
+      setNote(err.response?.data?.detail || 'Could not convert')
+    }
+  }
+  return (
+    <div className="bg-white shadow rounded-lg p-6 space-y-3" data-testid="approval-queue">
+      <h2 className="text-lg font-medium text-gray-900">Customer approvals</h2>
+      <p className="text-sm text-gray-600">A go-ahead is waiting. Convert is a click. Nothing happens until then.</p>
+      {note && <p className="text-sm text-gray-800">{note}</p>}
+      {rows.map((row) => (
+        <div key={row.id} className="border border-gray-200 rounded-md p-4 space-y-2">
+          <p className="text-sm font-medium text-gray-900">{row.subject || row.from_address}</p>
+          <p className="text-sm text-gray-600">
+            {row.status === 'ready' ? `Matched ${row.bc_quote_number}` : 'Choose a quote'}
+            {row.customer_po ? ` · PO ${row.customer_po}` : ''}
+          </p>
+          {row.status === 'needs_choice' && (
+            <select aria-label={`Quote for approval ${row.id}`} value={choice[row.id] || ''} onChange={(event) => setChoice({ ...choice, [row.id]: event.target.value })} className="border border-gray-300 rounded-md px-2 py-1 text-sm">
+              <option value="">Choose a quote</option>
+              {(row.candidates || []).map((item) => (
+                <option key={item.bc_quote_number} value={item.bc_quote_number}>{item.bc_quote_number}</option>
+              ))}
+            </select>
+          )}
+          <button type="button" onClick={() => convert(row)} className="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium text-white bg-odc-600">
+            Convert to SO
+          </button>
+        </div>
+      ))}
     </div>
   )
 }

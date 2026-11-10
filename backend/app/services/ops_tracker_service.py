@@ -1970,6 +1970,7 @@ def approve_message(
         "kind": message.kind,
         "so_number": message.so_number,
         "po_number": message.po_number,
+        "context": message.context_json or {},
     }
     try:
         sender(payload)
@@ -2626,14 +2627,40 @@ def purchasing_work(db: Session, today: Optional[date] = None) -> dict:
     }
 
 
+def _quote_pdf_attachment(sq_number: str) -> dict:
+    from app.integrations.bc.client import bc_client
+
+    quote = bc_client.get_sales_quote_by_number(sq_number)
+    if not quote or not quote.get("id"):
+        raise RuntimeError(f"Could not find {sq_number} to attach the PDF.")
+    pdf = bc_client.get_quote_pdf(quote["id"])
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", sq_number).strip("-") or "quote"
+    return {
+        "name": f"Quote_{safe}.pdf",
+        "content_bytes": pdf,
+        "content_type": "application/pdf",
+    }
+
+
 def default_sender(message: dict) -> None:
     from app.integrations.email.client import graph_client
 
     if getattr(graph_client, "app", None) is None:
         raise RuntimeError("Graph mail is not configured, so this email was not sent.")
+    context = message.get("context") or {}
+    attachments = []
+    if context.get("attach_quote_pdf") and context.get("bc_quote_number"):
+        attachments.append(_quote_pdf_attachment(context["bc_quote_number"]))
+    html = text_to_html(message["body_text"])
+    reply_to = context.get("reply_to_message_id")
+    mailbox = context.get("mailbox") or tracker_mailbox()
+    if reply_to:
+        graph_client.send_reply(mailbox, reply_to, html, attachments or None)
+        return
     graph_client.send_mail(
         from_email=tracker_mailbox(),
         to=message["to_email"],
         subject=message["subject"],
-        html_body=text_to_html(message["body_text"]),
+        html_body=html,
+        attachments=attachments or None,
     )

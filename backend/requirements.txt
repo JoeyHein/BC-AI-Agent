@@ -71,3 +71,5 @@ mypy==1.8.0
 
 # PO PDF generation (purchasing tool)
 fpdf2==2.7.9
+# Text layer of quote PDFs and shop drawings
+pypdf==5.4.0

@@ -767,6 +767,45 @@ def update_profile_quoting_mode(
     return {"mode": mode}
 
 
+class InboxAutomationUpdate(BaseModel):
+    email_attachment_reading: Optional[str] = None
+    missing_info_reply: Optional[str] = None
+    quote_send_draft: Optional[str] = None
+    customer_approval_detection: Optional[str] = None
+
+
+@router.get("/inbox-automation")
+def get_inbox_automation(
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Quote-inbox switches. Each one is off until someone turns it on."""
+    from app.services.inbox_settings import inbox_modes
+    return {"modes": inbox_modes(db)}
+
+
+@router.put("/inbox-automation")
+def update_inbox_automation(
+    body: InboxAutomationUpdate,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    from app.services.inbox_settings import INBOX_SETTING_KEYS, set_inbox_mode
+    updates = body.model_dump(exclude_unset=True)
+    unknown = [key for key in updates if key not in INBOX_SETTING_KEYS]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown setting {unknown[0]}")
+    try:
+        for key, mode in updates.items():
+            set_inbox_mode(db, key, mode, user_id=current_admin.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    db.commit()
+    from app.services.inbox_settings import inbox_modes
+    logger.info("Inbox automation updated by %s: %s", current_admin.email, updates)
+    return {"modes": inbox_modes(db)}
+
+
 @router.get("/by-bc/{bc_customer_id}/profile")
 def get_customer_profile(
     bc_customer_id: str,

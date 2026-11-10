@@ -1971,7 +1971,8 @@ class PartNumberService:
         if config.door_type == "commercial" and track_size == 2:
             if config.door_height > 168 or config.door_width > 216:  # >14' or >18'
                 track_size = 3
-                radius_inches = 12  # 3" tracks don't use radius
+                # 3" track kits do not encode radius. Springs still use 15".
+                radius_inches = 15
 
         # Determine lift type and mount type
         # HIGH LIFT uses STANDARD LIFT track assemblies — the extension kits
@@ -2110,9 +2111,6 @@ class PartNumberService:
         if door_weight is None:
             door_weight = self._calculate_door_weight(config)
 
-        # Parse track radius (handle string format)
-        track_radius = int(config.track_radius) if config.track_radius else 15
-
         # Map lift type to door_calculator's lift config for correct drum selection
         # Without this, VL/HL doors get a standard drum → wrong spring calculation
         lift_type_map = {
@@ -2122,13 +2120,26 @@ class PartNumberService:
             'vertical': 'vertical',
         }
         dc_lift_type = lift_type_map.get(config.lift_type, 'standard')
-        lift_config = {"type": dc_lift_type, "radius": track_radius}
 
-        # Select the correct drum for this lift type
-        # 3" track forces D525-216 minimum (no D400 drums)
+        # 3" track forces D525-216 minimum (no D400 drums). Those drums are
+        # 15" radius, so a requested 12" would size the springs for the wrong drum.
         track_size = int(config.track_thickness) if config.track_thickness else int(
             default_track_thickness(config.door_series, config.door_type)
         )
+        track_radius = int(config.track_radius) if config.track_radius else 15
+        if track_size == 3 and track_radius != 15:
+            config.deviations.append({
+                "kind": "track_radius_adjusted",
+                "field": "trackRadius",
+                "from": str(track_radius),
+                "to": "15",
+                "reason": (
+                    "3 inch track uses a 15 inch drum. "
+                    f"The {track_radius} inch radius was not used for spring sizing."
+                ),
+            })
+            track_radius = 15
+        lift_config = {"type": dc_lift_type, "radius": track_radius}
         high_lift_inches = config.high_lift_inches or 0
         effective_height = config.door_height + high_lift_inches if dc_lift_type == 'high' else config.door_height
         drums = door_calculator._select_drum(

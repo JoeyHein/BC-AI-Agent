@@ -35,6 +35,17 @@ export const quotesApi = {
   getQuote: (quoteId) =>
     apiClient.get(`/api/quotes/${quoteId}`),
 
+  getCustomerApprovals: (params = {}) =>
+    apiClient.get('/api/quotes/customer-approvals', { params }),
+
+  convertCustomerApproval: (approvalId, bcQuoteNumber) =>
+    apiClient.post(`/api/quotes/customer-approvals/${approvalId}/convert`, {
+      bc_quote_number: bcQuoteNumber || null,
+    }),
+
+  dismissCustomerApproval: (approvalId) =>
+    apiClient.post(`/api/quotes/customer-approvals/${approvalId}/dismiss`),
+
   // Approve quote
   approveQuote: (quoteId, { notes = '', bc_customer_id = null, create_in_bc = false } = {}) =>
     apiClient.post(`/api/quotes/${quoteId}/approve`, {
@@ -668,6 +679,12 @@ export const customersApi = {
 
   setProfileQuotingMode: (mode) =>
     apiClient.put('/api/admin/customers/profile-quoting', { mode }),
+
+  getInboxModes: () =>
+    apiClient.get('/api/admin/customers/inbox-automation'),
+
+  setInboxModes: (modes) =>
+    apiClient.put('/api/admin/customers/inbox-automation', modes),
 };
 
 // Admin global quote search (cross-customer)

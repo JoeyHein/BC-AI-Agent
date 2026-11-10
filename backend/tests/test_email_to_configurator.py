@@ -79,15 +79,20 @@ def test_bad_dimensions_become_zero():
     assert out[0]["doorHeight"] == 0
 
 
-def test_track_radius_follows_thickness():
+def test_omitted_track_radius_is_15_for_both_thicknesses():
+    """3" drums are 15". An omitted radius must not become 12" on 3" track."""
     out = normalize([{"doorType": "commercial", "doorWidth": 120, "doorHeight": 96,
                       "trackThickness": "3 inch"}])
     assert out[0]["trackThickness"] == "3"
-    assert out[0]["trackRadius"] == "12"
+    assert out[0]["trackRadius"] == "15"
 
     out = normalize([{"doorType": "commercial", "doorWidth": 120, "doorHeight": 96}])
     assert out[0]["trackThickness"] == "2"
     assert out[0]["trackRadius"] == "15"
+
+    explicit = normalize([{"doorType": "commercial", "doorWidth": 120, "doorHeight": 96,
+                           "trackThickness": "2", "trackRadius": "12"}])
+    assert explicit[0]["trackRadius"] == "12"
 
 
 def test_normalized_door_is_valid_configurator_request():

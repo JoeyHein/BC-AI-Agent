@@ -251,6 +251,37 @@ class QuoteRequest(Base):
         return f"<QuoteRequest(id={self.id}, customer={self.customer_name}, status={self.status})>"
 
 
+class CustomerOrderApproval(Base):
+    """A customer's go-ahead, waiting for staff to convert one SQ to a sales order.
+
+    ready has one matched quote. needs_choice means staff pick the SQ.
+    Nothing here is converted until that click.
+    """
+    __tablename__ = "customer_order_approvals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email_log_id = Column(Integer, ForeignKey("email_logs.id"), nullable=True, index=True)
+    status = Column(String(30), nullable=False, default="needs_choice", index=True)
+    match_method = Column(String(40))
+    bc_quote_number = Column(String(50))
+    quote_request_id = Column(Integer, ForeignKey("quote_requests.id"), nullable=True, index=True)
+    candidates = Column(JSON)
+    customer_po = Column(String(80))
+    po_source = Column(String(120))
+    excerpt = Column(Text)
+    from_address = Column(String(255))
+    subject = Column(Text)
+    graph_message_id = Column(String(500))
+    mailbox = Column(String(255))
+    bc_order_number = Column(String(50))
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    decided_at = Column(DateTime)
+    decided_by = Column(String(255))
+
+    def __repr__(self):
+        return f"<CustomerOrderApproval(id={self.id}, status={self.status}, sq={self.bc_quote_number})>"
+
+
 class AIDecision(Base):
     """AI decisions - audit trail for all AI actions"""
     __tablename__ = "ai_decisions"

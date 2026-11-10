@@ -1317,8 +1317,9 @@ def _system_default(door_key: str, door: dict) -> Any:
     if door_key == "trackThickness":
         return default_track_thickness(series, door_type)
     if door_key == "trackRadius":
-        thickness = str(door.get("trackThickness") or default_track_thickness(series, door_type))
-        return "12" if thickness == "3" else "15"
+        # 3" hardware uses a 15" drum. Filling 12" here made on-mode quotes
+        # disagree with DoorConfigRequest, which already defaults to 15".
+        return "15"
     if door_key == "liftType":
         return "standard"
     if door_key == "doorSeries":

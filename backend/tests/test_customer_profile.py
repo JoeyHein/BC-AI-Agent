@@ -1040,6 +1040,7 @@ def test_release_prices_a_held_quote_with_the_email_door(session, monkeypatch):
 def test_confirming_a_suggestion_prices_the_quote(session, monkeypatch):
     from types import SimpleNamespace
     from app.api.feedback import confirm_suggested_customer
+    _mode(session, "on")
     log = EmailLog(
         message_id="price-sug", from_address="pat@gnb.example",
         subject="quote", body="Please quote a 12x10 TX450.", status="parsed",

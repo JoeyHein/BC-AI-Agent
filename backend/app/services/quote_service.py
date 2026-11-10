@@ -168,7 +168,7 @@ class QuoteGenerationService:
                 window_insert=None,  # TODO: parse from glazing
                 window_section=None,
                 glazing_type=glazing.upper() if glazing else None,
-                track_radius="15" if track_thickness == "2" else "12",
+                track_radius="15",
                 track_thickness=track_thickness,
                 hardware={
                     "tracks": True,
@@ -512,7 +512,8 @@ class QuoteGenerationService:
         track_type = resolve_track_thickness(
             door_spec.get("track_type"), door_series, door_type,
         )
-        track_radius = 15 if track_type == "2" else 12  # Standard radius by track type
+        # 3" track drums are 15" radius. Omitted radius uses that for both sizes.
+        track_radius = 15
 
         # Calculate springs using Canimex methodology
         spring_qty = 2  # Standard residential = 2 springs

@@ -595,8 +595,11 @@ OUTPUT FORMAT — JSON only, no prose:
             raw_track = d.get("trackThickness") if "trackThickness" in d else None
             track_thickness = resolve_track_thickness(raw_track, series, door_type)
             track_radius = str(d.get("trackRadius", "") or "").strip()
+            # 3" track drums are 15" (D400-144, the 12" drum, is excluded).
+            # An omitted radius stays 15" for both thicknesses so on and off
+            # send the same value. An explicit 12 or 15 is kept.
             if track_radius not in {"12", "15"}:
-                track_radius = "12" if track_thickness == "3" else "15"
+                track_radius = "15"
 
             hardware = d.get("hardware")
             if not isinstance(hardware, dict) or not hardware:

@@ -210,9 +210,14 @@ class EmailMonitorService:
         # Claim this email BEFORE calling AI — insert a placeholder row so
         # concurrent workers see it and skip. This prevents the TOCTOU race
         # where multiple workers all see "not processed" and each call the API.
+        received_raw = email.get("receivedDateTime")
+        try:
+            received_at = datetime.fromisoformat(received_raw.replace("Z", "+00:00")) if received_raw else datetime.utcnow()
+        except (AttributeError, ValueError):
+            received_at = datetime.utcnow()
         placeholder = EmailLog(
             message_id=internet_message_id,
-            received_at=email.get("receivedDateTime"),
+            received_at=received_at,
             from_address=email.get("from", {}).get("emailAddress", {}).get("address", ""),
             subject=email.get("subject", ""),
             body=email.get("body", {}).get("content", ""),
@@ -230,16 +235,18 @@ class EmailMonitorService:
         from_address = email.get("from", {}).get("emailAddress", {}).get("address", "")
         from_name = email.get("from", {}).get("emailAddress", {}).get("name", from_address)
         subject = email.get("subject", "")
-        received_at = email.get("receivedDateTime")
         body = email.get("body", {}).get("content", "")
 
         logger.info(f"Processing new email from {from_name}: {subject[:50]}")
+
+        attachment_mode, parse_body, pack = self._prepare_attachments(db, email, inbox_email, body)
+        text_for_ai = parse_body if attachment_mode == "on" else body
 
         # Step 1: Categorize email with learning system
         from app.services.email_categorization_service import get_categorization_service
         categorization_service = get_categorization_service(db)
 
-        category_result = categorization_service.categorize_email(subject, body, from_address)
+        category_result = categorization_service.categorize_email(subject, text_for_ai, from_address)
 
         category = category_result.get("category", "unknown")
         confidence = category_result.get("confidence", 0.0)
@@ -255,7 +262,6 @@ class EmailMonitorService:
 
         # Step 2: Update placeholder with AI categorization results
         email_log = placeholder
-        email_log.received_at = datetime.fromisoformat(received_at.replace('Z', '+00:00')) if received_at else datetime.utcnow()
         email_log.status = "pending" if (is_quote_request or is_quote_modification) else "informational"
         email_log.ai_category = category
         email_log.ai_category_confidence = confidence
@@ -263,13 +269,46 @@ class EmailMonitorService:
         email_log.is_modification = is_quote_modification
         email_log.referenced_quote_number = referenced_quote_number
         email_log.modification_type = modification_type
+        if attachment_mode == "on" and pack is not None:
+            email_log.attachments = pack.as_email_log()
         db.flush()
+
+        from app.services.inbox_settings import CUSTOMER_APPROVAL, inbox_mode
+        from app.services.quote_followup import handle_customer_approval, is_customer_approval
+        approval_mode = inbox_mode(db, CUSTOMER_APPROVAL)
+        approval_text = parse_body if pack is not None and approval_mode != "off" else body
+        if category == "order_confirmation" or (
+            approval_mode != "off" and is_customer_approval(category, subject, approval_text)
+        ):
+            if approval_mode == "off":
+                logger.info("  -> Categorized as 'order_confirmation', not processing further")
+                return "other"
+            filenames = [page.file_name for page in pack.pages] if pack is not None else []
+            handle_customer_approval(
+                db,
+                email_log,
+                subject=subject,
+                body=approval_text,
+                from_address=from_address,
+                graph_message_id=message_id,
+                mailbox=inbox_email,
+                filenames=filenames,
+            )
+            email_log.status = "informational"
+            db.commit()
+            return "customer_approval"
 
         # Step 3: If quote request or modification, parse with AI
         if is_quote_request:
             logger.info(f"  -> Identified as NEW quote request, parsing...")
             try:
-                self._parse_quote_request(db, email_log, subject, body, from_name, from_address)
+                self._parse_quote_request(
+                    db, email_log, subject, text_for_ai, from_name, from_address,
+                    attachment_pack=pack if attachment_mode != "off" else None,
+                    attachment_applied=attachment_mode == "on",
+                    graph_message_id=message_id,
+                    mailbox=inbox_email,
+                )
             except Exception as e:
                 logger.error(f"  -> _parse_quote_request FAILED: {e}", exc_info=True)
                 email_log.status = "parse_error"
@@ -286,8 +325,59 @@ class EmailMonitorService:
         logger.info(f"  -> Categorized as '{category}', not processing further")
         return "other"
 
+    def _prepare_attachments(self, db, email, inbox_email: str, body: str):
+        """Read attachments when a switch is on or in shadow. Off does not call Graph."""
+        from app.services.attachment_text import read_graph_attachments
+        from app.services.inbox_settings import ATTACHMENT_READING, CUSTOMER_APPROVAL, inbox_mode
+
+        read_mode = inbox_mode(db, ATTACHMENT_READING)
+        approval_mode = inbox_mode(db, CUSTOMER_APPROVAL)
+        if read_mode == "off" and approval_mode == "off":
+            return read_mode, body, None
+        graph_id = email.get("id")
+        if not graph_id:
+            return read_mode, body, None
+        try:
+            raw = self.graph_client.get_message_attachments(inbox_email, graph_id)
+        except Exception:
+            logger.exception("Could not read attachments for %s", graph_id)
+            raw = []
+        pack = read_graph_attachments(raw)
+        logger.info(
+            "Attachments mode=%s files=%s openings=%s",
+            read_mode,
+            len({page.file_name for page in pack.pages}),
+            len(pack.openings),
+        )
+        parse_body = body
+        if read_mode == "on" and pack.combined_text:
+            parse_body = f"{body}\n\n{pack.combined_text}"
+        elif read_mode == "shadow":
+            logger.info(
+                "Attachment shadow would add %s opening(s) from %s. The parser still sees the message body.",
+                len(pack.openings),
+                ", ".join(sorted({page.file_name for page in pack.pages})) or "no files",
+            )
+        return read_mode, parse_body, pack
+
+    def _remember_mail(self, parsed_data, pack, applied, graph_message_id, mailbox):
+        data = dict(parsed_data or {})
+        if graph_message_id or mailbox:
+            data["mail"] = {"graph_message_id": graph_message_id, "mailbox": mailbox}
+        if pack is not None:
+            data["attachments_read"] = pack.staff_payload(applied)
+        return data
+
+    def _settle_followups(self, db, quote, email_log, mailbox, graph_message_id):
+        from app.services.quote_followup import settle_quote_followups
+        settle_quote_followups(
+            db, quote, email_log, mailbox=mailbox, graph_message_id=graph_message_id,
+        )
+
     def _parse_quote_request(self, db, email_log: EmailLog, subject: str, body: str,
-                            from_name: str, from_address: str):
+                            from_name: str, from_address: str,
+                            attachment_pack=None, attachment_applied=False,
+                            graph_message_id=None, mailbox=None):
         """Parse quote request with AI and store in database"""
 
         sender_info = {"name": from_name, "email": from_address}
@@ -320,7 +410,13 @@ class EmailMonitorService:
             email_log.status = "error"
             return
 
-        parsed_data = parse_result.get("data", {})
+        parsed_data = self._remember_mail(
+            parse_result.get("data", {}),
+            attachment_pack,
+            attachment_applied,
+            graph_message_id,
+            mailbox,
+        )
         raw_confidence = parse_result.get("confidence", 0.0)
 
         # Extract customer info and doors for calibration
@@ -423,6 +519,7 @@ class EmailMonitorService:
                 if not mapping.get("success"):
                     logger.warning(f"  -> Configurator mapping failed ({mapping.get('error')}); manual review")
                     quote_request.status = "needs_manual_review"
+                    self._settle_followups(db, quote_request, email_log, mailbox, graph_message_id)
                     db.commit()
                     return
 
@@ -444,6 +541,7 @@ class EmailMonitorService:
                 ):
                     logger.info("  -> Mapped doors missing dimensions; routing to manual review")
                     quote_request.status = "needs_manual_review"
+                    self._settle_followups(db, quote_request, email_log, mailbox, graph_message_id)
                     db.commit()
                     return
 
@@ -609,6 +707,7 @@ class EmailMonitorService:
                     quote_request.status = "quote_generated"
                     logger.warning("  -> Configurator returned no BC quote number")
 
+                self._settle_followups(db, quote_request, email_log, mailbox, graph_message_id)
                 db.commit()
 
             except HTTPException as he:
@@ -620,6 +719,7 @@ class EmailMonitorService:
                 except Exception:
                     pass
                 quote_request.status = "needs_manual_review"
+                self._settle_followups(db, quote_request, email_log, mailbox, graph_message_id)
                 db.commit()
             except Exception as e:
                 logger.error(f"  -> Auto-generation failed: {e}", exc_info=True)
@@ -630,6 +730,9 @@ class EmailMonitorService:
                     pass
                 quote_request.status = "pending"  # Fall back to manual review
                 db.commit()
+        else:
+            self._settle_followups(db, quote_request, email_log, mailbox, graph_message_id)
+            db.commit()
 
     def _legacy_bc_customer_id(self, db, quote_request: QuoteRequest) -> Optional[str]:
         """Exact email, then exact company name. None falls back to retail."""

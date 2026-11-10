@@ -107,6 +107,7 @@ class QuoteResponse(BaseModel):
     deviations: Optional[list] = None
     matched_bc_customer_id: Optional[str] = None
     customer_match: Optional[dict] = None
+    customer_approval: Optional[dict] = None
 
     class Config:
         from_attributes = True
@@ -212,6 +213,91 @@ def get_pending_reviews(
     return results
 
 
+class ConvertApprovalBody(BaseModel):
+    bc_quote_number: Optional[str] = None
+
+
+def _approval_for_quote(db: Session, quote: QuoteRequest):
+    from app.db.models import CustomerOrderApproval
+    from app.services.quote_followup import approval_to_dict
+    row = (
+        db.query(CustomerOrderApproval)
+        .filter(CustomerOrderApproval.email_log_id == quote.email_id)
+        .order_by(CustomerOrderApproval.id.desc())
+        .first()
+    )
+    if row is None:
+        rows = (
+            db.query(CustomerOrderApproval)
+            .filter(CustomerOrderApproval.status.in_(["ready", "needs_choice", "converted"]))
+            .order_by(CustomerOrderApproval.id.desc())
+            .limit(50)
+            .all()
+        )
+        for candidate in rows:
+            if candidate.quote_request_id == quote.id:
+                row = candidate
+                break
+            for item in candidate.candidates or []:
+                if isinstance(item, dict) and item.get("quote_request_id") == quote.id:
+                    row = candidate
+                    break
+            if row is not None:
+                break
+    return approval_to_dict(row) if row else None
+
+
+@router.get("/customer-approvals")
+def list_customer_approvals(
+    status: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Go-ahead emails waiting for staff to convert a quote. Nothing is converted here."""
+    from app.db.models import CustomerOrderApproval
+    from app.services.quote_followup import approval_to_dict
+    query = db.query(CustomerOrderApproval).order_by(CustomerOrderApproval.created_at.desc())
+    if status:
+        query = query.filter(CustomerOrderApproval.status == status)
+    return [approval_to_dict(row) for row in query.limit(100).all()]
+
+
+@router.post("/customer-approvals/{approval_id}/convert")
+def convert_customer_approval_route(
+    approval_id: int,
+    body: Optional[ConvertApprovalBody] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Convert the matched SQ. Ambiguous rows need bc_quote_number. Never automatic."""
+    from app.services.quote_followup import convert_customer_approval
+    return convert_customer_approval(
+        db,
+        approval_id,
+        bc_quote_number=body.bc_quote_number if body else None,
+        user_email=current_user.email,
+    )
+
+
+@router.post("/customer-approvals/{approval_id}/dismiss")
+def dismiss_customer_approval(
+    approval_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.db.models import CustomerOrderApproval
+    row = db.query(CustomerOrderApproval).filter(CustomerOrderApproval.id == approval_id).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Approval not found")
+    if row.status == "converted":
+        raise HTTPException(status_code=400, detail="This approval is already converted")
+    row.status = "dismissed"
+    row.decided_at = datetime.utcnow()
+    row.decided_by = current_user.email
+    db.commit()
+    from app.services.quote_followup import approval_to_dict
+    return approval_to_dict(row)
+
+
 @router.get("/{quote_id}", response_model=QuoteResponse)
 def get_quote(quote_id: int, db: Session = Depends(get_db)):
     """Get a specific quote request by ID
@@ -249,6 +335,7 @@ def get_quote(quote_id: int, db: Session = Depends(get_db)):
         deviations=quote.deviations,
         matched_bc_customer_id=quote.matched_bc_customer_id,
         customer_match=quote.customer_match,
+        customer_approval=_approval_for_quote(db, quote),
     )
 
 
@@ -258,18 +345,66 @@ def _mapped_doors(quote: QuoteRequest) -> list:
     return [door for door in doors if isinstance(door, dict)]
 
 
-def _price_mapped_quote(quote: QuoteRequest, db: Session) -> dict:
-    """Send the doors already resolved from the email to Business Central."""
+def _restore_quote_status(db: Session, quote_id: int, previous: str) -> None:
+    try:
+        db.rollback()
+    except Exception:
+        pass
+    row = db.query(QuoteRequest).filter(QuoteRequest.id == quote_id).first()
+    if row is not None and row.status == "pricing" and not row.bc_quote_id:
+        row.status = previous
+        db.commit()
+
+
+def _price_mapped_quote(quote: QuoteRequest, db: Session, profile_applied: bool = True) -> dict:
+    """Send the doors already resolved from the email to Business Central.
+
+    A second call returns the quote that was already created. The status
+    flip to ``pricing`` is committed before Business Central is called, so
+    two requests cannot both create a quote.
+    """
     from app.api.door_configurator import (
         DoorConfigRequest,
         QuoteGenerationRequest,
         build_bc_quote_from_doors,
     )
     from app.services.email_monitor import EmailMonitorService
+    from app.services.quote_followup import queue_quote_send_for
 
+    if quote.bc_quote_id or quote.status in {"bc_created", "quote_generated"}:
+        return {
+            "priced": bool(quote.bc_quote_id) or quote.status == "quote_generated",
+            "status": quote.status,
+            "bc_quote_number": quote.bc_quote_id,
+            "already": True,
+        }
+    if quote.status == "pricing":
+        raise HTTPException(status_code=409, detail="This quote is already being priced")
     doors = _mapped_doors(quote)
     if not doors:
         return {"priced": False, "status": quote.status, "reason": "No mapped doors to price"}
+    previous = quote.status
+    claimed = (
+        db.query(QuoteRequest)
+        .filter(
+            QuoteRequest.id == quote.id,
+            QuoteRequest.status == previous,
+            QuoteRequest.bc_quote_id.is_(None),
+        )
+        .update({"status": "pricing"}, synchronize_session=False)
+    )
+    db.commit()
+    if claimed != 1:
+        db.refresh(quote)
+        if quote.bc_quote_id or quote.status in {"bc_created", "quote_generated"}:
+            return {
+                "priced": True,
+                "status": quote.status,
+                "bc_quote_number": quote.bc_quote_id,
+                "already": True,
+            }
+        raise HTTPException(status_code=409, detail="This quote is already being priced")
+    db.refresh(quote)
     delivery = ((quote.field_sources or {}).get("deliveryType") or {}).get("used")
     if not delivery:
         delivery = ((quote.field_sources or {}).get("deliveryType") or {}).get("value") or "delivery"
@@ -283,9 +418,16 @@ def _price_mapped_quote(quote: QuoteRequest, db: Session) -> dict:
         poNumber=f"EMAIL-QR-{quote.id}",
         deliveryType=delivery,
         deliveryExplicit=True,
-        profileApplied=True,
+        profileApplied=profile_applied,
     )
-    result = build_bc_quote_from_doors(request, db, source="email")
+    try:
+        result = build_bc_quote_from_doors(request, db, source="email")
+    except HTTPException:
+        _restore_quote_status(db, quote.id, previous)
+        raise
+    except Exception:
+        _restore_quote_status(db, quote.id, previous)
+        raise
     data = result.get("data", {}) if isinstance(result, dict) else {}
     EmailMonitorService()._persist_quote_items_from_pricing(
         db, quote.id, data.get("line_pricing") or [],
@@ -296,6 +438,9 @@ def _price_mapped_quote(quote: QuoteRequest, db: Session) -> dict:
         quote.status = "bc_created"
     else:
         quote.status = "quote_generated"
+    if quote.status == "bc_created":
+        queue_quote_send_for(db, quote)
+    db.commit()
     return {"priced": True, "status": quote.status, "bc_quote_number": number}
 
 
@@ -315,14 +460,28 @@ def confirm_suggested_customer(
         apply_profile_for_customer,
         get_or_create_profile,
         quote_email_text,
+        quoting_mode,
     )
     quote = db.query(QuoteRequest).filter(QuoteRequest.id == quote_id).first()
     if not quote:
         raise HTTPException(status_code=404, detail="Quote request not found")
+    if quote.bc_quote_id or quote.status in {"bc_created", "quote_generated"}:
+        return {
+            "bc_customer_id": quote.matched_bc_customer_id,
+            "priced": bool(quote.bc_quote_id),
+            "status": quote.status,
+            "bc_quote_number": quote.bc_quote_id,
+            "already": True,
+        }
+    if quote.status == "pricing":
+        raise HTTPException(status_code=409, detail="This quote is already being priced")
     match = quote.customer_match or {}
     customer_id = match.get("bc_customer_id")
     if not customer_id or not match.get("suggested"):
         raise HTTPException(status_code=400, detail="No suggested customer to confirm")
+    # Read this before writing the profile. A table check on SQLite commits
+    # the connection and would drop the contact we just added.
+    mode = quoting_mode(db)
     profile = get_or_create_profile(db, customer_id)
     email = (quote.contact_email or "").strip().lower()
     contacts = [dict(item) for item in (profile.contacts or []) if isinstance(item, dict)]
@@ -340,6 +499,7 @@ def confirm_suggested_customer(
     doors = _mapped_doors(quote)
     if not doors:
         quote.status = "pending"
+        quote.field_sources = {**(quote.field_sources or {}), "mode": mode}
         db.commit()
         return {"bc_customer_id": customer_id, "status": quote.status, "priced": False}
 
@@ -350,33 +510,45 @@ def confirm_suggested_customer(
         getattr(email_log, "attachments", None),
     )
     parsed = (quote.parsed_data or {}).get("doors")
-    applied = apply_profile_for_customer(
-        db,
-        customer_id,
-        doors,
-        email_text=text,
-        parsed_doors=parsed if isinstance(parsed, list) else None,
-        customer_name=quote.customer_name,
-    )
-    quote.field_sources = {**applied["field_sources"], "mode": "on"}
-    quote.deviations = applied["deviations"]
-    parsed_data = dict(quote.parsed_data or {})
-    mapping = dict((parsed_data.get("configurator_mapping") or {}))
-    mapping["doors"] = applied["doors"]
-    parsed_data["configurator_mapping"] = mapping
-    quote.parsed_data = parsed_data
-    if applied.get("hold_for_review"):
-        quote.status = "held_for_standard_deviation"
-        db.commit()
-        return {
-            "bc_customer_id": customer_id,
-            "status": quote.status,
-            "priced": False,
-            "reason": "Email differs from the customer standard",
-        }
+    profile_applied = mode == "on"
+    if mode == "off":
+        quote.field_sources = {**(quote.field_sources or {}), "mode": "off"}
+    else:
+        applied = apply_profile_for_customer(
+            db,
+            customer_id,
+            [dict(door) for door in doors],
+            email_text=text,
+            parsed_doors=parsed if isinstance(parsed, list) else None,
+            customer_name=quote.customer_name,
+        )
+        quote.field_sources = {**applied["field_sources"], "mode": mode}
+        quote.deviations = applied["deviations"]
+        if mode == "shadow":
+            quote.deviations = [
+                {**item, "shadow": True} if isinstance(item, dict) else item
+                for item in (quote.deviations or [])
+            ]
+            if applied.get("hold_for_review"):
+                quote.field_sources = {**(quote.field_sources or {}), "would_hold": True}
+        else:
+            parsed_data = dict(quote.parsed_data or {})
+            mapping = dict((parsed_data.get("configurator_mapping") or {}))
+            mapping["doors"] = applied["doors"]
+            parsed_data["configurator_mapping"] = mapping
+            quote.parsed_data = parsed_data
+            if applied.get("hold_for_review"):
+                quote.status = "held_for_standard_deviation"
+                db.commit()
+                return {
+                    "bc_customer_id": customer_id,
+                    "status": quote.status,
+                    "priced": False,
+                    "reason": "Email differs from the customer standard",
+                }
     db.commit()
     try:
-        outcome = _price_mapped_quote(quote, db)
+        outcome = _price_mapped_quote(quote, db, profile_applied=profile_applied)
         db.commit()
     except HTTPException:
         db.rollback()
@@ -401,16 +573,30 @@ def release_held_quote(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Price a held quote with the email values staff already reviewed."""
+    """Price a held quote with the email values staff already reviewed.
+
+    A quote still waiting on a customer match is refused. Pricing it here
+    would use the suggested customer, or cash if that suggestion is empty.
+    """
     quote = db.query(QuoteRequest).filter(QuoteRequest.id == quote_id).first()
     if not quote:
         raise HTTPException(status_code=404, detail="Quote request not found")
-    if quote.status not in {"held_for_standard_deviation", "held_for_customer_match"}:
-        raise HTTPException(status_code=400, detail="This quote is not held")
+    if quote.bc_quote_id or quote.status in {"bc_created", "quote_generated"}:
+        return {
+            "priced": bool(quote.bc_quote_id),
+            "status": quote.status,
+            "bc_quote_number": quote.bc_quote_id,
+            "already": True,
+        }
+    if quote.status == "pricing":
+        raise HTTPException(status_code=409, detail="This quote is already being priced")
     if quote.status == "held_for_customer_match":
-        match = quote.customer_match or {}
-        if match.get("bc_customer_id"):
-            quote.matched_bc_customer_id = match.get("bc_customer_id")
+        raise HTTPException(
+            status_code=400,
+            detail="Confirm the customer before pricing. Release cannot price a suggested customer.",
+        )
+    if quote.status != "held_for_standard_deviation":
+        raise HTTPException(status_code=400, detail="This quote is not held for a standard deviation")
     if not _mapped_doors(quote):
         raise HTTPException(status_code=400, detail="No mapped doors to price")
     try:
