@@ -107,133 +107,137 @@ def calculate_freight(
     }
 
 
-def interleave_door_freight(lines: list, freight_item: str = "FREIGHT") -> list:
-    """Place a freight placeholder immediately after each door's last line.
+def freight_settings(db) -> Dict[str, Any]:
+    """Freight config, including when the caller has no database session.
 
-    Callers price the placeholder afterwards. Posted order per door is
-    ``[door lines..., WRAP, FREIGHT]``. A door with no freight line (pickup,
-    or a later zero amount that gets deleted) keeps WRAP as its last line.
-    ``fixed_unit_price`` 0 holds the card price off the product subtotal
-    until the real per-door amount is patched.
+    Saved settings override the defaults key by key. A missing item number
+    or comment-fallback flag still resolves to the default.
     """
-    if not lines:
-        return lines
-    out = []
-    for i, line in enumerate(lines):
-        out.append(line)
-        door = line.get("door_index")
-        if not door:
-            continue
-        nxt = lines[i + 1] if i + 1 < len(lines) else None
-        if nxt and nxt.get("door_index") == door:
-            continue
-        out.append({
+    defaults = get_default_freight_config()
+    if db is None:
+        return defaults
+    try:
+        config = get_freight_config(db)
+    except Exception:
+        logger.warning("Could not load freight config; using defaults", exc_info=True)
+        return defaults
+    if not isinstance(config, dict):
+        return defaults
+    merged = dict(defaults)
+    merged.update(config)
+    return merged
+
+
+def freight_pricing_row(
+    freight: Dict[str, Any],
+    item_number: str = "FREIGHT",
+    with_line_type: bool = False,
+) -> Dict[str, Any]:
+    """One quote-level freight row for portal line pricing."""
+    amount = round(float(freight.get("amount") or 0), 2)
+    row = {
+        "part_number": item_number or "FREIGHT",
+        "description": freight.get("description") or "Freight",
+        "quantity": 1,
+        "unit_price": amount,
+        "line_total": amount,
+    }
+    if with_line_type:
+        row["line_type"] = "Item"
+    return row
+
+
+def quote_freight_source_line(freight: Dict[str, Any], item_number: str = "FREIGHT") -> Dict[str, Any]:
+    """Line dict stored on the quote snapshot, matching the posted FREIGHT item.
+
+    No door_index: freight belongs to the quote, not to a door package.
+    """
+    amount = round(float(freight.get("amount") or 0), 2)
+    return {
+        "lineType": "Item",
+        "part_number": item_number or "FREIGHT",
+        "description": freight.get("description") or "Freight",
+        "quantity": 1,
+        "category": "freight",
+        "unit_price": amount,
+        "fixed_unit_price": amount,
+    }
+
+
+def post_quote_freight_line(
+    bc_client,
+    bc_quote_id: str,
+    freight: Dict[str, Any],
+    config: Optional[Dict[str, Any]] = None,
+    on_added=None,
+    on_output=None,
+) -> Dict[str, Any]:
+    """Append one FREIGHT item at the end of a BC sales quote.
+
+    Callers calculate ``freight["amount"]`` from the goods subtotal before
+    this line exists, so the charge is not a percent of itself. That amount
+    is the same total the old per-door shares added up to: one province
+    percent of the combined goods, not a separate percent inside each door.
+    A failed item post falls back to a comment when the config allows it.
+    """
+    config = config or get_default_freight_config()
+    item_number = config.get("freight_item_number") or "FREIGHT"
+    amount = round(float(freight.get("amount") or 0), 2)
+    full_description = freight.get("description") or "Freight"
+    description = full_description[:100]
+    result = {
+        "posted": False,
+        "as_item": False,
+        "line": None,
+        "item_number": item_number,
+        "amount": amount,
+        "description": full_description,
+    }
+
+    added = None
+    try:
+        added = bc_client.add_quote_line(bc_quote_id, {
             "lineType": "Item",
-            "part_number": freight_item,
-            "description": "Freight",
+            "lineObjectNumber": item_number,
+            "description": description,
             "quantity": 1,
-            "category": "freight",
-            "door_index": door,
-            "is_door_freight": True,
-            "fixed_unit_price": 0,
         })
-    return out
+    except Exception as exc:
+        logger.warning("Could not add freight as Item '%s': %s", item_number, exc)
 
+    if added and added.get("id"):
+        try:
+            bc_client.update_quote_line(
+                bc_quote_id,
+                added["id"],
+                added.get("@odata.etag", "*"),
+                {"unitPrice": amount, "description": description},
+            )
+        except Exception as exc:
+            logger.warning("Could not price freight line: %s", exc)
+        if on_added:
+            on_added(added)
+        if on_output:
+            try:
+                on_output(added)
+            except Exception as exc:
+                logger.warning("Could not set Output on freight line: %s", exc)
+        result.update(posted=True, as_item=True, line=added)
+        logger.info("Added freight line: $%.2f (%s)", amount, description)
+        return result
 
-def allocate_freight_across_doors(door_subtotals: list, freight_total: float) -> list:
-    """Split one quote freight amount across doors by product subtotal.
-
-    Each share is rounded to the cent. The last door with product absorbs
-    the rounding remainder so the shares sum to ``freight_total``.
-    """
-    subs = [max(0.0, float(s or 0)) for s in door_subtotals]
-    target = round(float(freight_total or 0), 2)
-    if not subs:
-        return []
-    if target <= 0 or sum(subs) <= 0:
-        return [0.0] * len(subs)
-    base = sum(subs)
-    amounts = [round(s / base * target, 2) for s in subs]
-    drift = round(target - sum(amounts), 2)
-    for i in range(len(amounts) - 1, -1, -1):
-        if subs[i] > 0 or i == 0:
-            amounts[i] = round(amounts[i] + drift, 2)
-            break
-    return amounts
-
-
-def sum_line_amounts(quote_lines: list, line_ids: list) -> float:
-    """Sum BC quote-line amounts for the given line ids.
-
-    Prefers netAmount. Falls back to unitPrice × quantity when netAmount
-    is still zero (freight placeholders, or a line patched after the fetch
-    the net amount was computed from).
-    """
-    by_id = {ln.get("id"): ln for ln in quote_lines or []}
-    total = 0.0
-    for lid in line_ids:
-        ln = by_id.get(lid) or {}
-        if (ln.get("lineType") or "") == "Comment":
-            continue
-        if (ln.get("lineObjectNumber") or "").upper() == "FREIGHT":
-            continue
-        price = ln.get("unitPrice")
-        qty = ln.get("quantity") or 0
-        if price not in (None, ""):
-            total += float(price) * float(qty)
-        elif ln.get("netAmount") not in (None, "", 0, 0.0):
-            total += float(ln.get("netAmount"))
-    return round(total, 2)
-
-
-def door_freight_amounts(quote_lines: list, slots: list, door_product_ids: dict, freight_total: float) -> list:
-    """Per-door freight shares for placeholders already posted under each door."""
-    subs = [
-        sum_line_amounts(quote_lines, door_product_ids.get(slot.get("door_index"), []))
-        for slot in slots
-    ]
-    if sum(subs) <= 0 and freight_total and slots:
-        subs = [1.0] * len(slots)
-    return allocate_freight_across_doors(subs, freight_total)
-
-
-def remember_added_door_line(line, added_line, door_order, door_product_ids, door_freight_slots):
-    """Track product lines and per-door freight placeholders as they are posted."""
-    if not isinstance(line, dict) or not added_line or not added_line.get("id"):
-        return
-    if line.get("is_door_freight"):
-        door_freight_slots.append({
-            "id": added_line["id"],
-            "door_index": line.get("door_index"),
-            "sequence": added_line.get("sequence"),
+    if not config.get("fallback_to_comment", True):
+        return result
+    try:
+        comment = bc_client.add_quote_line(bc_quote_id, {
+            "lineType": "Comment",
+            "description": f"{description}: ${amount:.2f}",
         })
-        return
-    door = line.get("door_index")
-    if not door or line.get("lineType") == "Comment":
-        return
-    if door not in door_product_ids:
-        door_order.append(door)
-        door_product_ids[door] = []
-    door_product_ids[door].append(added_line["id"])
-
-
-def apply_freight_to_line_pricing(line_pricing: list, amounts: list, description: str) -> list:
-    """Write per-door freight amounts onto FREIGHT rows, in door order.
-
-    A zero share is dropped so that door's WRAP stays the last visible line.
-    """
-    fi = 0
-    kept = []
-    for row in line_pricing or []:
-        if row.get("part_number") == "FREIGHT" and fi < len(amounts):
-            amount = round(float(amounts[fi] or 0), 2)
-            fi += 1
-            if amount <= 0:
-                continue
-            row = dict(row)
-            row["description"] = description or row.get("description") or "Freight"
-            row["quantity"] = 1
-            row["unit_price"] = amount
-            row["line_total"] = amount
-        kept.append(row)
-    return kept
+    except Exception as exc:
+        logger.warning("Could not add freight as comment: %s", exc)
+        return result
+    if on_added and comment:
+        on_added(comment)
+    result.update(posted=True, as_item=False, line=comment)
+    logger.info("Added freight as comment fallback: $%.2f", amount)
+    return result

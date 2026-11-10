@@ -13,8 +13,8 @@ import { useState } from 'react'
  */
 function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber, doorResults, compact = false }) {
   const [expanded, setExpanded] = useState(!compact)
-  // Doors start open so the package order (lines, then wrapping, then freight)
-  // is visible without an extra click.
+  // Doors start open so the package order (lines, then wrapping) is
+  // visible without an extra click. Freight is one quote-level line.
   const [collapsedDoors, setCollapsedDoors] = useState(new Set())
 
   if (!pricing) {
@@ -30,12 +30,26 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
     }).format(amount || 0)
   }
 
-  // Group line items by door (comments act as delimiters)
+  // Group line items by door (comments act as delimiters). FREIGHT is
+  // one charge for the whole quote, so it stays out of every door block
+  // and renders once under the doors.
   const doorSections = []
+  const quoteFreight = []
   let currentDoor = null
+
+  const isQuoteFreight = (line) => {
+    const part = String(line?.part_number || '').trim().toUpperCase()
+    if (part === 'FREIGHT') return true
+    const desc = String(line?.description || '').trim().toLowerCase()
+    return line?.line_type === 'Comment' && desc.startsWith('freight (')
+  }
 
   if (linePricing) {
     for (const line of linePricing) {
+      if (isQuoteFreight(line)) {
+        quoteFreight.push(line)
+        continue
+      }
       if (line.line_type === 'Comment') {
         // Only door description comments start a new group;
         // "Note" lines (e.g. window placement) stay in the current group.
@@ -184,6 +198,19 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
               </div>
             )
           })}
+        </div>
+      )}
+
+      {quoteFreight.length > 0 && (
+        <div className="px-4 py-3 border-t border-gray-100 space-y-1">
+          {quoteFreight.map((item, idx) => (
+            <div key={idx} className="flex items-center justify-between text-sm">
+              <span className="text-gray-700">{item.description || 'Freight'}</span>
+              <span className="font-medium text-gray-800">
+                {formatCurrency(item.line_total || item.unit_price)}
+              </span>
+            </div>
+          ))}
         </div>
       )}
 

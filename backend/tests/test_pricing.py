@@ -11,7 +11,11 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.services.freight_service import PROVINCE_NAME_TO_CODE, get_default_freight_config
+from app.services.freight_service import (
+    PROVINCE_NAME_TO_CODE,
+    calculate_freight,
+    get_default_freight_config,
+)
 from app.services.pricing_service import get_default_tier_margins
 
 
@@ -59,6 +63,46 @@ class TestFreightRates:
             assert code not in config["province_overrides"], (
                 f"{code} should no longer have a freight override (uses default)"
             )
+
+    def test_one_line_matches_the_combined_goods_percent(self, monkeypatch):
+        """Quote freight is the province percent of all doors together.
+
+        A 3-door Alberta quote whose goods are $1,000 + $2,000 + $500 used
+        to post three FREIGHT lines. Those shares were a split of one
+        charge, round(3500 * 7%, 2) = $245.00, so they summed to $245.00
+        (70 + 140 + 35). The quote now posts that $245.00 once.
+        """
+        import app.services.freight_service as freight_service
+
+        monkeypatch.setattr(
+            freight_service,
+            "get_freight_config",
+            lambda db: get_default_freight_config(),
+        )
+        goods = [1000.00, 2000.00, 500.00]
+        result = calculate_freight(sum(goods), "Alberta", "delivery", db=None)
+        assert result["skip"] is False
+        assert result["rate"] == 7.0
+        assert result["description"] == "Freight (7.0% - AB)"
+        assert result["amount"] == 245.00
+        former_shares = [round(amount * 0.07, 2) for amount in goods]
+        assert former_shares == [70.00, 140.00, 35.00]
+        assert round(sum(former_shares), 2) == result["amount"]
+
+    def test_pickup_and_zero_goods_do_not_charge(self, monkeypatch):
+        import app.services.freight_service as freight_service
+
+        monkeypatch.setattr(
+            freight_service,
+            "get_freight_config",
+            lambda db: get_default_freight_config(),
+        )
+        pickup = calculate_freight(3500.00, "AB", "pickup", db=None)
+        assert pickup["skip"] is True
+        assert pickup["amount"] == 0
+        empty = calculate_freight(0, "AB", "delivery", db=None)
+        assert empty["skip"] is True
+        assert empty["amount"] == 0
 
 
 # ── Tier margins ──────────────────────────────────────────────────────────
