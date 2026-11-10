@@ -72,6 +72,12 @@ _PRESETS = {"automation": list(AUTOMATION_SCOPES)}
 # (send_email false, or create_review_draft false). Review drafts are a
 # separate route.
 _GENERATE_PO_PATH = "/api/admin/purchasing/generate-po"
+_CONE_MIGRATION_PATH = "/api/admin/purchasing/cone-migration"
+# Shown when a service key tries to edit Business Central. Preview stays allowed.
+CONE_MIGRATION_APPLY_DENIED = (
+    "Applying the cone migration requires a staff sign-in. "
+    "A service key can only run the preview (omit apply, or set it to false)."
+)
 
 _RULES: list[tuple[str, re.Pattern[str], str, Optional[str]]] = [
     # Sales orders — reads only. Ship, post, and convert stay denied.
@@ -117,6 +123,9 @@ _RULES: list[tuple[str, re.Pattern[str], str, Optional[str]]] = [
     ("POST", re.compile(r"^/api/admin/purchasing/draft-pos/requested-receipt/backfill$"), DRAFT_PO_LINES, None),
     ("POST", re.compile(r"^/api/admin/purchasing/draft-pos/[^/]+/requested-receipt$"), DRAFT_PO_LINES, None),
     ("POST", re.compile(r"^/api/admin/purchasing/generate-po$"), GENERATE_PO, "generate_po"),
+    # Preview of the retired-cone split. apply:true edits sales orders and
+    # Draft POs, so a service key is refused unless apply is false or omitted.
+    ("POST", re.compile(r"^/api/admin/purchasing/cone-migration$"), PURCHASING_READ, "cone_migration"),
     ("POST", re.compile(r"^/api/admin/purchasing/draft-pos/[^/]+/review-draft$"), REVIEW_DRAFT, None),
     # One PO per call. Not granted by the automation preset.
     ("POST", re.compile(r"^/api/admin/purchasing/draft-pos/[^/]+/release$"), RELEASE_PO, None),
@@ -283,6 +292,26 @@ def _generate_po_skips_draft(body: bytes) -> bool:
     return False
 
 
+def _cone_migration_is_preview(body: bytes) -> bool:
+    """True only for a dry-run: empty body, or JSON where apply is omitted or false.
+
+    ``apply: true`` edits open sales orders and Draft purchase orders.
+    A missing body, ``{}``, and ``{"apply": false}`` are previews. Any other
+    value, including a string, is treated as an edit and refused.
+    """
+    if not body or not body.strip():
+        return True
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    if "apply" not in data or data["apply"] is None:
+        return True
+    return data["apply"] is False
+
+
 def route_allowed(method: str, path: str, body: bytes, granted: set[str]) -> tuple[bool, str]:
     """Default deny. A route is allowed only when a rule matches and the key has that scope."""
     method = (method or "").upper()
@@ -300,6 +329,8 @@ def route_allowed(method: str, path: str, body: bytes, granted: set[str]) -> tup
                 "generate-po is allowed only when send_email is false "
                 "(that skips the Outlook draft). Use review-draft when you want a draft.",
             )
+        if extra == "cone_migration" and not _cone_migration_is_preview(body):
+            return False, CONE_MIGRATION_APPLY_DENIED
         if extra == "kpi_dashboard" and not _KPI_SCOPES.issubset(granted):
             continue
         return True, "allowed"
