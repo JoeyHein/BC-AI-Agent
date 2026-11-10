@@ -17,7 +17,7 @@ import re
 import threading
 import time
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
@@ -125,6 +125,7 @@ def legacy_customer_id(db: Session, email: Optional[str], company_name: Optional
 FIELD_SPECS = (
     ("track_mount", "Track mount", ("bracket", "angle")),
     ("track_size", "Track size", ("2", "3")),
+    ("track_size_aluminum", "Aluminum track size", ("2", "3")),
     ("track_radius", "Track radius", ("12", "15", "20")),
     ("lift_type", "Lift", ("standard", "low_headroom", "high_lift", "vertical")),
     ("door_series", "Series", ()),
@@ -221,6 +222,7 @@ _COLOR_PATTERNS = (
     ("FRENCH_OAK", r"french\s+oak"),
     ("ENGLISH_CHESTNUT", r"english\s+chestnut"),
     ("STEEL_GREY", r"steel\s+gr[ae]y"),
+    ("STEEL_GREY", r"\bgr[ae]y\b"),
     ("IRON_ORE", r"iron\s+ore"),
     ("NEW_ALMOND", r"\balmond\b"),
     ("NEW_BROWN", r"\bbrown\b"),
@@ -278,9 +280,24 @@ _TRACK2_RE = re.compile(
 _RADIUS_RE = re.compile(r"\b(12|15|20)\s*(?:\"|''|inch)\s*radius\b", re.IGNORECASE)
 _LIFT_RES = (
     ("low_headroom", re.compile(r"\blow\s*head\s*room\b|\blow\s*headroom\b|\blhr\b", re.I)),
-    ("high_lift", re.compile(r"\bhigh\s*lift\b", re.I)),
+    ("high_lift", re.compile(
+        r"\bhigh\s*lift\b|\bhl\b|\b\d+\s*(?:\"|''|inch(?:es)?|in\.?)?\s*hl\b",
+        re.I,
+    )),
     ("vertical", re.compile(r"\bvertical\s*lift\b", re.I)),
     ("standard", re.compile(r"\bstandard\s*lift\b", re.I)),
+)
+_HL_INCHES_RE = re.compile(
+    r"\b(\d{1,3})\s*(?:\"|''|inch(?:es)?|in\.?)?\s*(?:high\s*lift|hl)\b",
+    re.IGNORECASE,
+)
+_DESIGN_PATTERNS = (
+    ("MICROGROOVE", r"\bmicro\s*groove\b"),
+    ("TRAFALGAR", r"\btrafalgar\b"),
+    ("UDC", r"\budc\b|\bribbed\b|\bribs\b"),
+    ("FLUSH", r"\bflush\b|\bflat\b"),
+    ("SHXL", r"\bsheridan\b"),
+    ("MUSKOKA", r"\bmuskoka\b"),
 )
 _SERIES_RE = re.compile(
     r"\b(TX450-20|TX500-20|TX450|TX500|TX380|TX760|KANATA|CRAFT|AL976|PANORAMA|SOLALITE|SWD)\b",
@@ -691,6 +708,11 @@ def _observations_from_document(document: dict) -> dict:
     # is not evidence of pickup — older invoices often omit it.
     if saw_freight:
         votes["delivery_type"] = "delivery"
+    # Steel track history must not become the aluminum default. Aluminum
+    # orders vote their own track size, which applies only when staff lock it.
+    from app.services.track_defaults import is_aluminum_door
+    if is_aluminum_door(votes.get("door_series")) and "track_size" in votes:
+        votes["track_size_aluminum"] = votes.pop("track_size")
     return votes
 
 
@@ -941,12 +963,49 @@ def seed_profiles(
     return stats
 
 
+SEED_STALE_AFTER = timedelta(minutes=20)
+
+
+def _seed_stamp(payload: dict) -> dict:
+    payload = dict(payload)
+    payload["heartbeat"] = datetime.utcnow().isoformat(timespec="seconds")
+    return payload
+
+
+def _seed_job_is_stale(payload: dict, now: Optional[datetime] = None) -> bool:
+    """A restarted worker never writes another heartbeat, so the row stays running."""
+    if payload.get("status") != "running":
+        return False
+    raw = payload.get("heartbeat")
+    if not raw:
+        return True
+    try:
+        stamp = datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return True
+    return (now or datetime.utcnow()) - stamp > SEED_STALE_AFTER
+
+
 def seed_job_status(db: Session) -> dict:
     from app.db.models import AppSettings
     row = db.query(AppSettings).filter(AppSettings.setting_key == SEED_JOB_KEY).first()
     if row is None or not isinstance(row.setting_value, dict):
         return {"status": "idle", "done": 0, "total": 0, "errors": []}
-    return row.setting_value
+    payload = dict(row.setting_value)
+    if _seed_job_is_stale(payload):
+        payload["status"] = "stale"
+        payload["stale"] = True
+        _save_seed_job(db, payload)
+        db.commit()
+    return payload
+
+
+def reset_seed_job(db: Session) -> dict:
+    """Clear a running or stale seed so another seed-all can start."""
+    payload = {"status": "idle", "done": 0, "total": 0, "errors": [], "reset": True}
+    _save_seed_job(db, payload)
+    db.flush()
+    return payload
 
 
 def _save_seed_job(db: Session, payload: dict) -> None:
@@ -975,28 +1034,36 @@ def seed_customers_one_by_one(
     for index, customer_id in enumerate(customer_ids, start=1):
         db = session_factory()
         try:
+            _save_seed_job(db, _seed_stamp({
+                "status": "running",
+                "done": index - 1,
+                "total": total,
+                "current": customer_id,
+                "errors": errors,
+            }))
+            db.commit()
             documents = fetch(customer_id)
             seed_profiles_from_documents(db, documents)
-            _save_seed_job(db, {
+            _save_seed_job(db, _seed_stamp({
                 "status": "running",
                 "done": index,
                 "total": total,
                 "current": customer_id,
                 "errors": errors,
-            })
+            }))
             db.commit()
         except Exception as exc:
             logger.warning("Profile seed failed for %s: %s", customer_id, exc)
             errors.append({"bc_customer_id": customer_id, "error": str(exc)})
             db.rollback()
             try:
-                _save_seed_job(db, {
+                _save_seed_job(db, _seed_stamp({
                     "status": "running",
                     "done": index,
                     "total": total,
                     "current": customer_id,
                     "errors": errors,
-                })
+                }))
                 db.commit()
             except Exception:
                 db.rollback()
@@ -1016,7 +1083,7 @@ def seed_customers_one_by_one(
 
 def mark_seed_started(db: Session, total: int) -> dict:
     """Record a running seed before the worker thread takes its first customer."""
-    payload = {"status": "running", "done": 0, "total": total, "errors": []}
+    payload = _seed_stamp({"status": "running", "done": 0, "total": total, "errors": []})
     _save_seed_job(db, payload)
     db.flush()
     return payload
@@ -1161,6 +1228,13 @@ def analyse_email(email_text: str, parsed_door: Optional[dict] = None) -> Dict[s
         if re.search(pattern, text, re.IGNORECASE):
             readings["panelColor"] = {
                 "basis": "explicit", "value": color_code,
+                "confidence": TEXT_EXPLICIT_CONFIDENCE, "phrase": None,
+            }
+            break
+    for design_code, pattern in _DESIGN_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            readings["panelDesign"] = {
+                "basis": "explicit", "value": design_code,
                 "confidence": TEXT_EXPLICIT_CONFIDENCE, "phrase": None,
             }
             break
@@ -1331,10 +1405,24 @@ def _standard_deviation(field_key: str, email_value: Any, spec: dict, customer_n
     }
 
 
-def _decide_from_email(field_key, reading, spec, profile_value, default, customer_name):
-    """Email, then profile, then default. Explicit email is never replaced."""
+def _extracted_value(current: Any, default: Any) -> Any:
+    """A mapper value other than the system default came from the email."""
+    if current in (None, "", []):
+        return None
+    if _same(current, default):
+        return None
+    return current
+
+
+def _decide_from_email(field_key, reading, spec, profile_value, default, customer_name, current=None):
+    """Explicit email, then the mapper's value, then the profile, then the default.
+
+    The mapper's output is email-derived when it is not the system default.
+    An explicit phrase in the email still wins over that extraction.
+    """
     basis = (reading or {}).get("basis") or "silent"
     applicable = profile_value is not None and is_applicable(spec)
+    extracted = _extracted_value(current, default)
     if basis == "explicit":
         used = reading.get("value")
         deviations = []
@@ -1371,6 +1459,18 @@ def _decide_from_email(field_key, reading, spec, profile_value, default, custome
                 "profile_says": spec.get("value"),
             })
             return profile_value, entry, [], False
+        if extracted is not None:
+            entry = _source_entry(extracted, "email", None)
+            entry.update({
+                "email_says": extracted,
+                "email_confidence": reading.get("confidence"),
+                "email_basis": "extracted",
+                "resolution": "extracted",
+                "note": "Taken from the email extraction.",
+                "marked": True,
+                "profile_says": None,
+            })
+            return extracted, entry, [], False
         entry = _source_entry(default, "default")
         entry.update({
             "email_says": reading.get("value"),
@@ -1382,6 +1482,23 @@ def _decide_from_email(field_key, reading, spec, profile_value, default, custome
             "profile_says": None,
         })
         return default, entry, [], False
+
+    if extracted is not None:
+        deviations = []
+        hold = False
+        if applicable and not _same(extracted, profile_value):
+            deviations.append(_standard_deviation(field_key, extracted, spec, customer_name))
+            hold = True
+        entry = _source_entry(extracted, "email", spec if applicable else None)
+        entry.update({
+            "email_says": extracted,
+            "email_confidence": 0.8,
+            "email_basis": "extracted",
+            "resolution": "extracted",
+            "profile_says": spec.get("value") if spec else None,
+            "note": "Taken from the email extraction.",
+        })
+        return extracted, entry, deviations, hold
 
     if applicable:
         entry = _source_entry(profile_value, "profile", spec)
@@ -1405,6 +1522,60 @@ def _decide_from_email(field_key, reading, spec, profile_value, default, custome
     return default, entry, [], False
 
 
+def _is_aluminum_track_door(door: dict) -> bool:
+    from app.services.track_defaults import is_aluminum_door
+    return is_aluminum_door(door.get("doorSeries"), door.get("doorType"))
+
+
+def _apply_aluminum_track(door, door_sources, readings, fields, explicit_names, honour_email, customer_name, deviations, index):
+    """Aluminum and Panorama stay on 3 inch track.
+
+    Steel track history does not apply. An unlocked aluminum history does
+    not apply either. The email can name 2 or 3, and a locked aluminum
+    track size applies when the email is silent.
+    """
+    spec = fields.get("track_size_aluminum") if isinstance(fields.get("track_size_aluminum"), dict) else None
+    locked = spec if spec and spec.get("locked") and spec.get("value") not in (None, "") else None
+    locked_value = str(locked.get("value")) if locked else None
+    reading = readings.get("trackThickness") or _silent_reading()
+    explicit = honour_email and reading.get("basis") == "explicit"
+    touched = (not honour_email) and "trackThickness" in explicit_names
+    if explicit or touched:
+        if explicit:
+            used, entry, field_devs, field_hold = _decide_from_email(
+                "trackThickness", reading, locked, locked_value, "3", customer_name,
+                current=door.get("trackThickness"),
+            )
+            for item in field_devs:
+                item["door_index"] = index + 1
+                deviations.append(item)
+            door["trackThickness"] = used
+            entry["_hold"] = field_hold
+            door_sources["trackThickness"] = entry
+            return
+        door_sources["trackThickness"] = _source_entry(door.get("trackThickness"), "email", locked)
+        door_sources["trackThickness"]["email_says"] = door.get("trackThickness")
+        door_sources["trackThickness"]["resolution"] = "explicit"
+        door_sources["trackThickness"]["_hold"] = False
+        return
+    if locked_value is not None:
+        door["trackThickness"] = locked_value
+        entry = _source_entry(locked_value, "profile", locked)
+        entry["resolution"] = "silent"
+        entry["email_says"] = None
+        entry["_hold"] = False
+        door_sources["trackThickness"] = entry
+        return
+    door["trackThickness"] = "3"
+    entry = _source_entry("3", "default")
+    entry["resolution"] = "silent"
+    entry["email_says"] = None
+    entry["profile_says"] = spec.get("value") if spec else None
+    entry["note"] = "Aluminum and Panorama use 3 inch track unless the email says otherwise."
+    entry["_hold"] = False
+    door_sources["trackThickness"] = entry
+
+
 def apply_customer_profile(
     doors: List[dict],
     *,
@@ -1417,13 +1588,14 @@ def apply_customer_profile(
     explicit_complete: bool = False,
     customer_name: Optional[str] = None,
 ) -> dict:
-    """Fill a quote from the email, then the profile, then the system default.
+    """Fill a quote from the email, then the mapper, then the profile, then the default.
 
-    An explicit email value is what gets quoted. When that value differs
-    from a locked rule or a high-confidence profile value, the difference
-    is a deviation from the customer standard and ``hold_for_review`` is
-    set. Vague wording and a low-confidence extraction use the profile and
-    are marked. The profile fills a field the email left alone.
+    An explicit email value is what gets quoted. The mapper's value is next
+    when it is not the system default. The profile fills what both left
+    alone. A value that differs from a locked or usual profile value is a
+    deviation and ``hold_for_review`` is set. Aluminum and Panorama track
+    stays 3 inches unless the email says otherwise or staff locked an
+    aluminum track size.
     """
     fields = (profile.fields or {}) if profile else {}
     sources_doors = []
@@ -1442,6 +1614,10 @@ def apply_customer_profile(
         if explicit_fields is not None and index < len(explicit_fields):
             provided = explicit_fields[index]
         explicit_names = set(provided or [])
+        if honour_email:
+            series_reading = readings.get("doorSeries") or {}
+            if series_reading.get("basis") == "explicit" and series_reading.get("value"):
+                door["doorSeries"] = series_reading["value"]
 
         door_sources = {}
         for profile_key, door_key in DOOR_KEYS.items():
@@ -1456,6 +1632,14 @@ def apply_customer_profile(
             else:
                 reading = _silent_reading()
                 asked = door_key in explicit_names
+            if door_key == "trackThickness" and _is_aluminum_track_door(door):
+                _apply_aluminum_track(
+                    door, door_sources, readings if honour_email else {},
+                    fields, explicit_names, honour_email, customer_name,
+                    deviations, index,
+                )
+                hold = hold or door_sources["trackThickness"].pop("_hold", False)
+                continue
             # Windows, glass, and operators stay off the quote until the
             # email (or a field the person edited) actually asks for them.
             if door_key in {"hasWindows", "glazingType", "operator", "operatorAccessories"} and not asked:
@@ -1468,6 +1652,7 @@ def apply_customer_profile(
             if honour_email:
                 used, entry, field_devs, field_hold = _decide_from_email(
                     door_key, reading, spec, profile_value, default, customer_name,
+                    current=door.get(door_key),
                 )
                 for item in field_devs:
                     item["door_index"] = index + 1
@@ -1500,6 +1685,10 @@ def apply_customer_profile(
             else:
                 door_sources[door_key] = _source_entry(current, "email", spec)
             door_sources[door_key]["resolution"] = "silent"
+        if honour_email:
+            inches = _HL_INCHES_RE.search(email_text or "")
+            if inches and str(door.get("liftType") or "") == "high_lift" and not door.get("highLiftInches"):
+                door["highLiftInches"] = int(inches.group(1))
         sources_doors.append(door_sources)
         updated_doors.append(door)
 

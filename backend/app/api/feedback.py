@@ -252,19 +252,70 @@ def get_quote(quote_id: int, db: Session = Depends(get_db)):
     )
 
 
+def _mapped_doors(quote: QuoteRequest) -> list:
+    mapping = (quote.parsed_data or {}).get("configurator_mapping") or {}
+    doors = mapping.get("doors") or []
+    return [door for door in doors if isinstance(door, dict)]
+
+
+def _price_mapped_quote(quote: QuoteRequest, db: Session) -> dict:
+    """Send the doors already resolved from the email to Business Central."""
+    from app.api.door_configurator import (
+        DoorConfigRequest,
+        QuoteGenerationRequest,
+        build_bc_quote_from_doors,
+    )
+    from app.services.email_monitor import EmailMonitorService
+
+    doors = _mapped_doors(quote)
+    if not doors:
+        return {"priced": False, "status": quote.status, "reason": "No mapped doors to price"}
+    delivery = ((quote.field_sources or {}).get("deliveryType") or {}).get("used")
+    if not delivery:
+        delivery = ((quote.field_sources or {}).get("deliveryType") or {}).get("value") or "delivery"
+    request = QuoteGenerationRequest(
+        doors=[
+            DoorConfigRequest(**{key: value for key, value in door.items() if key != "_touched"})
+            for door in doors
+        ],
+        customerId=quote.matched_bc_customer_id,
+        tagName=quote.customer_name or "Email Quote",
+        poNumber=f"EMAIL-QR-{quote.id}",
+        deliveryType=delivery,
+        deliveryExplicit=True,
+        profileApplied=True,
+    )
+    result = build_bc_quote_from_doors(request, db, source="email")
+    data = result.get("data", {}) if isinstance(result, dict) else {}
+    EmailMonitorService()._persist_quote_items_from_pricing(
+        db, quote.id, data.get("line_pricing") or [],
+    )
+    number = data.get("bc_quote_number")
+    if number:
+        quote.bc_quote_id = number
+        quote.status = "bc_created"
+    else:
+        quote.status = "quote_generated"
+    return {"priced": True, "status": quote.status, "bc_quote_number": number}
+
+
 @router.post("/{quote_id}/confirm-customer")
 def confirm_suggested_customer(
     quote_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Accept a domain or fuzzy suggestion and remember the sender.
+    """Accept a suggestion, remember the sender, and price the quote.
 
-    The quote stays unpriced until someone generates it. Confirming only
-    stores the email on that customer's contact list so the next message
-    matches exactly, and clears the suggestion hold.
+    Pricing uses the email values. If those values differ from a locked or
+    usual profile value, the quote is held for that deviation instead of
+    being priced. With no mapped doors the quote returns to pending.
     """
-    from app.services.customer_profile_service import get_or_create_profile
+    from app.services.customer_profile_service import (
+        apply_profile_for_customer,
+        get_or_create_profile,
+        quote_email_text,
+    )
     quote = db.query(QuoteRequest).filter(QuoteRequest.id == quote_id).first()
     if not quote:
         raise HTTPException(status_code=404, detail="Quote request not found")
@@ -286,9 +337,91 @@ def confirm_suggested_customer(
         "reason": f"Staff confirmed {email or 'the sender'} for {customer_id}",
     }
     quote.matched_bc_customer_id = customer_id
-    quote.status = "pending"
+    doors = _mapped_doors(quote)
+    if not doors:
+        quote.status = "pending"
+        db.commit()
+        return {"bc_customer_id": customer_id, "status": quote.status, "priced": False}
+
+    email_log = db.query(EmailLog).filter(EmailLog.id == quote.email_id).first()
+    text = quote_email_text(
+        getattr(email_log, "subject", "") or "",
+        getattr(email_log, "body", "") or "",
+        getattr(email_log, "attachments", None),
+    )
+    parsed = (quote.parsed_data or {}).get("doors")
+    applied = apply_profile_for_customer(
+        db,
+        customer_id,
+        doors,
+        email_text=text,
+        parsed_doors=parsed if isinstance(parsed, list) else None,
+        customer_name=quote.customer_name,
+    )
+    quote.field_sources = {**applied["field_sources"], "mode": "on"}
+    quote.deviations = applied["deviations"]
+    parsed_data = dict(quote.parsed_data or {})
+    mapping = dict((parsed_data.get("configurator_mapping") or {}))
+    mapping["doors"] = applied["doors"]
+    parsed_data["configurator_mapping"] = mapping
+    quote.parsed_data = parsed_data
+    if applied.get("hold_for_review"):
+        quote.status = "held_for_standard_deviation"
+        db.commit()
+        return {
+            "bc_customer_id": customer_id,
+            "status": quote.status,
+            "priced": False,
+            "reason": "Email differs from the customer standard",
+        }
     db.commit()
-    return {"bc_customer_id": customer_id, "status": quote.status}
+    try:
+        outcome = _price_mapped_quote(quote, db)
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        logger.exception("Confirm-and-price failed for quote %s", quote_id)
+        db.rollback()
+        quote.status = "pending"
+        db.commit()
+        return {
+            "bc_customer_id": customer_id,
+            "status": quote.status,
+            "priced": False,
+            "reason": str(exc),
+        }
+    return {"bc_customer_id": customer_id, **outcome}
+
+
+@router.post("/{quote_id}/release")
+def release_held_quote(
+    quote_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Price a held quote with the email values staff already reviewed."""
+    quote = db.query(QuoteRequest).filter(QuoteRequest.id == quote_id).first()
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote request not found")
+    if quote.status not in {"held_for_standard_deviation", "held_for_customer_match"}:
+        raise HTTPException(status_code=400, detail="This quote is not held")
+    if quote.status == "held_for_customer_match":
+        match = quote.customer_match or {}
+        if match.get("bc_customer_id"):
+            quote.matched_bc_customer_id = match.get("bc_customer_id")
+    if not _mapped_doors(quote):
+        raise HTTPException(status_code=400, detail="No mapped doors to price")
+    try:
+        outcome = _price_mapped_quote(quote, db)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Release failed for quote %s", quote_id)
+        raise HTTPException(status_code=400, detail=f"Could not price the quote: {exc}")
+    db.commit()
+    return outcome
 
 
 @router.post("/{quote_id}/feedback", response_model=FeedbackResponse)

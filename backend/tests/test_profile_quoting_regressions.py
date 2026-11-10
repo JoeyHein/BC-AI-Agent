@@ -304,20 +304,33 @@ def test_aluminum_and_panorama_still_default_to_3_inch_track(mode, series):
         from app.services.customer_profile_service import apply_customer_profile
         profile = CustomerProfile(
             bc_customer_id="ALU",
-            fields={"panel_color": {
-                "value": "BLACK", "locked": False, "confidence": 0.8,
-                "support": 4, "total": 5, "evidence": "BLACK on 4 of 5 orders",
-                "source": "bc_history",
-            }},
+            fields={
+                "panel_color": {
+                    "value": "BLACK", "locked": False, "confidence": 0.8,
+                    "support": 4, "total": 5, "evidence": "BLACK on 4 of 5 orders",
+                    "source": "bc_history",
+                },
+                "track_size": {
+                    "value": "2", "locked": False, "confidence": 0.9,
+                    "support": 18, "total": 20, "evidence": '2" on 18 of 20 orders',
+                    "source": "bc_history",
+                },
+            },
             contacts=[],
             email_domains=[],
         )
-        # Silent email: colour can come from the profile. Track size was not
-        # in the history, so aluminum still uses the 3" system default.
+        # Unlocked steel 2" history must not replace the aluminum 3" default.
         applied = apply_customer_profile(
-            [dict(door)], profile=profile, email_text="Please quote a panorama door",
+            [dict(door)], profile=profile, email_text="Please quote this door",
         )
-        assert str(applied["doors"][0].get("trackThickness") or "3") == "3"
+        assert applied["doors"][0]["trackThickness"] == "3"
+        if mode == "on":
+            db.add(profile)
+            db.commit()
+            portal_doors, _delivery = _apply_portal_profile(
+                db, "ALU", [dict(door)], "delivery", None,
+            )
+            assert portal_doors[0]["trackThickness"] == "3"
         parts = get_parts_for_door_config({**door, "trackThickness": "3"})
     tracks = [part["part_number"] for part in parts["parts_list"] if str(part["part_number"]).startswith("TR0")]
     assert tracks, parts["parts_list"]

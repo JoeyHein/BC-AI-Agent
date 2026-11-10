@@ -811,6 +811,265 @@ def test_silent_email_does_not_add_windows_or_operator_from_history(session):
     assert door.get("glazingType") in (None, "", "NONE")
 
 
+def test_silent_email_keeps_nondefault_mapper_values(session):
+    """No profile: the mapper's STEEL_GREY / UDC / 3\" / 12\" / high lift stays."""
+    _mode(session, "on")
+    door = _mapped_door(
+        panelColor="STEEL_GREY",
+        panelDesign="UDC",
+        trackThickness="3",
+        trackRadius="12",
+        liftType="high_lift",
+        highLiftInches=24,
+    )
+    applied = apply_customer_profile(
+        [door],
+        email_text="Please quote the door on the sketch.",
+        customer_name="GNB",
+    )
+    quoted = applied["doors"][0]
+    assert quoted["panelColor"] == "STEEL_GREY"
+    assert quoted["panelDesign"] == "UDC"
+    assert quoted["trackThickness"] == "3"
+    assert quoted["trackRadius"] == "12"
+    assert quoted["liftType"] == "high_lift"
+    assert quoted["highLiftInches"] == 24
+    assert applied["hold_for_review"] is False
+
+
+def test_bare_colour_design_and_high_lift_words_are_explicit():
+    door = _mapped_door()
+    applied = apply_customer_profile(
+        [door],
+        email_text="ribbed, grey, 24 inch HL",
+        customer_name="GNB",
+    )
+    quoted = applied["doors"][0]
+    assert quoted["panelColor"] == "STEEL_GREY"
+    assert quoted["panelDesign"] == "UDC"
+    assert quoted["liftType"] == "high_lift"
+    assert quoted["highLiftInches"] == 24
+
+
+def test_aluminum_ignores_unlocked_steel_track_history():
+    profile = CustomerProfile(
+        bc_customer_id="ALU",
+        fields={
+            "track_size": {
+                "value": "2", "locked": False, "confidence": 0.9,
+                "support": 18, "total": 20, "evidence": '2" on 18 of 20 orders',
+                "source": "bc_history",
+            },
+            "track_size_aluminum": {
+                "value": "2", "locked": False, "confidence": 0.9,
+                "support": 18, "total": 20, "evidence": '2" on 18 of 20 aluminum orders',
+                "source": "bc_history",
+            },
+        },
+    )
+    for series in ("AL976", "PANORAMA"):
+        applied = apply_customer_profile(
+            [{
+                "doorType": "aluminium",
+                "doorSeries": series,
+                "doorWidth": 120,
+                "doorHeight": 96,
+                "panelColor": "CLEAR_ANODIZED",
+                "panelDesign": "FLUSH",
+                "trackThickness": "2",
+            }],
+            profile=profile,
+            email_text="Please quote this door",
+        )
+        assert applied["doors"][0]["trackThickness"] == "3", series
+    locked = CustomerProfile(
+        bc_customer_id="ALU",
+        fields={"track_size_aluminum": {
+            "value": "2", "locked": True, "confidence": 1, "support": 18, "total": 20,
+            "evidence": "locked 2 inch aluminum track", "source": "staff",
+        }},
+    )
+    locked_apply = apply_customer_profile(
+        [{
+            "doorType": "aluminium", "doorSeries": "AL976",
+            "doorWidth": 120, "doorHeight": 96,
+            "panelColor": "CLEAR_ANODIZED", "panelDesign": "FLUSH",
+        }],
+        profile=locked,
+        email_text="Please quote this door",
+    )
+    assert locked_apply["doors"][0]["trackThickness"] == "2"
+    explicit = apply_customer_profile(
+        [{
+            "doorType": "aluminium", "doorSeries": "PANORAMA",
+            "doorWidth": 120, "doorHeight": 96,
+            "panelColor": "CLEAR_ANODIZED", "panelDesign": "FLUSH",
+        }],
+        profile=profile,
+        email_text='Please quote 2 inch track',
+    )
+    assert explicit["doors"][0]["trackThickness"] == "2"
+
+
+def test_aluminum_history_is_stored_apart_from_steel(session):
+    seed_profiles_from_documents(session, [
+        {
+            "customer_id": "MIX",
+            "lines": [{"number": "TR02-STDBM-0815", "description": "2 INCH BRACKET", "lineType": "Item"}],
+        },
+        {
+            "customer_id": "MIX",
+            "lines": [
+                {"number": "PN97-0802-0000", "description": "AL976 SECTION", "lineType": "Item"},
+                {"number": "TR02-STDAM-10", "description": "2 INCH ANGLE", "lineType": "Item"},
+            ],
+        },
+    ])
+    session.commit()
+    fields = session.query(CustomerProfile).filter_by(bc_customer_id="MIX").one().fields
+    assert fields["track_size"]["value"] == "2"
+    assert fields["track_size_aluminum"]["value"] == "2"
+    assert fields["door_series"]["value"] == "AL976"
+
+
+def test_stale_seed_job_unblocks_the_next_run(session):
+    from app.services.customer_profile_service import _save_seed_job, reset_seed_job, seed_job_status
+    _save_seed_job(session, {
+        "status": "running", "done": 3, "total": 40,
+        "heartbeat": "2020-01-01T00:00:00",
+    })
+    session.commit()
+    status = seed_job_status(session)
+    assert status["status"] == "stale"
+    assert seed_job_status(session)["status"] != "running"
+    reset_seed_job(session)
+    session.commit()
+    assert seed_job_status(session)["status"] == "idle"
+
+
+def test_email_handoff_reaches_the_builder_with_mapper_values(session, monkeypatch):
+    """The email path sets profileApplied itself and the real builder keeps the door."""
+    _mode(session, "on")
+    session.add(BCCustomer(bc_customer_id="GNB", company_name="GNB", email="orders@gnb.example"))
+    session.commit()
+    service = _email_service(monkeypatch)
+    body = "Please quote the door on the sketch."
+    mapped = _mapped_door(
+        panelColor="STEEL_GREY",
+        panelDesign="UDC",
+        trackThickness="3",
+        trackRadius="12",
+        liftType="high_lift",
+        highLiftInches=24,
+    )
+    log = EmailLog(message_id="handoff", from_address="orders@gnb.example", subject="handoff", body=body, status="new")
+    session.add(log)
+    session.flush()
+    monkeypatch.setattr(service.ai_client, "parse_email_for_quote", lambda *a, **k: {
+        "success": True, "confidence": 0.9, "model": "stub",
+        "tokens": {"input": 1, "output": 1},
+        "data": {
+            "customer": {"company_name": "GNB", "email": "orders@gnb.example", "confidence": 0.9},
+            "doors": [{"model": "TX450", "width_ft": 12, "height_ft": 10}],
+            "project": {},
+        },
+    })
+    monkeypatch.setattr(service.ai_client, "map_email_to_configurator", lambda *a, **k: {
+        "success": True, "request_kind": "door_quote", "confidence": 0.9, "doors": [mapped],
+    })
+    import app.api.door_configurator as dc
+    real_build = dc.build_bc_quote_from_doors
+    seen = {}
+
+    def _wrap(request, db, source="admin", **kwargs):
+        seen["profileApplied"] = request.profileApplied
+        try:
+            return real_build(request, db, source=source, **kwargs)
+        except Exception:
+            seen["door"] = request.doors[0]
+            return {"success": False, "data": {}}
+
+    monkeypatch.setattr(dc, "build_bc_quote_from_doors", _wrap)
+    service._parse_quote_request(session, log, "handoff", body, "Buyer", "orders@gnb.example")
+    assert seen["profileApplied"] is True
+    door = seen["door"]
+    assert door.panelColor == "STEEL_GREY"
+    assert door.panelDesign == "UDC"
+    assert door.trackThickness == "3"
+    assert door.trackRadius == "12"
+    assert door.liftType == "high_lift"
+    assert door.highLiftInches == 24
+
+
+def test_release_prices_a_held_quote_with_the_email_door(session, monkeypatch):
+    from types import SimpleNamespace
+    from app.api.feedback import release_held_quote
+    log = EmailLog(message_id="rel", from_address="orders@gnb.example", subject="s", body="bracket", status="parsed")
+    session.add(log)
+    session.flush()
+    quote = QuoteRequest(
+        email_id=log.id, customer_name="GNB", contact_email="orders@gnb.example",
+        status="held_for_standard_deviation", confidence_scores={"overall": 0.9},
+        matched_bc_customer_id="GNB",
+        parsed_data={"configurator_mapping": {"doors": [_mapped_door(trackMount="bracket", panelColor="WHITE")]}},
+        field_sources={"deliveryType": {"value": "delivery", "used": "delivery"}},
+        deviations=[{"kind": "deviation_from_customer_standard", "reason": "Email requests bracket mount"}],
+    )
+    session.add(quote)
+    session.commit()
+    seen = {}
+
+    def _fake_build(request, db, source="admin", **kwargs):
+        seen["profileApplied"] = request.profileApplied
+        seen["trackMount"] = request.doors[0].trackMount
+        seen["panelColor"] = request.doors[0].panelColor
+        return {"success": True, "data": {"bc_quote_number": "SQ-REL", "line_pricing": [], "pricing": {"total": 1}}}
+
+    import app.api.door_configurator as dc
+    monkeypatch.setattr(dc, "build_bc_quote_from_doors", _fake_build)
+    result = release_held_quote(quote.id, session, SimpleNamespace(email="joey@opendc.ca", user_type="INTERNAL"))
+    assert result["priced"] is True
+    assert result["bc_quote_number"] == "SQ-REL"
+    assert seen["profileApplied"] is True
+    assert seen["trackMount"] == "bracket"
+    assert seen["panelColor"] == "WHITE"
+    session.refresh(quote)
+    assert quote.status == "bc_created"
+
+
+def test_confirming_a_suggestion_prices_the_quote(session, monkeypatch):
+    from types import SimpleNamespace
+    from app.api.feedback import confirm_suggested_customer
+    log = EmailLog(
+        message_id="price-sug", from_address="pat@gnb.example",
+        subject="quote", body="Please quote a 12x10 TX450.", status="parsed",
+    )
+    session.add(log)
+    session.flush()
+    session.add(BCCustomer(bc_customer_id="GNB", company_name="GNB Manitoba", email="orders@gnb.example"))
+    quote = QuoteRequest(
+        email_id=log.id, customer_name="Pat", contact_email="pat@gnb.example",
+        status="held_for_customer_match", confidence_scores={"overall": 0.5},
+        parsed_data={"configurator_mapping": {"doors": [_mapped_door(panelColor="STEEL_GREY", panelDesign="UDC")]}},
+        customer_match={"bc_customer_id": "GNB", "method": "domain", "suggested": True, "confident": False},
+    )
+    session.add(quote)
+    session.commit()
+
+    def _fake_build(request, db, source="admin", **kwargs):
+        assert request.doors[0].panelColor == "STEEL_GREY"
+        assert request.profileApplied is True
+        return {"success": True, "data": {"bc_quote_number": "SQ-SUG", "line_pricing": [], "pricing": {"total": 1}}}
+
+    import app.api.door_configurator as dc
+    monkeypatch.setattr(dc, "build_bc_quote_from_doors", _fake_build)
+    result = confirm_suggested_customer(quote.id, session, SimpleNamespace(email="joey@opendc.ca", user_type="INTERNAL"))
+    assert result["priced"] is True
+    assert result["status"] == "bc_created"
+    profile = session.query(CustomerProfile).filter_by(bc_customer_id="GNB").one()
+    assert "pat@gnb.example" in {row["email"] for row in profile.contacts}
+
+
 def test_stored_configs_drop_the_configurator_touch_map():
     from app.api.customer_portal import _strip_ephemeral_door_keys
     cleaned = _strip_ephemeral_door_keys({

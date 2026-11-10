@@ -26,6 +26,7 @@ from app.services.customer_profile_service import (
     profile_to_dict,
     quoting_mode,
     mark_seed_started,
+    reset_seed_job,
     seed_job_status,
     seed_profiles,
     set_quoting_mode,
@@ -849,6 +850,18 @@ def customer_profile_seed_status(
     db: Session = Depends(get_db),
 ):
     return seed_job_status(db)
+
+
+@router.post("/profiles/seed-reset")
+def customer_profile_seed_reset(
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Drop a seed that is still marked running after its worker is gone."""
+    payload = reset_seed_job(db)
+    db.commit()
+    logger.info("Profile seed reset by %s", current_admin.email)
+    return payload
 
 
 @router.get("/{customer_id}", response_model=CustomerDetailResponse)

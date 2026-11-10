@@ -772,12 +772,22 @@ def _apply_portal_profile(db, bc_customer_id, doors, delivery_type, config_id):
     mode = quoting_mode(db)
     if mode == "off":
         return doors, delivery_type
+    payloads = []
+    explicit = []
+    for door in doors:
+        door = dict(door)
+        names = door.get("explicitFields")
+        if names is None:
+            names = list((door.get("_touched") or {}).keys())
+        explicit.append(names)
+        payloads.append(door)
     applied = apply_profile_for_customer(
         db,
         bc_customer_id,
-        [dict(door) for door in doors],
+        payloads,
         delivery_type=delivery_type or "delivery",
         delivery_explicit=True,
+        explicit_fields=explicit,
     )
     config = db.query(SavedQuoteConfig).filter(SavedQuoteConfig.id == config_id).first()
     sources = {**applied["field_sources"], "mode": mode}
