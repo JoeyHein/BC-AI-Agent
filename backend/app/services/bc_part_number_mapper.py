@@ -343,7 +343,14 @@ class BCPartNumberMapper:
         6.5: "PL10-00005-03",  # 6.5" COMM bottom rubber
     }
 
-    # Commercial retainer part numbers by panel series
+    # Commercial retainer part numbers by panel series.
+    # Sold by the inch (BC base UOM IN): one TOP line and one BOTTOM line,
+    # each with quantity = door width in inches. Verified against the live
+    # production item card on 2026-11-10:
+    #   PL10-00136-00  TOP/BOTTOM RETAINER - 3"   (TX760)
+    # The 3" SKU was missing from the committed item export, so generate-quote
+    # treated it as unknown and rewrote it to a sibling PL10 item or a
+    # "not in BC" comment. Do not drop TX760 back to a placeholder.
     RETAINER_1_75 = "PL10-00141-00"  # 1-3/4" Top/Bottom Retainer (TX450 default)
     COMMERCIAL_RETAINER = {
         "TX380":    ("PL10-00134-00", 'TOP/BOTTOM RETAINER - 1 1/2"'),
@@ -353,6 +360,9 @@ class BCPartNumberMapper:
         "TX500-20": ("PL10-00135-00", 'TOP/BOTTOM RETAINER 2"'),
         "TX760":    ("PL10-00136-00", 'TOP/BOTTOM RETAINER - 3"'),
     }
+    COMMERCIAL_RETAINER_NUMBERS = frozenset(
+        pn for pn, _desc in COMMERCIAL_RETAINER.values()
+    )
 
     # Residential retainer — pre-cut rigid retainer by width
     RESI_RETAINER = {
