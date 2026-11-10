@@ -799,6 +799,11 @@ class DoorConfigRequest(BaseModel):
     operatorAccessories: Optional[List[str]] = None
     chainHoist: Optional[str] = None  # None/'none', 'shaft', or 'wall' — manual chain hoist
     notes: Optional[str] = None
+    # Configurator fields the user actually changed. Absent means "only
+    # values that still equal the system default may be filled from the
+    # customer profile." The email path does not use this; it decides
+    # from the email text before building the request.
+    explicitFields: Optional[List[str]] = None
     targetCycles: int = 10000
     shaftType: str = "auto"  # 'auto', 'single', 'split'
     includeTopSeal: bool = False  # optional upgrade for commercial doors
@@ -823,6 +828,14 @@ class QuoteGenerationRequest(BaseModel):
     tagName: Optional[str] = None
     customerId: Optional[str] = None
     deliveryType: str = "delivery"  # "delivery" or "pickup"
+    # True once a person chose pickup vs delivery (the portal radio, or
+    # the email path after it has already applied the profile). False
+    # lets a pickup customer's profile replace the delivery default.
+    deliveryExplicit: bool = False
+    # The email path already applied the profile using the message text.
+    # The builder must not apply it again: an explicit "bracket" or "white"
+    # equals the system default and would be treated as silence.
+    profileApplied: bool = False
     installTown: Optional[str] = None  # job-site town for home-builder install travel
     # When provided, the endpoint clears all lines on this BC quote and
     # re-adds them rather than creating a new quote. Used by the internal
@@ -1516,6 +1529,52 @@ def build_bc_quote_from_doors(
     monitor) must catch these and route to manual review.
     """
     try:
+        # Customer profile fills fields the request left at the system
+        # default. Off does nothing. Shadow records the result on the
+        # response and leaves the doors and delivery that were posted.
+        # On writes the profile values into the quote.
+        from app.services.customer_profile_service import apply_profile_for_customer, quoting_mode
+        profile_mode = quoting_mode(db)
+        profile_deviations = []
+        profile_sources = None
+        if getattr(request, "profileApplied", False):
+            # Email quoting already applied the profile with the message text.
+            profile_mode = "off"
+        elif profile_mode in {"shadow", "on"}:
+            try:
+                door_payloads = [door.model_dump() for door in request.doors]
+                explicit_markers = [payload.get("explicitFields") for payload in door_payloads]
+                applied_profile = apply_profile_for_customer(
+                    db,
+                    request.customerId,
+                    door_payloads,
+                    delivery_type=request.deliveryType or "delivery",
+                    delivery_explicit=bool(request.deliveryExplicit),
+                    explicit_fields=explicit_markers if any(marker is not None for marker in explicit_markers) else None,
+                )
+                profile_sources = {**applied_profile["field_sources"], "mode": profile_mode}
+                profile_deviations = list(applied_profile["deviations"])
+                logger.info(
+                    "Customer profile quoting mode=%s customer=%s deviations=%s",
+                    profile_mode, request.customerId, len(profile_deviations),
+                )
+                if profile_mode == "on":
+                    for door, updated in zip(request.doors, applied_profile["doors"]):
+                        for key, value in updated.items():
+                            if key in {"explicitFields", "_touched"} or not hasattr(door, key):
+                                continue
+                            setattr(door, key, value)
+                    request.deliveryType = applied_profile["delivery_type"] or request.deliveryType
+            except Exception:
+                logger.exception(
+                    "Customer profile quoting failed (mode=%s); leaving the posted doors unchanged",
+                    profile_mode,
+                )
+                profile_sources = None
+                profile_deviations = []
+                if profile_mode != "shadow":
+                    raise
+
         # Load spring inventory from BC so quotes use stocked springs
         spring_inventory = get_bc_spring_inventory()
 
@@ -1634,6 +1693,9 @@ def build_bc_quote_from_doors(
             try:
                 door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inventory)
                 parts_list = door_parts.get("parts_list", [])
+                for deviation in door_parts.get("deviations") or []:
+                    if isinstance(deviation, dict):
+                        profile_deviations.append({**deviation, "door_index": door_index})
             except Exception as door_err:
                 logger.exception(f"Door {door_index} part generation failed — skipping: {door_err}")
                 all_lines.append({
@@ -2452,6 +2514,9 @@ def build_bc_quote_from_doors(
                 if escalating_result else ""
             )
         }
+        if profile_mode != "off":
+            payload["data"]["field_sources"] = profile_sources
+            payload["data"]["deviations"] = profile_deviations or None
         if user is not None:
             return redact_configurator_quote(user, payload)
         return payload

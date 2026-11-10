@@ -653,6 +653,21 @@ export const customersApi = {
   // Saved-quote configs for one customer (?search= matches name or BC quote #)
   getQuotes: (customerId, params = {}) =>
     apiClient.get(`/api/admin/customers/${customerId}/quotes`, { params }),
+
+  getOrderingProfile: (bcCustomerId) =>
+    apiClient.get(`/api/admin/customers/by-bc/${encodeURIComponent(bcCustomerId)}/profile`),
+
+  saveOrderingProfile: (bcCustomerId, data) =>
+    apiClient.put(`/api/admin/customers/by-bc/${encodeURIComponent(bcCustomerId)}/profile`, data),
+
+  seedOrderingProfiles: (data = {}) =>
+    apiClient.post('/api/admin/customers/profiles/seed', data),
+
+  getProfileQuotingMode: () =>
+    apiClient.get('/api/admin/customers/profile-quoting'),
+
+  setProfileQuotingMode: (mode) =>
+    apiClient.put('/api/admin/customers/profile-quoting', { mode }),
 };
 
 // Admin global quote search (cross-customer)

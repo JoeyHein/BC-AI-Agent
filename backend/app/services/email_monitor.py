@@ -447,23 +447,125 @@ class EmailMonitorService:
                     db.commit()
                     return
 
-                # Resolve BC customer (local lookup only; CASH/retail fallback).
-                customer_id = self._resolve_bc_customer_id(db, quote_request)
-
                 # Lazy import avoids any api<->service import cycle at module load.
                 from app.api.door_configurator import (
                     build_bc_quote_from_doors,
                     QuoteGenerationRequest,
                     DoorConfigRequest,
                 )
+                from app.services.customer_profile_service import (
+                    apply_profile_for_customer,
+                    merge_part_deviations,
+                    quote_email_text,
+                    quoting_mode,
+                )
+
+                # off keeps the old path: exact email or company name, and
+                # delivery. shadow records what the profile would have done
+                # and still builds that old quote. on uses the profile.
+                mode = quoting_mode(db)
+                live_doors = [dict(door) for door in mapped_doors]
+                live_delivery = "delivery"
+                delivery_explicit = False
+                profile_applied = False
+                customer_id = self._legacy_bc_customer_id(db, quote_request)
+                if mode != "off":
+                    try:
+                        match = self._match_bc_customer(db, quote_request)
+                        legacy_id = customer_id
+                        profile_customer_id = match.bc_customer_id if match.confident else None
+                        profile_apply = apply_profile_for_customer(
+                            db,
+                            profile_customer_id,
+                            [dict(door) for door in mapped_doors],
+                            delivery_type="delivery",
+                            email_text=quote_email_text(
+                                subject, body, getattr(email_log, "attachments", None),
+                            ),
+                            parsed_doors=doors,
+                            explicit_fields=[[] for _ in mapped_doors],
+                            explicit_complete=True,
+                            customer_name=quote_request.customer_name,
+                        )
+                        quote_request.customer_match = {**match.as_dict(), "mode": mode}
+                        quote_request.field_sources = {
+                            **profile_apply["field_sources"],
+                            "mode": mode,
+                        }
+                        quote_request.deviations = profile_apply["deviations"]
+                        logger.info(
+                            "Customer profile quoting mode=%s match=%s delivery=%s deviations=%s",
+                            mode, match.method, profile_apply["delivery_type"],
+                            len(profile_apply["deviations"]),
+                        )
+                        if mode == "shadow":
+                            customer_id = legacy_id
+                            profile_applied = True
+                            if profile_apply.get("hold_for_review"):
+                                quote_request.field_sources = {
+                                    **(quote_request.field_sources or {}),
+                                    "would_hold": True,
+                                }
+                            logger.info(
+                                "Shadow profile left the live quote unchanged (would_hold=%s)",
+                                bool(profile_apply.get("hold_for_review")),
+                            )
+                        elif getattr(match, "suggested", False) and not match.confident:
+                            quote_request.status = "held_for_customer_match"
+                            quote_request.parsed_data = {
+                                **(quote_request.parsed_data or {}),
+                                "configurator_mapping": mapping,
+                                "field_sources": quote_request.field_sources,
+                            }
+                            db.commit()
+                            return
+                        elif not match.confident:
+                            logger.info("  -> %s", match.reason)
+                            quote_request.status = "held_for_customer_match"
+                            db.commit()
+                            return
+                        else:
+                            customer_id = profile_customer_id
+                            live_doors = profile_apply["doors"]
+                            live_delivery = profile_apply["delivery_type"]
+                            profile_applied = True
+                            quote_request.matched_bc_customer_id = customer_id
+                            quote_request.parsed_data = {
+                                **(quote_request.parsed_data or {}),
+                                "configurator_mapping": {**mapping, "doors": live_doors},
+                                "field_sources": quote_request.field_sources,
+                            }
+                            if profile_apply.get("hold_for_review"):
+                                logger.info(
+                                    "  -> Held: explicit email differs from the customer standard"
+                                )
+                                quote_request.status = "held_for_standard_deviation"
+                                db.commit()
+                                return
+                            delivery_explicit = True
+                            logger.info("  -> %s", match.reason)
+                    except Exception:
+                        logger.exception(
+                            "Customer profile quoting failed (mode=%s); live quote unchanged",
+                            mode,
+                        )
+                        if mode != "shadow":
+                            raise
+                        customer_id = self._legacy_bc_customer_id(db, quote_request)
+                        live_doors = [dict(door) for door in mapped_doors]
+                        live_delivery = "delivery"
+                        delivery_explicit = False
+                        profile_applied = False
 
                 cfg_request = QuoteGenerationRequest(
-                    doors=[DoorConfigRequest(**d) for d in mapped_doors],
+                    doors=[DoorConfigRequest(**{k: v for k, v in d.items() if k != "_touched"}) for d in live_doors],
                     customerId=customer_id,
                     tagName=(project.get("tag") or project.get("name")
                              or quote_request.customer_name or "Email Quote"),
                     poNumber=f"EMAIL-QR-{quote_request.id}",
-                    deliveryType="delivery",
+                    deliveryType=live_delivery,
+                    deliveryExplicit=delivery_explicit,
+                    profileApplied=profile_applied,
                 )
 
                 logger.info(f"  -> Generating BC quote via configurator for {len(mapped_doors)} door(s)")
@@ -476,6 +578,17 @@ class EmailMonitorService:
                 self._persist_quote_items_from_pricing(
                     db, quote_request.id, data.get("line_pricing") or []
                 )
+
+                if mode != "off":
+                    part_deviations = list(data.get("deviations") or [])
+                    quote_request.deviations = merge_part_deviations(
+                        quote_request.deviations, part_deviations
+                    )
+                    if mode == "shadow":
+                        quote_request.deviations = [
+                            {**item, "shadow": True} if isinstance(item, dict) else item
+                            for item in (quote_request.deviations or [])
+                        ]
 
                 if bc_quote_number:
                     quote_request.bc_quote_id = bc_quote_number
@@ -518,25 +631,40 @@ class EmailMonitorService:
                 quote_request.status = "pending"  # Fall back to manual review
                 db.commit()
 
-    def _resolve_bc_customer_id(self, db, quote_request: QuoteRequest) -> Optional[str]:
-        """Best-effort local lookup of the BC customer for pricing.
+    def _legacy_bc_customer_id(self, db, quote_request: QuoteRequest) -> Optional[str]:
+        """Exact email, then exact company name. None falls back to retail."""
+        from app.services.customer_profile_service import legacy_customer_id
+        found = legacy_customer_id(db, quote_request.contact_email, quote_request.customer_name)
+        if found:
+            logger.info("  -> Matched BC customer %s", found)
+        else:
+            logger.info("  -> No BC customer match; using CASH/retail pricing")
+        return found
 
-        Returns the BC customer id (so the configurator resolves the correct
-        SalesPriceLists group) or None to fall back to the CASH/retail
-        customer. Read-only — never creates a BC customer from an unverified
-        inbound email.
+    def _match_bc_customer(self, db, quote_request: QuoteRequest):
+        """Domain, known contact, or fuzzy company name, plus the exact matches."""
+        from app.services.customer_profile_service import match_bc_customer
+        return match_bc_customer(
+            db,
+            email=quote_request.contact_email,
+            company_name=quote_request.customer_name,
+        )
+
+    def _resolve_bc_customer_id(self, db, quote_request: QuoteRequest) -> Optional[str]:
+        """Customer id for pricing.
+
+        With the switch off or in shadow this is the exact email / company
+        name lookup, and None still means retail. With the switch on, None
+        means there was no confident match and the caller holds the request.
         """
-        email = (quote_request.contact_email or "").strip()
-        name = (quote_request.customer_name or "").strip()
-        match = None
-        if email:
-            match = db.query(BCCustomer).filter(BCCustomer.email.ilike(email)).first()
-        if not match and name:
-            match = db.query(BCCustomer).filter(BCCustomer.company_name.ilike(name)).first()
-        if match:
-            logger.info(f"  -> Matched BC customer {match.bc_customer_id} ({match.company_name})")
+        from app.services.customer_profile_service import quoting_mode
+        if quoting_mode(db) != "on":
+            return self._legacy_bc_customer_id(db, quote_request)
+        match = self._match_bc_customer(db, quote_request)
+        if match.confident:
+            logger.info("  -> %s", match.reason)
             return match.bc_customer_id
-        logger.info("  -> No BC customer match; using CASH/retail pricing")
+        logger.info("  -> %s", match.reason)
         return None
 
     def _persist_quote_items_from_pricing(self, db, quote_request_id: int,

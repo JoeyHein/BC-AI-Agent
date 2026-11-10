@@ -51,7 +51,7 @@ import os
 from typing import Dict, List, Any, Optional, Tuple
 
 from app.services.track_defaults import default_track_thickness, resolve_track_thickness
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from app.services.spring_calculator_service import spring_calculator
@@ -167,6 +167,8 @@ class DoorConfiguration:
         self.track_thickness = resolve_track_thickness(
             self.track_thickness, self.door_series, self.door_type,
         )
+        if self.deviations is None:
+            self.deviations = []
     include_pusher_springs: bool = False  # Upgrade: adds TR13-00031-00 + TR13-00032-00
     # ─── Additional optional extras (mirror configurator checklist) ───
     # BC item codes for each of these are configured in OPTIONAL_EXTRA_PARTS
@@ -195,6 +197,10 @@ class DoorConfiguration:
     # builders from account_type, not by the customer. Size + stick count come
     # off door weight (see PERFORATED_ANGLE_* constants above).
     include_perforated_angle: bool = False
+    # Silent substitutions recorded while this door is being turned into
+    # part numbers (bracket height that does not exist, unstocked colour).
+    # Quote review reads these. Not a customer-facing comment by itself.
+    deviations: List[dict] = field(default_factory=list)
 
 
 # BC item codes for the optional extras above. Each flag maps to a LIST
@@ -1989,13 +1995,25 @@ class PartNumberService:
             # Use the smallest available height that fits
             part_height = min(valid_heights)
         else:
-            # No bracket mount large enough — fall back to angle mount
+            # No bracket mount large enough — fall back to angle mount.
+            # The quote did not ask for this; record it so review can see it.
             if mount_type == TrackMount.BRACKET:
                 mount_type = TrackMount.ANGLE
                 mount_code = "AM"
                 available = self.TRACK_AVAILABILITY.get((track_size, "AM"), [])
                 valid_heights = [h for h in available if h >= door_height_feet]
                 part_height = min(valid_heights) if valid_heights else door_height_feet
+                config.deviations.append({
+                    "kind": "silent_substitution",
+                    "field": "trackMount",
+                    "from": "bracket",
+                    "to": "angle",
+                    "reason": (
+                        f"No {track_size}\" bracket track fits a {door_height_feet}' door; "
+                        "quoted angle mount."
+                    ),
+                })
+                config.track_mount = "angle"
             else:
                 part_height = door_height_feet
 
@@ -3048,7 +3066,19 @@ class PartNumberService:
         # Resolve the seal color up front so both the part lookup and the
         # human-readable description reflect any substitution (e.g. a French
         # Oak panel seals in New Almond, which is the stocked strip color).
-        color = mapper.resolve_weather_strip_color(config.panel_color.replace("_", " "))
+        requested_seal_color = config.panel_color.replace("_", " ")
+        color = mapper.resolve_weather_strip_color(requested_seal_color)
+        if color.upper() != requested_seal_color.upper():
+            config.deviations.append({
+                "kind": "colour_swap",
+                "field": "weatherstrip",
+                "from": requested_seal_color,
+                "to": color,
+                "reason": (
+                    f"Weather-strip colour {requested_seal_color} is not stocked; "
+                    f"quoted {color}."
+                ),
+            })
         is_commercial = config.door_type == "commercial"
 
         # Helper to format actual dimension display string (e.g. 90" → "7'6\"")
@@ -3678,6 +3708,13 @@ class PartNumberService:
                         category="glazing_comment",
                         notes="glazing_substitution",
                     ))
+                    config.deviations.append({
+                        "kind": "colour_swap",
+                        "field": "glazing",
+                        "from": f"{config.glass_color} / {config.glass_pane_type} / {getattr(config, 'glass_type', None)}",
+                        "to": glass_pn,
+                        "reason": sub_note,
+                    })
 
         return self._consolidate_parts(parts)
 
@@ -3860,6 +3897,16 @@ class PartNumberService:
                 part_number = substitute.part_number
                 description = substitute.description
                 window_substitution_note = f"requested {gk15_pn}, substituted nearest stocked SKU"
+                config.deviations.append({
+                    "kind": "colour_swap",
+                    "field": "glass",
+                    "from": gk15_pn,
+                    "to": part_number,
+                    "reason": (
+                        f"Glass kit {gk15_pn} is not stocked; "
+                        f"quoted {part_number}."
+                    ),
+                })
             else:
                 part_number = gk15_pn
                 glass_label = {"1": "SINGLE", "2": "THERM-CLEAR", "4": "THERM-ETCHED", "9": "SUPER GREY"}.get(g, "THERM-CLEAR")
@@ -4804,4 +4851,6 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
     )
 
     parts = part_number_service.get_parts_for_configuration(config)
-    return part_number_service.get_part_summary(parts)
+    summary = part_number_service.get_part_summary(parts)
+    summary["deviations"] = list(config.deviations or [])
+    return summary

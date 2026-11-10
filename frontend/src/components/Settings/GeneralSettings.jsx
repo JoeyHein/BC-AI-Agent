@@ -1,4 +1,25 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { customersApi } from '../../api/client'
+
 function GeneralSettings() {
+  const queryClient = useQueryClient()
+  const { data } = useQuery({
+    queryKey: ['profile-quoting-mode'],
+    queryFn: async () => (await customersApi.getProfileQuotingMode()).data,
+  })
+  const mode = data?.mode || 'off'
+
+  async function changeMode(next) {
+    const labels = {
+      off: 'Turn customer-profile quoting off? Live quotes go back to the previous defaults immediately.',
+      shadow: 'Turn on shadow mode? The profile is calculated and saved, and the Business Central quote stays unchanged.',
+      on: 'Turn customer-profile quoting on? Silent emails will use customer profiles, and unmatched senders will be held.',
+    }
+    if (!window.confirm(labels[next])) return
+    await customersApi.setProfileQuotingMode(next)
+    queryClient.invalidateQueries({ queryKey: ['profile-quoting-mode'] })
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -6,6 +27,26 @@ function GeneralSettings() {
         <p className="text-sm text-gray-500">
           Configure general application preferences
         </p>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-lg p-5">
+        <h3 className="text-sm font-medium text-gray-900">Customer profile quoting</h3>
+        <p className="mt-1 text-sm text-gray-600">
+          Company-wide. Off is the production default. Shadow records what a profile would have changed without sending that quote to Business Central.
+        </p>
+        <label className="mt-3 block text-sm text-gray-700">
+          <span className="block text-xs font-medium text-gray-500 mb-1">Mode</span>
+          <select
+            aria-label="Customer profile quoting mode"
+            value={mode}
+            onChange={(event) => changeMode(event.target.value)}
+            className="border border-gray-300 rounded-md px-2 py-1 text-sm"
+          >
+            <option value="off">Off</option>
+            <option value="shadow">Shadow</option>
+            <option value="on">On</option>
+          </select>
+        </label>
       </div>
 
       {/* Placeholder content */}

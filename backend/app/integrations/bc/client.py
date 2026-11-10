@@ -1743,6 +1743,15 @@ class BusinessCentralClient:
         result = self._make_request("GET", f"companies({cid})/salesOrders({order_id})/salesOrderLines")
         return result.get("value", [])
 
+    def get_sales_invoice_lines(self, invoice_id: str, company_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Posted sales invoice lines. Read-only. Used to seed customer profiles."""
+        cid = company_id or self.company_id
+        result = self._make_request(
+            "GET",
+            f"companies({cid})/salesInvoices({invoice_id})/salesInvoiceLines",
+        )
+        return result.get("value", [])
+
     def add_order_line(self, order_id: str, line_data: Dict[str, Any],
                        company_id: Optional[str] = None) -> Dict[str, Any]:
         """Add line to sales order"""

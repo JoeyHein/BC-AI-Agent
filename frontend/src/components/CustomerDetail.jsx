@@ -6,6 +6,7 @@ import {
 } from 'recharts'
 import { formatDate } from '../utils/datetime'
 import { metricsApi, customersApi } from '../api/client'
+import CustomerProfilePanel from './CustomerProfilePanel'
 
 function fmt$(val) {
   if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(1)}M`
@@ -208,6 +209,10 @@ function CustomerDetail() {
           )}
         </div>
       </div>
+
+      {customerData?.bc_customer_id && (
+        <CustomerProfilePanel bcCustomerId={customerData.bc_customer_id} />
+      )}
 
       {/* Saved-quote configs (Portal) */}
       <CustomerQuotes customerId={id} />

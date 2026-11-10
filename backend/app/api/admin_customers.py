@@ -19,6 +19,19 @@ from app.db.models import (
     User, UserRole, BCCustomer, SavedQuoteConfig, SalesOrder,
     CustomerInstallPricing, CustomerNote, QuoteSnapshot,
 )
+from app.services.customer_profile_service import (
+    apply_staff_edit,
+    documents_from_bc,
+    get_profile,
+    profile_to_dict,
+    quoting_mode,
+    mark_seed_started,
+    reset_seed_job,
+    seed_job_status,
+    seed_profiles,
+    set_quoting_mode,
+    start_background_seed,
+)
 from app.services.auth_service import auth_service
 from app.services.staff_permissions import (
     enforce_staff_permission,
@@ -690,6 +703,165 @@ def update_customer_account_type(
         "customer_id": customer.id,
         "account_type": customer.account_type
     }
+
+
+class ProfileQuotingMode(BaseModel):
+    mode: str  # off | shadow | on
+
+
+class ProfileFieldEdit(BaseModel):
+    value: Optional[object] = None
+    locked: bool = False
+
+
+class CustomerProfileUpdate(BaseModel):
+    fields: dict = {}
+    contacts: Optional[List[dict]] = None
+    email_domains: Optional[List[str]] = None
+    ship_to: Optional[dict] = None
+    contacts_locked: Optional[bool] = None
+    domains_locked: Optional[bool] = None
+    ship_to_locked: Optional[bool] = None
+
+
+class ProfileSeedRequest(BaseModel):
+    bc_customer_id: Optional[str] = None
+    documents: Optional[List[dict]] = None
+
+
+def _profile_payload(db: Session, bc_customer_id: str) -> dict:
+    customer = db.query(BCCustomer).filter(BCCustomer.bc_customer_id == bc_customer_id).first()
+    if customer is None and get_profile(db, bc_customer_id) is None:
+        raise HTTPException(status_code=404, detail="BC customer not found")
+    payload = profile_to_dict(get_profile(db, bc_customer_id), customer)
+    payload["quoting_mode"] = quoting_mode(db)
+    return payload
+
+
+@router.get("/profile-quoting")
+def get_profile_quoting_mode(
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """off, shadow, or on. Missing setting is off."""
+    return {"mode": quoting_mode(db)}
+
+
+@router.put("/profile-quoting")
+def update_profile_quoting_mode(
+    body: ProfileQuotingMode,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Turn profile quoting off, leave it in shadow, or turn it on.
+
+    off is the production default. shadow computes and stores the result
+    without changing the quote that is sent to Business Central.
+    """
+    try:
+        mode = set_quoting_mode(db, body.mode, user_id=current_admin.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    db.commit()
+    logger.info("Customer profile quoting set to %s by %s", mode, current_admin.email)
+    return {"mode": mode}
+
+
+@router.get("/by-bc/{bc_customer_id}/profile")
+def get_customer_profile(
+    bc_customer_id: str,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Ordering profile for one BC customer. Empty until seeded or edited."""
+    return _profile_payload(db, bc_customer_id)
+
+
+@router.put("/by-bc/{bc_customer_id}/profile")
+def update_customer_profile(
+    bc_customer_id: str,
+    body: CustomerProfileUpdate,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Staff edit. Changing a value locks that field against the next seed."""
+    customer = db.query(BCCustomer).filter(BCCustomer.bc_customer_id == bc_customer_id).first()
+    if customer is None and get_profile(db, bc_customer_id) is None:
+        raise HTTPException(status_code=404, detail="BC customer not found")
+    apply_staff_edit(
+        db,
+        bc_customer_id,
+        body.model_dump(exclude_unset=True),
+        staff_name=current_admin.email,
+    )
+    db.commit()
+    return _profile_payload(db, bc_customer_id)
+
+
+@router.post("/profiles/seed")
+def seed_customer_profiles(
+    body: ProfileSeedRequest,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Re-read BC order and invoice history. Read-only against BC.
+
+    Pass ``documents`` to seed from a payload instead of calling BC.
+    Locked fields are left as staff set them.
+    """
+    from app.db.database import SessionLocal
+    from app.integrations.bc.client import bc_client
+    # One customer, or a caller-supplied document list, stays in this request.
+    if body.bc_customer_id or body.documents is not None:
+        stats = seed_profiles(
+            db,
+            bc_customer_id=body.bc_customer_id,
+            documents=body.documents,
+        )
+        db.commit()
+        logger.info(
+            "Profile seed by %s: %s customers, %s documents",
+            current_admin.email, stats.get("customers"), stats.get("documents"),
+        )
+        return stats
+    current = seed_job_status(db)
+    if current.get("status") == "running":
+        raise HTTPException(status_code=409, detail="A profile seed is already running")
+    ids = [
+        row[0]
+        for row in db.query(BCCustomer.bc_customer_id)
+        .filter(~BCCustomer.bc_customer_id.like("TEMP-%"))
+        .all()
+    ]
+
+    def _fetch(customer_id):
+        return documents_from_bc(bc_client, customer_id)
+
+    job = mark_seed_started(db, len(ids))
+    db.commit()
+    start_background_seed(ids, _fetch, SessionLocal, pause=0.25)
+    logger.info("Profile seed-all started by %s for %s customers", current_admin.email, len(ids))
+    return job
+
+
+@router.get("/profiles/seed-status")
+def customer_profile_seed_status(
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    return seed_job_status(db)
+
+
+@router.post("/profiles/seed-reset")
+def customer_profile_seed_reset(
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Drop a seed that is still marked running after its worker is gone."""
+    payload = reset_seed_job(db)
+    db.commit()
+    logger.info("Profile seed reset by %s", current_admin.email)
+    return payload
 
 
 @router.get("/{customer_id}", response_model=CustomerDetailResponse)

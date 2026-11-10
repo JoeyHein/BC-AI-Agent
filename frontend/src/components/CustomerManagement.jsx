@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import CrmFeed from './CrmFeed'
 import apiClient, { customersApi } from '../api/client'
+import CustomerProfilePanel from './CustomerProfilePanel'
 import InstallPricingPanel from './InstallPricingPanel'
 import { formatDate, formatDateTime } from '../utils/datetime'
 
@@ -683,6 +684,10 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
               </div>
             )}
           </div>
+
+          {customer.bc_customer_id && (
+            <CustomerProfilePanel bcCustomerId={customer.bc_customer_id} />
+          )}
 
           {/* Linked staff users — multi-user account support */}
           {customer.bc_customer_id && (

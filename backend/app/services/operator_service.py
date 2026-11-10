@@ -119,6 +119,24 @@ def get_operator_part_number(operator_id: str) -> Optional[str]:
     return operator_id
 
 
+def catalog_part_role(part_number: str) -> Optional[str]:
+    """``operator`` or ``accessory`` when the part is an active catalog row."""
+    if not part_number:
+        return None
+    catalog = _load_catalog()
+    item = next((
+        i for i in catalog
+        if i["partNumber"] == part_number and i["include"] and i["status"] == "CURRENT"
+    ), None)
+    if item is None:
+        return None
+    if item["type"] in ("Residential", "Commercial"):
+        return "operator"
+    if item["type"] == "Accessory":
+        return "accessory"
+    return None
+
+
 def find_operator_by_part_number(part_number: str) -> Optional[str]:
     """Strict reverse lookup: True only if part_number is an exact, active
     operator-unit catalog entry (Residential/Commercial type — excludes

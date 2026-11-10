@@ -273,7 +273,11 @@ function QuoteBuilder() {
       await saveMutation.mutateAsync({
         name: quoteName.trim(),
         description: quoteDescription.trim(),
-        config_data: { doors, poNumber: poNumber || undefined, deliveryType: deliveryType || undefined }
+        config_data: {
+          doors: doors.map(({ _touched, explicitFields, ...door }) => door),
+          poNumber: poNumber || undefined,
+          deliveryType: deliveryType || undefined,
+        }
       })
     } catch (error) {
       console.error('Save error:', error)
@@ -309,7 +313,11 @@ function QuoteBuilder() {
       // config_data is written whole here — poNumber MUST be included or the
       // customer's PO is wiped before /get-pricing reads it, and BC gets the
       // PORTAL-<id> fallback in External Document No. instead.
-      const configData = { doors, deliveryType, poNumber: poNumber || undefined }
+      const configData = {
+        doors: doors.map(({ _touched, explicitFields, ...door }) => door),
+        deliveryType,
+        poNumber: poNumber || undefined,
+      }
       if (!quoteId) {
         const saveResponse = await savedQuotesApi.create({
           name: quoteName.trim(),
