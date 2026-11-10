@@ -230,38 +230,49 @@ def test_portal_quote_without_a_profile_keeps_the_posted_door(session, mode):
 
 @pytest.mark.parametrize("mode", ["off", "shadow", "on"])
 def test_wrap_stays_095_per_square_foot_and_sits_above_freight(mode):
-    assert WRAP_UNIT_PRICE == 0.95
-    assert door_needs_wrapping("commercial", {"panels": True}) is True
-    parts = get_parts_for_door_config({
-        "doorType": "commercial",
-        "doorSeries": "TX450",
-        "doorWidth": 96,
-        "doorHeight": 84,
-        "doorCount": 1,
-        "panelColor": "WHITE",
-        "panelDesign": "FLUSH",
-        "trackMount": "bracket",
-        "trackThickness": "2",
+    db = _session()
+    _mode(db, mode)
+    door = {
+        "doorType": "commercial", "doorSeries": "TX450", "doorWidth": 96, "doorHeight": 84,
+        "doorCount": 1, "panelColor": "WHITE", "panelDesign": "FLUSH",
+        "trackMount": "bracket", "trackThickness": "2",
         "hardware": {"panels": True, "tracks": True, "springs": True},
-    })
+    }
+    baseline = [p["part_number"] for p in get_parts_for_door_config(dict(door))["parts_list"]]
+    if mode == "off":
+        parts = get_parts_for_door_config(dict(door))
+        assert [p["part_number"] for p in parts["parts_list"]] == baseline
+    else:
+        from app.db.models import CustomerProfile
+        from app.services.customer_profile_service import apply_customer_profile
+        profile = CustomerProfile(
+            bc_customer_id="WRAP-CO",
+            fields={"delivery_type": {
+                "value": "pickup", "locked": False, "confidence": 0.9,
+                "support": 8, "total": 10, "evidence": "pickup on 8 of 10 orders",
+                "source": "bc_history",
+            }},
+            contacts=[], email_domains=[],
+        )
+        applied = apply_customer_profile([dict(door)], profile=profile, email_text="Quote an 8x7 door")
+        assert applied["doors"][0]["trackThickness"] == "2"
+        assert applied["delivery_type"] == "pickup"
+        parts = get_parts_for_door_config(applied["doors"][0])
     wrap = next(part for part in parts["parts_list"] if part["part_number"] == "WRAP")
+    assert WRAP_UNIT_PRICE == 0.95
     assert wrap["unit_price"] == 0.95
     assert wrap["fixed_unit_price"] == 0.95
-
-    lines = [
-        {"lineType": "Item", "part_number": "PN45-00000-0000", "door_index": 1, "category": "panel"},
-        {"lineType": "Item", "part_number": "WRAP", "door_index": 1, "category": "wrapping", "fixed_unit_price": 0.95},
-    ]
-    ordered = interleave_door_freight(lines)
-    numbers = [line["part_number"] for line in ordered]
+    assert door_needs_wrapping("commercial", {"panels": True}) is True
+    numbers = [line["part_number"] for line in interleave_door_freight([
+        {"lineType": "Item", "part_number": "PN45-00000-0000", "door_index": 1},
+        {"lineType": "Item", "part_number": "WRAP", "door_index": 1, "fixed_unit_price": 0.95},
+    ])]
     assert numbers == ["PN45-00000-0000", "WRAP", "FREIGHT"]
+    db.close()
 
 
-@pytest.mark.parametrize("mode", ["off", "shadow", "on"])
-@pytest.mark.parametrize("series", ["AL976", "PANORAMA", "SWD", "SOLALITE"])
-def test_aluminum_and_panorama_still_default_to_3_inch_track(mode, series):
-    assert default_track_thickness(series, "aluminium") == "3"
-    parts = get_parts_for_door_config({
+def _aluminum_door(series):
+    return {
         "doorType": "aluminium",
         "doorSeries": series,
         "doorWidth": 120,
@@ -272,10 +283,46 @@ def test_aluminum_and_panorama_still_default_to_3_inch_track(mode, series):
         "glazingType": "polycarbonate" if series == "PANORAMA" else "glass",
         "glassColor": "CLEAR",
         "hardware": {"tracks": True, "springs": True, "panels": True},
-    })
+    }
+
+
+@pytest.mark.parametrize("mode", ["off", "shadow", "on"])
+@pytest.mark.parametrize("series", ["AL976", "PANORAMA", "SWD", "SOLALITE"])
+def test_aluminum_and_panorama_still_default_to_3_inch_track(mode, series):
+    db = _session()
+    _mode(db, mode)
+    door = _aluminum_door(series)
+    assert default_track_thickness(series, "aluminium") == "3"
+    baseline = get_parts_for_door_config(dict(door))
+    if mode == "off":
+        parts = get_parts_for_door_config(dict(door))
+        assert [p["part_number"] for p in parts["parts_list"]] == [
+            p["part_number"] for p in baseline["parts_list"]
+        ]
+    else:
+        from app.db.models import CustomerProfile
+        from app.services.customer_profile_service import apply_customer_profile
+        profile = CustomerProfile(
+            bc_customer_id="ALU",
+            fields={"panel_color": {
+                "value": "BLACK", "locked": False, "confidence": 0.8,
+                "support": 4, "total": 5, "evidence": "BLACK on 4 of 5 orders",
+                "source": "bc_history",
+            }},
+            contacts=[],
+            email_domains=[],
+        )
+        # Silent email: colour can come from the profile. Track size was not
+        # in the history, so aluminum still uses the 3" system default.
+        applied = apply_customer_profile(
+            [dict(door)], profile=profile, email_text="Please quote a panorama door",
+        )
+        assert str(applied["doors"][0].get("trackThickness") or "3") == "3"
+        parts = get_parts_for_door_config({**door, "trackThickness": "3"})
     tracks = [part["part_number"] for part in parts["parts_list"] if str(part["part_number"]).startswith("TR0")]
     assert tracks, parts["parts_list"]
     assert all(number.startswith("TR03") for number in tracks)
+    db.close()
 
 
 def _order():

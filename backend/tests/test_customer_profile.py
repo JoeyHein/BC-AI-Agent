@@ -112,7 +112,7 @@ def test_seed_reads_angle_mount_from_gnb_style_history(session):
     assert profile.email_domains == ["gnb.example"]
     assert "orders@gnb.example" in {row["email"] for row in profile.contacts}
     # Track with no freight line is a pickup.
-    assert profile.fields["delivery_type"]["value"] == "pickup"
+    assert "delivery_type" not in profile.fields
     assert profile.fields["track_size"]["value"] == "3"
 
 
@@ -295,11 +295,20 @@ def test_explicit_bracket_against_locked_angle_is_a_deviation(session, monkeypat
         body="Please quote this one with bracket mount.",
         sender="orders@gnb.example",
     )
-    assert captured["trackMount"] == "angle"
-    deviations = session.query(QuoteRequest).one().deviations
+    assert captured.get("called") is not True
+    quote = session.query(QuoteRequest).one()
+    assert quote.status == "held_for_standard_deviation"
+    assert quote.bc_quote_id is None
+    mount = quote.field_sources["doors"][0]["trackMount"]
+    assert mount["used"] == "bracket"
+    assert mount["email_says"] == "bracket"
+    assert mount["profile_says"] == "angle"
+    deviations = quote.deviations
     assert any(
-        item["kind"] == "locked_rule" and item["field"] == "trackMount"
-        and item["email_value"] == "bracket" and item["applied_value"] == "angle"
+        item["kind"] == "deviation_from_customer_standard"
+        and item["field"] == "trackMount"
+        and item["email_value"] == "bracket"
+        and "GNB standard is angle (locked, 14/16 orders)" in item["reason"]
         for item in deviations
     )
 
@@ -343,10 +352,13 @@ def test_second_contact_on_the_domain_gets_that_price_group(session, monkeypatch
         sender="jane@gnb.example",
         company="Job site trailer",
     )
-    assert captured["customerId"] == "GNB"
-    customer = session.query(BCCustomer).filter_by(bc_customer_id="GNB").one()
-    assert customer.bc_price_group == "GNB-CONTRACT"
-    assert session.query(QuoteRequest).one().customer_match["method"] == "domain"
+    assert captured.get("called") is not True
+    quote = session.query(QuoteRequest).one()
+    assert quote.status == "held_for_customer_match"
+    assert quote.customer_match["method"] == "domain"
+    assert quote.customer_match["suggested"] is True
+    assert quote.customer_match["bc_customer_id"] == "GNB"
+    assert quote.bc_quote_id is None
 
 
 def test_unmatched_sender_is_held_instead_of_retail(session, monkeypatch):
@@ -473,7 +485,7 @@ def test_quote_lookup_finds_a_number_outside_the_first_hundred(session, monkeypa
     assert "SQ-003132" not in {row["number"] for row in _BC().get_sales_quotes(top=100)}
 
 
-def test_quote_lookup_stays_on_the_first_page_when_the_switch_is_off(session):
+def test_quote_lookup_by_number_works_while_the_switch_is_off(session):
     _mode(session, "off")
     log = EmailLog(message_id="q2", from_address="a@b.test", subject="s", body="b", status="parsed")
     session.add(log)
@@ -486,30 +498,57 @@ def test_quote_lookup_stays_on_the_first_page_when_the_switch_is_off(session):
 
     class _BC:
         def get_sales_quotes(self, top=100):
-            return [{"id": f"guid-{i}", "number": f"SQ-{i:06d}"} for i in range(1, top + 1)]
+            raise AssertionError("page scan is only the fallback")
 
         def get_sales_quote_by_number(self, number):
-            raise AssertionError("number lookup must stay unused while the switch is off")
+            return {"id": "guid-3132", "number": number}
+
+        def convert_quote_to_order(self, quote_id):
+            return {"id": "order-guid", "number": "SO-1", "totalAmountIncludingTax": 1}
 
     service = OrderLifecycleService()
     service.bc_client = _BC()
     result = service.convert_quote_to_order(session, quote.id, "joey")
-    assert result["success"] is False
-    assert "not found" in result["error"]
+    assert result["success"] is True
+
+
+def test_quote_lookup_falls_back_to_the_first_page_when_number_search_fails(session):
+    log = EmailLog(message_id="q3", from_address="a@b.test", subject="s", body="b", status="parsed")
+    session.add(log)
+    session.flush()
+    quote = QuoteRequest(
+        email_id=log.id, customer_name="GNB", bc_quote_id="SQ-000007", status="bc_created",
+    )
+    session.add(quote)
+    session.commit()
+
+    class _BC:
+        def get_sales_quotes(self, top=100):
+            return [{"id": "guid-7", "number": "SQ-000007"}]
+
+        def get_sales_quote_by_number(self, number):
+            raise RuntimeError("odata down")
+
+        def convert_quote_to_order(self, quote_id):
+            assert quote_id == "guid-7"
+            return {"id": "order-guid", "number": "SO-7", "totalAmountIncludingTax": 1}
+
+    service = OrderLifecycleService()
+    service.bc_client = _BC()
+    assert service.convert_quote_to_order(session, quote.id, "joey")["success"] is True
 
 
 def test_customer_profile_migration_upgrades_and_downgrades(tmp_path):
+    pytest.importorskip("alembic")
     db_path = tmp_path / "migrate.db"
     url = f"sqlite:///{db_path}"
     engine = create_engine(url)
     with engine.begin() as conn:
         conn.execute(text("CREATE TABLE quote_requests (id INTEGER PRIMARY KEY)"))
     env = {**os.environ, "DATABASE_URL": url}
-    alembic = str(BACKEND / ".venv" / "bin" / "alembic")
-
     def run(*args):
         completed = subprocess.run(
-            [alembic, *args],
+            [sys.executable, "-m", "alembic", *args],
             cwd=str(BACKEND),
             env=env,
             capture_output=True,
@@ -536,3 +575,247 @@ def test_customer_profile_migration_upgrades_and_downgrades(tmp_path):
     with engine.connect() as conn:
         tables = {row[0] for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
         assert "customer_profiles" in tables
+
+
+def test_same_as_usual_uses_the_profile_and_marks_it(session, monkeypatch):
+    _mode(session, "on")
+    session.add(BCCustomer(bc_customer_id="GNB", company_name="GNB", email="orders@gnb.example"))
+    _profile(session, track_mount=_angle_spec())
+    service = _email_service(monkeypatch)
+    captured = _run_email(
+        service, session, monkeypatch,
+        subject="reorder",
+        body="Please quote a 12x10, same as usual.",
+        sender="orders@gnb.example",
+    )
+    assert captured["trackMount"] == "angle"
+    mount = session.query(QuoteRequest).one().field_sources["doors"][0]["trackMount"]
+    assert mount["source"] == "profile"
+    assert mount["resolution"] == "ambiguous"
+    assert mount["marked"] is True
+    assert "same as usual" in (mount.get("note") or "").lower()
+
+
+def test_shadow_failure_still_prices_the_old_quote(session, monkeypatch):
+    _mode(session, "shadow")
+    session.add(BCCustomer(bc_customer_id="GNB", company_name="GNB", email="orders@gnb.example"))
+    session.commit()
+    service = _email_service(monkeypatch)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("profile blew up")
+
+    monkeypatch.setattr(
+        "app.services.customer_profile_service.apply_profile_for_customer", _boom,
+    )
+    captured = _run_email(
+        service, session, monkeypatch,
+        subject="shadow-fail",
+        body="Quote a 12x10 TX450.",
+        sender="orders@gnb.example",
+    )
+    assert captured["called"] is True
+    assert captured["trackMount"] == "bracket"
+    assert captured["deliveryType"] == "delivery"
+    assert session.query(QuoteRequest).one().status == "bc_created"
+
+
+def test_explicit_defaults_survive_the_quote_builder(session):
+    """white / bracket / 2 inch track must survive the real quote builder."""
+    _mode(session, "on")
+    session.add(BCCustomer(bc_customer_id="GNB", company_name="GNB", email="orders@gnb.example"))
+    _profile(
+        session,
+        track_mount=_angle_spec(locked=False),
+        panel_color={
+            "value": "BLACK", "locked": False, "confidence": 0.9, "support": 14, "total": 16,
+            "evidence": "BLACK on 14 of 16 orders", "source": "bc_history",
+        },
+        track_size={
+            "value": "3", "locked": False, "confidence": 0.9, "support": 14, "total": 16,
+            "evidence": '3" on 14 of 16 orders', "source": "bc_history",
+        },
+    )
+    from app.api.door_configurator import DoorConfigRequest, QuoteGenerationRequest, build_bc_quote_from_doors
+    from app.services.customer_profile_service import apply_profile_for_customer
+
+    applied = apply_profile_for_customer(
+        session, "GNB", [_mapped_door()],
+        email_text="Please quote white, bracket mount, 2 inch track, 12x10 TX450.",
+        customer_name="GNB",
+    )
+    door = applied["doors"][0]
+    assert door["panelColor"] == "WHITE"
+    assert door["trackMount"] == "bracket"
+    assert door["trackThickness"] == "2"
+    request = QuoteGenerationRequest(
+        doors=[DoorConfigRequest(**door)],
+        customerId="GNB",
+        deliveryType=applied["delivery_type"],
+        deliveryExplicit=True,
+        profileApplied=True,
+    )
+    try:
+        build_bc_quote_from_doors(request, session, source="email")
+    except Exception:
+        pass
+    assert request.doors[0].panelColor == "WHITE"
+    assert request.doors[0].trackMount == "bracket"
+    assert request.doors[0].trackThickness == "2"
+
+
+def test_free_mail_and_internal_domains_are_not_customer_domains(session):
+    from app.services.customer_profile_service import match_bc_customer
+    session.add(BCCustomer(bc_customer_id="GNB", company_name="GNB", email="pat@shaw.ca"))
+    session.add(BCCustomer(bc_customer_id="STAFF", company_name="OpenDC", email="joey@opendc.ca"))
+    session.commit()
+    shaw = match_bc_customer(session, email="other@shaw.ca", company_name="Nobody")
+    assert shaw.confident is False and shaw.bc_customer_id is None
+    internal = match_bc_customer(session, email="sam@opendc.ca", company_name="Nobody")
+    assert internal.bc_customer_id is None
+
+
+def test_cash_customer_does_not_collect_contacts_or_domains(session):
+    seed_profiles_from_documents(session, [{
+        "customer_id": "CASH",
+        "email": "someone@gmail.com",
+        "lines": [{"number": "TR03-STDAM-10", "description": "ANGLE", "lineType": "Item"}],
+    }])
+    session.commit()
+    profile = session.query(CustomerProfile).filter_by(bc_customer_id="CASH").one()
+    assert profile.contacts == [] or profile.contacts is None or profile.contacts == []
+    assert profile.email_domains in ([], None) or profile.email_domains == []
+
+
+def test_missing_freight_is_not_inferred_as_pickup(session):
+    seed_profiles_from_documents(session, [{
+        "customer_id": "NOF",
+        "lines": [{"number": "TR03-STDAM-10", "description": "ANGLE", "lineType": "Item"}],
+    }])
+    session.commit()
+    assert "delivery_type" not in (session.query(CustomerProfile).filter_by(bc_customer_id="NOF").one().fields or {})
+
+
+def test_gl_freight_line_counts_as_delivery(session):
+    seed_profiles_from_documents(session, [{
+        "customer_id": "GLF",
+        "lines": [
+            {"number": "TR03-STDAM-10", "description": "ANGLE", "lineType": "Item"},
+            {"number": "", "description": "FREIGHT CHARGE", "lineType": "Account"},
+        ],
+    }])
+    session.commit()
+    assert session.query(CustomerProfile).filter_by(bc_customer_id="GLF").one().fields["delivery_type"]["value"] == "delivery"
+
+
+def test_locked_contact_list_does_not_restore_a_removed_address(session):
+    seed_profiles_from_documents(session, [{
+        "customer_id": "LOCKC",
+        "email": "keep@lock.example",
+        "lines": [{"number": "TR03-STDAM-10", "description": "ANGLE", "lineType": "Item"}],
+    }])
+    session.commit()
+    profile = session.query(CustomerProfile).filter_by(bc_customer_id="LOCKC").one()
+    profile.contacts = [{"email": "keep@lock.example", "role": "quote"}]
+    profile.contacts_locked = True
+    session.commit()
+    seed_profiles_from_documents(session, [{
+        "customer_id": "LOCKC",
+        "email": "removed@lock.example",
+        "lines": [{"number": "TR03-STDAM-10", "description": "ANGLE", "lineType": "Item"}],
+    }])
+    session.commit()
+    session.refresh(profile)
+    assert [row["email"] for row in profile.contacts] == ["keep@lock.example"]
+
+
+def test_pending_review_includes_held_customer_matches(session):
+    from types import SimpleNamespace
+    from app.api.quotes import get_pending_quotes
+    log = EmailLog(message_id="held", from_address="a@b.test", subject="s", body="b", status="parsed")
+    session.add(log)
+    session.flush()
+    session.add(QuoteRequest(
+        email_id=log.id, customer_name="Maybe", contact_email="a@b.test",
+        status="held_for_customer_match", confidence_scores={"overall": 0.5}, parsed_data={},
+    ))
+    session.commit()
+    rows = get_pending_quotes(status="pending", db=session, current_user=SimpleNamespace(user_type="INTERNAL"))
+    assert any(row.status == "held_for_customer_match" for row in rows)
+
+
+def test_customer_token_cannot_read_the_review_queue(session):
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    from app.api.quotes import get_pending_quotes
+    with pytest.raises(HTTPException) as caught:
+        get_pending_quotes(status="pending", db=session, current_user=SimpleNamespace(user_type="CUSTOMER"))
+    assert caught.value.status_code == 403
+
+
+def test_confirming_a_suggestion_remembers_the_contact(session):
+    from types import SimpleNamespace
+    from app.api.feedback import confirm_suggested_customer
+    log = EmailLog(message_id="sug", from_address="jane@gnb.example", subject="s", body="b", status="parsed")
+    session.add(log)
+    session.flush()
+    session.add(BCCustomer(bc_customer_id="GNB", company_name="GNB Manitoba", email="orders@gnb.example"))
+    quote = QuoteRequest(
+        email_id=log.id, customer_name="Jane", contact_email="jane@gnb.example",
+        status="held_for_customer_match", confidence_scores={"overall": 0.5}, parsed_data={},
+        customer_match={"bc_customer_id": "GNB", "method": "domain", "suggested": True, "confident": False},
+    )
+    session.add(quote)
+    session.commit()
+    confirm_suggested_customer(quote.id, session, SimpleNamespace(email="joey@opendc.ca", user_type="INTERNAL"))
+    profile = session.query(CustomerProfile).filter_by(bc_customer_id="GNB").one()
+    assert "jane@gnb.example" in {row["email"] for row in profile.contacts}
+    session.refresh(quote)
+    assert quote.status == "pending"
+    assert quote.customer_match["method"] == "confirmed_contact"
+
+
+def test_seed_keeps_catalog_operator_keys_and_drops_raw_text(session):
+    seed_profiles_from_documents(session, [{
+        "customer_id": "OPS",
+        "lines": [
+            {"number": "OP19-01073-00", "description": "LiftMaster 84505R", "lineType": "Item"},
+            {"number": "OP19-01080-00", "description": "Trolley track", "lineType": "Item"},
+            {"number": "MISC-1", "description": "wall mount operator", "lineType": "Item"},
+        ],
+    }])
+    session.commit()
+    fields = session.query(CustomerProfile).filter_by(bc_customer_id="OPS").one().fields
+    assert fields["operator"]["value"] == "OP19-01073-00"
+    assert fields["accessories"]["value"] == "OP19-01080-00"
+    assert "wall mount" not in fields["operator"]["value"]
+
+
+def test_silent_email_does_not_add_windows_or_operator_from_history(session):
+    from app.services.customer_profile_service import apply_profile_for_customer
+    _mode(session, "on")
+    _profile(
+        session,
+        windows={"value": "yes", "locked": True, "confidence": 1, "support": 10, "total": 10, "evidence": "windows"},
+        glass={"value": "single", "locked": True, "confidence": 1, "support": 10, "total": 10, "evidence": "glass"},
+        operator={"value": "OP19-01073-00", "locked": True, "confidence": 1, "support": 10, "total": 10, "evidence": "op"},
+    )
+    applied = apply_profile_for_customer(
+        session, "GNB", [_mapped_door()],
+        email_text="Please quote a 12x10 TX450.",
+        customer_name="GNB",
+    )
+    door = applied["doors"][0]
+    assert door.get("hasWindows") in (False, None)
+    assert door.get("operator") in (None, "", "NONE")
+    assert door.get("glazingType") in (None, "", "NONE")
+
+
+def test_stored_configs_drop_the_configurator_touch_map():
+    from app.api.customer_portal import _strip_ephemeral_door_keys
+    cleaned = _strip_ephemeral_door_keys({
+        "deliveryType": "pickup",
+        "doors": [{"panelColor": "WHITE", "_touched": {"panelColor": True}, "explicitFields": ["panelColor"]}],
+    })
+    assert cleaned["doors"] == [{"panelColor": "WHITE"}]
+    assert cleaned["deliveryType"] == "pickup"

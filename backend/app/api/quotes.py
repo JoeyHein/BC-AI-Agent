@@ -102,6 +102,24 @@ class BCQuoteResponse(BaseModel):
 # ENDPOINTS
 # ============================================================================
 
+_REVIEW_STATUSES = (
+    "pending",
+    "low_confidence",
+    "needs_manual_review",
+    "held_for_customer_match",
+    "held_for_standard_deviation",
+)
+
+
+def _staff_only(current_user: User) -> None:
+    user_type = str(getattr(current_user, "user_type", "") or "").upper()
+    if user_type == "CUSTOMER":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Staff access required",
+        )
+
+
 @router.get("/pending-review", response_model=List[QuoteRequestResponse])
 def get_pending_quotes(
     status: str = "all",  # all, pending, approved, low_confidence
@@ -114,10 +132,11 @@ def get_pending_quotes(
     Query params:
     - status: Filter by status (all, pending, approved, low_confidence)
     """
+    _staff_only(current_user)
     query = db.query(QuoteRequest)
 
     if status == "pending":
-        query = query.filter(QuoteRequest.status.in_(["pending", "low_confidence"]))
+        query = query.filter(QuoteRequest.status.in_(_REVIEW_STATUSES))
     elif status == "approved":
         query = query.filter(QuoteRequest.status == "approved")
     elif status == "low_confidence":
@@ -137,6 +156,7 @@ def get_quote_detail(
     current_user: User = Depends(get_current_user)
 ):
     """Get detailed quote information"""
+    _staff_only(current_user)
     quote = db.query(QuoteRequest).filter(QuoteRequest.id == quote_id).first()
 
     if not quote:
@@ -299,8 +319,9 @@ def get_quote_stats(
     from datetime import timedelta
 
     # Total counts by status
+    _staff_only(current_user)
     total_pending = db.query(QuoteRequest).filter(
-        QuoteRequest.status.in_(["pending", "low_confidence"])
+        QuoteRequest.status.in_(_REVIEW_STATUSES)
     ).count()
 
     total_approved = db.query(QuoteRequest).filter(

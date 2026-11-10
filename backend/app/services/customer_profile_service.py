@@ -3,18 +3,19 @@
 A profile is keyed by BC customer id. History seeding reads order and
 invoice lines (read-only) and records, for each field, the value, how
 often it appeared, and a one-line evidence string. A staff edit locks
-that field. Locked values are not replaced by a later seed, and when a
-quote leaves the field blank the lock wins over the email-mapper default.
-
-Quoting calls ``apply_customer_profile`` after the AI mapper. Each field
-is tagged email, profile, or default. Conflicts with a lock, silent
-bracket-to-angle substitutions, and unstocked colour swaps are appended
-to the quote's deviations list.
+that field. Locked values are not replaced by a later seed.
+On a quote, the customer's email wins when it states a value. A lock or a
+high-confidence profile value is used only when the email is silent or
+ambiguous ("same as usual", or a low-confidence extraction). An explicit
+email that differs from that standard is quoted as written, flagged as a
+deviation from the customer standard, and held for a person to review.
 """
 from __future__ import annotations
 
 import logging
 import re
+import threading
+import time
 from collections import Counter
 from datetime import datetime
 from difflib import SequenceMatcher
@@ -33,6 +34,7 @@ logger = logging.getLogger(__name__)
 #     are what the quote and the conversion use.
 QUOTING_MODE_KEY = "customer_profile_quoting"
 QUOTING_MODES = ("off", "shadow", "on")
+SEED_JOB_KEY = "customer_profile_seed_job"
 
 
 def quoting_mode(db: Optional[Session]) -> str:
@@ -154,12 +156,32 @@ DOOR_KEYS = {
 # of at least two orders. A lock applies immediately.
 MIN_SUPPORT = 2
 MIN_CONFIDENCE = 0.6
+# A parsed field at or above this is an explicit email request even when
+# our keyword scan missed the wording. Below MIN_CONFIDENCE it is too weak
+# to override the profile.
+EXPLICIT_PARSE_CONFIDENCE = 0.75
+TEXT_EXPLICIT_CONFIDENCE = 0.95
 
 FREE_MAIL_DOMAINS = frozenset({
-    "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com",
-    "live.ca", "yahoo.com", "yahoo.ca", "icloud.com", "me.com", "aol.com",
-    "msn.com", "proton.me", "protonmail.com", "pm.me", "gmx.com", "mail.com",
+    "gmail.com", "googlemail.com",
+    "outlook.com", "outlook.ca",
+    "hotmail.com", "hotmail.ca",
+    "live.com", "live.ca",
+    "yahoo.com", "yahoo.ca", "yahoo.co.uk",
+    "icloud.com", "me.com",
+    "aol.com", "msn.com",
+    "proton.me", "protonmail.com", "pm.me",
+    "gmx.com", "mail.com",
+    "shaw.ca", "telus.net", "sasktel.net", "mts.net",
+    "rogers.com", "bell.net", "sympatico.ca",
+    "eastlink.ca", "cogeco.ca", "videotron.ca",
 })
+# Staff and sister-company mail must not attach a quote to a customer.
+INTERNAL_DOMAINS = frozenset({
+    "opendc.ca",
+    "elevated-doors.com",
+})
+CATCH_ALL_IDS = frozenset({"CASH", "RETAIL", "CASH SALES"})
 
 _NAME_STOP = frozenset({
     "inc", "ltd", "llc", "co", "corp", "corporation", "company", "the",
@@ -182,6 +204,69 @@ _BARE_ANGLE_RE = re.compile(r"\bangle\b", re.IGNORECASE)
 _BARE_BRACKET_RE = re.compile(r"\bbrackets?\b", re.IGNORECASE)
 _PICKUP_RE = re.compile(r"\bpick[\s-]?up\b|\bwill\s+call\b|\bcustomer\s+pick", re.IGNORECASE)
 _DELIVERY_RE = re.compile(r"\bdeliver(?:y|ed|ing)?\b|\bship\s+to\b", re.IGNORECASE)
+_AMBIGUOUS_RE = re.compile(
+    r"\b("
+    r"same as (?:last time|the last time|usual|before|always|last order)"
+    r"|same as usual"
+    r"|as usual"
+    r"|the usual"
+    r"|like last time"
+    r"|like usual"
+    r"|usual"
+    r")\b",
+    re.IGNORECASE,
+)
+# Parsed-door keys that can carry a value and a field_confidence entry.
+_COLOR_PATTERNS = (
+    ("FRENCH_OAK", r"french\s+oak"),
+    ("ENGLISH_CHESTNUT", r"english\s+chestnut"),
+    ("STEEL_GREY", r"steel\s+gr[ae]y"),
+    ("IRON_ORE", r"iron\s+ore"),
+    ("NEW_ALMOND", r"\balmond\b"),
+    ("NEW_BROWN", r"\bbrown\b"),
+    ("SANDTONE", r"\bsandtone\b|\bsand\b"),
+    ("WALNUT", r"\bwalnut\b"),
+    ("HAZELWOOD", r"\bhazelwood\b"),
+    ("BRONZE", r"\bbronze\b"),
+    ("WHITE", r"\bwhite\b"),
+    ("BLACK", r"\bblack\b"),
+)
+
+
+def _normalize_glass(value: Any) -> Optional[str]:
+    """Configurator glazing is glass or polycarbonate, not pane count."""
+    text = str(value or "").upper()
+    if "POLY" in text:
+        return "polycarbonate"
+    if any(token in text for token in ("THERM", "INSUL", "SINGLE", "GLASS")):
+        return "glass"
+    return None
+
+
+def _normalize_color(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    text = value.strip().lower().replace("_", " ")
+    for code, pattern in _COLOR_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE) or text == code.lower().replace("_", " "):
+            return code
+    compact = value.strip().upper().replace(" ", "_")
+    return compact or value
+
+
+_PARSED_FIELD_KEYS = {
+    "trackMount": ("track_mount", "trackMount", "mount"),
+    "trackThickness": ("track_type", "track_thickness", "trackThickness"),
+    "trackRadius": ("track_radius", "trackRadius"),
+    "liftType": ("lift", "lift_type", "liftType"),
+    "doorSeries": ("model", "series", "door_series", "doorSeries"),
+    "panelColor": ("color", "colour", "panel_color", "panelColor"),
+    "panelDesign": ("panel_design", "panelDesign", "design", "stamp"),
+    "hasWindows": ("has_windows", "hasWindows"),
+    "glazingType": ("glazing", "glass", "glazingType"),
+    "operator": ("operator", "opener"),
+    "deliveryType": ("delivery_type", "deliveryType", "delivery"),
+}
 _TRACK3_RE = re.compile(
     r"""\b3\s*(?:"|''|inch|in\.?)\s*track\b|\btrack\s*(?:size|thickness)?\s*[:=]?\s*3\b""",
     re.IGNORECASE,
@@ -546,7 +631,11 @@ def parse_history_line(line: dict) -> dict:
     elif track and track.group("kind").upper() == "EXT":
         signals["lift_type"] = "high_lift"
 
+    line_type = str(line.get("lineType") or line.get("line_type") or "").lower()
+    freight_gl = line_type in {"account", "g/l account", "gl account", "g/l"}
     if number in _FREIGHT_NUMBERS or number.startswith("FREIGHT"):
+        signals["freight"] = True
+    elif freight_gl and "FREIGHT" in upper_desc:
         signals["freight"] = True
 
     prefix = number.split("-", 1)[0]
@@ -555,12 +644,9 @@ def parse_history_line(line: dict) -> dict:
 
     if number.startswith("GK"):
         signals["windows"] = "yes"
-        if "POLY" in upper_desc:
-            signals["glass"] = "polycarbonate"
-        elif "SINGLE" in upper_desc:
-            signals["glass"] = "single"
-        elif "THERM" in upper_desc or "INSUL" in upper_desc:
-            signals["glass"] = "insulated"
+        glass = _normalize_glass(upper_desc)
+        if glass:
+            signals["glass"] = glass
 
     for colour in _COLOUR_WORDS:
         if colour in upper_desc:
@@ -571,11 +657,15 @@ def parse_history_line(line: dict) -> dict:
             signals["panel_design"] = design
             break
 
-    if number.startswith("OP") or "OPERATOR" in upper_desc or "OPENER" in upper_desc:
-        if number.startswith("OP"):
-            signals["operator"] = number
-        elif "OPERATOR" in upper_desc or "OPENER" in upper_desc:
-            signals["operator"] = description.strip()[:80] or "operator"
+    # Configurator operator keys are catalog part numbers. A description
+    # like "operator" or an unknown item number is not a key, so it is not
+    # stored and cannot be copied onto a later quote.
+    from app.services.operator_service import catalog_part_role
+    role = catalog_part_role(number)
+    if role == "operator":
+        signals["operator"] = number
+    elif role == "accessory":
+        signals["accessories"] = number
 
     return signals
 
@@ -597,10 +687,10 @@ def _observations_from_document(document: dict) -> dict:
         for key, value in signals.items():
             # First signal on the document wins so one order is one vote.
             votes.setdefault(key, value)
+    # A freight item or a G/L freight line means delivery. No freight line
+    # is not evidence of pickup — older invoices often omit it.
     if saw_freight:
         votes["delivery_type"] = "delivery"
-    elif saw_track:
-        votes["delivery_type"] = "pickup"
     return votes
 
 
@@ -624,11 +714,26 @@ def _tally_field(counts: Counter) -> Optional[dict]:
     }
 
 
+def _is_catch_all_customer(customer_id: str, customer: Optional[BCCustomer]) -> bool:
+    """CASH / retail placeholders must not collect domains or contacts."""
+    tokens = {str(customer_id or "").strip().upper()}
+    if customer is not None:
+        tokens.add(str(customer.company_name or "").strip().upper())
+        meta = customer.customer_metadata if isinstance(customer.customer_metadata, dict) else {}
+        tokens.add(str(meta.get("number") or "").strip().upper())
+    return bool(tokens & CATCH_ALL_IDS)
+
+
 def _email_domain(email: Optional[str]) -> Optional[str]:
     if not email or "@" not in email:
         return None
     domain = email.rsplit("@", 1)[1].strip().lower()
-    if not domain or "." not in domain or domain in FREE_MAIL_DOMAINS:
+    if (
+        not domain
+        or "." not in domain
+        or domain in FREE_MAIL_DOMAINS
+        or domain in INTERNAL_DOMAINS
+    ):
         return None
     return domain
 
@@ -684,8 +789,11 @@ def seed_profiles_from_documents(db: Session, documents: Sequence[dict]) -> dict
             for key, value in votes.items():
                 if key in tallies and value not in (None, ""):
                     tallies[key][value] += 1
-            email = (document.get("email") or "").strip().lower()
-            if email and "@" in email:
+            if _is_catch_all_customer(customer_id, customer):
+                email = ""
+            else:
+                email = (document.get("email") or "").strip().lower()
+            if email and "@" in email and _email_domain(email):
                 contacts.setdefault(email, {
                     "name": document.get("contact_name") or None,
                     "email": email,
@@ -833,86 +941,296 @@ def seed_profiles(
     return stats
 
 
+def seed_job_status(db: Session) -> dict:
+    from app.db.models import AppSettings
+    row = db.query(AppSettings).filter(AppSettings.setting_key == SEED_JOB_KEY).first()
+    if row is None or not isinstance(row.setting_value, dict):
+        return {"status": "idle", "done": 0, "total": 0, "errors": []}
+    return row.setting_value
+
+
+def _save_seed_job(db: Session, payload: dict) -> None:
+    from app.db.models import AppSettings
+    row = db.query(AppSettings).filter(AppSettings.setting_key == SEED_JOB_KEY).first()
+    if row is None:
+        db.add(AppSettings(
+            setting_key=SEED_JOB_KEY,
+            setting_value=payload,
+            description="Progress for the customer-profile history seed.",
+        ))
+    else:
+        row.setting_value = payload
+        row.updated_at = datetime.utcnow()
+
+
+def seed_customers_one_by_one(
+    customer_ids: Sequence[str],
+    fetch,
+    session_factory,
+    pause: float = 0.25,
+) -> dict:
+    """Seed each customer in its own transaction. ``pause`` throttles BC reads."""
+    total = len(list(customer_ids))
+    errors = []
+    for index, customer_id in enumerate(customer_ids, start=1):
+        db = session_factory()
+        try:
+            documents = fetch(customer_id)
+            seed_profiles_from_documents(db, documents)
+            _save_seed_job(db, {
+                "status": "running",
+                "done": index,
+                "total": total,
+                "current": customer_id,
+                "errors": errors,
+            })
+            db.commit()
+        except Exception as exc:
+            logger.warning("Profile seed failed for %s: %s", customer_id, exc)
+            errors.append({"bc_customer_id": customer_id, "error": str(exc)})
+            db.rollback()
+            try:
+                _save_seed_job(db, {
+                    "status": "running",
+                    "done": index,
+                    "total": total,
+                    "current": customer_id,
+                    "errors": errors,
+                })
+                db.commit()
+            except Exception:
+                db.rollback()
+        finally:
+            db.close()
+        if pause:
+            time.sleep(pause)
+    db = session_factory()
+    try:
+        finished = {"status": "finished", "done": total, "total": total, "errors": errors}
+        _save_seed_job(db, finished)
+        db.commit()
+    finally:
+        db.close()
+    return {"status": "finished", "done": total, "total": total, "errors": errors}
+
+
+def mark_seed_started(db: Session, total: int) -> dict:
+    """Record a running seed before the worker thread takes its first customer."""
+    payload = {"status": "running", "done": 0, "total": total, "errors": []}
+    _save_seed_job(db, payload)
+    db.flush()
+    return payload
+
+
+def start_background_seed(customer_ids: Sequence[str], fetch, session_factory, pause: float = 0.25) -> dict:
+    """Run ``seed_customers_one_by_one`` off the request thread."""
+    ids = list(customer_ids)
+
+    def _run():
+        try:
+            seed_customers_one_by_one(ids, fetch, session_factory, pause=pause)
+        except Exception:
+            logger.exception("Background profile seed failed")
+
+    threading.Thread(target=_run, name="customer-profile-seed", daemon=True).start()
+    return {"started": True, "status": "running", "done": 0, "total": len(ids)}
+
+
 # ---------------------------------------------------------------------------
 # Apply profile to a quote
 # ---------------------------------------------------------------------------
 
-def detect_explicit_fields(email_text: str, parsed_door: Optional[dict] = None) -> Dict[str, Any]:
-    """Values the email actually stated, keyed by configurator field name.
+def quote_email_text(subject: str = "", body: str = "", attachments: Any = None) -> str:
+    """Body plus any text already extracted from attachments.
 
-    The mapper fills every field, including defaults. This is how quoting
-    tells a silent email from one that asked for bracket mount.
+    Attachment files are not parsed here. When a later step has already
+    pulled text out of one, that text is part of what the email said.
+    """
+    parts = [subject or "", body or ""]
+    for item in attachments or []:
+        if isinstance(item, str):
+            parts.append(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        for key in ("text", "content", "body", "extracted_text"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                parts.append(value)
+    return "\n".join(part for part in parts if part)
+
+
+def _silent_reading() -> dict:
+    return {"basis": "silent", "value": None, "confidence": 0.0, "phrase": None}
+
+
+def _field_confidence(parsed: dict, names: Sequence[str]) -> Optional[float]:
+    scores = parsed.get("field_confidence") or parsed.get("fieldConfidence") or {}
+    if not isinstance(scores, dict):
+        return None
+    for name in names:
+        if name in scores and scores[name] is not None:
+            try:
+                return float(scores[name])
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _parsed_value(parsed: dict, names: Sequence[str]) -> Any:
+    for name in names:
+        if name in parsed and parsed[name] not in (None, ""):
+            return parsed[name]
+    return None
+
+
+def _value_in_text(value: Any, text: str) -> bool:
+    if value is None:
+        return False
+    token = str(value).strip()
+    if len(token) < 2:
+        return False
+    return re.search(rf"\b{re.escape(token)}\b", text, re.IGNORECASE) is not None
+
+
+def analyse_email(email_text: str, parsed_door: Optional[dict] = None) -> Dict[str, dict]:
+    """Read one door's email into per-field basis, value, and confidence.
+
+    ``explicit`` is something the message states (or the parser is sure of).
+    ``ambiguous`` is wording like "same as usual" with no value of its own.
+    ``low_confidence`` is a parser value below the line we will quote.
+    ``silent`` means the email did not address the field.
     """
     text = email_text or ""
     parsed = parsed_door or {}
-    explicit: Dict[str, Any] = {}
+    readings = {key: _silent_reading() for key in list(DOOR_KEYS.values()) + ["deliveryType"]}
 
     angle = bool(_ANGLE_RE.search(text))
     bracket = bool(_BRACKET_RE.search(text))
     if not angle and not bracket:
-        # "bracket" or "angle" on its own still counts when the other word is absent.
         if _BARE_BRACKET_RE.search(text) and not _BARE_ANGLE_RE.search(text):
             bracket = True
         elif _BARE_ANGLE_RE.search(text) and not _BARE_BRACKET_RE.search(text):
             angle = True
-    parsed_mount = parsed.get("track_mount") or parsed.get("trackMount") or parsed.get("mount")
-    if parsed_mount:
-        token = str(parsed_mount).lower()
-        if "angle" in token:
-            angle, bracket = True, False
-        elif "bracket" in token:
-            bracket, angle = True, False
     if angle and not bracket:
-        explicit["trackMount"] = "angle"
+        readings["trackMount"] = {
+            "basis": "explicit", "value": "angle",
+            "confidence": TEXT_EXPLICIT_CONFIDENCE, "phrase": None,
+        }
     elif bracket and not angle:
-        explicit["trackMount"] = "bracket"
+        readings["trackMount"] = {
+            "basis": "explicit", "value": "bracket",
+            "confidence": TEXT_EXPLICIT_CONFIDENCE, "phrase": None,
+        }
+    elif angle and bracket:
+        readings["trackMount"] = {
+            "basis": "ambiguous", "value": None, "confidence": 0.4,
+            "phrase": "both bracket and angle",
+        }
 
     if _TRACK3_RE.search(text) and not _TRACK2_RE.search(text):
-        explicit["trackThickness"] = "3"
+        readings["trackThickness"] = {
+            "basis": "explicit", "value": "3",
+            "confidence": TEXT_EXPLICIT_CONFIDENCE, "phrase": None,
+        }
     elif _TRACK2_RE.search(text) and not _TRACK3_RE.search(text):
-        explicit["trackThickness"] = "2"
+        readings["trackThickness"] = {
+            "basis": "explicit", "value": "2",
+            "confidence": TEXT_EXPLICIT_CONFIDENCE, "phrase": None,
+        }
     radius = _RADIUS_RE.search(text)
     if radius:
-        explicit["trackRadius"] = radius.group(1)
-
+        readings["trackRadius"] = {
+            "basis": "explicit", "value": radius.group(1),
+            "confidence": TEXT_EXPLICIT_CONFIDENCE, "phrase": None,
+        }
     for lift, pattern in _LIFT_RES:
         if pattern.search(text):
-            explicit["liftType"] = lift
+            readings["liftType"] = {
+                "basis": "explicit", "value": lift,
+                "confidence": TEXT_EXPLICIT_CONFIDENCE, "phrase": None,
+            }
             break
-    parsed_lift = parsed.get("lift") or parsed.get("lift_type") or parsed.get("liftType")
-    if parsed_lift and "liftType" not in explicit:
-        explicit["liftType"] = str(parsed_lift)
-
     series = _SERIES_RE.search(text)
     if series:
-        explicit["doorSeries"] = series.group(1).upper()
-    elif parsed.get("model") or parsed.get("series"):
-        explicit["doorSeries"] = str(parsed.get("model") or parsed.get("series")).upper()
-
-    if parsed.get("color") or parsed.get("colour") or parsed.get("panel_color"):
-        explicit["panelColor"] = str(parsed.get("color") or parsed.get("colour") or parsed.get("panel_color"))
-    if parsed.get("panel_design") or parsed.get("design") or parsed.get("stamp"):
-        explicit["panelDesign"] = str(parsed.get("panel_design") or parsed.get("design") or parsed.get("stamp"))
-
-    if parsed.get("glazing") or parsed.get("glass"):
-        explicit["glazingType"] = parsed.get("glazing") or parsed.get("glass")
-    if parsed.get("has_windows") is True or re.search(r"\bwith\s+windows\b|\bwindows\b", text, re.I):
-        if not re.search(r"\bno\s+windows\b|\bwithout\s+windows\b", text, re.I):
-            explicit["hasWindows"] = True
+        readings["doorSeries"] = {
+            "basis": "explicit", "value": series.group(1).upper(),
+            "confidence": TEXT_EXPLICIT_CONFIDENCE, "phrase": None,
+        }
+    for color_code, pattern in _COLOR_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            readings["panelColor"] = {
+                "basis": "explicit", "value": color_code,
+                "confidence": TEXT_EXPLICIT_CONFIDENCE, "phrase": None,
+            }
+            break
     if re.search(r"\bno\s+windows\b|\bwithout\s+windows\b", text, re.I):
-        explicit["hasWindows"] = False
-
-    if parsed.get("operator") or parsed.get("opener"):
-        explicit["operator"] = parsed.get("operator") or parsed.get("opener")
-
+        readings["hasWindows"] = {
+            "basis": "explicit", "value": False,
+            "confidence": TEXT_EXPLICIT_CONFIDENCE, "phrase": None,
+        }
+    elif re.search(r"\bwith\s+windows\b|\bwindows\b", text, re.I):
+        readings["hasWindows"] = {
+            "basis": "explicit", "value": True,
+            "confidence": TEXT_EXPLICIT_CONFIDENCE, "phrase": None,
+        }
     pickup = bool(_PICKUP_RE.search(text))
     delivery = bool(_DELIVERY_RE.search(text))
     if pickup and not delivery:
-        explicit["deliveryType"] = "pickup"
+        readings["deliveryType"] = {
+            "basis": "explicit", "value": "pickup",
+            "confidence": TEXT_EXPLICIT_CONFIDENCE, "phrase": None,
+        }
     elif delivery and not pickup:
-        explicit["deliveryType"] = "delivery"
+        readings["deliveryType"] = {
+            "basis": "explicit", "value": "delivery",
+            "confidence": TEXT_EXPLICIT_CONFIDENCE, "phrase": None,
+        }
 
-    return explicit
+    # Parser field confidence. A sure extraction can name a value our
+    # keywords missed. A weak one never overrides the profile.
+    for door_key, names in _PARSED_FIELD_KEYS.items():
+        if readings[door_key]["basis"] == "explicit":
+            continue
+        parsed_value = _parsed_value(parsed, names)
+        score = _field_confidence(parsed, names)
+        if parsed_value is None or score is None:
+            if (
+                readings[door_key]["basis"] == "silent"
+                and parsed_value is not None
+                and _value_in_text(parsed_value, text)
+            ):
+                if door_key == "panelColor":
+                    parsed_value = _normalize_color(parsed_value)
+                readings[door_key] = {
+                    "basis": "explicit", "value": parsed_value,
+                    "confidence": TEXT_EXPLICIT_CONFIDENCE, "phrase": None,
+                }
+            continue
+        if door_key == "panelColor":
+            parsed_value = _normalize_color(parsed_value)
+        if score >= EXPLICIT_PARSE_CONFIDENCE:
+            readings[door_key] = {
+                "basis": "explicit", "value": parsed_value,
+                "confidence": score, "phrase": None,
+            }
+        elif score < MIN_CONFIDENCE:
+            readings[door_key] = {
+                "basis": "low_confidence", "value": parsed_value,
+                "confidence": score, "phrase": None,
+            }
+
+    phrase = None
+    ambiguous = _AMBIGUOUS_RE.search(text)
+    if ambiguous:
+        phrase = ambiguous.group(0)
+        for door_key, reading in readings.items():
+            if reading["basis"] == "silent":
+                readings[door_key] = {
+                    "basis": "ambiguous", "value": None, "confidence": 0.35,
+                    "phrase": phrase,
+                }
+    return readings
 
 
 def _system_default(door_key: str, door: dict) -> Any:
@@ -956,6 +1274,8 @@ def _profile_value_for_door(profile_key: str, spec: dict) -> Any:
     value = spec.get("value")
     if profile_key == "windows":
         return str(value).lower() in {"yes", "true", "1"}
+    if profile_key == "glass":
+        return _normalize_glass(value)
     if profile_key == "track_size":
         return str(value)
     if profile_key == "accessories" and isinstance(value, str):
@@ -964,14 +1284,125 @@ def _profile_value_for_door(profile_key: str, spec: dict) -> Any:
 
 
 def _source_entry(value: Any, source: str, spec: Optional[dict] = None) -> dict:
-    entry = {"value": value, "source": source}
+    entry = {"value": value, "source": source, "used": value}
     if spec:
         entry["locked"] = bool(spec.get("locked"))
         if spec.get("evidence"):
             entry["evidence"] = spec["evidence"]
         if spec.get("confidence") is not None:
             entry["confidence"] = spec["confidence"]
+        entry["profile_says"] = spec.get("value")
+        entry["profile_locked"] = bool(spec.get("locked"))
+        entry["profile_confidence"] = spec.get("confidence")
+        entry["profile_evidence"] = spec.get("evidence")
     return entry
+
+
+def _request_label(field_key: str, value: Any) -> str:
+    if field_key in {"trackMount", "track_mount"}:
+        return f"{_label(value)} mount"
+    if field_key in {"trackThickness", "track_size"}:
+        return f"{_label(value)} track"
+    return _label(value)
+
+
+def _standard_deviation(field_key: str, email_value: Any, spec: dict, customer_name: Optional[str]) -> dict:
+    """Email stated something other than the customer's standard. Email wins."""
+    who = customer_name or "Customer"
+    bits = []
+    if spec.get("locked"):
+        bits.append("locked")
+    if spec.get("support") and spec.get("total"):
+        bits.append(f"{spec['support']}/{spec['total']} orders")
+    detail = f" ({', '.join(bits)})" if bits else ""
+    reason = (
+        f"Email requests {_request_label(field_key, email_value)}; "
+        f"{who} standard is {_label(spec.get('value'))}{detail}"
+    )
+    return {
+        "kind": "deviation_from_customer_standard",
+        "field": field_key,
+        "email_value": email_value,
+        "profile_value": spec.get("value"),
+        "applied_value": email_value,
+        "locked": bool(spec.get("locked")),
+        "reason": reason,
+        "evidence": spec.get("evidence"),
+    }
+
+
+def _decide_from_email(field_key, reading, spec, profile_value, default, customer_name):
+    """Email, then profile, then default. Explicit email is never replaced."""
+    basis = (reading or {}).get("basis") or "silent"
+    applicable = profile_value is not None and is_applicable(spec)
+    if basis == "explicit":
+        used = reading.get("value")
+        deviations = []
+        hold = False
+        if applicable and not _same(used, profile_value):
+            deviations.append(_standard_deviation(field_key, used, spec, customer_name))
+            hold = True
+        entry = _source_entry(used, "email", spec if applicable else None)
+        entry.update({
+            "email_says": used,
+            "email_confidence": reading.get("confidence"),
+            "email_basis": "explicit",
+            "resolution": "explicit",
+            "profile_says": spec.get("value") if spec else None,
+        })
+        return used, entry, deviations, hold
+
+    if basis in {"ambiguous", "low_confidence"}:
+        phrase = reading.get("phrase")
+        if basis == "ambiguous":
+            note = f"Ambiguous email ({phrase or 'unclear'}); used the profile."
+        else:
+            score = reading.get("confidence") or 0
+            note = f"Low-confidence email extraction ({score:.2f}); used the profile."
+        if applicable:
+            entry = _source_entry(profile_value, "profile", spec)
+            entry.update({
+                "email_says": reading.get("value"),
+                "email_confidence": reading.get("confidence"),
+                "email_basis": basis,
+                "resolution": basis,
+                "note": note,
+                "marked": True,
+                "profile_says": spec.get("value"),
+            })
+            return profile_value, entry, [], False
+        entry = _source_entry(default, "default")
+        entry.update({
+            "email_says": reading.get("value"),
+            "email_confidence": reading.get("confidence"),
+            "email_basis": basis,
+            "resolution": basis,
+            "note": "Ambiguous email; no profile value, so the system default was used.",
+            "marked": True,
+            "profile_says": None,
+        })
+        return default, entry, [], False
+
+    if applicable:
+        entry = _source_entry(profile_value, "profile", spec)
+        entry.update({
+            "email_says": None,
+            "email_confidence": 0.0,
+            "email_basis": "silent",
+            "resolution": "silent",
+            "profile_says": spec.get("value"),
+        })
+        return profile_value, entry, [], False
+
+    entry = _source_entry(default, "default", spec)
+    entry.update({
+        "email_says": None,
+        "email_confidence": 0.0,
+        "email_basis": "silent",
+        "resolution": "silent",
+        "profile_says": spec.get("value") if spec else None,
+    })
+    return default, entry, [], False
 
 
 def apply_customer_profile(
@@ -984,113 +1415,104 @@ def apply_customer_profile(
     delivery_explicit: bool = False,
     explicit_fields: Optional[Sequence[Optional[Iterable[str]]]] = None,
     explicit_complete: bool = False,
+    customer_name: Optional[str] = None,
 ) -> dict:
-    """Fill silent door fields from the profile and tag every source.
+    """Fill a quote from the email, then the profile, then the system default.
 
-    ``explicit_fields`` is per door. ``None`` for a door means "only values
-    that still equal the system default are silent" (portal and staff
-    configurator, which always post a full door). A list, even an empty
-    one, is the email path: the mapper's defaults are not treated as the
-    customer having asked for them.
-
-    A locked profile value replaces a conflicting explicit email value and
-    records a deviation. An unlocked profile value does not override
-    something the email stated.
+    An explicit email value is what gets quoted. When that value differs
+    from a locked rule or a high-confidence profile value, the difference
+    is a deviation from the customer standard and ``hold_for_review`` is
+    set. Vague wording and a low-confidence extraction use the profile and
+    are marked. The profile fills a field the email left alone.
     """
     fields = (profile.fields or {}) if profile else {}
     sources_doors = []
     deviations = []
     updated_doors = []
+    hold = False
+    honour_email = bool(email_text)
 
     for index, door in enumerate(doors):
         door = dict(door or {})
         parsed = {}
         if parsed_doors and index < len(parsed_doors) and isinstance(parsed_doors[index], dict):
             parsed = parsed_doors[index]
-        detected = detect_explicit_fields(email_text, parsed) if email_text or parsed else {}
+        readings = analyse_email(email_text, parsed) if honour_email else {}
         provided = None
         if explicit_fields is not None and index < len(explicit_fields):
             provided = explicit_fields[index]
-        # Email passes a complete list of what the message stated, so an
-        # AI default is still silent. A portal touch-list only marks the
-        # controls the person changed; every other non-default stays.
-        complete = explicit_complete or bool(email_text) or bool(parsed)
         explicit_names = set(provided or [])
-        explicit_names.update(k for k in detected if k != "deliveryType")
 
         door_sources = {}
         for profile_key, door_key in DOOR_KEYS.items():
             spec = fields.get(profile_key) if isinstance(fields.get(profile_key), dict) else None
             applicable = is_applicable(spec)
-            current = door.get(door_key)
+            profile_value = _profile_value_for_door(profile_key, spec) if applicable else None
             default = _system_default(door_key, door)
+            asked = False
+            if honour_email:
+                reading = readings.get(door_key) or _silent_reading()
+                asked = reading.get("basis") == "explicit"
+            else:
+                reading = _silent_reading()
+                asked = door_key in explicit_names
+            # Windows, glass, and operators stay off the quote until the
+            # email (or a field the person edited) actually asks for them.
+            if door_key in {"hasWindows", "glazingType", "operator", "operatorAccessories"} and not asked:
+                door_sources[door_key] = _source_entry(door.get(door_key), "default")
+                door_sources[door_key]["resolution"] = "silent"
+                door_sources[door_key]["email_says"] = None
+                door_sources[door_key]["profile_says"] = spec.get("value") if spec else None
+                door_sources[door_key]["note"] = "Left off until the email asks for it."
+                continue
+            if honour_email:
+                used, entry, field_devs, field_hold = _decide_from_email(
+                    door_key, reading, spec, profile_value, default, customer_name,
+                )
+                for item in field_devs:
+                    item["door_index"] = index + 1
+                    deviations.append(item)
+                hold = hold or field_hold
+                door[door_key] = used
+                door_sources[door_key] = entry
+                continue
+
+            current = door.get(door_key)
             stated = door_key in explicit_names
-            if complete:
+            if explicit_complete:
                 silent = not stated
             else:
                 silent = (not stated) and _same(current, default)
-
-            # Aluminum / Panorama 3" track stays the rule when the email
-            # is silent, unless staff locked a different size.
-            if (
-                door_key == "trackThickness"
-                and silent
-                and not (spec and spec.get("locked"))
-            ):
-                from app.services.track_defaults import is_aluminum_door
-                if is_aluminum_door(door.get("doorSeries"), door.get("doorType")):
-                    door["trackThickness"] = "3"
-                    door_sources[door_key] = _source_entry("3", "default")
-                    continue
-
-            if stated and applicable and spec.get("locked"):
-                wanted = detected.get(door_key, current)
-                profile_value = _profile_value_for_door(profile_key, spec)
-                if not _same(wanted, profile_value):
-                    door[door_key] = profile_value
-                    door_sources[door_key] = _source_entry(profile_value, "profile", spec)
-                    deviations.append({
-                        "kind": "locked_rule",
-                        "field": door_key,
-                        "door_index": index + 1,
-                        "email_value": wanted,
-                        "applied_value": profile_value,
-                        "reason": (
-                            f"Email asked for {_label(wanted)}. "
-                            f"Locked customer rule is {_label(profile_value)}."
-                        ),
-                        "evidence": spec.get("evidence"),
-                    })
-                    continue
+            if stated:
+                door_sources[door_key] = _source_entry(current, "email", spec)
+                door_sources[door_key]["email_says"] = current
+                door_sources[door_key]["resolution"] = "explicit"
+                continue
             if silent and applicable:
-                profile_value = _profile_value_for_door(profile_key, spec)
                 door[door_key] = profile_value
                 door_sources[door_key] = _source_entry(profile_value, "profile", spec)
+                door_sources[door_key]["resolution"] = "silent"
                 continue
-            if stated:
-                if door_key in detected:
-                    door[door_key] = detected[door_key]
-                door_sources[door_key] = _source_entry(door.get(door_key), "email")
-                continue
-            # Still the system default (or an AI fill the email did not state,
-            # which we leave in place and tag as default when it matches).
             if _same(current, default) or current in (None, "", []):
                 if door_key == "trackThickness":
                     door[door_key] = default
                 door_sources[door_key] = _source_entry(door.get(door_key, default), "default")
             else:
-                # Portal posted a non-default the user picked.
-                door_sources[door_key] = _source_entry(current, "email")
+                door_sources[door_key] = _source_entry(current, "email", spec)
+            door_sources[door_key]["resolution"] = "silent"
         sources_doors.append(door_sources)
         updated_doors.append(door)
 
-    delivery_source = _resolve_delivery(
-        fields.get("delivery_type") if isinstance(fields.get("delivery_type"), dict) else None,
+    delivery_spec = fields.get("delivery_type") if isinstance(fields.get("delivery_type"), dict) else None
+    delivery_source, delivery_hold = _resolve_delivery(
+        delivery_spec,
         email_text,
         delivery_type,
         delivery_explicit,
         deviations,
+        customer_name,
     )
+    hold = hold or delivery_hold
     ship = None
     if profile and profile.ship_to and delivery_source["value"] == "delivery":
         ship = profile.ship_to
@@ -1102,48 +1524,45 @@ def apply_customer_profile(
             "deliveryType": delivery_source,
             "shipTo": ship,
             "doors": sources_doors,
+            "hold_for_review": hold,
         },
         "deviations": deviations,
+        "hold_for_review": hold,
     }
 
 
-def _resolve_delivery(spec, email_text, delivery_type, delivery_explicit, deviations) -> dict:
-    detected = detect_explicit_fields(email_text or "", None)
-    email_choice = detected.get("deliveryType")
-    applicable = is_applicable(spec)
+def _resolve_delivery(
+    spec, email_text, delivery_type, delivery_explicit, deviations, customer_name=None,
+):
+    """Return (source entry, hold). An explicit email choice is what is used."""
     current = (delivery_type or "delivery").lower()
-
-    if email_choice and applicable and spec.get("locked") and not _same(email_choice, spec.get("value")):
-        deviations.append({
-            "kind": "locked_rule",
-            "field": "deliveryType",
-            "door_index": None,
-            "email_value": email_choice,
-            "applied_value": spec.get("value"),
-            "reason": (
-                f"Email asked for {_label(email_choice)}. "
-                f"Locked customer rule is {_label(spec.get('value'))}."
-            ),
-            "evidence": spec.get("evidence"),
-        })
-        return _source_entry(spec.get("value"), "profile", spec)
-
-    if email_choice:
-        return _source_entry(email_choice, "email")
+    if email_text:
+        reading = analyse_email(email_text, {}).get("deliveryType") or _silent_reading()
+        profile_value = spec.get("value") if is_applicable(spec) else None
+        used, entry, field_devs, hold = _decide_from_email(
+            "deliveryType", reading, spec, profile_value, "delivery", customer_name,
+        )
+        for item in field_devs:
+            item["door_index"] = None
+            deviations.append(item)
+        return entry, hold
     if delivery_explicit:
-        return _source_entry(current, "email")
-    if applicable and _same(current, "delivery"):
-        # The email path used to hardcode delivery. A pickup profile replaces that.
-        return _source_entry(spec.get("value"), "profile", spec)
-    if applicable and not delivery_explicit and current in ("", None):
-        return _source_entry(spec.get("value"), "profile", spec)
-    if not _same(current, "delivery") and not delivery_explicit and not email_choice:
-        # Already pickup from an earlier apply. Keep it and say where it came from
-        # when the profile agrees.
-        if applicable and _same(current, spec.get("value")):
-            return _source_entry(current, "profile", spec)
-        return _source_entry(current, "email")
-    return _source_entry(current or "delivery", "default")
+        entry = _source_entry(current, "email", spec)
+        entry["resolution"] = "explicit"
+        entry["email_says"] = current
+        return entry, False
+    if is_applicable(spec) and (_same(current, "delivery") or current in ("", None)):
+        entry = _source_entry(spec.get("value"), "profile", spec)
+        entry["resolution"] = "silent"
+        entry["email_says"] = None
+        return entry, False
+    if not _same(current, "delivery") and is_applicable(spec) and _same(current, spec.get("value")):
+        entry = _source_entry(current, "profile", spec)
+        entry["resolution"] = "silent"
+        return entry, False
+    entry = _source_entry(current or "delivery", "default", spec)
+    entry["resolution"] = "silent"
+    return entry, False
 
 
 def apply_profile_for_customer(
@@ -1171,18 +1590,30 @@ def merge_part_deviations(existing: Optional[List[dict]], part_deviations: Optio
 # ---------------------------------------------------------------------------
 
 class CustomerMatch:
-    def __init__(self, bc_customer_id: Optional[str], method: str, confident: bool, reason: str, score: float = 0.0):
+    def __init__(
+        self,
+        bc_customer_id: Optional[str],
+        method: str,
+        confident: bool,
+        reason: str,
+        score: float = 0.0,
+        suggested: bool = False,
+    ):
         self.bc_customer_id = bc_customer_id
         self.method = method
         self.confident = confident
         self.reason = reason
         self.score = score
+        # Domain-only and fuzzy hits are suggestions. Staff confirm before
+        # the quote is priced, and confirming stores the email as a contact.
+        self.suggested = suggested
 
     def as_dict(self) -> dict:
         return {
             "bc_customer_id": self.bc_customer_id,
             "method": self.method,
             "confident": self.confident,
+            "suggested": self.suggested,
             "reason": self.reason,
             "score": round(self.score, 3),
         }
@@ -1214,10 +1645,11 @@ def match_bc_customer(
 ) -> CustomerMatch:
     """Match an inbound quote to a BC customer.
 
-    Confident matches: exact email, a profile contact, exact company name,
-    one customer on that email's domain (free-mail domains are ignored),
-    or one clearly best fuzzy company name. Anything else is not confident
-    and the quote is held instead of priced at retail.
+    Confident matches: exact email, a profile contact, or an exact company
+    name. A single customer on that email's domain (free-mail and our own
+    domains are ignored) and a clearly best fuzzy company name are
+    suggestions. Staff confirm those before the quote is priced. Anything
+    else is held instead of priced at retail.
     """
     email_norm = (email or "").strip().lower()
     name = (company_name or "").strip()
@@ -1299,9 +1731,10 @@ def match_bc_customer(
         if len(hits) == 1:
             cid, label = next(iter(hits.items()))
             return CustomerMatch(
-                cid, "domain", True,
-                f"Email domain @{domain} matches {label}",
+                cid, "domain", False,
+                f"Email domain @{domain} matches {label}. Confirm before pricing.",
                 0.9,
+                suggested=True,
             )
         if len(hits) > 1:
             return CustomerMatch(
@@ -1322,9 +1755,10 @@ def match_bc_customer(
             second = scored[1][0] if len(scored) > 1 else 0.0
             if best_score >= 0.88 and (best_score - second) >= 0.05:
                 return CustomerMatch(
-                    best.bc_customer_id, "fuzzy_name", True,
-                    f"Company name '{name}' matches {best.company_name} ({best_score:.0%})",
+                    best.bc_customer_id, "fuzzy_name", False,
+                    f"Company name '{name}' looks like {best.company_name} ({best_score:.0%}). Confirm before pricing.",
                     best_score,
+                    suggested=True,
                 )
             return CustomerMatch(
                 None, "ambiguous_fuzzy", False,

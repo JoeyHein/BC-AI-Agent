@@ -150,11 +150,29 @@ def get_pending_reviews(
     # Build query based on status parameter
     if status == "all":
         query = db.query(QuoteRequest)
+    elif status == "pending":
+        # "Pending" is anything still waiting for a person, including a
+        # quote held because the email differs from the customer standard.
+        query = db.query(QuoteRequest).filter(
+            QuoteRequest.status.in_([
+                "pending",
+                "low_confidence",
+                "needs_manual_review",
+                "held_for_customer_match",
+                "held_for_standard_deviation",
+            ])
+        )
     elif status:
         query = db.query(QuoteRequest).filter(QuoteRequest.status == status)
     else:
         query = db.query(QuoteRequest).filter(
-            QuoteRequest.status.in_(["pending", "low_confidence"])
+            QuoteRequest.status.in_([
+                "pending",
+                "low_confidence",
+                "needs_manual_review",
+                "held_for_customer_match",
+                "held_for_standard_deviation",
+            ])
         )
 
     # Filter by confidence if specified
@@ -232,6 +250,45 @@ def get_quote(quote_id: int, db: Session = Depends(get_db)):
         matched_bc_customer_id=quote.matched_bc_customer_id,
         customer_match=quote.customer_match,
     )
+
+
+@router.post("/{quote_id}/confirm-customer")
+def confirm_suggested_customer(
+    quote_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Accept a domain or fuzzy suggestion and remember the sender.
+
+    The quote stays unpriced until someone generates it. Confirming only
+    stores the email on that customer's contact list so the next message
+    matches exactly, and clears the suggestion hold.
+    """
+    from app.services.customer_profile_service import get_or_create_profile
+    quote = db.query(QuoteRequest).filter(QuoteRequest.id == quote_id).first()
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quote request not found")
+    match = quote.customer_match or {}
+    customer_id = match.get("bc_customer_id")
+    if not customer_id or not match.get("suggested"):
+        raise HTTPException(status_code=400, detail="No suggested customer to confirm")
+    profile = get_or_create_profile(db, customer_id)
+    email = (quote.contact_email or "").strip().lower()
+    contacts = [dict(item) for item in (profile.contacts or []) if isinstance(item, dict)]
+    if email and email not in {item.get("email") for item in contacts}:
+        contacts.append({"email": email, "name": quote.customer_name, "role": "quote"})
+    profile.contacts = contacts
+    quote.customer_match = {
+        **match,
+        "suggested": False,
+        "confident": True,
+        "method": "confirmed_contact",
+        "reason": f"Staff confirmed {email or 'the sender'} for {customer_id}",
+    }
+    quote.matched_bc_customer_id = customer_id
+    quote.status = "pending"
+    db.commit()
+    return {"bc_customer_id": customer_id, "status": quote.status}
 
 
 @router.post("/{quote_id}/feedback", response_model=FeedbackResponse)

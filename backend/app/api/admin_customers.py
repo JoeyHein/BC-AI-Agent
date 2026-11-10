@@ -21,11 +21,15 @@ from app.db.models import (
 )
 from app.services.customer_profile_service import (
     apply_staff_edit,
+    documents_from_bc,
     get_profile,
     profile_to_dict,
     quoting_mode,
+    mark_seed_started,
+    seed_job_status,
     seed_profiles,
     set_quoting_mode,
+    start_background_seed,
 )
 from app.services.auth_service import auth_service
 from app.services.staff_permissions import (
@@ -804,17 +808,47 @@ def seed_customer_profiles(
     Pass ``documents`` to seed from a payload instead of calling BC.
     Locked fields are left as staff set them.
     """
-    stats = seed_profiles(
-        db,
-        bc_customer_id=body.bc_customer_id,
-        documents=body.documents,
-    )
+    from app.db.database import SessionLocal
+    from app.integrations.bc.client import bc_client
+    # One customer, or a caller-supplied document list, stays in this request.
+    if body.bc_customer_id or body.documents is not None:
+        stats = seed_profiles(
+            db,
+            bc_customer_id=body.bc_customer_id,
+            documents=body.documents,
+        )
+        db.commit()
+        logger.info(
+            "Profile seed by %s: %s customers, %s documents",
+            current_admin.email, stats.get("customers"), stats.get("documents"),
+        )
+        return stats
+    current = seed_job_status(db)
+    if current.get("status") == "running":
+        raise HTTPException(status_code=409, detail="A profile seed is already running")
+    ids = [
+        row[0]
+        for row in db.query(BCCustomer.bc_customer_id)
+        .filter(~BCCustomer.bc_customer_id.like("TEMP-%"))
+        .all()
+    ]
+
+    def _fetch(customer_id):
+        return documents_from_bc(bc_client, customer_id)
+
+    job = mark_seed_started(db, len(ids))
     db.commit()
-    logger.info(
-        "Profile seed by %s: %s customers, %s documents",
-        current_admin.email, stats.get("customers"), stats.get("documents"),
-    )
-    return stats
+    start_background_seed(ids, _fetch, SessionLocal, pause=0.25)
+    logger.info("Profile seed-all started by %s for %s customers", current_admin.email, len(ids))
+    return job
+
+
+@router.get("/profiles/seed-status")
+def customer_profile_seed_status(
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    return seed_job_status(db)
 
 
 @router.get("/{customer_id}", response_model=CustomerDetailResponse)

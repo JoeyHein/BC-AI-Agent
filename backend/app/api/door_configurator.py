@@ -832,6 +832,10 @@ class QuoteGenerationRequest(BaseModel):
     # the email path after it has already applied the profile). False
     # lets a pickup customer's profile replace the delivery default.
     deliveryExplicit: bool = False
+    # The email path already applied the profile using the message text.
+    # The builder must not apply it again: an explicit "bracket" or "white"
+    # equals the system default and would be treated as silence.
+    profileApplied: bool = False
     installTown: Optional[str] = None  # job-site town for home-builder install travel
     # When provided, the endpoint clears all lines on this BC quote and
     # re-adds them rather than creating a new quote. Used by the internal
@@ -1533,30 +1537,43 @@ def build_bc_quote_from_doors(
         profile_mode = quoting_mode(db)
         profile_deviations = []
         profile_sources = None
-        if profile_mode in {"shadow", "on"}:
-            door_payloads = [door.model_dump() for door in request.doors]
-            explicit_markers = [payload.get("explicitFields") for payload in door_payloads]
-            applied_profile = apply_profile_for_customer(
-                db,
-                request.customerId,
-                door_payloads,
-                delivery_type=request.deliveryType or "delivery",
-                delivery_explicit=bool(request.deliveryExplicit),
-                explicit_fields=explicit_markers if any(marker is not None for marker in explicit_markers) else None,
-            )
-            profile_sources = {**applied_profile["field_sources"], "mode": profile_mode}
-            profile_deviations = list(applied_profile["deviations"])
-            logger.info(
-                "Customer profile quoting mode=%s customer=%s deviations=%s",
-                profile_mode, request.customerId, len(profile_deviations),
-            )
-            if profile_mode == "on":
-                for door, updated in zip(request.doors, applied_profile["doors"]):
-                    for key, value in updated.items():
-                        if key == "explicitFields" or not hasattr(door, key):
-                            continue
-                        setattr(door, key, value)
-                request.deliveryType = applied_profile["delivery_type"] or request.deliveryType
+        if getattr(request, "profileApplied", False):
+            # Email quoting already applied the profile with the message text.
+            profile_mode = "off"
+        elif profile_mode in {"shadow", "on"}:
+            try:
+                door_payloads = [door.model_dump() for door in request.doors]
+                explicit_markers = [payload.get("explicitFields") for payload in door_payloads]
+                applied_profile = apply_profile_for_customer(
+                    db,
+                    request.customerId,
+                    door_payloads,
+                    delivery_type=request.deliveryType or "delivery",
+                    delivery_explicit=bool(request.deliveryExplicit),
+                    explicit_fields=explicit_markers if any(marker is not None for marker in explicit_markers) else None,
+                )
+                profile_sources = {**applied_profile["field_sources"], "mode": profile_mode}
+                profile_deviations = list(applied_profile["deviations"])
+                logger.info(
+                    "Customer profile quoting mode=%s customer=%s deviations=%s",
+                    profile_mode, request.customerId, len(profile_deviations),
+                )
+                if profile_mode == "on":
+                    for door, updated in zip(request.doors, applied_profile["doors"]):
+                        for key, value in updated.items():
+                            if key in {"explicitFields", "_touched"} or not hasattr(door, key):
+                                continue
+                            setattr(door, key, value)
+                    request.deliveryType = applied_profile["delivery_type"] or request.deliveryType
+            except Exception:
+                logger.exception(
+                    "Customer profile quoting failed (mode=%s); leaving the posted doors unchanged",
+                    profile_mode,
+                )
+                profile_sources = None
+                profile_deviations = []
+                if profile_mode != "shadow":
+                    raise
 
         # Load spring inventory from BC so quotes use stocked springs
         spring_inventory = get_bc_spring_inventory()

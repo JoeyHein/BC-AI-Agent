@@ -59,36 +59,24 @@ class OrderLifecycleService:
             return {"success": False, "error": "No BC quote ID found - create BC quote first"}
 
         try:
-            from app.services.customer_profile_service import quoting_mode
-            mode = quoting_mode(db)
-            if mode == "on":
-                # By document number. The first page of salesQuotes does
-                # not contain SQ-003xxx once the company is past 100 quotes.
+            # By document number. This does not depend on the profile
+            # switch: the first page of salesQuotes drops SQ-003xxx once
+            # the company is past 100 quotes. A failed number lookup falls
+            # back to that page.
+            bc_quote = None
+            try:
                 bc_quote = self.bc_client.get_sales_quote_by_number(quote_request.bc_quote_id)
-            else:
+            except Exception as lookup_err:
+                logger.info(
+                    "Quote number lookup failed for %s (%s); trying the first page",
+                    quote_request.bc_quote_id, lookup_err,
+                )
+            if not bc_quote:
                 bc_quotes = self.bc_client.get_sales_quotes(top=100)
-                bc_quote = None
                 for q in bc_quotes:
                     if q.get("number") == quote_request.bc_quote_id:
                         bc_quote = q
                         break
-                if mode == "shadow":
-                    try:
-                        by_number = self.bc_client.get_sales_quote_by_number(
-                            quote_request.bc_quote_id
-                        )
-                    except Exception as lookup_err:
-                        by_number = None
-                        logger.info(
-                            "Shadow quote lookup failed for %s: %s",
-                            quote_request.bc_quote_id, lookup_err,
-                        )
-                    logger.info(
-                        "Shadow quote lookup %s page_hit=%s number_hit=%s",
-                        quote_request.bc_quote_id,
-                        bool(bc_quote),
-                        bool(by_number),
-                    )
 
             if not bc_quote:
                 return {"success": False, "error": f"BC quote {quote_request.bc_quote_id} not found"}
