@@ -4300,6 +4300,110 @@ def list_special_orders(
 
 
 # ============================================================================
+# REPLACEMENT SECTION FINDER
+# ============================================================================
+
+class SectionFinderRequest(BaseModel):
+    application: Optional[str] = None
+    series: Optional[str] = None
+    thickness: Optional[str] = None
+    gauge: Optional[str] = None
+    section_height: Optional[int] = None
+    width_feet: Optional[int] = None
+    width_inches: Optional[int] = None
+    color: Optional[str] = None
+    design: Optional[str] = None
+    position: Optional[str] = None
+    windows: Optional[bool] = None
+    quantity: Optional[int] = None
+    notes: Optional[str] = None
+    photo: Optional[str] = None
+
+
+def _finder_mode(db: Session) -> str:
+    from app.services.quote_price_overrides import load_price_overrides
+    return load_price_overrides(db).finder_mode
+
+
+@router.get("/section-finder")
+def section_finder_status(
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db),
+):
+    """Portal switch for the replacement section finder. Off hides it."""
+    from app.services.section_finder import finder_options
+    mode = _finder_mode(db)
+    if mode == "off":
+        return {"mode": "off", "options": None}
+    return {"mode": mode, "options": finder_options()}
+
+
+@router.post("/section-finder/resolve")
+def section_finder_resolve(
+    body: SectionFinderRequest,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db),
+):
+    """Resolve one section, or say why it has to be reviewed. Nothing is saved."""
+    from app.services.section_finder import resolve_section
+    mode = _finder_mode(db)
+    if mode == "off":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Section finder is off.")
+    result = resolve_section(body.model_dump())
+    result["mode"] = mode
+    if mode == "shadow":
+        logger.info(
+            "SHADOW quote_section_finder: %s %s",
+            result.get("status"),
+            result.get("part_number") or result.get("reasons"),
+        )
+    return result
+
+
+@router.post("/section-finder/review")
+def section_finder_review(
+    body: SectionFinderRequest,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db),
+):
+    """Save an unresolved section request for staff. Shadow only logs it."""
+    from app.db.models import PublicQuoteRequest
+    from app.services.section_finder import resolve_section
+    mode = _finder_mode(db)
+    if mode == "off":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Section finder is off.")
+    answers = body.model_dump()
+    photo = answers.pop("photo", None)
+    result = resolve_section(answers)
+    if mode == "shadow":
+        logger.info(
+            "SHADOW quote_section_finder: would file a staff review for %s (%s)",
+            current_user.email,
+            result.get("reasons"),
+        )
+        return {"status": "shadow", "saved": False, "reasons": result.get("reasons") or []}
+    record = PublicQuoteRequest(
+        name=current_user.name or current_user.company_name or current_user.email,
+        email=current_user.email,
+        phone=current_user.phone,
+        notes=(body.notes or "").strip() or "Replacement section request. Needs staff review.",
+        door_config={
+            "kind": "replacement_section_review",
+            "needs_staff_review": True,
+            "answers": answers,
+            "resolution": result,
+        },
+        door_image=photo,
+        source="section_finder",
+        status="new",
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return {"status": "review", "saved": True, "id": record.id, "reasons": result.get("reasons") or []}
+
+
+# ============================================================================
 # PARTS CART ENDPOINTS
 # ============================================================================
 
@@ -4360,7 +4464,30 @@ def create_cart_quote(
         bc_quote_number = bc_quote.get("number")
         logger.info(f"Created cart BC quote: {bc_quote_number} (ID: {bc_quote_id})")
 
-        # Add line items
+        # Add line items. A cart that is only steel sections uses the
+        # item-card list price when replacement-section pricing or the
+        # section finder is on. Shadow logs that price and leaves BC's
+        # customer price in place. Off matches the previous cart.
+        from app.services.quote_price_overrides import (
+            card_list_price,
+            is_section_panel_line,
+            load_price_overrides,
+        )
+        price_settings = load_price_overrides(db)
+        sections_only = all(
+            is_section_panel_line({"part_number": item.item_number})
+            for item in body.items
+        )
+        list_price_mode = "off"
+        if sections_only and (
+            price_settings.panel_mode == "on" or price_settings.finder_mode == "on"
+        ):
+            list_price_mode = "on"
+        elif sections_only and (
+            price_settings.panel_mode == "shadow" or price_settings.finder_mode == "shadow"
+        ):
+            list_price_mode = "shadow"
+
         line_pricing = []
         lines_failed = []
 
@@ -4377,7 +4504,34 @@ def create_cart_quote(
                 # Trust BC SalesPriceLists for the price — do NOT override with
                 # the legacy margin engine. BC resolves the unit price on POST
                 # (Customer → Price Group → All Customers → Item card).
+                # A sections-only cart is the exception when that switch is on:
+                # the sell price is the item card, not the customer's group.
                 unit_price = added_line.get("unitPrice", 0)
+                if list_price_mode != "off":
+                    card_price = card_list_price(item.item_number)
+                    if card_price is None:
+                        logger.info(
+                            "%squote_replacement_section_pricing: %s list price missing; customer price kept",
+                            "SHADOW " if list_price_mode == "shadow" else "",
+                            item.item_number,
+                        )
+                    elif list_price_mode == "shadow":
+                        logger.info(
+                            "SHADOW quote_replacement_section_pricing: cart %s would be list $%.2f; quote unchanged",
+                            item.item_number, card_price,
+                        )
+                    else:
+                        bc_client.update_quote_line(
+                            bc_quote_id,
+                            added_line["id"],
+                            added_line.get("@odata.etag", "*"),
+                            {"unitPrice": card_price},
+                        )
+                        unit_price = card_price
+                        logger.info(
+                            "quote_replacement_section_pricing: cart %s fixed at list $%.2f",
+                            item.item_number, card_price,
+                        )
                 line_pricing.append({
                     "item_number": item.item_number,
                     "description": added_line.get("description", item.description or ""),

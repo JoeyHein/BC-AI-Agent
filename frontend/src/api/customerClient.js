@@ -256,6 +256,12 @@ export const cartApi = {
     customerApiClient.post('/api/customer/portal/cart/place-order', { bc_quote_id: bcQuoteId }),
 };
 
+export const sectionFinderApi = {
+  status: () => customerApiClient.get('/api/customer/portal/section-finder'),
+  resolve: (answers) => customerApiClient.post('/api/customer/portal/section-finder/resolve', answers),
+  review: (answers) => customerApiClient.post('/api/customer/portal/section-finder/review', answers),
+};
+
 // Projects API (Home Builder)
 export const projectsApi = {
   // List all projects with lot counts

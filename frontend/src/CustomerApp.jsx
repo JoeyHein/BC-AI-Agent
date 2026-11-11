@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { CustomerAuthProvider, useCustomerAuth } from './contexts/CustomerAuthContext'
@@ -20,9 +21,11 @@ import PartsCatalog from './components/customer/PartsCatalog'
 import SpringBuilder from './components/customer/SpringBuilder'
 import SpecialOrders from './components/customer/SpecialOrders'
 import PartsCart from './components/customer/PartsCart'
+import SectionFinder from './components/customer/SectionFinder'
 import ProjectManager from './components/customer/ProjectManager'
 import { CartProvider } from './contexts/CartContext'
 import { CUSTOMER_PARTS_FEATURES_ENABLED } from './config/featureFlags'
+import { sectionFinderApi } from './api/customerClient'
 
 // Create React Query client
 const queryClient = new QueryClient({
@@ -75,6 +78,24 @@ function NotFoundRoute() {
 // Feature-flag gated route — redirects to dashboard when the not-yet-released
 // parts experience (Catalog / Spring Builder / Cart) is disabled, so those
 // pages can't be reached by direct URL while the tabs are hidden.
+function CartRoute() {
+  const [allowed, setAllowed] = useState(CUSTOMER_PARTS_FEATURES_ENABLED)
+  const [ready, setReady] = useState(CUSTOMER_PARTS_FEATURES_ENABLED)
+
+  useEffect(() => {
+    if (CUSTOMER_PARTS_FEATURES_ENABLED) return undefined
+    sectionFinderApi.status()
+      .then((response) => setAllowed((response.data?.mode || 'off') !== 'off'))
+      .catch(() => setAllowed(false))
+      .finally(() => setReady(true))
+    return undefined
+  }, [])
+
+  if (!ready) return null
+  if (!allowed) return <Navigate to="/" replace />
+  return <PartsCart />
+}
+
 function WipGatedRoute({ children }) {
   if (!CUSTOMER_PARTS_FEATURES_ENABLED) {
     return <Navigate to="/" replace />
@@ -142,9 +163,10 @@ function CustomerAppContent() {
         <Route path="saved-quotes" element={<SavedQuotes />} />
         <Route path="saved-quotes/new" element={<QuoteBuilder />} />
         <Route path="saved-quotes/:id" element={<QuoteBuilder />} />
+        <Route path="section-finder" element={<SectionFinder />} />
         <Route path="catalog" element={<WipGatedRoute><AccountGatedRoute allowed={['dealer']}><PartsCatalog /></AccountGatedRoute></WipGatedRoute>} />
         <Route path="spring-builder" element={<WipGatedRoute><AccountGatedRoute allowed={['dealer']}><SpringBuilder /></AccountGatedRoute></WipGatedRoute>} />
-        <Route path="cart" element={<WipGatedRoute><AccountGatedRoute allowed={['dealer']}><PartsCart /></AccountGatedRoute></WipGatedRoute>} />
+        <Route path="cart" element={<CartRoute />} />
         <Route path="special-orders" element={<AccountGatedRoute allowed={['dealer']}><SpecialOrders /></AccountGatedRoute>} />
         <Route path="projects" element={<AccountGatedRoute allowed={['home_builder']}><ProjectManager /></AccountGatedRoute>} />
         <Route path="projects/:id" element={<AccountGatedRoute allowed={['home_builder']}><ProjectManager /></AccountGatedRoute>} />

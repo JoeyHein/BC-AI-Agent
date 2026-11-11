@@ -28,14 +28,13 @@ from app.services.bc_part_number_mapper import get_bc_mapper
 from app.services.part_number_service import get_parts_for_door_config
 from app.services.quote_price_overrides import (
     PriceOverrideSettings,
-    REPLACEMENT_MARGIN_KEY,
+    SECTION_PRICING_KEY,
     apply_door_price_overrides,
     apply_price_overrides,
     classify_residential_window,
     load_price_overrides,
     note_parts_request,
     replacement_request_kind,
-    replacement_unit_price,
     save_price_overrides,
     section_only_scope,
 )
@@ -74,7 +73,6 @@ PANELS_ONLY = {**DOOR_FACE, "bottomRetainer": False}
 
 ON = PriceOverrideSettings(
     panel_mode="on",
-    margin_percent=50,
     window_mode="on",
     long_price=165.00,
     short_price=120.00,
@@ -112,7 +110,7 @@ def _apply(parts, *, hardware, door_type, door_series, settings, costs=None):
         door_type=door_type,
         door_series=door_series,
         settings=settings,
-        cost_lookup=lookup,
+        list_lookup=lookup,
     )
 
 
@@ -142,7 +140,7 @@ def test_off_mode_matches_current_pricing():
         door_type="residential",
         door_series="KANATA",
         settings=OFF,
-        cost_lookup=lambda pn: called.append(pn),
+        list_lookup=lambda pn: called.append(pn),
     )
     assert called == []
     assert len(parts) == 4
@@ -275,7 +273,7 @@ def test_unknown_window_size_is_flagged_and_not_priced():
     assert parts[-1]["lineType"] == "Comment"
 
 
-def test_replacement_sections_are_cost_times_two():
+def test_replacement_sections_use_the_card_list_price():
     kanata = _panel("PN65-21005-1600", 2)
     tx450 = _panel("PN45-24400-0900", 1)
     _apply(
@@ -284,7 +282,7 @@ def test_replacement_sections_are_cost_times_two():
         door_type="residential",
         door_series="KANATA",
         settings=ON,
-        costs={"PN65-21005-1600": 204.45},
+        costs={"PN65-21005-1600": 454.34},
     )
     _apply(
         [tx450],
@@ -292,13 +290,14 @@ def test_replacement_sections_are_cost_times_two():
         door_type="commercial",
         door_series="TX450",
         settings=ON,
-        costs={"PN45-24400-0900": 131.72},
+        costs={"PN45-24400-0900": 288.00},
     )
-    assert kanata["fixed_unit_price"] == 408.90
+    assert kanata["fixed_unit_price"] == 454.34
     assert kanata["quantity"] == 2
-    assert kanata["quantity"] * kanata["fixed_unit_price"] == 817.80
-    assert tx450["fixed_unit_price"] == 263.44
-    assert "50%" in kanata["pricing_override"]
+    assert kanata["quantity"] * kanata["fixed_unit_price"] == 908.68
+    assert tx450["fixed_unit_price"] == 288.00
+    assert "list price" in kanata["pricing_override"]
+    assert DOORTECH_SILV["PN65-21005-1600"] == 380.96
     assert CARD_UNIT_PRICE["PN65-21005-1600"] == 454.34
     assert CARD_UNIT_PRICE["PN45-24400-0900"] == 288.00
 
@@ -318,7 +317,7 @@ def test_complete_door_section_is_not_overridden():
         door_type="residential",
         door_series="KANATA",
         settings=ON,
-        cost_lookup=lookup,
+        list_lookup=lookup,
     )
     assert called == []
     assert "fixed_unit_price" not in panel
@@ -347,8 +346,8 @@ def test_missing_or_zero_cost_is_flagged():
     )
     assert "fixed_unit_price" not in missing
     assert "fixed_unit_price" not in zero
-    assert "unit cost missing" in missing["pricing_flag"]
-    assert "unit cost missing" in zero["pricing_flag"]
+    assert "list price missing" in missing["pricing_flag"]
+    assert "list price missing" in zero["pricing_flag"]
 
 
 def _generated(overrides):
@@ -471,28 +470,14 @@ def test_decorative_kit_and_insert_are_one_price_per_window():
     assert short_kits[0]["quantity"] * short_kits[0]["fixed_unit_price"] == 240.00
 
 
-def test_cost_is_rounded_to_cents_before_the_margin():
-    line = _panel("PN65-21005-1600", 1)
-    _apply(
-        [line],
-        hardware=DOOR_FACE,
-        door_type="residential",
-        door_series="KANATA",
-        settings=PriceOverrideSettings(panel_mode="on", margin_percent=50, window_mode="off"),
-        costs={"PN65-21005-1600": 123.455},
-    )
-    assert line["fixed_unit_price"] == 246.92
-    assert "cost $123.46" in line["pricing_override"]
-    assert "unit $246.92" in line["pricing_override"]
-    assert replacement_unit_price(123.455, 50) == 246.92
-
-
-def test_static_item_export_is_not_used_when_bc_is_down(monkeypatch):
+def test_card_list_price_is_used_when_bc_is_down(monkeypatch):
     import app.integrations.bc.client as bc_client_mod
     import app.services.pricing_service as pricing
+    from app.services.quote_price_overrides import card_list_price
 
-    exported = get_bc_mapper().bc_items["PN65-21005-1600"]["unitCost"]
-    assert exported == 204.45
+    exported = get_bc_mapper().bc_items["PN65-21005-1600"]
+    assert exported["unitPrice"] == 454.34
+    assert exported["unitCost"] == 204.45
     monkeypatch.setattr(pricing, "_cache_expiry", 0)
     monkeypatch.setattr(pricing, "_bc_cost_cache", {})
 
@@ -500,33 +485,17 @@ def test_static_item_export_is_not_used_when_bc_is_down(monkeypatch):
         raise RuntimeError("BC unavailable")
 
     monkeypatch.setattr(bc_client_mod.bc_client, "get_items_by_numbers", offline)
+    assert card_list_price("PN65-21005-1600") == 454.34
     line = _panel("PN65-21005-1600", 1)
     apply_price_overrides(
         [line],
         hardware=DOOR_FACE,
         door_type="residential",
         door_series="KANATA",
-        settings=PriceOverrideSettings(panel_mode="on", margin_percent=50, window_mode="off"),
+        settings=PriceOverrideSettings(panel_mode="on", window_mode="off"),
     )
-    assert "fixed_unit_price" not in line
-    assert "unit cost missing" in line["pricing_flag"]
-
-
-def test_custom_margin_uses_cost_over_one_minus_margin():
-    line = _panel("PN65-21005-1600", 1)
-    settings = PriceOverrideSettings(panel_mode="on", margin_percent=40, window_mode="off")
-    _apply(
-        [line],
-        hardware=DOOR_FACE,
-        door_type="residential",
-        door_series="KANATA",
-        settings=settings,
-        costs={"PN65-21005-1600": 204.45},
-    )
-    assert line["fixed_unit_price"] == 340.75
-    assert replacement_unit_price(204.45, 50) == 408.90
-    assert replacement_unit_price(None, 50) is None
-    assert replacement_unit_price(0, 50) is None
+    assert line["fixed_unit_price"] == 454.34
+    assert DOORTECH_SILV["PN65-21005-1600"] == 380.96
 
 
 def test_shadow_logs_only(caplog):
@@ -535,7 +504,6 @@ def test_shadow_logs_only(caplog):
     unknown = _window("GK15-99200-00", 1, "GLASS KIT")
     settings = PriceOverrideSettings(
         panel_mode="shadow",
-        margin_percent=50,
         window_mode="shadow",
         long_price=165,
         short_price=120,
@@ -548,7 +516,7 @@ def test_shadow_logs_only(caplog):
             door_type="residential",
             door_series="KANATA",
             settings=settings,
-            costs={"PN65-21005-1600": 204.45},
+            costs={"PN65-21005-1600": 454.34},
         )
     assert len(parts) == 3
     for part in parts:
@@ -556,7 +524,7 @@ def test_shadow_logs_only(caplog):
         assert "pricing_flag" not in part
     text = caplog.text
     assert "SHADOW quote_flat_residential_windows: GK15-11205-00 qty 6.0 would be $165.00 each (long)" in text
-    assert "SHADOW quote_replacement_panel_margin: PN65-21005-1600 cost 204.45 would be $408.90" in text
+    assert "SHADOW quote_replacement_section_pricing: PN65-21005-1600 would be list price $454.34" in text
     assert "GK15-99200-00 size unknown" in text
 
 
@@ -610,12 +578,12 @@ def test_portal_dict_and_configurator_model_use_the_same_price():
     staff = _panel("PN65-21005-1600")
     portal_line = _panel("PN65-21005-1600")
     apply_door_price_overrides(
-        [staff], Door(), ON, cost_lookup=lambda pn: 204.45, emit_notes=False,
+        [staff], Door(), ON, list_lookup=lambda pn: 454.34, emit_notes=False,
     )
     apply_door_price_overrides(
-        [portal_line], portal, ON, cost_lookup=lambda pn: 204.45, emit_notes=False,
+        [portal_line], portal, ON, list_lookup=lambda pn: 454.34, emit_notes=False,
     )
-    assert staff["fixed_unit_price"] == portal_line["fixed_unit_price"] == 408.90
+    assert staff["fixed_unit_price"] == portal_line["fixed_unit_price"] == 454.34
     assert "pricing_override" in staff
 
 
@@ -650,7 +618,7 @@ def session():
 def test_settings_default_off_and_round_trip(session):
     loaded = load_price_overrides(session)
     assert loaded.panel_mode == "off"
-    assert loaded.margin_percent == 50
+    assert loaded.finder_mode == "off"
     assert loaded.window_mode == "off"
     assert loaded.long_price == 165.00
     assert loaded.short_price == 120.00
@@ -659,7 +627,7 @@ def test_settings_default_off_and_round_trip(session):
     save_price_overrides(
         session,
         panel_mode="on",
-        margin_percent=40,
+        finder_mode="shadow",
         window_mode="shadow",
         long_price=170,
         short_price=110,
@@ -667,7 +635,7 @@ def test_settings_default_off_and_round_trip(session):
     session.commit()
     again = load_price_overrides(session)
     assert again.panel_mode == "on"
-    assert again.margin_percent == 40
+    assert again.finder_mode == "shadow"
     assert again.window_mode == "shadow"
     assert again.long_price == 170
     assert again.short_price == 110
@@ -676,36 +644,28 @@ def test_settings_default_off_and_round_trip(session):
     session.commit()
     kept = load_price_overrides(session)
     assert kept.panel_mode == "off"
-    assert kept.margin_percent == 40
+    assert kept.finder_mode == "shadow"
 
-    save_price_overrides(session, margin_percent=99.999)
+    retired = AppSettings(
+        setting_key="quote_replacement_panel_margin",
+        setting_value={"mode": "on", "margin_percent": 50},
+    )
+    session.add(retired)
     session.commit()
-    assert load_price_overrides(session).margin_percent == 99.999
-
-    stored = session.query(AppSettings).filter(
-        AppSettings.setting_key == REPLACEMENT_MARGIN_KEY
-    ).one()
-    stored.setting_value = {"mode": "on", "margin_percent": 100}
-    session.commit()
-    loaded_invalid = load_price_overrides(session)
-    assert loaded_invalid.panel_mode == "on"
-    assert loaded_invalid.margin_percent == 50
-
-    with pytest.raises(ValueError):
-        save_price_overrides(session, margin_percent=100)
+    assert load_price_overrides(session).panel_mode == "off"
 
 
 def test_parts_request_note_logs_only_when_enabled(session, caplog):
     with caplog.at_level(logging.INFO):
         note_parts_request(session, "RFQ", "need 2 replacement panels")
-    assert "quote_replacement_panel_margin" not in caplog.text
+    assert SECTION_PRICING_KEY not in caplog.text
 
-    save_price_overrides(session, panel_mode="shadow", margin_percent=50)
+    save_price_overrides(session, panel_mode="shadow")
     session.commit()
     caplog.clear()
     with caplog.at_level(logging.INFO):
         note_parts_request(session, "RFQ", "need 2 replacement panels")
-    assert "SHADOW quote_replacement_panel_margin" in caplog.text
+    assert "SHADOW quote_replacement_section_pricing" in caplog.text
     assert "replacement panel or section" in caplog.text
     assert "stays in manual pricing" in caplog.text
 
@@ -714,6 +674,6 @@ def test_parts_request_note_logs_only_when_enabled(session, caplog):
     caplog.clear()
     with caplog.at_level(logging.INFO):
         note_parts_request(session, "RFQ", "torsion springs")
-    assert caplog.text.startswith("quote_replacement_panel_margin") or "quote_replacement_panel_margin: email" in caplog.text
+    assert "quote_replacement_section_pricing: email" in caplog.text
     assert "not a section" in caplog.text
     assert "SHADOW" not in caplog.text
