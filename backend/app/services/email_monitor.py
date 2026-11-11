@@ -644,9 +644,17 @@ class EmailMonitorService:
                 quote_request.parsed_data = {**parsed_data, "configurator_mapping": mapping}
 
                 if request_kind == "parts_request":
-                    # Replacement parts (panels, sections, springs) have no
-                    # portal costing yet — never guess a price. Route to a human.
+                    # The mapping has no section lines, so this email stays
+                    # with a person in every mode. A panels-only or door-face
+                    # quote built in the configurator is where the margin
+                    # setting prices section lines. Shadow and on only log
+                    # that policy here.
                     logger.info("  -> Classified as parts/replacement request; routing to manual pricing")
+                    try:
+                        from app.services.quote_price_overrides import note_parts_request
+                        note_parts_request(db, subject, body)
+                    except Exception:
+                        logger.warning("Replacement-panel pricing note failed", exc_info=True)
                     quote_request.status = "needs_manual_pricing"
                     db.commit()
                     return

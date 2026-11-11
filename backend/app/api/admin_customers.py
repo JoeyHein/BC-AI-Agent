@@ -781,6 +781,14 @@ class InboxAutomationUpdate(BaseModel):
     quote_series_fallback: Optional[str] = None
 
 
+class QuotePriceOverridesUpdate(BaseModel):
+    quote_replacement_panel_margin: Optional[str] = None
+    replacement_margin_percent: Optional[float] = None
+    quote_flat_residential_windows: Optional[str] = None
+    residential_window_long_price: Optional[float] = None
+    residential_window_short_price: Optional[float] = None
+
+
 @router.get("/inbox-automation")
 def get_inbox_automation(
     current_admin: User = Depends(get_current_admin),
@@ -811,6 +819,49 @@ def update_inbox_automation(
     from app.services.inbox_settings import inbox_modes
     logger.info("Inbox automation updated by %s: %s", current_admin.email, updates)
     return {"modes": inbox_modes(db)}
+
+
+@router.get("/quote-price-overrides")
+def get_quote_price_overrides(
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Replacement-section margin and flat residential window rates.
+
+    Both are off until someone turns them on. The numbers are the defaults
+    until they are changed here. Stored in app_settings, so there is no
+    migration.
+    """
+    from app.services.quote_price_overrides import load_price_overrides
+    return load_price_overrides(db).as_api()
+
+
+@router.put("/quote-price-overrides")
+def update_quote_price_overrides(
+    body: QuotePriceOverridesUpdate,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    from app.services.quote_price_overrides import save_price_overrides
+    try:
+        saved = save_price_overrides(
+            db,
+            user_id=current_admin.id,
+            panel_mode=body.quote_replacement_panel_margin,
+            margin_percent=body.replacement_margin_percent,
+            window_mode=body.quote_flat_residential_windows,
+            long_price=body.residential_window_long_price,
+            short_price=body.residential_window_short_price,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    db.commit()
+    logger.info(
+        "Quote price overrides updated by %s: %s",
+        current_admin.email,
+        body.model_dump(exclude_unset=True),
+    )
+    return saved.as_api()
 
 
 @router.get("/by-bc/{bc_customer_id}/profile")
