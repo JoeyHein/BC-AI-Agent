@@ -481,7 +481,9 @@ def test_a_new_size_on_an_approval_still_parses(session, monkeypatch):
     assert contains_new_quote_ask("Re:", "Ship the 10x10 as quoted.", {(10, 10)}) is False
     assert contains_new_quote_ask("Re:", "Please quote a 12x8 as well.", {(10, 10)}) is True
     assert contains_new_quote_ask("Re:", "Go ahead. The shed is 8x7.", {(10, 10)}) is True
-    assert contains_new_quote_ask("Re:", "Ship the 10x10 as quoted.") is False
+    # The referenced quote could not be found, so the size is treated as new.
+    assert contains_new_quote_ask("Re:", "Ship the 10x10 as quoted.") is True
+    assert contains_new_quote_ask("Re:", "The opening is 8'4 x 7.") is False
 
 
 def test_partial_approval_is_not_high_and_the_confirm_payload_shows_the_exception(session):
@@ -532,6 +534,249 @@ def test_shadow_approval_does_not_send_a_sized_go_ahead_to_the_parser(session, m
     assert result != "quote_request"
     assert "parsed" not in seen
     assert session.query(CustomerOrderApproval).count() == 0
+
+
+@pytest.mark.parametrize("mode", ["off", "shadow"])
+def test_explicit_12_on_3_inch_is_held_in_every_mode(session, monkeypatch, mode):
+    """Panorama on 3 inch track asking for 12 inch radius is held, and no quote is built."""
+    from app.integrations.ai.client import ClaudeAIClient
+    from app.services.customer_profile_service import set_quoting_mode
+    if mode != "off":
+        set_quoting_mode(session, mode)
+        session.commit()
+    service = _service(monkeypatch)
+    body = "Please quote one 10x8 Panorama with 12 inch radius."
+    log = EmailLog(
+        message_id=f"radius-{mode}",
+        from_address="buyer@acme.test",
+        subject="Panorama",
+        body=body,
+        status="new",
+    )
+    session.add(log)
+    session.flush()
+    monkeypatch.setattr(service.ai_client, "parse_email_for_quote", lambda *a, **k: {
+        "success": True,
+        "confidence": 0.95,
+        "model": "stub",
+        "tokens": {"input": 1, "output": 1},
+        "data": {
+            "customer": {"company_name": "Acme", "email": "buyer@acme.test", "confidence": 0.9},
+            "doors": [{"model": "PANORAMA", "width_ft": 10, "height_ft": 8, "track_radius": "12"}],
+            "project": {},
+        },
+    })
+
+    def _map(parsed, subject, email_body):
+        raw = [{
+            "doorType": "aluminium",
+            "doorSeries": "PANORAMA",
+            "doorWidth": 120,
+            "doorHeight": 96,
+            "panelColor": "WHITE",
+            "panelDesign": "FLUSH",
+            "trackThickness": "3",
+            "trackRadius": "12",
+        }]
+        return {
+            "success": True,
+            "request_kind": "door_quote",
+            "confidence": 0.9,
+            "doors": ClaudeAIClient._normalize_configurator_doors(raw),
+        }
+
+    monkeypatch.setattr(service.ai_client, "map_email_to_configurator", _map)
+
+    def _build(*args, **kwargs):
+        raise AssertionError("Business Central quote was built")
+
+    import app.api.door_configurator as dc
+    monkeypatch.setattr(dc, "build_bc_quote_from_doors", _build)
+    service._parse_quote_request(session, log, "Panorama", body, "Buyer", "buyer@acme.test")
+    quote = session.query(QuoteRequest).one()
+    assert quote.status == "held_for_standard_deviation"
+    assert quote.bc_quote_id is None
+    assert any(item.get("kind") == "track_radius_not_available" for item in (quote.deviations or []))
+    stored = quote.parsed_data["configurator_mapping"]["doors"][0]
+    assert stored["requestedTrackRadius"] == "12"
+    assert stored["trackRadius"] == "15"
+    assert stored["trackThickness"] == "3"
+
+
+def test_20_inch_radius_is_kept_only_for_craft():
+    from app.services.track_defaults import quoted_track_radius
+    assert quoted_track_radius("2", "20", series="CRAFT") == "20"
+    assert quoted_track_radius("2", "20", series="TX450") == "15"
+    assert quoted_track_radius("2", "12", series="TX450") == "12"
+    parts = get_parts_for_door_config({
+        "doorType": "commercial",
+        "doorSeries": "TX450",
+        "doorWidth": 120,
+        "doorHeight": 120,
+        "panelColor": "WHITE",
+        "panelDesign": "UDC",
+        "hasWindows": False,
+        "trackThickness": "2",
+        "trackRadius": "20",
+        "trackMount": "bracket",
+        "liftType": "standard",
+        "hardware": {"tracks": True, "springs": False, "struts": False, "hardwareKits": False,
+                     "weatherStripping": False, "bottomRetainer": False, "shafts": False},
+    })
+    numbers = [item["part_number"] for item in parts["parts_list"]]
+    assert "TR02-STDBM-1020" not in numbers
+    assert any(number.endswith("15") and number.startswith("TR02") for number in numbers)
+
+
+def test_empty_2_inch_radius_in_part_selection_stays_12():
+    """get_parts_for_door_config with a blank radius on 2 inch track stays on main's 12."""
+    blank = get_parts_for_door_config({
+        "doorType": "residential",
+        "doorSeries": "KANATA",
+        "doorWidth": 96,
+        "doorHeight": 84,
+        "panelColor": "WHITE",
+        "panelDesign": "SHXL",
+        "hasWindows": False,
+        "trackThickness": "2",
+        "trackRadius": "",
+        "trackMount": "bracket",
+        "hardware": {"tracks": True, "springs": False, "struts": False, "hardwareKits": False,
+                     "weatherStripping": False, "bottomRetainer": False, "shafts": False},
+    })
+    tracks = [item["part_number"] for item in blank["parts_list"] if str(item["part_number"]).startswith("TR02")]
+    assert tracks
+    assert all(number.endswith("12") for number in tracks)
+    missing = get_parts_for_door_config({
+        "doorType": "residential",
+        "doorSeries": "KANATA",
+        "doorWidth": 96,
+        "doorHeight": 84,
+        "panelColor": "WHITE",
+        "panelDesign": "SHXL",
+        "hasWindows": False,
+        "trackThickness": "2",
+        "trackRadius": None,
+        "trackMount": "bracket",
+        "hardware": {"tracks": True, "springs": False, "struts": False, "hardwareKits": False,
+                     "weatherStripping": False, "bottomRetainer": False, "shafts": False},
+    })
+    tracks = [item["part_number"] for item in missing["parts_list"] if str(item["part_number"]).startswith("TR02")]
+    assert all(number.endswith("12") for number in tracks)
+
+
+def test_legacy_quote_service_keeps_explicit_12_on_2_inch_track(monkeypatch):
+    """Intentional: QuoteGenerationService now honours an explicit 12 on 2 inch track.
+
+    The part list for an 8x7 Kanata is the 12 inch track and 30 inch springs.
+    """
+    from app.services.quote_service import QuoteGenerationService
+    service = QuoteGenerationService(None)
+    monkeypatch.setattr(service, "_get_part_price", lambda *args, **kwargs: 1)
+    monkeypatch.setattr(service, "_apply_pricing_rules", lambda price, *args, **kwargs: price)
+    spec = {"width_ft": 8, "height_ft": 7, "model": "KANATA", "track_type": "2", "track_radius": "12"}
+    items = service._generate_door_items(spec, None)
+    tracks = [item for item in items if str(item["product_code"]).startswith("TR02")]
+    springs = [item for item in items if str(item["product_code"]).startswith("SP11")]
+    assert tracks and all(item["product_code"].endswith("12") for item in tracks)
+    assert springs
+    assert all(item["quantity"] == 30 for item in springs)
+
+
+def test_rail_dedupe_is_off_until_opener_mapping_is_on():
+    door = {
+        "doorType": "residential",
+        "doorSeries": "KANATA",
+        "doorWidth": 96,
+        "doorHeight": 84,
+        "panelColor": "WHITE",
+        "panelDesign": "SHXL",
+        "hasWindows": False,
+        "trackThickness": "2",
+        "trackRadius": "15",
+        "operator": "OP19-01118-00",
+        "operatorAccessories": ["OP19-02005-00"],
+        "hardware": {"tracks": False, "springs": False, "struts": False, "hardwareKits": False,
+                     "weatherStripping": False, "bottomRetainer": False, "shafts": False},
+    }
+    off = get_parts_for_door_config(dict(door))
+    off_numbers = [item["part_number"] for item in off["parts_list"]]
+    assert "OP19-02005-00" in off_numbers
+    assert "OP19-02004-00" in off_numbers
+    on = get_parts_for_door_config({**door, "dedupeOperatorRails": True})
+    on_numbers = [item["part_number"] for item in on["parts_list"]]
+    assert "OP19-02005-00" in on_numbers
+    assert "OP19-02004-00" not in on_numbers
+
+
+def test_crating_is_one_charge_for_the_order():
+    parts = get_parts_for_door_config({
+        "doorType": "residential",
+        "doorSeries": "KANATA",
+        "doorWidth": 96,
+        "doorHeight": 84,
+        "doorCount": 3,
+        "panelColor": "WHITE",
+        "panelDesign": "SHXL",
+        "hasWindows": False,
+        "includeCrating": True,
+        "hardware": {"tracks": False, "springs": False, "struts": False, "hardwareKits": False,
+                     "weatherStripping": False, "bottomRetainer": False, "shafts": False},
+    })
+    crating = [item for item in parts["parts_list"] if item["part_number"] == "CRATING"]
+    assert len(crating) == 1
+    assert crating[0]["quantity"] == 1
+
+
+def test_partial_phrases_for_leaving_the_opener_off():
+    from app.services.quote_followup import approval_level, is_customer_approval
+    phrases = (
+        "SQ-1234 approved. We don't need the opener.",
+        "approved, leave off the opener.",
+        "Approved SQ-1234. Leave out the opener.",
+        "SQ-1234 approved. Remove the opener.",
+        "Approved. Drop the opener.",
+    )
+    for phrase in phrases:
+        assert approval_level("order_confirmation", "Re: quote", phrase) == "partial", phrase
+        assert is_customer_approval("order_confirmation", "Re: quote", phrase) is False
+
+
+def test_partial_approval_failure_rolls_back_the_session(session, monkeypatch):
+    set_inbox_mode(session, "customer_approval_detection", "on")
+    session.commit()
+    service = _service(monkeypatch)
+    _graph(service)
+    _categorize(monkeypatch, "order_confirmation")
+
+    def _boom(db, email_log, **kwargs):
+        from app.db.models import CustomerOrderApproval
+        db.add(CustomerOrderApproval(
+            email_log_id=email_log.id,
+            status="partial",
+            excerpt="should not stick",
+            from_address="buyer@acme.test",
+            created_at=datetime.utcnow(),
+        ))
+        db.flush()
+        raise RuntimeError("approval write failed")
+
+    monkeypatch.setattr("app.services.quote_followup.handle_customer_approval", _boom)
+    result = service._process_single_email(
+        session,
+        {
+            "id": "g-partial",
+            "internetMessageId": "partial-fail",
+            "subject": "Re: quote",
+            "from": {"emailAddress": {"address": "buyer@acme.test", "name": "Buyer"}},
+            "body": {"content": "SQ-1234 approved. We don't need the opener."},
+            "receivedDateTime": "2026-11-11T12:00:00Z",
+        },
+        "joey@opendc.ca",
+    )
+    assert result != "quote_request"
+    assert session.query(CustomerOrderApproval).count() == 0
+    assert session.query(EmailLog).count() >= 1
 
 
 def test_bc_customer_ids_queries_only_the_matching_addresses(session):

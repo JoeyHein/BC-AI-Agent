@@ -157,7 +157,9 @@ class QuoteGenerationService:
             door_spec.get("track_type"), door_series, door_type,
         )
         from app.services.track_defaults import quoted_track_radius
-        quoted_radius = quoted_track_radius(track_thickness, door_spec.get("track_radius"))
+        quoted_radius = quoted_track_radius(
+            track_thickness, door_spec.get("track_radius"), series=door_series,
+        )
 
         # Create DoorConfiguration for the part number service
         try:
@@ -517,7 +519,9 @@ class QuoteGenerationService:
             door_spec.get("track_type"), door_series, door_type,
         )
         from app.services.track_defaults import quoted_track_radius
-        track_radius = int(quoted_track_radius(track_type, door_spec.get("track_radius")))
+        track_radius = int(quoted_track_radius(
+            track_type, door_spec.get("track_radius"), series=door_series,
+        ))
 
         # Calculate springs using Canimex methodology
         spring_qty = 2  # Standard residential = 2 springs

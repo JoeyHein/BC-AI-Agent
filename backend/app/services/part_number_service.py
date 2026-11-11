@@ -205,6 +205,9 @@ class DoorConfiguration:
     adjustable_prep: bool = False
     # One crating charge on this door (the first door of the quote).
     include_crating: bool = False
+    # When quote_opener_mapping is on, an explicit rail replaces the
+    # height-based rail. Off keeps both, which is the previous behaviour.
+    dedupe_operator_rails: bool = False
     # Silent substitutions recorded while this door is being turned into
     # part numbers (bracket height that does not exist, unstocked colour).
     # Quote review reads these. Not a customer-facing comment by itself.
@@ -1268,6 +1271,8 @@ class PartNumberService:
             })
 
         if config.include_crating:
+            # One crating charge for the order. The door-count loop below
+            # must not turn this into one charge per door.
             parts.append(PartSelection(
                 part_number="CRATING",
                 description="CRATING CHARGES",
@@ -1292,9 +1297,10 @@ class PartNumberService:
                 ),
             ))
 
-        # Apply quantity multiplier for door count (skip comment lines only)
+        # Apply quantity multiplier for door count. Comments and the single
+        # order-level crating charge are not multiplied.
         for part in parts:
-            if part.category != "comment":
+            if part.category not in {"comment", "crating"}:
                 part.quantity *= config.door_count
 
         return parts
@@ -1992,7 +1998,18 @@ class PartNumberService:
             default_track_thickness(config.door_series, config.door_type)
         )
         from app.services.track_defaults import quoted_track_radius
-        radius_inches = int(quoted_track_radius(track_size, config.track_radius))
+        # An empty radius on 2 inch track stays 12, which is what this
+        # function produced before. 3 inch track is 15. A stated 20 is kept
+        # only for Craft.
+        raw_radius = str(config.track_radius or "").strip()
+        if track_size == 3:
+            radius_inches = 15
+        elif not raw_radius:
+            radius_inches = 12
+        else:
+            radius_inches = int(quoted_track_radius(
+                track_size, raw_radius, series=config.door_series,
+            ))
 
         # Commercial: 2" track only allowed if height ≤14' AND width ≤18' per rulebook
         if config.door_type == "commercial" and track_size == 2:
@@ -2163,8 +2180,15 @@ class PartNumberService:
             default_track_thickness(config.door_series, config.door_type)
         )
         from app.services.track_defaults import explicit_non_15_on_3_inch, quoted_track_radius
-        asked = explicit_non_15_on_3_inch(track_size, config.track_radius)
-        track_radius = int(quoted_track_radius(track_size, config.track_radius or None))
+        raw_radius = str(config.track_radius or "").strip()
+        asked = explicit_non_15_on_3_inch(track_size, raw_radius)
+        if track_size != 3 and not raw_radius:
+            # Omitted radius in the spring path was already 15.
+            track_radius = 15
+        else:
+            track_radius = int(quoted_track_radius(
+                track_size, raw_radius or None, series=config.door_series,
+            ))
         if asked:
             config.deviations.append({
                 "kind": "track_radius_adjusted",
@@ -4578,8 +4602,10 @@ class PartNumberService:
 
             rail_pn = None
             known_rails = set(self.CHAIN_RAILS.values()) | set(self.BELT_RAILS.values())
-            # An explicit rail accessory is the rail. Don't add a second one.
-            if accessory_pns & known_rails:
+            # Off (the default) keeps both: an explicit rail and the rail
+            # picked from the door height. quote_opener_mapping sets
+            # dedupe_operator_rails so a chosen rail replaces the auto one.
+            if getattr(config, "dedupe_operator_rails", False) and accessory_pns & known_rails:
                 rail_pn = None
             elif "CHAIN DRIVE" in op_name or "CHAIN DR" in op_name:
                 rail_pn = self.CHAIN_RAILS.get(rail_size)
@@ -4912,6 +4938,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         struts_per_section=bool(config_dict.get("strutsPerSection", False)),
         adjustable_prep=bool(config_dict.get("adjustablePrep", False)),
         include_crating=bool(config_dict.get("includeCrating", False)),
+        dedupe_operator_rails=bool(config_dict.get("dedupeOperatorRails", False)),
     )
 
     parts = part_number_service.get_parts_for_configuration(config)

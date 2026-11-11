@@ -62,9 +62,15 @@ _SIZE_PAIR_RE = re.compile(
 )
 _PARTIAL_RE = re.compile(
     r"\b(?:no|not|without|except|hold(?:\s+the)?|skip|exclude|minus|"
-    r"don'?t include|do not include)\b"
+    r"don'?t include|do not include|don'?t need|do not need|"
+    r"leave\s+off|leave\s+out|remove|drop)\b"
     r".{0,40}\b(?:opener|operator|motor|windows?|glass|keypad|rail|springs?|track)\b"
     r"|\b(?:opener|operator|motor|keypad)\b.{0,30}\b(?:no|not|without|except|hold)\b",
+    re.I,
+)
+_FEET_INCHES_SIZE_RE = re.compile(
+    r"\d{1,2}\s*(?:'|ft|feet)\s*\d{1,2}\s*(?:\"|in(?:ch(?:es)?)?)?\s*[x×]\s*"
+    r"\d{1,2}(?:\s*(?:'|ft|feet)\s*\d{1,2}\s*(?:\"|in(?:ch(?:es)?)?)?)?",
     re.I,
 )
 _PO_FILE_RE = re.compile(r"\bPO[-_\s]?([A-Z0-9]*\d[A-Z0-9\-]*)", re.I)
@@ -186,8 +192,13 @@ def _looks_like_reply_subject(subject: str) -> bool:
 
 
 def size_pairs(text: str):
-    """Door sizes written as 10x10 or 10' x 10'. Feet-and-inches are ignored."""
-    return {(int(a), int(b)) for a, b in _SIZE_PAIR_RE.findall(text or "")}
+    """Door sizes written as 10x10 or 10' x 10'.
+
+    Feet-and-inches forms such as 8'4 x 7 are not sizes. Matching the 4 and
+    the 7 would invent a door that was not asked for.
+    """
+    cleaned = _FEET_INCHES_SIZE_RE.sub(" ", text or "")
+    return {(int(a), int(b)) for a, b in _SIZE_PAIR_RE.findall(cleaned)}
 
 
 def contains_new_quote_ask(subject: str, body: str, referenced_sizes=None) -> bool:
@@ -201,7 +212,13 @@ def contains_new_quote_ask(subject: str, body: str, referenced_sizes=None) -> bo
     if _NEW_QUOTE_RE.search(text):
         return True
     found = size_pairs(text)
-    if not found or not referenced_sizes:
+    if not found:
+        return False
+    # No referenced quote was found. A size next to the approval is a new
+    # request, not a repeat of a quote we could not see.
+    if referenced_sizes is None:
+        return True
+    if not referenced_sizes:
         return False
     known = set()
     for item in referenced_sizes:

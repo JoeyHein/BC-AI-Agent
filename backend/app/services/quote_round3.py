@@ -104,9 +104,11 @@ def apply_round3(
     email_text: str = "",
     parsed_doors: Optional[Sequence[dict]] = None,
     profile_fields: Optional[dict] = None,
+    modes: Optional[Dict[str, str]] = None,
 ) -> Round3Result:
     """Apply the switches that are on. Shadow is recorded and not applied."""
-    modes = round3_modes(db)
+    if modes is None:
+        modes = round3_modes(db)
     planned = plan_round3(
         doors,
         email_text=email_text,
@@ -130,6 +132,10 @@ def plan_round3(
     updated = [dict(door or {}) for door in doors]
     result = Round3Result(doors=updated)
     fields = profile_fields or {}
+    if modes.get(OPENER_MAPPING, "off") == "on":
+        for door in updated:
+            door["dedupeOperatorRails"] = True
+            result.applied = True
 
     for index, door in enumerate(updated):
         parsed = {}

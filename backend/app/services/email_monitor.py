@@ -300,7 +300,9 @@ class EmailMonitorService:
                     db, approval_text, from_address, subject, email_log.id,
                 )
             except Exception:
-                logger.exception("Could not read the quoted sizes. A repeated size will not start a new quote.")
+                logger.exception(
+                    "Could not read the quoted sizes. A size in this approval will be parsed as a new quote."
+                )
                 referenced_sizes = None
         # Shadow only logs. It must not send a go-ahead-plus-size email to the parser.
         also_new = (
@@ -314,8 +316,10 @@ class EmailMonitorService:
             except Exception:
                 logger.exception("Could not note the partial approval. The message continues.")
         elif level == "partial" and approval_mode == "on":
+            nested = None
             try:
-                row = handle_customer_approval(
+                nested = db.begin_nested()
+                handle_customer_approval(
                     db,
                     email_log,
                     subject=subject,
@@ -328,10 +332,16 @@ class EmailMonitorService:
                     exception_text=exception_text,
                 )
                 email_log.status = "informational"
+                nested.commit()
                 db.commit()
                 return "customer_approval"
             except Exception:
                 logger.exception("Partial approval failed. The message continues.")
+                if nested is not None:
+                    try:
+                        nested.rollback()
+                    except Exception:
+                        pass
         elif level == "low":
             try:
                 note_low_approval(email_log, approval_text)
@@ -674,6 +684,23 @@ class EmailMonitorService:
                 delivery_explicit = False
                 profile_applied = False
                 customer_id = self._legacy_bc_customer_id(db, quote_request)
+                # An explicit non-15 radius on 3 inch track is held in every
+                # mode, before a profile is applied and before Business Central
+                # is called. The normalizer keeps the asked radius on
+                # requestedTrackRadius so this still sees a 12.
+                from app.services.track_defaults import unavailable_3_inch_radius
+                radius_text = quote_email_text(
+                    subject, body, getattr(email_log, "attachments", None),
+                )
+                radius_holds = unavailable_3_inch_radius(live_doors, doors, radius_text)
+                if radius_holds:
+                    quote_request.deviations = list(quote_request.deviations or []) + radius_holds
+                    quote_request.status = "held_for_standard_deviation"
+                    logger.info(
+                        "  -> Held: 3 inch track was asked for a radius other than 15"
+                    )
+                    db.commit()
+                    return
                 if mode != "off":
                     try:
                         match = self._match_bc_customer(db, quote_request)
@@ -762,53 +789,61 @@ class EmailMonitorService:
                         delivery_explicit = False
                         profile_applied = False
 
-                from app.services.customer_profile_service import get_profile
-                from app.services.quote_round3 import apply_round3
-                profile_fields = None
-                if customer_id:
-                    nested = None
+                from app.services.quote_round3 import apply_round3, round3_modes
+                round3_switch = round3_modes(db)
+                if any(value != "off" for value in round3_switch.values()):
                     try:
-                        nested = db.begin_nested()
-                        profile_row = get_profile(db, customer_id)
-                        nested.commit()
-                        if profile_row is not None:
-                            profile_fields = profile_row.fields or {}
-                    except Exception:
-                        logger.exception("Could not read the customer profile for round 3. Continuing.")
-                        if nested is not None:
-                            try:
-                                nested.rollback()
-                            except Exception:
-                                pass
+                        from app.services.customer_profile_service import get_profile
                         profile_fields = None
-                round3 = apply_round3(
-                    db,
-                    live_doors,
-                    email_text=quote_email_text(
-                        subject, body, getattr(email_log, "attachments", None),
-                    ),
-                    parsed_doors=doors,
-                    profile_fields=profile_fields,
-                )
-                if round3.shadow_notes:
-                    quote_request.parsed_data = {
-                        **(quote_request.parsed_data or {}),
-                        "round3_shadow": round3.shadow_notes,
-                    }
-                if round3.applied:
-                    live_doors = round3.doors
-                    if round3.delivery_type:
-                        live_delivery = round3.delivery_type
-                        delivery_explicit = True
-                    if round3.deviations:
-                        quote_request.deviations = list(quote_request.deviations or []) + round3.deviations
-                    quote_request.parsed_data = {
-                        **(quote_request.parsed_data or {}),
-                        "configurator_mapping": {
-                            **((quote_request.parsed_data or {}).get("configurator_mapping") or mapping),
-                            "doors": live_doors,
-                        },
-                    }
+                        if customer_id:
+                            nested = None
+                            try:
+                                nested = db.begin_nested()
+                                profile_row = get_profile(db, customer_id)
+                                nested.commit()
+                                if profile_row is not None:
+                                    profile_fields = profile_row.fields or {}
+                            except Exception:
+                                logger.exception("Could not read the customer profile for round 3. Continuing.")
+                                if nested is not None:
+                                    try:
+                                        nested.rollback()
+                                    except Exception:
+                                        pass
+                                profile_fields = None
+                        round3 = apply_round3(
+                            db,
+                            live_doors,
+                            email_text=quote_email_text(
+                                subject, body, getattr(email_log, "attachments", None),
+                            ),
+                            parsed_doors=doors,
+                            profile_fields=profile_fields,
+                            modes=round3_switch,
+                        )
+                        if round3.shadow_notes:
+                            quote_request.parsed_data = {
+                                **(quote_request.parsed_data or {}),
+                                "round3_shadow": round3.shadow_notes,
+                            }
+                        if round3.applied:
+                            live_doors = round3.doors
+                            if round3.delivery_type:
+                                live_delivery = round3.delivery_type
+                                delivery_explicit = True
+                            if round3.deviations:
+                                quote_request.deviations = list(quote_request.deviations or []) + round3.deviations
+                            quote_request.parsed_data = {
+                                **(quote_request.parsed_data or {}),
+                                "configurator_mapping": {
+                                    **((quote_request.parsed_data or {}).get("configurator_mapping") or mapping),
+                                    "doors": live_doors,
+                                },
+                            }
+                    except Exception:
+                        logger.exception(
+                            "Round 3 enrichment failed. The quote keeps the doors it already had."
+                        )
 
                 cfg_request = QuoteGenerationRequest(
                     doors=[DoorConfigRequest(**{k: v for k, v in d.items() if k != "_touched"}) for d in live_doors],

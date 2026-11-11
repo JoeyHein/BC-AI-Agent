@@ -814,6 +814,7 @@ class DoorConfigRequest(BaseModel):
     strutsPerSection: bool = False
     adjustablePrep: bool = False
     includeCrating: bool = False
+    dedupeOperatorRails: bool = False
 
     @model_validator(mode="after")
     def _default_aluminum_track(self):
@@ -1696,6 +1697,7 @@ def build_bc_quote_from_doors(
                 "strutsPerSection": getattr(door, "strutsPerSection", False),
                 "adjustablePrep": getattr(door, "adjustablePrep", False),
                 "includeCrating": getattr(door, "includeCrating", False),
+                "dedupeOperatorRails": getattr(door, "dedupeOperatorRails", False),
             }
 
             try:
@@ -2731,6 +2733,7 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "strutsPerSection": getattr(door, "strutsPerSection", False),
                 "adjustablePrep": getattr(door, "adjustablePrep", False),
                 "includeCrating": getattr(door, "includeCrating", False),
+                "dedupeOperatorRails": getattr(door, "dedupeOperatorRails", False),
             }
 
             spring_inv = get_bc_spring_inventory()
