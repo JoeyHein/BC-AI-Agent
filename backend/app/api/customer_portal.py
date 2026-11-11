@@ -3,13 +3,16 @@ Customer Portal API Endpoints
 Saved quotes, BC quotes, orders, and history for customer users
 """
 
+import base64
+import binascii
 import logging
+import re
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Any, Dict, Tuple
 
 from app.db.database import SessionLocal
@@ -4303,6 +4306,45 @@ def list_special_orders(
 # REPLACEMENT SECTION FINDER
 # ============================================================================
 
+_PHOTO_PREFIX = re.compile(r"^data:image/(jpeg|png|webp|heic);base64,", re.IGNORECASE)
+_PHOTO_MAX_BYTES = int(2.8 * 1024 * 1024)
+
+
+def _photo_is_image(raw: bytes, kind: str) -> bool:
+    kind = kind.lower()
+    if kind == "jpeg":
+        return raw.startswith(b"\xff\xd8\xff")
+    if kind == "png":
+        return raw.startswith(b"\x89PNG\r\n\x1a\n")
+    if kind == "webp":
+        return len(raw) >= 12 and raw[:4] == b"RIFF" and raw[8:12] == b"WEBP"
+    if kind == "heic":
+        if len(raw) < 12 or raw[4:8] != b"ftyp":
+            return False
+        brand = raw[8:12]
+        return brand in {b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1"}
+    return False
+
+
+def _checked_photo(value: Optional[str]) -> Optional[str]:
+    if value is None or value == "":
+        return None
+    if len(value) > _PHOTO_MAX_BYTES:
+        raise ValueError("Photo must be about 2.8 MB or smaller.")
+    match = _PHOTO_PREFIX.match(value)
+    if match is None or "," not in value:
+        raise ValueError("Photo must be a jpeg, png, webp, or heic data URL.")
+    try:
+        raw = base64.b64decode(value.split(",", 1)[1], validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("Photo is not valid base64.") from exc
+    if not raw or len(raw) > _PHOTO_MAX_BYTES:
+        raise ValueError("Photo must be about 2.8 MB or smaller.")
+    if not _photo_is_image(raw, match.group(1)):
+        raise ValueError("Photo could not be read as that image type.")
+    return value
+
+
 class SectionFinderRequest(BaseModel):
     application: Optional[str] = None
     series: Optional[str] = None
@@ -4315,9 +4357,15 @@ class SectionFinderRequest(BaseModel):
     design: Optional[str] = None
     position: Optional[str] = None
     windows: Optional[bool] = None
-    quantity: Optional[int] = None
-    notes: Optional[str] = None
+    end_caps: Optional[str] = None
+    quantity: int = Field(..., ge=1, le=100)
+    notes: Optional[str] = Field(default=None, max_length=2000)
     photo: Optional[str] = None
+
+    @field_validator("photo")
+    @classmethod
+    def photo_is_a_small_image(cls, value):
+        return _checked_photo(value)
 
 
 def _finder_mode(db: Session) -> str:
@@ -4390,6 +4438,8 @@ def section_finder_review(
         door_config={
             "kind": "replacement_section_review",
             "needs_staff_review": True,
+            "user_id": current_user.id,
+            "bc_customer_id": current_user.bc_customer_id,
             "answers": answers,
             "resolution": result,
         },
@@ -4507,37 +4557,59 @@ def create_cart_quote(
                 # A sections-only cart is the exception when that switch is on:
                 # the sell price is the item card, not the customer's group.
                 unit_price = added_line.get("unitPrice", 0)
+                pricing_flag = None
                 if list_price_mode != "off":
-                    card_price = card_list_price(item.item_number)
-                    if card_price is None:
-                        logger.info(
-                            "%squote_replacement_section_pricing: %s list price missing; customer price kept",
-                            "SHADOW " if list_price_mode == "shadow" else "",
-                            item.item_number,
+                    # A failed price write must not look like a missing item.
+                    # The line stays at the customer price and is reported
+                    # on line_pricing with a flag.
+                    try:
+                        card_price = card_list_price(item.item_number)
+                        if card_price is None:
+                            logger.info(
+                                "%squote_replacement_section_pricing: %s list price missing; customer price kept",
+                                "SHADOW " if list_price_mode == "shadow" else "",
+                                item.item_number,
+                            )
+                        elif list_price_mode == "shadow":
+                            logger.info(
+                                "SHADOW quote_replacement_section_pricing: cart %s would be list $%.2f; quote unchanged",
+                                item.item_number, float(card_price),
+                            )
+                        else:
+                            # discountPercent and discountAmount are on the
+                            # sales quote line, so zeroing them keeps the
+                            # patched unit price at full list.
+                            bc_client.update_quote_line(
+                                bc_quote_id,
+                                added_line["id"],
+                                added_line.get("@odata.etag", "*"),
+                                {
+                                    "unitPrice": float(card_price),
+                                    "discountPercent": 0,
+                                    "discountAmount": 0,
+                                },
+                            )
+                            unit_price = float(card_price)
+                            logger.info(
+                                "quote_replacement_section_pricing: cart %s fixed at list $%.2f",
+                                item.item_number, float(card_price),
+                            )
+                    except Exception as price_err:
+                        logger.warning(
+                            "Cart list price was not written for %s: %s",
+                            item.item_number, price_err,
                         )
-                    elif list_price_mode == "shadow":
-                        logger.info(
-                            "SHADOW quote_replacement_section_pricing: cart %s would be list $%.2f; quote unchanged",
-                            item.item_number, card_price,
-                        )
-                    else:
-                        bc_client.update_quote_line(
-                            bc_quote_id,
-                            added_line["id"],
-                            added_line.get("@odata.etag", "*"),
-                            {"unitPrice": card_price},
-                        )
-                        unit_price = card_price
-                        logger.info(
-                            "quote_replacement_section_pricing: cart %s fixed at list $%.2f",
-                            item.item_number, card_price,
+                        pricing_flag = (
+                            f"FLAG: {item.item_number} list price could not be "
+                            "written; customer price kept"
                         )
                 line_pricing.append({
                     "item_number": item.item_number,
                     "description": added_line.get("description", item.description or ""),
                     "quantity": item.quantity,
                     "unit_price": unit_price,
-                    "line_total": round(unit_price * item.quantity, 2),
+                    "line_total": round(float(unit_price) * item.quantity, 2),
+                    "pricing_flag": pricing_flag,
                 })
 
             except Exception as line_err:

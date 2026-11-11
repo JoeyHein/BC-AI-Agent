@@ -15,6 +15,7 @@ const EMPTY = {
   design: '',
   position: '',
   windows: '',
+  end_caps: '',
   quantity: '1',
   notes: '',
 }
@@ -97,6 +98,7 @@ export default function SectionFinder() {
       design: form.design,
       position: form.position,
       windows: form.windows === '' ? null : form.windows === 'yes',
+      end_caps: form.end_caps || null,
       quantity: form.quantity === '' ? null : Number(form.quantity),
       notes: form.notes,
       photo: photo || null,
@@ -146,7 +148,7 @@ export default function SectionFinder() {
   if (mode === 'loading') {
     return <div className="p-8 text-sm text-gray-500">Loading section finder…</div>
   }
-  if (mode === 'off') {
+  if (mode !== 'on') {
     return (
       <div className="max-w-xl mx-auto p-8">
         <h1 className="text-xl font-semibold text-gray-900">Replacement sections</h1>
@@ -161,12 +163,6 @@ export default function SectionFinder() {
       <p className="mt-1 text-sm text-gray-600">
         Describe the section. A single stocked part is priced at the list price. Anything else goes to Open Distribution. No part number is guessed.
       </p>
-      {mode === 'shadow' && (
-        <p className="mt-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-          Shadow mode. A match is shown and nothing is saved or added to a quote.
-        </p>
-      )}
-
       <form onSubmit={findSection} className="mt-6 bg-white border border-gray-200 rounded-lg p-4 space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Field label="Application">
@@ -248,6 +244,16 @@ export default function SectionFinder() {
               <option value="top">Top</option>
             </select>
           </Field>
+          {form.series && form.series !== 'not sure' && form.series !== 'KANATA' && form.series !== 'CRAFT' && (
+            <Field label="End caps / hinges">
+              <select aria-label="End caps" className={selectClass} value={form.end_caps} onChange={(event) => setField('end_caps', event.target.value)}>
+                <option value="">Choose</option>
+                <option value="single">Single</option>
+                <option value="double">Double</option>
+                <option value="not sure">Not sure</option>
+              </select>
+            </Field>
+          )}
           <Field label="Windows in this section">
             <select aria-label="Windows" className={selectClass} value={form.windows} onChange={(event) => setField('windows', event.target.value)}>
               <option value="">Choose</option>
@@ -256,11 +262,11 @@ export default function SectionFinder() {
             </select>
           </Field>
           <Field label="Quantity">
-            <input aria-label="Quantity" type="number" min="1" className={selectClass} value={form.quantity} onChange={(event) => setField('quantity', event.target.value)} />
+            <input aria-label="Quantity" type="number" min="1" max="100" className={selectClass} value={form.quantity} onChange={(event) => setField('quantity', event.target.value)} />
           </Field>
         </div>
         <Field label="Notes">
-          <textarea aria-label="Notes" className={selectClass} rows={3} value={form.notes} onChange={(event) => setField('notes', event.target.value)} />
+          <textarea aria-label="Notes" maxLength={2000} className={selectClass} rows={3} value={form.notes} onChange={(event) => setField('notes', event.target.value)} />
         </Field>
         <Field label="Photo, optional">
           <input aria-label="Photo" type="file" accept="image/*" onChange={onPhoto} className="text-sm" />

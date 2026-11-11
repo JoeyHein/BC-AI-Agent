@@ -13,10 +13,16 @@ function CustomerLayout() {
   const [finderMode, setFinderMode] = useState('off')
 
   useEffect(() => {
+    let cancelled = false
     sectionFinderApi.status()
-      .then((response) => setFinderMode(response.data?.mode || 'off'))
-      .catch(() => setFinderMode('off'))
-  }, [location.pathname])
+      .then((response) => {
+        if (!cancelled) setFinderMode(response.data?.mode || 'off')
+      })
+      .catch(() => {
+        if (!cancelled) setFinderMode('off')
+      })
+    return () => { cancelled = true }
+  }, [])
 
   const handleLogout = () => {
     logout()
@@ -44,9 +50,9 @@ function CustomerLayout() {
 
   const navItems = allNavItems.filter(item => {
     // Not-yet-released parts experience (Catalog / Spring Builder / Cart).
-    if (item.finder && finderMode === 'off') return false
-    if (item.wip && !CUSTOMER_PARTS_FEATURES_ENABLED && !(item.path === 'cart' && finderMode !== 'off')) return false
-    if (item.dealerOnly && !isDealer && !(item.path === 'cart' && finderMode !== 'off')) return false
+    if (item.finder && finderMode !== 'on') return false
+    if (item.wip && !CUSTOMER_PARTS_FEATURES_ENABLED && !(item.path === 'cart' && finderMode === 'on')) return false
+    if (item.dealerOnly && !isDealer) return false
     if (item.homeBuilderOnly && !isHomeBuilder) return false
     return true
   })

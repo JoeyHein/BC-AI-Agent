@@ -85,7 +85,7 @@ function CartRoute() {
   useEffect(() => {
     if (CUSTOMER_PARTS_FEATURES_ENABLED) return undefined
     sectionFinderApi.status()
-      .then((response) => setAllowed((response.data?.mode || 'off') !== 'off'))
+      .then((response) => setAllowed(response.data?.mode === 'on'))
       .catch(() => setAllowed(false))
       .finally(() => setReady(true))
     return undefined
@@ -93,7 +93,11 @@ function CartRoute() {
 
   if (!ready) return null
   if (!allowed) return <Navigate to="/" replace />
-  return <PartsCart />
+  return (
+    <AccountGatedRoute allowed={['dealer']}>
+      <PartsCart />
+    </AccountGatedRoute>
+  )
 }
 
 function WipGatedRoute({ children }) {

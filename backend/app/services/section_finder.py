@@ -142,16 +142,76 @@ def _color_name(value: Any) -> str:
 
 
 def _stamp_for(series_id: str, design: str, position: str) -> Optional[str]:
+    """Craft's top section is always flush, for every design.
+
+    Muskoka then splits the other two sections into intermediate and bottom.
+    """
     design_name = _text(design).upper()
+    if series_id == "CRAFT" and position == "top":
+        return "FLUSH"
     if series_id == "CRAFT" and design_name == "MUSKOKA":
-        if position == "top":
-            return "FLUSH"
         if position == "intermediate":
             return "MUSKOKA_INTERMEDIATE"
         if position == "bottom":
             return "MUSKOKA_BOTTOM"
         return None
     return design_name
+
+
+def _end_cap_choice(value: Any) -> Optional[EndCapType]:
+    text = _text(value).lower().replace("-", " ")
+    if text in {"single", "sec", "single end cap", "single end caps"}:
+        return EndCapType.SINGLE
+    if text in {"double", "dec", "double end cap", "double end caps"}:
+        return EndCapType.DOUBLE
+    return None
+
+
+def _shares_one_prefix(series_id: str) -> bool:
+    return series_id in {"KANATA", "CRAFT"}
+
+
+def _stocked(mapper, spec, width_feet, height, color, stamp, end_cap) -> bool:
+    try:
+        part = mapper.get_panel_part_number(
+            model=spec["model"],
+            width_feet=width_feet,
+            height_inches=height,
+            color=color,
+            end_cap_type=end_cap,
+            stamp=stamp,
+            allow_width_substitute=False,
+        )
+    except ValueError:
+        return False
+    return not part.notes and part.part_number in mapper.bc_items
+
+
+def _resolve_end_cap(series_id, spec, answers, mapper, width_feet, height, color, stamp):
+    """Return (end cap, review reason).
+
+    Kanata and Craft use one prefix for both end caps, so the question is
+    skipped. Other series ask single, double, or not sure. Not sure goes to
+    staff when both versions are stocked at that width.
+    """
+    if _shares_one_prefix(series_id):
+        return EndCapType.SINGLE, None
+    chosen = _end_cap_choice(answers.get("end_caps"))
+    if chosen is not None:
+        return chosen, None
+    text = _text(answers.get("end_caps")).lower()
+    if text not in NOT_SURE and text not in {"", "not sure"}:
+        return None, "End caps must be single, double, or not sure."
+    single = _stocked(mapper, spec, width_feet, height, color, stamp, EndCapType.SINGLE)
+    double = _stocked(mapper, spec, width_feet, height, color, stamp, EndCapType.DOUBLE)
+    if single and double:
+        return None, (
+            "Both single and double end caps are stocked at this width. "
+            "Say which hinges the section uses, or leave it for staff."
+        )
+    if double and not single:
+        return EndCapType.DOUBLE, None
+    return EndCapType.SINGLE, None
 
 
 def resolve_section(
@@ -171,7 +231,7 @@ def resolve_section(
     if series_id == "TX50020":
         series_id = "TX500-20"
     thickness = _text(answers.get("thickness"))
-    gauge = _text(answers.get("gauge") or "standard").lower()
+    gauge_raw = _text(answers.get("gauge")).lower()
     position = _text(answers.get("position")).lower()
     windows = answers.get("windows")
     try:
@@ -204,6 +264,7 @@ def resolve_section(
             )
         elif not thickness:
             reasons.append("Door thickness is required.")
+        gauge = gauge_raw or spec["gauge"]
         if gauge not in ("standard", "20"):
             reasons.append("Gauge must be standard or 20.")
         elif gauge != spec["gauge"]:
@@ -224,8 +285,8 @@ def resolve_section(
         )
     elif windows is not False:
         reasons.append("Say whether the section has a window.")
-    if quantity < 1:
-        reasons.append("Quantity must be at least 1.")
+    if quantity < 1 or quantity > 100:
+        reasons.append("Quantity must be from 1 to 100.")
     if width_feet < 0 or not (0 <= width_inches <= 11) or width_feet * 12 + max(width_inches, 0) <= 0:
         reasons.append("Door width must be feet and inches.")
 
@@ -251,7 +312,6 @@ def resolve_section(
         }
 
     total_inches = width_feet * 12 + width_inches
-    end_cap = EndCapType.DOUBLE if total_inches > 16 * 12 else EndCapType.SINGLE
     color = _color_name(answers.get("color"))
     mapper = get_bc_mapper()
     if color not in mapper.COLOR_CODES:
@@ -262,6 +322,19 @@ def resolve_section(
             "list_price": None,
             "quantity": quantity,
             "reasons": [f"Colour {color or '(blank)'} is not on the section colour map."],
+        }
+
+    end_cap, end_cap_reason = _resolve_end_cap(
+        series_id, spec, answers, mapper, total_inches / 12, height, color, stamp,
+    )
+    if end_cap_reason:
+        return {
+            "status": "review",
+            "part_number": None,
+            "description": None,
+            "list_price": None,
+            "quantity": quantity,
+            "reasons": [end_cap_reason],
         }
 
     try:
@@ -312,10 +385,14 @@ def resolve_section(
             "reasons": [f"{part.part_number} has no item-card list price."],
         }
 
-    position_label = position
     description = part.description
-    if series_id != "CRAFT" or _text(answers.get("design")).upper() != "MUSKOKA":
-        description = f"{description}, {position_label} section"
+    design_name = _text(answers.get("design")).upper()
+    # Muskoka's top section is a flush part. Keep the position on the
+    # description so staff can see it was the top of a Muskoka door.
+    if series_id == "CRAFT" and design_name == "MUSKOKA" and position == "top":
+        description = f"{description}, top section"
+    elif not (series_id == "CRAFT" and design_name == "MUSKOKA"):
+        description = f"{description}, {position} section"
     return {
         "status": "resolved",
         "part_number": part.part_number,

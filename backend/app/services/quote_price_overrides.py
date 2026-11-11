@@ -152,8 +152,6 @@ def _number(value: Any, default: float, *, low: float, high: float) -> float:
 
 
 def _parse_mode_value(raw: Any) -> str:
-    if isinstance(raw, dict):
-        return _mode(raw)
     return _mode(raw)
 
 
@@ -418,7 +416,18 @@ def is_section_panel_line(part: dict) -> bool:
     return pn.startswith(STEEL_SECTION_PREFIXES)
 
 
-def _positive_price(raw: Any) -> Optional[float]:
+class ListPrice(float):
+    """A card price, with whether it came from live BC or the item export."""
+
+    source: str
+
+    def __new__(cls, amount: float, source: str = "live"):
+        value = float.__new__(cls, amount)
+        value.source = source
+        return value
+
+
+def _positive_price(raw: Any, source: str = "live") -> Optional[ListPrice]:
     if raw is None or raw == "":
         return None
     try:
@@ -427,7 +436,7 @@ def _positive_price(raw: Any) -> Optional[float]:
         return None
     if price <= 0:
         return None
-    return float(price)
+    return ListPrice(float(price), source)
 
 
 def card_list_price(part_number: str) -> Optional[float]:
@@ -447,24 +456,32 @@ def card_list_price(part_number: str) -> Optional[float]:
             live_item = pricing._bc_cost_cache.get(part_number)
         else:
             from app.integrations.bc.client import bc_client
-            items = bc_client.get_items_by_numbers([part_number]) or {}
-            live_item = items.get(part_number)
-            if live_item:
-                pricing._bc_cost_cache[part_number] = live_item
+            # The client logs and swallows a failed batch. The errors list is
+            # how this caller tells a dead call from "BC has no such item".
+            fetch_errors: list[str] = []
+            items = bc_client.get_items_by_numbers([part_number], errors=fetch_errors) or {}
+            if fetch_errors:
+                live_down = True
+            else:
+                live_item = items.get(part_number)
+                if live_item:
+                    pricing._bc_cost_cache[part_number] = live_item
     except Exception:
         logger.warning("Live list price unavailable for %s", part_number, exc_info=True)
         live_down = True
         live_item = None
 
-    if live_item is not None and not live_down:
-        return _positive_price(live_item.get("unitPrice"))
+    if not live_down:
+        if live_item is None:
+            return None
+        return _positive_price(live_item.get("unitPrice"), "live")
     try:
         from app.services.bc_part_number_mapper import get_bc_mapper
         exported = get_bc_mapper().bc_items.get(part_number) or {}
     except Exception:
         logger.warning("Item-card export unreadable for %s", part_number, exc_info=True)
         return None
-    return _positive_price(exported.get("unitPrice"))
+    return _positive_price(exported.get("unitPrice"), "export")
 
 
 def _money(value: float) -> str:
@@ -621,8 +638,9 @@ def apply_price_overrides(
                 if emit_notes:
                     rewritten.append(_comment(flag))
             continue
+        export_note = " (export price)" if getattr(price, "source", "") == "export" else ""
         note = (
-            f"PRICE NOTE: {pn} replacement section at list price ${_money(price)}"
+            f"PRICE NOTE: {pn} replacement section at list price ${_money(price)}{export_note}"
         )
         if settings.panel_mode == "shadow":
             logger.info(
@@ -630,7 +648,7 @@ def apply_price_overrides(
                 SECTION_PRICING_KEY, pn, _money(price),
             )
         else:
-            part["fixed_unit_price"] = price
+            part["fixed_unit_price"] = float(price)
             part["pricing_override"] = note
             logger.info(
                 "%s: %s fixed at list price $%s",
