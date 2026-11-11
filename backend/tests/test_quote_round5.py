@@ -369,7 +369,11 @@ def test_finder_requires_a_customer_and_is_404_when_off():
     app.include_router(portal.router)
     client = TestClient(app)
     denied = client.post("/api/customer/portal/section-finder/resolve", json=_answers())
-    assert denied.status_code == 403
+    # No Authorization header. HTTPBearer rejects that before the route runs.
+    # FastAPI 0.109 (pinned requirements) answers 403. The unpinned FastAPI
+    # that Deploy to Production installs answers 401. Both mean unauthenticated.
+    assert denied.status_code in (401, 403)
+    assert denied.json()["detail"] == "Not authenticated"
 
     engine = create_engine(
         "sqlite://",
