@@ -56,7 +56,6 @@ EXTRACTED_DOOR = {
     "window_pattern": "3/2/1/0",
     "window_size": "long",
     "operator": "LiftMaster 3/4 horse power chain drive (base)",
-    "keypad": "878MAX",
     "notes": "Truss on every section. Adjustable prep. Keyless entry. Weather stripping.",
 }
 
@@ -108,7 +107,7 @@ SILV_PRICES = {
     "PL10-07203-05": 22.81,
     "PL10-16203-05": 52.15,
     "OP19-01118-00": 403.51,
-    "OP19-02077-00": 91.27,
+    "OP19-02137-00": 70.09,
     "OP19-02004-00": 93.88,
     "WRAP": 0.95,
 }
@@ -129,7 +128,7 @@ HAND_QTY = {
     "PL10-07203-05": 2,
     "PL10-16203-05": 1,
     "OP19-01118-00": 1,
-    "OP19-02077-00": 1,
+    "OP19-02137-00": 1,
     "OP19-02004-00": 1,
     "WRAP": 112,
 }
@@ -139,7 +138,6 @@ PRICE_FLAGS = (
     "quote_opener_mapping",
     "quote_crating_history",
     "quote_kanata_series_history",
-    "quote_adjustable_prep",
     "quote_series_fallback",
 )
 
@@ -264,7 +262,8 @@ def test_doortech_flags_on_matches_the_hand_corrected_quote(session, monkeypatch
     assert door.trackRadius == "12"
     assert door.trackMount == "bracket"
     assert door.operator == "OP19-01118-00"
-    assert "OP19-02077-00" in (door.operatorAccessories or [])
+    assert "OP19-02137-00" in (door.operatorAccessories or [])
+    assert "OP19-02077-00" not in (door.operatorAccessories or [])
     assert [(p.section, p.col) for p in door.windowPositions] == [
         (1, 1), (1, 2), (1, 3),
         (2, 2), (2, 3),
@@ -283,10 +282,12 @@ def test_doortech_flags_on_matches_the_hand_corrected_quote(session, monkeypatch
     for sku, qty in HAND_QTY.items():
         assert priced[sku]["quantity"] == qty, sku
     subtotal = round(sum(priced[sku]["quantity"] * SILV_PRICES[sku] for sku in HAND_QTY), 2)
-    assert subtotal == 4104.77
+    # Keyless entry is L979S at the confirmed BC unit price 70.09, not 878MAX at 91.27.
+    # 4104.77 - 91.27 + 70.09 = 4083.59. Freight is 9% of that subtotal.
+    assert subtotal == 4083.59
     freight = round(subtotal * 0.09, 2)
-    assert freight == 369.43
-    assert round(subtotal + freight, 2) == 4474.20
+    assert freight == 367.52
+    assert round(subtotal + freight, 2) == 4451.11
     assert "CRATING" not in priced
 
 
@@ -304,7 +305,7 @@ def test_struts_per_section_is_off_until_the_switch_is_on(session, monkeypatch):
     assert strut["quantity"] == 4
 
 
-def test_opener_flag_off_leaves_free_text_and_on_refuses_an_unknown_model():
+def test_8500w_is_discontinued_and_l979s_is_the_keyless_default():
     from app.services.quote_round3 import plan_round3
     door = {"doorType": "residential", "operator": "LiftMaster 8500W", "doorWidth": 96, "doorHeight": 84}
     off = plan_round3([door], email_text="LiftMaster 8500W jackshaft", modes={})
@@ -315,10 +316,29 @@ def test_opener_flag_off_leaves_free_text_and_on_refuses_an_unknown_model():
         modes={"quote_opener_mapping": "on"},
     )
     assert on.doors[0]["operator"] is None
+    assert "OP19-02137-00" in (on.doors[0].get("operatorAccessories") or [])
     reasons = " ".join(item.get("reason", "") for item in on.unresolved)
+    assert "discontinued" in reasons.lower()
     assert "8500W" in reasons
-    assert "L979S" in reasons
-    assert "OP19-" not in reasons
+    named = plan_round3(
+        [{"doorType": "residential", "doorWidth": 96, "doorHeight": 84}],
+        email_text="Keyless entry, and also an 878MAX.",
+        modes={"quote_opener_mapping": "on"},
+    )
+    accessories = named.doors[0].get("operatorAccessories") or []
+    assert accessories == ["OP19-02077-00"]
+    generic = plan_round3(
+        [{"doorType": "residential", "doorWidth": 96, "doorHeight": 84}],
+        email_text="Please add a wireless keypad. Model LM L979S.",
+        modes={"quote_opener_mapping": "on"},
+    )
+    assert generic.doors[0].get("operatorAccessories") == ["OP19-02137-00"]
+    plain = plan_round3(
+        [{"doorType": "residential", "doorWidth": 96, "doorHeight": 84}],
+        email_text="Keyless entry please.",
+        modes={"quote_opener_mapping": "on"},
+    )
+    assert plain.doors[0].get("operatorAccessories") == ["OP19-02137-00"]
 
 
 def test_window_pattern_flag_is_shadow_only_until_on():
@@ -387,16 +407,22 @@ def test_crating_comes_from_history_only_when_the_switch_is_on():
     assert pickup.delivery_type == "pickup"
 
 
-def test_adjustable_prep_does_not_invent_a_part():
+def test_adjustable_prep_adds_one_operator_bracket_per_door():
     from app.services.quote_round3 import plan_round3
+    shadow = plan_round3(
+        [{"doorWidth": 96, "doorHeight": 84}],
+        email_text="Adjustable opener prep.",
+        modes={"quote_adjustable_prep": "shadow"},
+    )
+    assert shadow.doors[0].get("adjustablePrep") is not True
+    assert shadow.shadow_notes
     planned = plan_round3(
         [{"doorWidth": 96, "doorHeight": 84, "notes": ""}],
         email_text="Adjustable prep please.",
         modes={"quote_adjustable_prep": "on"},
     )
-    door = planned.doors[0]
-    assert door["adjustablePrep"] is True
-    parts = get_parts_for_door_config({
+    assert planned.doors[0]["adjustablePrep"] is True
+    base = {
         "doorType": "residential",
         "doorSeries": "KANATA",
         "doorWidth": 96,
@@ -407,9 +433,22 @@ def test_adjustable_prep_does_not_invent_a_part():
         "hardware": {"struts": False, "tracks": False, "springs": False, "shafts": False,
                      "hardwareKits": False, "weatherStripping": False, "bottomRetainer": False},
         "adjustablePrep": True,
+    }
+    parts = get_parts_for_door_config(base)
+    brackets = [item for item in parts["parts_list"] if item["part_number"] == "FH12-00179-02"]
+    assert len(brackets) == 1
+    assert brackets[0]["quantity"] == 1
+    two = get_parts_for_door_config({**base, "doorCount": 2})
+    again = [item for item in two["parts_list"] if item["part_number"] == "FH12-00179-02"]
+    assert len(again) == 1 and again[0]["quantity"] == 2
+    already = get_parts_for_door_config({
+        **base,
+        "operator": "OP19-01118-00",
+        "operatorAccessories": ["FH12-00179-02"],
     })
-    assert all(item.get("part_number") != "ADJUSTABLE-PREP" for item in parts["parts_list"])
-    assert any(item.get("kind") == "unresolved_option" for item in parts["deviations"])
+    found = [item for item in already["parts_list"] if item["part_number"] == "FH12-00179-02"]
+    assert len(found) == 1
+    assert found[0]["quantity"] == 1
 
 
 def _categorize(monkeypatch, category):

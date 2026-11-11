@@ -1261,14 +1261,16 @@ class PartNumberService:
         # count multiplier below scales it — round first, then multiply, so
         # two 16'2" × 14' doors are 226 × 2 = 452, not round(452.67).
         if config.adjustable_prep:
-            config.deviations.append({
-                "kind": "unresolved_option",
-                "field": "adjustablePrep",
-                "reason": (
-                    "Adjustable / opener prep was requested. "
-                    "No matching part number is in the item data, so none was added."
-                ),
-            })
+            # Residential operator bracket. One per door. Skip it when the
+            # opener path or an accessory list already added the same part.
+            bracket = "FH12-00179-02"
+            if not any(part.part_number == bracket for part in parts):
+                parts.append(PartSelection(
+                    part_number=bracket,
+                    description='RESIDENTIAL OPERATOR BRACKET (WHITE POWDER COAT) 24"',
+                    quantity=1,
+                    category="hardware",
+                ))
 
         if config.include_crating:
             # One crating charge for the order. The door-count loop below

@@ -35,7 +35,7 @@ _EVERY_SECTION_RE = re.compile(
     re.IGNORECASE,
 )
 _ADJUSTABLE_RE = re.compile(
-    r"\b(?:adjustable\s+prep|opener\s+prep|operator\s+prep|adjustable\s+operator)\b",
+    r"\b(?:adjustable\s+opener\s+prep|adjustable\s+prep|opener\s+prep|operator\s+prep)\b",
     re.IGNORECASE,
 )
 _CRATING_RE = re.compile(r"\bcrat(?:e|ing|ed)\b", re.IGNORECASE)
@@ -43,9 +43,12 @@ _PICKUP_RE = re.compile(r"\b(?:pick\s*-?\s*up|will\s+collect|customer\s+pickup)\
 _DELIVERY_RE = re.compile(r"\b(?:deliver(?:y|ed)?|ship(?:ped|ping)?|freight)\b", re.IGNORECASE)
 _FLUSH_OR_CLOSEST_RE = re.compile(r"\b(?:flush|closest|similar)\b", re.IGNORECASE)
 
-# Catalog rows a model name maps to with no guesswork. L979S is a real
-# LiftMaster keypad and is not in the item export, so it is not given a
-# part number here.
+# L979S (OP19-02137-00) is the generic keyless / wireless keypad.
+# 878MAX stays on its own part only when the email names it.
+# 8500W is discontinued and is never given a part number.
+L979S_PART = "OP19-02137-00"
+MAX878_PART = "OP19-02077-00"
+OPERATOR_BRACKET = "FH12-00179-02"
 _EXACT_MODELS = {
     "2220L": "OP19-01118-00",
     "2420L": "OP19-01119-00",
@@ -57,16 +60,8 @@ _EXACT_MODELS = {
     "LJ8900W": "OP19-01082-00",
     "8900W": "OP19-01082-00",
 }
-_UNRESOLVED_MODELS = {
-    "L979S": "LiftMaster L979S is not in the operator catalog or the item export.",
-    "8500W": (
-        "8500W is not a current catalog row. 8500C and 8500CMC are discontinued, "
-        "and LJ8900W and 98022MC are different jackshafts. None was chosen."
-    ),
-}
-_KEYPAD_PHRASE_RE = re.compile(
-    r"\b(?:878\s*max|keyless(?:\s+entry)?|wireless\s+keypad)\b",
-    re.IGNORECASE,
+_DISCONTINUED_8500W = (
+    "8500W is discontinued. No part number was quoted."
 )
 _RAIL_RE = re.compile(r"\b(7|8|10)\s*(?:'|ft|foot|feet)\s+rail\b", re.IGNORECASE)
 _CHAIN_RAILS = {"7": "OP19-02004-00", "8": "OP19-02005-00", "10": "OP19-02006-00"}
@@ -345,14 +340,14 @@ def opener_plan(text: str, door: dict) -> dict:
             })
         elif reason:
             changes["unresolved"].append({"field": "operator", "text": blob[:180], "reason": reason})
+        if part and reason:
+            changes["unresolved"].append({"field": "operator", "text": "8500W", "reason": reason})
 
     accessories = list(door.get("operatorAccessories") or [])
-    keypad, keypad_reason = _match_keypad(blob)
-    if keypad and keypad not in accessories:
-        accessories.append(keypad)
-        changes["changes"]["operatorAccessories"] = accessories
-    elif keypad_reason:
-        changes["unresolved"].append({"field": "keypad", "text": keypad_reason, "reason": keypad_reason})
+    for keypad in _match_keypads(blob):
+        if keypad not in accessories:
+            accessories.append(keypad)
+            changes["changes"]["operatorAccessories"] = accessories
 
     rail = _match_rail(blob, part or current)
     if rail and rail not in accessories:
@@ -368,39 +363,46 @@ def opener_plan(text: str, door: dict) -> dict:
 def _match_operator_model(text: str):
     upper = (text or "").upper()
     compact = re.sub(r"\s+", "", upper)
-    unresolved = [reason for token, reason in _UNRESOLVED_MODELS.items() if token in compact]
-    if unresolved:
-        return None, " ".join(unresolved)
+    discontinued = _DISCONTINUED_8500W if "8500W" in compact else None
     for token, part in _EXACT_MODELS.items():
         if token in compact and not token.endswith("MAX"):
-            return part, None
+            return part, discontinued
     three_quarter = bool(re.search(r"3\s*/\s*4|¾", text or ""))
     chain = "CHAIN" in upper
     base = bool(re.search(r"\b(?:base|basic)\b", text or "", re.I))
     battery = bool(re.search(r"\b(?:bbu|battery)\b", text or "", re.I))
     if three_quarter and chain and base and not battery:
-        return "OP19-01118-00", None
+        return "OP19-01118-00", discontinued
+    if discontinued and not (re.search(r"\bjackshaft\b", text or "", re.I) and "8900" not in compact and "98022" not in compact):
+        return None, discontinued
     if re.search(r"\bjackshaft\b", text or "", re.I) and "8900" not in compact and "98022" not in compact:
-        return None, (
-            "Jackshaft was requested without a model. "
-            "LJ8900W, 98022MC, and the JHDC operators are different parts. None was chosen."
-        )
+        note = "Jackshaft was requested without a model. LJ8900W, 98022MC, and the JHDC operators are different parts. None was chosen."
+        if discontinued:
+            note = f"{discontinued} {note}"
+        return None, note
     if current_words_look_like_operator(text) and "2220" not in compact:
-        return None, "The opener wording does not match one catalog part. It was not invented."
-    return None, None
+        return None, discontinued or "The opener wording does not match one catalog part. It was not invented."
+    return None, discontinued
 
 
 def current_words_look_like_operator(text: str) -> bool:
     return bool(re.search(r"\b(?:liftmaster|operator|opener|horse\s*power|chain\s+drive)\b", text or "", re.I))
 
 
-def _match_keypad(text: str):
-    compact = re.sub(r"\s+", "", (text or "").upper())
-    if "L979S" in compact:
-        return None, _UNRESOLVED_MODELS["L979S"]
-    if "878MAX" in compact or _KEYPAD_PHRASE_RE.search(text or ""):
-        return "OP19-02077-00", None
-    return None, None
+def _match_keypads(text: str) -> List[str]:
+    """Named 878MAX stays on its part. L979S, L979, and LM L979S, and a
+    keyless entry or wireless keypad with no model, use OP19-02137-00.
+    """
+    raw = text or ""
+    compact = re.sub(r"\s+", "", raw.upper())
+    parts: List[str] = []
+    if re.search(r"\b(?:LM\s*)?L979S?\b", raw, re.I):
+        parts.append(L979S_PART)
+    if "878MAX" in compact:
+        parts.append(MAX878_PART)
+    if not parts and re.search(r"\b(?:keyless(?:\s+entry)?|wireless\s+keypad)\b", raw, re.I):
+        parts.append(L979S_PART)
+    return parts
 
 
 def _match_rail(text: str, operator_part: str) -> Optional[str]:
