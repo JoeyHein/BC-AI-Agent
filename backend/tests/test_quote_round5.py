@@ -234,6 +234,25 @@ def test_craft_top_is_flush_for_every_design():
     assert muskoka["part_number"] == "PN95-28000-0900"
     assert "top section" in muskoka["description"]
 
+    shared = {
+        "application": "residential",
+        "series": "CRAFT",
+        "thickness": "1-3/4",
+        "section_height": 28,
+        "width_feet": 9,
+        "width_inches": 0,
+        "color": "WHITE",
+        "design": "MUSKOKA",
+        "windows": False,
+        "quantity": 1,
+    }
+    intermediate = resolve_section({**shared, "position": "intermediate"}, list_price_lookup=_list_price)
+    bottom = resolve_section({**shared, "position": "bottom"}, list_price_lookup=_list_price)
+    assert intermediate["part_number"] == "PN95-28800-0900"
+    assert "MUSKOKA INTERMEDIATE, intermediate section" in intermediate["description"]
+    assert bottom["part_number"] == "PN95-28900-0900"
+    assert "MUSKOKA BOTTOM, bottom section" in bottom["description"]
+
 
 def test_end_caps_are_not_chosen_from_width():
     shared = {
@@ -410,13 +429,14 @@ def test_finder_input_limits(finder_client):
 
 
 def test_shadow_review_saves_nothing_and_on_saves_the_customer(finder_client):
-    from app.services.quote_price_overrides import save_price_overrides
+    from app.db.models import AppSettings
+    from app.services.quote_price_overrides import FINDER_KEY, save_price_overrides
     client, db, user = finder_client
-    save_price_overrides(db, finder_mode="shadow")
+    # The finder has no shadow. A stored shadow is off, so nothing is saved.
+    db.add(AppSettings(setting_key=FINDER_KEY, setting_value={"mode": "shadow"}))
     db.commit()
     shadow = client.post("/api/customer/portal/section-finder/review", json=_answers(photo=_png()))
-    assert shadow.status_code == 200
-    assert shadow.json()["saved"] is False
+    assert shadow.status_code == 404
     assert db.query(PublicQuoteRequest).count() == 0
 
     save_price_overrides(db, finder_mode="on")
@@ -499,6 +519,93 @@ def test_cart_list_price_and_a_failed_price_write(finder_client, monkeypatch):
     assert body["line_pricing"][0]["unit_price"] == 380.96
     assert "customer price kept" in body["line_pricing"][0]["pricing_flag"]
     assert added["calls"] == 2
+
+
+def test_cart_off_and_shadow_do_not_patch(finder_client, monkeypatch):
+    from app.api import customer_portal as portal
+    from app.services.quote_price_overrides import save_price_overrides
+    client, db, _user = finder_client
+    monkeypatch.setattr(portal, "warm_bc_cost_cache", lambda *a, **k: None)
+    monkeypatch.setattr(portal, "_get_customer_pricing_tier", lambda *a, **k: "retail")
+    monkeypatch.setattr(
+        portal.bc_client, "create_sales_quote",
+        lambda data: {"id": "q1", "number": "SQ-1"},
+    )
+    monkeypatch.setattr(
+        portal.bc_client, "get_sales_quote",
+        lambda quote_id: {"totalAmountExcludingTax": 380.96, "totalAmountIncludingTax": 380.96},
+    )
+    monkeypatch.setattr(
+        "app.services.quote_price_overrides.card_list_price",
+        lambda part_number: 454.34,
+    )
+    patched = {"count": 0}
+
+    def update_line(*a, **k):
+        patched["count"] += 1
+        raise AssertionError("price must not be patched")
+
+    monkeypatch.setattr(
+        portal.bc_client, "add_quote_line",
+        lambda quote_id, line_data: {
+            "id": "line-1",
+            "@odata.etag": "W/\"1\"",
+            "description": line_data.get("description"),
+            "unitPrice": 380.96,
+        },
+    )
+    monkeypatch.setattr(portal.bc_client, "update_quote_line", update_line)
+    body = {"items": [{"item_number": "PN65-21005-1600", "description": "section", "quantity": 1}]}
+
+    off = client.post("/api/customer/portal/cart/quote", json=body)
+    assert off.status_code == 200
+    assert off.json()["line_pricing"][0]["unit_price"] == 380.96
+    assert off.json()["line_pricing"][0]["pricing_flag"] is None
+    assert patched["count"] == 0
+
+    save_price_overrides(db, panel_mode="shadow", finder_mode="off")
+    db.commit()
+    shadow = client.post("/api/customer/portal/cart/quote", json=body)
+    assert shadow.status_code == 200
+    assert shadow.json()["line_pricing"][0]["unit_price"] == 380.96
+    assert shadow.json()["lines_failed"] == []
+    assert patched["count"] == 0
+
+
+def test_cart_export_price_is_marked(finder_client, monkeypatch):
+    from app.api import customer_portal as portal
+    from app.services.quote_price_overrides import ListPrice, save_price_overrides
+    client, db, _user = finder_client
+    save_price_overrides(db, panel_mode="on")
+    db.commit()
+    monkeypatch.setattr(portal, "warm_bc_cost_cache", lambda *a, **k: None)
+    monkeypatch.setattr(portal, "_get_customer_pricing_tier", lambda *a, **k: "retail")
+    monkeypatch.setattr(
+        portal.bc_client, "create_sales_quote",
+        lambda data: {"id": "q1", "number": "SQ-1"},
+    )
+    monkeypatch.setattr(
+        portal.bc_client, "get_sales_quote",
+        lambda quote_id: {"totalAmountExcludingTax": 454.34, "totalAmountIncludingTax": 454.34},
+    )
+    monkeypatch.setattr(
+        portal.bc_client, "add_quote_line",
+        lambda quote_id, line_data: {
+            "id": "line-1", "@odata.etag": "W/\"1\"",
+            "description": "section", "unitPrice": 380.96,
+        },
+    )
+    monkeypatch.setattr(portal.bc_client, "update_quote_line", lambda *a, **k: {})
+    monkeypatch.setattr(
+        "app.services.quote_price_overrides.card_list_price",
+        lambda part_number: ListPrice(454.34, "export"),
+    )
+    response = client.post("/api/customer/portal/cart/quote", json={
+        "items": [{"item_number": "PN65-21005-1600", "description": "section", "quantity": 1}],
+    })
+    assert response.status_code == 200
+    assert response.json()["line_pricing"][0]["unit_price"] == 454.34
+    assert "(export price)" in response.json()["line_pricing"][0]["pricing_flag"]
 
 
 def test_export_price_is_used_only_when_the_live_call_fails(monkeypatch):

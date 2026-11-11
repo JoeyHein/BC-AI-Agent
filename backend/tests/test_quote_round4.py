@@ -627,7 +627,7 @@ def test_settings_default_off_and_round_trip(session):
     save_price_overrides(
         session,
         panel_mode="on",
-        finder_mode="shadow",
+        finder_mode="on",
         window_mode="shadow",
         long_price=170,
         short_price=110,
@@ -635,7 +635,7 @@ def test_settings_default_off_and_round_trip(session):
     session.commit()
     again = load_price_overrides(session)
     assert again.panel_mode == "on"
-    assert again.finder_mode == "shadow"
+    assert again.finder_mode == "on"
     assert again.window_mode == "shadow"
     assert again.long_price == 170
     assert again.short_price == 110
@@ -644,7 +644,7 @@ def test_settings_default_off_and_round_trip(session):
     session.commit()
     kept = load_price_overrides(session)
     assert kept.panel_mode == "off"
-    assert kept.finder_mode == "shadow"
+    assert kept.finder_mode == "on"
 
     retired = AppSettings(
         setting_key="quote_replacement_panel_margin",

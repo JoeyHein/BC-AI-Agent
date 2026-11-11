@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { sectionFinderApi } from '../../api/customerClient'
 import { useCart } from '../../contexts/CartContext'
+import { apiErrorMessage } from '../../utils/apiError'
+
+const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic']
+const PHOTO_MAX_BYTES = 2.8 * 1024 * 1024
 
 const EMPTY = {
   application: 'residential',
@@ -72,8 +76,16 @@ export default function SectionFinder() {
       setPhotoName('')
       return
     }
-    if (file.size > 2 * 1024 * 1024) {
-      setError('Photo must be 2 MB or smaller.')
+    const typeOk = PHOTO_TYPES.includes(file.type)
+      || (!file.type && /\.(jpe?g|png|webp|heic)$/i.test(file.name || ''))
+    if (!typeOk) {
+      setError('Photo must be a jpeg, png, webp, or heic image.')
+      event.target.value = ''
+      return
+    }
+    if (file.size > PHOTO_MAX_BYTES) {
+      setError('Photo must be about 2.8 MB or smaller.')
+      event.target.value = ''
       return
     }
     const reader = new FileReader()
@@ -114,7 +126,7 @@ export default function SectionFinder() {
       const response = await sectionFinderApi.resolve(payload())
       setResult(response.data)
     } catch (err) {
-      setError(err.response?.data?.detail || 'Could not look up that section.')
+      setError(apiErrorMessage(err.response?.data?.detail, 'Could not look up that section.'))
     }
     setBusy(false)
   }
@@ -134,13 +146,9 @@ export default function SectionFinder() {
     setError('')
     try {
       const response = await sectionFinderApi.review(payload())
-      if (response.data.status === 'shadow') {
-        setNotice('Shadow mode only. This was not sent to staff.')
-      } else {
-        setNotice('Sent to Open Distribution for review. Nothing was guessed.')
-      }
+      setNotice('Sent to Open Distribution for review. Nothing was guessed.')
     } catch (err) {
-      setError(err.response?.data?.detail || 'Could not send the request.')
+      setError(apiErrorMessage(err.response?.data?.detail, 'Could not send the request.'))
     }
     setBusy(false)
   }
@@ -262,14 +270,14 @@ export default function SectionFinder() {
             </select>
           </Field>
           <Field label="Quantity">
-            <input aria-label="Quantity" type="number" min="1" max="100" className={selectClass} value={form.quantity} onChange={(event) => setField('quantity', event.target.value)} />
+            <input aria-label="Quantity" type="number" required min="1" max="100" className={selectClass} value={form.quantity} onChange={(event) => setField('quantity', event.target.value)} />
           </Field>
         </div>
         <Field label="Notes">
           <textarea aria-label="Notes" maxLength={2000} className={selectClass} rows={3} value={form.notes} onChange={(event) => setField('notes', event.target.value)} />
         </Field>
         <Field label="Photo, optional">
-          <input aria-label="Photo" type="file" accept="image/*" onChange={onPhoto} className="text-sm" />
+          <input aria-label="Photo" type="file" accept="image/jpeg,image/png,image/webp,image/heic" onChange={onPhoto} className="text-sm" />
           {photoName && <span className="block mt-1 text-xs text-gray-500">{photoName}</span>}
         </Field>
         <button type="submit" disabled={busy} className="px-4 py-2 rounded-md bg-odc-600 text-white text-sm font-medium disabled:opacity-50">
@@ -286,14 +294,10 @@ export default function SectionFinder() {
           <p className="mt-1 text-lg font-medium text-gray-900">{result.description}</p>
           <p className="mt-1 font-mono text-sm text-gray-700">{result.part_number}</p>
           <p className="mt-2 text-sm text-gray-900">List price ${Number(result.list_price).toFixed(2)} each, quantity {result.quantity}</p>
-          {mode === 'on' ? (
-            <div className="mt-3 flex gap-3">
-              <button type="button" onClick={addToCart} className="px-4 py-2 rounded-md bg-odc-600 text-white text-sm">Add to cart</button>
-              <Link to="/cart" className="px-4 py-2 rounded-md border border-gray-300 text-sm">Open cart</Link>
-            </div>
-          ) : (
-            <p className="mt-3 text-sm text-amber-800">Shadow mode does not add this to the cart.</p>
-          )}
+          <div className="mt-3 flex gap-3">
+            <button type="button" onClick={addToCart} className="px-4 py-2 rounded-md bg-odc-600 text-white text-sm">Add to cart</button>
+            <Link to="/cart" className="px-4 py-2 rounded-md border border-gray-300 text-sm">Open cart</Link>
+          </div>
         </div>
       )}
 
@@ -303,13 +307,9 @@ export default function SectionFinder() {
           <ul className="mt-2 list-disc pl-5 text-sm text-gray-700 space-y-1">
             {(result.reasons || []).map((reason) => <li key={reason}>{reason}</li>)}
           </ul>
-          {mode === 'on' ? (
-            <button type="button" onClick={sendToStaff} disabled={busy} className="mt-3 px-4 py-2 rounded-md bg-gray-900 text-white text-sm">
-              Send to Open Distribution
-            </button>
-          ) : (
-            <p className="mt-3 text-sm text-amber-800">Shadow mode does not send this.</p>
-          )}
+          <button type="button" onClick={sendToStaff} disabled={busy} className="mt-3 px-4 py-2 rounded-md bg-gray-900 text-white text-sm">
+            Send to Open Distribution
+          </button>
         </div>
       )}
     </div>

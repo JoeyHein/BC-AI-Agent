@@ -190,6 +190,9 @@ def _read_setting(db: Optional[Session], key: str) -> Any:
 def load_price_overrides(db: Optional[Session]) -> PriceOverrideSettings:
     panel_mode = _parse_mode_value(_read_setting(db, SECTION_PRICING_KEY))
     finder_mode = _parse_mode_value(_read_setting(db, FINDER_KEY))
+    # The finder has no customer-facing shadow. A stored shadow is off.
+    if finder_mode != "on":
+        finder_mode = "off"
     window_mode, long_price, short_price = _parse_windows(_read_setting(db, FLAT_WINDOWS_KEY))
     return PriceOverrideSettings(
         panel_mode=panel_mode,
@@ -239,8 +242,8 @@ def save_price_overrides(
         panel_mode = current.panel_mode
     if finder_mode is not None:
         cleaned = str(finder_mode).strip().lower()
-        if cleaned not in MODES:
-            raise ValueError(f"mode must be one of {MODES}")
+        if cleaned not in ("off", "on"):
+            raise ValueError("finder mode must be off or on")
         finder_mode = cleaned
     else:
         finder_mode = current.finder_mode
@@ -275,7 +278,7 @@ def save_price_overrides(
         db,
         FINDER_KEY,
         {"mode": finder_mode},
-        "Customer portal replacement section finder. Off, shadow, or on.",
+        "Customer portal replacement section finder. Off or on. Shadow is not used.",
         user_id,
     )
     _write_setting(

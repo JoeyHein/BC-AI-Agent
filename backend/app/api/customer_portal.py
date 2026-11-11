@@ -4533,9 +4533,7 @@ def create_cart_quote(
             price_settings.panel_mode == "on" or price_settings.finder_mode == "on"
         ):
             list_price_mode = "on"
-        elif sections_only and (
-            price_settings.panel_mode == "shadow" or price_settings.finder_mode == "shadow"
-        ):
+        elif sections_only and price_settings.panel_mode == "shadow":
             list_price_mode = "shadow"
 
         line_pricing = []
@@ -4590,6 +4588,10 @@ def create_cart_quote(
                                 },
                             )
                             unit_price = float(card_price)
+                            if getattr(card_price, "source", "") == "export":
+                                pricing_flag = (
+                                    f"FLAG: {item.item_number} list price (export price)"
+                                )
                             logger.info(
                                 "quote_replacement_section_pricing: cart %s fixed at list $%.2f",
                                 item.item_number, float(card_price),

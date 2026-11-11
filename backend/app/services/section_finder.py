@@ -387,11 +387,18 @@ def resolve_section(
 
     description = part.description
     design_name = _text(answers.get("design")).upper()
-    # Muskoka's top section is a flush part. Keep the position on the
-    # description so staff can see it was the top of a Muskoka door.
-    if series_id == "CRAFT" and design_name == "MUSKOKA" and position == "top":
-        description = f"{description}, top section"
-    elif not (series_id == "CRAFT" and design_name == "MUSKOKA"):
+    if series_id == "CRAFT" and design_name == "MUSKOKA":
+        if position == "top":
+            description = f"{description}, top section"
+        elif position == "intermediate":
+            description = description.replace(
+                "MUSKOKA_INTERMEDIATE", "MUSKOKA INTERMEDIATE, intermediate section",
+            )
+        elif position == "bottom":
+            description = description.replace(
+                "MUSKOKA_BOTTOM", "MUSKOKA BOTTOM, bottom section",
+            )
+    else:
         description = f"{description}, {position} section"
     return {
         "status": "resolved",

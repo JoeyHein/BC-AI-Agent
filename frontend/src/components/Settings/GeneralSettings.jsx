@@ -18,7 +18,7 @@ const QUOTE_BUILD_SWITCHES = [
   ['quote_series_fallback', 'Closest series', 'When the asked series cannot be built in that colour and design, quote the closest series that can.'],
 ]
 
-function PriceOverrideControl({ label, help, mode, onMode, children }) {
+function PriceOverrideControl({ label, help, mode, onMode, modes = ['off', 'shadow', 'on'], children }) {
   return (
     <div className="text-sm text-gray-700">
       <span className="block text-xs font-medium text-gray-500 mb-1">{label}</span>
@@ -29,9 +29,9 @@ function PriceOverrideControl({ label, help, mode, onMode, children }) {
         onChange={onMode}
         className="border border-gray-300 rounded-md px-2 py-1 text-sm"
       >
-        <option value="off">Off</option>
-        <option value="shadow">Shadow</option>
-        <option value="on">On</option>
+        {modes.map((value) => (
+          <option key={value} value={value}>{value === 'off' ? 'Off' : value === 'shadow' ? 'Shadow' : 'On'}</option>
+        ))}
       </select>
       {children}
     </div>
@@ -178,8 +178,9 @@ function GeneralSettings() {
         />
         <PriceOverrideControl
           label="Replacement section finder"
-          help="Customers can describe a replacement section in the portal. Off hides the page. Shadow shows the match and does not save a request or change a cart price. On lets them add a resolved section to the cart, or send an unresolved one to staff."
-          mode={finderSetting.mode}
+          help="Customers can describe a replacement section in the portal. Off hides the page. On lets them add a resolved section to the cart, or send an unresolved one to staff. This switch has no shadow mode."
+          mode={finderSetting.mode === 'on' ? 'on' : 'off'}
+          modes={['off', 'on']}
           onMode={async (event) => {
             const next = event.target.value
             if (!window.confirm(`Set Replacement section finder to ${next}?`)) return
