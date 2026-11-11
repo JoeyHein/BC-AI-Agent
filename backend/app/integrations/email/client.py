@@ -177,15 +177,29 @@ class GraphEmailClient:
             logger.error(f"Failed to create folder: {e}")
             return None
 
-    def get_message_attachments(self, user_email: str, message_id: str) -> List[Dict[str, Any]]:
-        """List an email's attachments. Files over 8 MB are not downloaded.
+    def get_message_attachments(
+        self,
+        user_email: str,
+        message_id: str,
+        *,
+        cap_bytes: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """List an email's attachments, with content included for fileAttachments.
 
-        The list is metadata only (`size` is on that response). The bytes
-        are a second request, and only when the file is within the cap.
+        Graph inlines `contentBytes` (base64) directly on the attachment
+        resource for regular file attachments under its size cap — no second
+        fetch needed. Reference/item attachments (linked cloud files, another
+        message) come back without contentBytes and are skipped by callers
+        that need the actual bytes (e.g. invoice PDF extraction).
+
+        ``cap_bytes`` is opt-in. The quote inbox passes 8 MB so a large file
+        is listed and not downloaded. Other callers keep this single request.
         """
-        from app.services.attachment_text import MAX_FILE_BYTES
-
         endpoint = f"users/{user_email}/messages/{message_id}/attachments"
+        if cap_bytes is None:
+            result = self._make_request("GET", endpoint)
+            return result.get("value", [])
+
         listed = self._make_request(
             "GET", endpoint,
             params={"$select": "id,name,contentType,size,isInline"},
@@ -193,7 +207,8 @@ class GraphEmailClient:
         items = []
         for att in listed.get("value", []):
             size = att.get("size") or 0
-            if size > MAX_FILE_BYTES:
+            if size > cap_bytes:
+                att = dict(att)
                 att["contentBytes"] = None
                 att["skipped"] = "too_large"
                 items.append(att)
@@ -202,10 +217,18 @@ class GraphEmailClient:
             if not att_id:
                 items.append(att)
                 continue
-            full = self._make_request(
-                "GET",
-                f"users/{user_email}/messages/{message_id}/attachments/{att_id}",
-            )
+            try:
+                full = self._make_request(
+                    "GET",
+                    f"users/{user_email}/messages/{message_id}/attachments/{att_id}",
+                )
+            except Exception:
+                logger.exception("Could not download attachment %s on %s", att_id, message_id)
+                skipped = dict(att)
+                skipped["contentBytes"] = None
+                skipped["skipped"] = "fetch_failed"
+                items.append(skipped)
+                continue
             items.append(full)
         return items
 

@@ -14,7 +14,7 @@ from typing import Any, List, Optional
 from sqlalchemy.orm import Session
 
 from app.db.models import CustomerOrderApproval, EmailLog, OpsOutboundMessage, QuoteRequest
-from app.services.email_text import fresh_message_text, reply_recipient
+from app.services.email_text import fresh_message_text, html_to_text, reply_recipient
 from app.services.inbox_settings import (
     CUSTOMER_APPROVAL,
     MISSING_INFO_REPLY,
@@ -34,15 +34,18 @@ _GO_AHEAD_CHANGE = re.compile(
     r"|\b(?:change|revise|update|modify|adjust)\b.{0,40}\bgo ahead\b",
     re.I,
 )
+# "update me" is a status request. "update the colour" is a change.
 _CHANGE = re.compile(
-    r"\b(?:change|revise|update|modify|adjust|make it|but make)\b",
+    r"\b(?:change|revise|modify|adjust|make it|but make)\b|\bupdate\b(?!\s+me\b)",
     re.I,
 )
 _CONDITIONAL = re.compile(r"\b(?:once|when|if|after|before)\b", re.I)
+# "no changes" agrees with the approval. "not" and "can't" reject it.
 _NEGATION = re.compile(
-    r"\b(?:not|never|no|nor|cannot)\b|\b(?:can|do|won|is|are|was|were|has|have|had|did|should|would|could)n['’]t\b|\w+n['’]t\b",
+    r"\b(?:not|never|nor|cannot)\b|\b(?:can|do|won|is|are|was|were|has|have|had|did|should|would|could)n['’]t\b|\w+n['’]t\b",
     re.I,
 )
+_QUOTE_SEND_MARK = re.compile(r"attached is quote\s+SQ-?\d+", re.I)
 _PREVIOUS_SQ = re.compile(
     r"\b(?:previous|last|old|earlier|prior)\b.{0,60}\bSQ-?\d+\b|\bSQ-?\d+\b.{0,40}\bwas approved\b",
     re.I,
@@ -88,17 +91,48 @@ def _blocked(sentence: str) -> bool:
     return False
 
 
+def _reply_on_quote_send(subject: str, body: str) -> bool:
+    """A reply on the thread of a quote we already sent, not a new request.
+
+    The new writing may not repeat the SQ. The quoted send still has it.
+    """
+    if not _looks_like_reply_subject(subject or ""):
+        return False
+    plain = html_to_text(body or "")
+    fresh = fresh_message_text(body or "")
+    if _QUOTE_SEND_MARK.search(plain) and not _QUOTE_SEND_MARK.search(fresh):
+        return True
+    return bool(_SQ_RE.search(plain) and not _SQ_RE.search(fresh))
+
+
+def _is_new_quote_writing(category: str, text: str) -> bool:
+    return (
+        category == "quote_request"
+        or _NEW_QUOTE_RE.search(text) is not None
+        or _SIZE_HINT_RE.search(text) is not None
+    )
+
+
 def approval_level(category: str, subject: str, body: str) -> str:
     """high, low, or none.
 
     high is a clear go-ahead. low is a go-ahead tied to a change: do not
     treat it as approval, and do not stop the modification path. none is
     everything else, including questions and 'not yet'. Ambiguous is none.
+
+    A new shop request that says "approved" or "go ahead" and then asks for
+    a quote is not a go-ahead. A reply on the thread of a quote we sent can
+    still be one.
     """
-    del category
     text = fresh_message_text(body or "")
     if subject and not _looks_like_reply_subject(subject):
         text = f"{subject}\n{text}"
+    if (
+        _is_new_quote_writing(category, text)
+        and not _SQ_RE.search(text)
+        and not _reply_on_quote_send(subject, body)
+    ):
+        return "none"
     if _PREVIOUS_SQ.search(text) and (_NEW_QUOTE_RE.search(text) or _SIZE_HINT_RE.search(text)):
         return "none"
     high = False
@@ -965,6 +999,59 @@ def _duplicate_approval(db: Session, candidates: List[dict]):
     return None
 
 
+def _bc_customer_ids(db: Session, address: str) -> set:
+    """Business Central customers this address, or its company domain, has quoted."""
+    domain = _email_domain(address)
+    wanted = (address or "").strip().lower()
+    if not wanted:
+        return set()
+    rows = (
+        db.query(QuoteRequest.matched_bc_customer_id, QuoteRequest.contact_email)
+        .filter(QuoteRequest.matched_bc_customer_id.isnot(None))
+        .all()
+    )
+    found = set()
+    for customer_id, contact in rows:
+        cid = (customer_id or "").strip()
+        if not cid or cid.upper() in {"CASH", "RETAIL", "CASH SALES"}:
+            continue
+        who = (contact or "").strip().lower()
+        if who == wanted or (_company_domain(domain) and _email_domain(who) == domain):
+            found.add(cid)
+    return found
+
+
+def _same_party(db: Session, left: Optional[str], right: Optional[str]) -> bool:
+    """Same person, same company domain, or the same Business Central customer."""
+    a = (left or "").strip().lower()
+    b = (right or "").strip().lower()
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    domain_a = _email_domain(a)
+    domain_b = _email_domain(b)
+    if _company_domain(domain_a) and domain_a == domain_b:
+        return True
+    return bool(_bc_customer_ids(db, a) & _bc_customer_ids(db, b))
+
+
+def _open_vague_for_customer(db: Session, from_address: str):
+    rows = (
+        db.query(CustomerOrderApproval)
+        .filter(
+            CustomerOrderApproval.status == "needs_choice",
+            CustomerOrderApproval.bc_quote_number.is_(None),
+        )
+        .order_by(CustomerOrderApproval.id.desc())
+        .all()
+    )
+    for row in rows:
+        if _is_vague(row) and _same_party(db, row.from_address, from_address):
+            return row
+    return None
+
+
 def _supersede_vague(
     db: Session,
     *,
@@ -980,17 +1067,8 @@ def _supersede_vague(
     """A later 'approved SQ-x, PO y' replaces an open 'which quote?' row."""
     if not chosen_sq:
         return None
-    vague = (
-        db.query(CustomerOrderApproval)
-        .filter(
-            CustomerOrderApproval.status == "needs_choice",
-            CustomerOrderApproval.bc_quote_number.is_(None),
-            CustomerOrderApproval.from_address == from_address,
-        )
-        .order_by(CustomerOrderApproval.id.desc())
-        .first()
-    )
-    if vague is None or not _is_vague(vague):
+    vague = _open_vague_for_customer(db, from_address)
+    if vague is None:
         return None
     kept_po = po_number or vague.customer_po
     kept_source = po_source if po_number else vague.po_source
@@ -1006,6 +1084,7 @@ def _supersede_vague(
     vague.po_source = kept_source
     vague.excerpt = excerpt
     vague.email_log_id = email_log_id
+    vague.from_address = from_address
     db.flush()
     return vague
 

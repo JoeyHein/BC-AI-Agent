@@ -295,7 +295,9 @@ class EmailMonitorService:
             except Exception:
                 logger.exception("Could not note the low-confidence approval. The message continues.")
         elif level == "high" and approval_mode == "shadow":
+            nested = None
             try:
+                nested = db.begin_nested()
                 filenames = [page.file_name for page in pack.pages] if pack is not None else []
                 handle_customer_approval(
                     db,
@@ -307,9 +309,15 @@ class EmailMonitorService:
                     mailbox=inbox_email,
                     filenames=filenames,
                 )
+                nested.commit()
                 logger.info("  -> Approval shadow logged. The message continues on the normal path.")
             except Exception:
                 logger.exception("Approval shadow failed. The message continues.")
+                if nested is not None:
+                    try:
+                        nested.rollback()
+                    except Exception:
+                        pass
         elif level == "high" and approval_mode == "on":
             filenames = [page.file_name for page in pack.pages] if pack is not None else []
             handle_customer_approval(
@@ -358,7 +366,7 @@ class EmailMonitorService:
 
     def _prepare_attachments(self, db, email, inbox_email: str, body: str):
         """Read attachments when a switch is on or in shadow. Off does not call Graph."""
-        from app.services.attachment_text import read_graph_attachments
+        from app.services.attachment_text import MAX_FILE_BYTES, read_graph_attachments
         from app.services.inbox_settings import ATTACHMENT_READING, CUSTOMER_APPROVAL, inbox_mode
 
         read_mode = inbox_mode(db, ATTACHMENT_READING)
@@ -369,7 +377,9 @@ class EmailMonitorService:
         if not graph_id:
             return read_mode, body, None
         try:
-            raw = self.graph_client.get_message_attachments(inbox_email, graph_id)
+            raw = self.graph_client.get_message_attachments(
+                inbox_email, graph_id, cap_bytes=MAX_FILE_BYTES,
+            )
         except Exception:
             logger.exception("Could not read attachments for %s", graph_id)
             raw = []

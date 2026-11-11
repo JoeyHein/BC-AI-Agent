@@ -108,7 +108,7 @@ def fresh_message_text(text: str) -> str:
             index += 1
             continue
         if (
-            _WROTE.match(stripped)
+            _wrote_marker(lines, index)
             or _ORIGINAL.match(stripped)
             or _FORWARDED.match(stripped)
             or _BEGIN_FORWARD.match(stripped)
@@ -119,6 +119,21 @@ def fresh_message_text(text: str) -> str:
         kept.append(line)
         index += 1
     return "\n".join(kept).strip()
+
+
+def _wrote_marker(lines, index: int) -> bool:
+    """Gmail's 'On ... wrote:' line, including when it wraps onto the next line."""
+    stripped = lines[index].strip()
+    if _WROTE.match(stripped):
+        return True
+    if not re.match(r"^On\s+\S", stripped, re.I):
+        return False
+    for extra in lines[index + 1:index + 3]:
+        follower = extra.strip()
+        if not follower:
+            continue
+        return bool(re.search(r"\bwrote:\s*$", follower, re.I))
+    return False
 
 
 def _outlook_header_follows(lines, start: int) -> bool:

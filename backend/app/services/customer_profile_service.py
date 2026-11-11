@@ -1178,9 +1178,12 @@ def analyse_email(email_text: str, parsed_door: Optional[dict] = None) -> Dict[s
     ``ambiguous`` is wording like "same as usual" with no value of its own.
     ``low_confidence`` is a parser value below the line we will quote.
     ``silent`` means the email did not address the field.
+
+    The body is already the new writing. ``quote_email_text`` strips quoted
+    history from the body, then appends attachment text unchanged. Stripping
+    this joined string would cut a purchase order at its From/To/Date lines.
     """
-    from app.services.email_text import fresh_message_text
-    text = fresh_message_text(email_text or "")
+    text = email_text or ""
     parsed = parsed_door or {}
     readings = {key: _silent_reading() for key in list(DOOR_KEYS.values()) + ["deliveryType"]}
 
