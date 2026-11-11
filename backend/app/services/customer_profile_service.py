@@ -83,6 +83,27 @@ def quoting_mode(db: Optional[Session]) -> str:
     return mode
 
 
+def consistent_track_radius_enabled() -> bool:
+    """15 inch drums for an omitted 3 inch radius, only in shadow or on.
+
+    Off matches the path this shipped with: 3 inch track stays 12 inch.
+    A missing setting, or a database that cannot be read, stays off.
+    """
+    try:
+        from app.db.database import SessionLocal
+        db = SessionLocal()
+        try:
+            return quoting_mode(db) in {"shadow", "on"}
+        finally:
+            db.close()
+    except Exception:
+        logger.warning(
+            "Could not read quoting mode for track radius; using the off-mode radius",
+            exc_info=True,
+        )
+        return False
+
+
 def set_quoting_mode(db: Session, mode: str, user_id: Optional[int] = None) -> str:
     """Persist the switch. Unknown values are rejected by the caller."""
     from app.db.models import AppSettings
@@ -1332,9 +1353,11 @@ def _system_default(door_key: str, door: dict) -> Any:
     if door_key == "trackThickness":
         return default_track_thickness(series, door_type)
     if door_key == "trackRadius":
-        # 3" hardware uses a 15" drum. Filling 12" here made on-mode quotes
-        # disagree with DoorConfigRequest, which already defaults to 15".
-        return "15"
+        # Off keeps 12" on 3" track. Shadow and on use the 15" drum.
+        if consistent_track_radius_enabled():
+            return "15"
+        thickness = str(door.get("trackThickness") or default_track_thickness(series, door_type))
+        return "12" if thickness == "3" else "15"
     if door_key == "liftType":
         return "standard"
     if door_key == "doorSeries":

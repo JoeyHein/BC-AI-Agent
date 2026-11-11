@@ -1971,8 +1971,9 @@ class PartNumberService:
         if config.door_type == "commercial" and track_size == 2:
             if config.door_height > 168 or config.door_width > 216:  # >14' or >18'
                 track_size = 3
-                # 3" track kits do not encode radius. Springs still use 15".
-                radius_inches = 15
+                # Off keeps 12". Shadow and on size the 3" upgrade at 15".
+                from app.services.customer_profile_service import consistent_track_radius_enabled
+                radius_inches = 15 if consistent_track_radius_enabled() else 12
 
         # Determine lift type and mount type
         # HIGH LIFT uses STANDARD LIFT track assemblies — the extension kits
@@ -2121,13 +2122,15 @@ class PartNumberService:
         }
         dc_lift_type = lift_type_map.get(config.lift_type, 'standard')
 
-        # 3" track forces D525-216 minimum (no D400 drums). Those drums are
-        # 15" radius, so a requested 12" would size the springs for the wrong drum.
+        # 3" track forces D525-216 minimum (no D400 drums). While profile
+        # quoting is shadow or on, those drums are sized at 15". Off keeps
+        # the radius the door already has.
         track_size = int(config.track_thickness) if config.track_thickness else int(
             default_track_thickness(config.door_series, config.door_type)
         )
+        from app.services.customer_profile_service import consistent_track_radius_enabled
         track_radius = int(config.track_radius) if config.track_radius else 15
-        if track_size == 3 and track_radius != 15:
+        if consistent_track_radius_enabled() and track_size == 3 and track_radius != 15:
             config.deviations.append({
                 "kind": "track_radius_adjusted",
                 "field": "trackRadius",

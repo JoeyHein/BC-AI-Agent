@@ -277,7 +277,9 @@ class EmailMonitorService:
         from app.services.inbox_settings import CUSTOMER_APPROVAL, inbox_mode
         from app.services.quote_followup import (
             approval_level,
+            contains_new_quote_ask,
             handle_customer_approval,
+            note_also_new_request,
             note_low_approval,
         )
         approval_mode = inbox_mode(db, CUSTOMER_APPROVAL)
@@ -289,6 +291,7 @@ class EmailMonitorService:
             except Exception:
                 logger.exception("Approval check failed. The message continues.")
                 level = "none"
+        also_new = level == "high" and contains_new_quote_ask(subject, approval_text)
         if level == "low":
             try:
                 note_low_approval(email_log, approval_text)
@@ -318,9 +321,11 @@ class EmailMonitorService:
                         nested.rollback()
                     except Exception:
                         pass
+            if also_new:
+                is_quote_request = True
         elif level == "high" and approval_mode == "on":
             filenames = [page.file_name for page in pack.pages] if pack is not None else []
-            handle_customer_approval(
+            approval_row = handle_customer_approval(
                 db,
                 email_log,
                 subject=subject,
@@ -330,9 +335,14 @@ class EmailMonitorService:
                 mailbox=inbox_email,
                 filenames=filenames,
             )
-            email_log.status = "informational"
-            db.commit()
-            return "customer_approval"
+            if also_new:
+                if approval_row is not None:
+                    note_also_new_request(approval_row)
+                is_quote_request = True
+            else:
+                email_log.status = "informational"
+                db.commit()
+                return "customer_approval"
         elif category == "order_confirmation" and approval_mode == "off":
             logger.info("  -> Categorized as 'order_confirmation', not processing further")
             return "other"

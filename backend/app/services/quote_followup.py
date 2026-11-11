@@ -160,6 +160,21 @@ def _looks_like_reply_subject(subject: str) -> bool:
     return bool(re.match(r"^\s*(re|fw|fwd)\s*:", subject or "", re.I))
 
 
+def contains_new_quote_ask(subject: str, body: str) -> bool:
+    """The new writing asks for another quote or gives a door size."""
+    del subject
+    text = fresh_message_text(body or "")
+    return bool(_NEW_QUOTE_RE.search(text) or _SIZE_HINT_RE.search(text))
+
+
+def note_also_new_request(row: CustomerOrderApproval) -> None:
+    """The go-ahead also asks for a new door. The card says so."""
+    note = "also contains a new request"
+    text = row.excerpt or ""
+    if note not in text.lower():
+        row.excerpt = f"{text}\n{note}".strip()
+
+
 def is_customer_approval(category: str, subject: str, body: str) -> bool:
     """True only for a clear go-ahead. A change, a question, or a maybe is not."""
     return approval_level(category, subject, body) == "high"

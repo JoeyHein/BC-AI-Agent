@@ -298,7 +298,7 @@ def test_confirm_shadow_prices_the_original_door_and_labels_shadow(session, monk
     assert color["profile_says"] == "BLACK"
 
 
-def test_omitted_3_inch_radius_is_15_and_an_explicit_12_is_a_deviation():
+def test_omitted_3_inch_radius_is_15_only_when_profile_quoting_is_on(monkeypatch):
     door = {
         "doorType": "commercial", "doorSeries": "TX450",
         "doorWidth": 144, "doorHeight": 120, "doorCount": 1,
@@ -306,6 +306,15 @@ def test_omitted_3_inch_radius_is_15_and_an_explicit_12_is_a_deviation():
         "trackThickness": "3", "trackMount": "bracket",
         "hardware": {"tracks": True, "springs": True},
     }
+    applied = apply_customer_profile([dict(door)], email_text="Please quote this door.")
+    assert applied["doors"][0]["trackRadius"] == "12"
+    parts = get_parts_for_door_config({**door, "trackRadius": "12"})
+    kinds = [item.get("kind") for item in parts.get("deviations") or []]
+    assert "track_radius_adjusted" not in kinds
+    monkeypatch.setattr(
+        "app.services.customer_profile_service.consistent_track_radius_enabled",
+        lambda: True,
+    )
     applied = apply_customer_profile([dict(door)], email_text="Please quote this door.")
     assert applied["doors"][0]["trackRadius"] == "15"
     parts = get_parts_for_door_config({**door, "trackRadius": "12"})
@@ -1277,6 +1286,134 @@ NEW_SHOP_APPROVED = (
 NEW_SHOP_GO_AHEAD = (
     "We're ready to go ahead with the new shop. Please quote 2 doors 10x10."
 )
+
+
+def test_off_mode_panorama_radius_matches_main_and_on_uses_15(monkeypatch):
+    """A 3\" Panorama door with no radius stays on main's 12\" until the switch is on."""
+    from types import SimpleNamespace
+    from app.integrations.ai.client import ClaudeAIClient
+    from app.services.door_calculator_service import door_calculator
+    from app.services.part_number_service import DoorConfiguration, PartNumberService
+    from app.services.quote_service import QuoteGenerationService
+    from app.services.spring_calculator_service import spring_calculator
+
+    door = {
+        "doorType": "aluminium", "doorSeries": "PANORAMA",
+        "doorWidth": 120, "doorHeight": 96,
+    }
+    normalized = ClaudeAIClient._normalize_configurator_doors([door])[0]
+    assert normalized["trackThickness"] == "3"
+    assert normalized["trackRadius"] == "12"
+
+    seen = {}
+
+    def _spring(**kwargs):
+        seen["quote_radius"] = kwargs.get("track_radius")
+        return None
+
+    monkeypatch.setattr(spring_calculator, "calculate_spring", _spring)
+    QuoteGenerationService(None)._generate_spring_item(
+        {"width_ft": 10, "height_ft": 8, "model": "PANORAMA"}, 1, {},
+    )
+    assert seen["quote_radius"] == 12
+
+    def _drum(*args, **kwargs):
+        seen["drum_radius"] = kwargs.get("lift_config", args[2] if len(args) > 2 else {}) 
+        config = args[2] if len(args) > 2 else kwargs.get("lift_config") or {}
+        seen["drum_radius"] = config.get("radius")
+        return SimpleNamespace(model="D400-144")
+
+    def _calc(**kwargs):
+        seen["spring_radius"] = kwargs.get("track_radius")
+        return None
+
+    monkeypatch.setattr(door_calculator, "_select_drum", _drum)
+    monkeypatch.setattr(door_calculator, "_calculate_springs", _calc)
+    config = DoorConfiguration(
+        door_type="aluminium", door_series="PANORAMA",
+        door_width=120, door_height=96, door_count=1,
+        panel_color="WHITE", panel_design="FLUSH",
+        track_thickness="3", track_radius=normalized["trackRadius"],
+        door_weight=400,
+    )
+    PartNumberService()._get_spring_parts(config)
+    assert seen["drum_radius"] == 12
+    assert seen["spring_radius"] == 12
+    assert not any(item.get("kind") == "track_radius_adjusted" for item in config.deviations)
+
+    wide = DoorConfiguration(
+        door_type="commercial", door_series="TX450",
+        door_width=240, door_height=96, door_count=1,
+        panel_color="WHITE", panel_design="FLUSH",
+        track_thickness="2", track_radius="15",
+    )
+
+    class _Mapper:
+        def get_track_assembly(self, **kwargs):
+            seen["upgrade_radius"] = kwargs.get("radius_inches")
+            return SimpleNamespace(part_number="TR03")
+
+    monkeypatch.setattr("app.services.part_number_service.get_bc_mapper", lambda: _Mapper())
+    PartNumberService()._get_track_parts(wide)
+    assert seen["upgrade_radius"] == 12
+
+    monkeypatch.setattr(
+        "app.services.customer_profile_service.consistent_track_radius_enabled",
+        lambda: True,
+    )
+    assert ClaudeAIClient._normalize_configurator_doors([door])[0]["trackRadius"] == "15"
+    QuoteGenerationService(None)._generate_spring_item(
+        {"width_ft": 10, "height_ft": 8, "model": "PANORAMA"}, 1, {},
+    )
+    assert seen["quote_radius"] == 15
+    on_config = DoorConfiguration(
+        door_type="aluminium", door_series="PANORAMA",
+        door_width=120, door_height=96, door_count=1,
+        panel_color="WHITE", panel_design="FLUSH",
+        track_thickness="3", track_radius="12", door_weight=400,
+    )
+    PartNumberService()._get_spring_parts(on_config)
+    assert seen["spring_radius"] == 15
+    assert any(item.get("kind") == "track_radius_adjusted" for item in on_config.deviations)
+    PartNumberService()._get_track_parts(wide)
+    assert seen["upgrade_radius"] == 15
+
+
+def test_go_ahead_that_also_asks_for_a_quote_is_queued_and_parsed(session, monkeypatch):
+    set_inbox_mode(session, "customer_approval_detection", "on")
+    log = EmailLog(message_id="sent-quote", from_address="buyer@acme.test", subject="warehouse", body="old", status="parsed")
+    session.add(log)
+    session.flush()
+    session.add(QuoteRequest(
+        email_id=log.id, customer_name="Acme", contact_email="buyer@acme.test",
+        status="bc_created", confidence_scores={"overall": 0.9},
+        bc_quote_id="SQ-1001", created_at=datetime.utcnow(),
+    ))
+    session.commit()
+    service = EmailMonitorService()
+    service.graph_client, _calls = _graph([])
+    seen = {}
+    _stub_ai(monkeypatch, service, seen, doors=[{"model": "TX450", "width_ft": 10, "height_ft": 10}])
+    _categorize(monkeypatch, "order_confirmation")
+    monkeypatch.setattr(service.ai_client, "map_email_to_configurator", lambda *a, **k: {
+        "success": False, "error": "stop", "doors": [],
+    })
+    body = (
+        "Go ahead. Also please quote a 10x10 for the shed.\n\n"
+        "On Tue, Joey wrote:\n"
+        "Attached is quote SQ-1001.\n"
+    )
+    result = service._process_single_email(
+        session,
+        _email(subject="Re: warehouse quote", body=body, message_id="both", internet="both"),
+        "joey@opendc.ca",
+    )
+    assert result == "quote_request"
+    assert "10x10" in (seen.get("body") or "")
+    approval = session.query(CustomerOrderApproval).one()
+    assert approval.status in {"ready", "needs_choice"}
+    assert "also contains a new request" in (approval.excerpt or "").lower()
+    assert session.query(QuoteRequest).count() == 2
 
 
 def test_a_new_shop_request_is_parsed_not_diverted(session, monkeypatch):
