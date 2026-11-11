@@ -79,12 +79,12 @@ def test_bad_dimensions_become_zero():
     assert out[0]["doorHeight"] == 0
 
 
-def test_omitted_track_radius_matches_main_until_profile_quoting_is_on(monkeypatch):
-    """Off is main: 12\" on 3\" track, 15\" on 2\". Shadow and on use 15\" for both."""
+def test_omitted_3_inch_track_radius_is_15_and_2_inch_keeps_12():
+    """3 inch track is only 15. 2 inch track keeps an explicit 12 or 15."""
     out = normalize([{"doorType": "commercial", "doorWidth": 120, "doorHeight": 96,
                       "trackThickness": "3 inch"}])
     assert out[0]["trackThickness"] == "3"
-    assert out[0]["trackRadius"] == "12"
+    assert out[0]["trackRadius"] == "15"
 
     out = normalize([{"doorType": "commercial", "doorWidth": 120, "doorHeight": 96}])
     assert out[0]["trackThickness"] == "2"
@@ -94,13 +94,9 @@ def test_omitted_track_radius_matches_main_until_profile_quoting_is_on(monkeypat
                            "trackThickness": "2", "trackRadius": "12"}])
     assert explicit[0]["trackRadius"] == "12"
 
-    monkeypatch.setattr(
-        "app.services.customer_profile_service.consistent_track_radius_enabled",
-        lambda: True,
-    )
-    on = normalize([{"doorType": "commercial", "doorWidth": 120, "doorHeight": 96,
-                     "trackThickness": "3 inch"}])
-    assert on[0]["trackRadius"] == "15"
+    forced = normalize([{"doorType": "commercial", "doorWidth": 120, "doorHeight": 96,
+                         "trackThickness": "3", "trackRadius": "12"}])
+    assert forced[0]["trackRadius"] == "15"
 
 
 def test_normalized_door_is_valid_configurator_request():

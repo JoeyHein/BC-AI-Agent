@@ -84,24 +84,13 @@ def quoting_mode(db: Optional[Session]) -> str:
 
 
 def consistent_track_radius_enabled() -> bool:
-    """15 inch drums for an omitted 3 inch radius, only in shadow or on.
+    """3 inch track is 15 inch radius in every quoting mode.
 
-    Off matches the path this shipped with: 3 inch track stays 12 inch.
-    A missing setting, or a database that cannot be read, stays off.
+    This used to open a database session per door and return true only in
+    shadow or on. The radius rule is no longer a setting, and this does not
+    read the database. Callers should use ``quoted_track_radius``.
     """
-    try:
-        from app.db.database import SessionLocal
-        db = SessionLocal()
-        try:
-            return quoting_mode(db) in {"shadow", "on"}
-        finally:
-            db.close()
-    except Exception:
-        logger.warning(
-            "Could not read quoting mode for track radius; using the off-mode radius",
-            exc_info=True,
-        )
-        return False
+    return True
 
 
 def set_quoting_mode(db: Session, mode: str, user_id: Optional[int] = None) -> str:
@@ -650,8 +639,17 @@ def _line_description(line: dict) -> str:
     return str(line.get("description") or line.get("displayName") or "")
 
 
-def parse_history_line(line: dict) -> dict:
-    """Signals one BC line contributes to a customer profile. Pure function."""
+def parse_history_line(
+    line: dict,
+    *,
+    count_kanata: bool = False,
+    count_crating: bool = False,
+) -> dict:
+    """Signals one BC line contributes to a customer profile. Pure function.
+
+    Kanata PN65 and crating are counted only when those switches are on.
+    The defaults keep a profile seed identical to the previous one.
+    """
     number = _line_number(line)
     description = _line_description(line)
     upper_desc = description.upper()
@@ -689,6 +687,11 @@ def parse_history_line(line: dict) -> dict:
     prefix = number.split("-", 1)[0]
     if prefix in _SERIES_PREFIX:
         signals["door_series"] = _SERIES_PREFIX[prefix]
+    elif count_kanata and prefix == "PN65":
+        signals["door_series"] = "KANATA"
+
+    if count_crating and (number == "CRATING" or number.startswith("CRATING")):
+        signals["crating"] = "yes"
 
     if number.startswith("GK"):
         signals["windows"] = "yes"
@@ -718,7 +721,12 @@ def parse_history_line(line: dict) -> dict:
     return signals
 
 
-def _observations_from_document(document: dict) -> dict:
+def _observations_from_document(
+    document: dict,
+    *,
+    count_kanata: bool = False,
+    count_crating: bool = False,
+) -> dict:
     """Collapse a document's lines into one vote per field, plus freight."""
     votes: Dict[str, Any] = {}
     saw_track = False
@@ -728,7 +736,9 @@ def _observations_from_document(document: dict) -> dict:
             continue
         if str(line.get("lineType") or "Item").lower() == "comment":
             continue
-        signals = parse_history_line(line)
+        signals = parse_history_line(
+            line, count_kanata=count_kanata, count_crating=count_crating,
+        )
         saw_freight = saw_freight or bool(signals.pop("freight", False))
         if "track_mount" in signals or "track_size" in signals:
             saw_track = True
@@ -820,6 +830,8 @@ def seed_profiles_from_documents(db: Session, documents: Sequence[dict]) -> dict
             continue
         grouped.setdefault(str(customer_id), []).append(document)
 
+    from app.services.quote_round3 import history_flags
+    flags = history_flags(db)
     updated = []
     for customer_id, docs in grouped.items():
         customer = (
@@ -832,13 +844,19 @@ def seed_profiles_from_documents(db: Session, documents: Sequence[dict]) -> dict
         row = get_or_create_profile(db, customer_id, number)
 
         tallies: Dict[str, Counter] = {key: Counter() for key, _l, _c in FIELD_SPECS}
+        if flags["count_crating"]:
+            tallies["crating"] = Counter()
         contacts: Dict[str, dict] = {}
         domains = set()
         ship_counts: Counter = Counter()
         ship_values: Dict[str, dict] = {}
 
         for document in docs:
-            votes = _observations_from_document(document)
+            votes = _observations_from_document(
+                document,
+                count_kanata=flags["count_kanata"],
+                count_crating=flags["count_crating"],
+            )
             for key, value in votes.items():
                 if key in tallies and value not in (None, ""):
                     tallies[key][value] += 1
@@ -884,6 +902,15 @@ def seed_profiles_from_documents(db: Session, documents: Sequence[dict]) -> dict
                 fields[key] = kept
             elif fresh:
                 fields[key] = fresh
+        if flags["count_crating"]:
+            fresh = _tally_field(tallies.get("crating"))
+            old = previous.get("crating") or {}
+            if old.get("locked"):
+                fields["crating"] = dict(old)
+            elif fresh:
+                fields["crating"] = fresh
+        elif isinstance(previous.get("crating"), dict) and previous["crating"].get("locked"):
+            fields["crating"] = dict(previous["crating"])
         row.fields = fields
 
         if not row.contacts_locked:
@@ -1353,11 +1380,10 @@ def _system_default(door_key: str, door: dict) -> Any:
     if door_key == "trackThickness":
         return default_track_thickness(series, door_type)
     if door_key == "trackRadius":
-        # Off keeps 12" on 3" track. Shadow and on use the 15" drum.
-        if consistent_track_radius_enabled():
-            return "15"
-        thickness = str(door.get("trackThickness") or default_track_thickness(series, door_type))
-        return "12" if thickness == "3" else "15"
+        # 3 inch track is only sold at 15. An omitted 2 inch radius stays 15.
+        from app.services.track_defaults import quoted_track_radius
+        thickness = door.get("trackThickness") or default_track_thickness(series, door_type)
+        return quoted_track_radius(thickness, None)
     if door_key == "liftType":
         return "standard"
     if door_key == "doorSeries":
@@ -1615,6 +1641,60 @@ def _apply_aluminum_track(door, door_sources, readings, fields, explicit_names, 
     door_sources["trackThickness"] = entry
 
 
+def _enforce_three_inch_radius(door, door_sources, readings, fields, deviations, index) -> bool:
+    """3 inch track is quoted at 15 inch radius.
+
+    An email, attachment, or profile that asks for another radius is not
+    quoted that way. The door is held so a person can see the reason.
+    A mapper value of 12 with no such ask is the old omitted-radius default
+    and is corrected without a hold. 2 inch track is left alone.
+    """
+    from app.services.track_defaults import explicit_non_15_on_3_inch, quoted_track_radius
+
+    thickness = door.get("trackThickness")
+    if explicit_non_15_on_3_inch(thickness, "12") is None:
+        return False
+    reading = (readings or {}).get("trackRadius") or {}
+    profile_spec = fields.get("track_radius") if isinstance(fields.get("track_radius"), dict) else None
+    email_asked = None
+    if reading.get("basis") == "explicit":
+        email_asked = explicit_non_15_on_3_inch(thickness, reading.get("value"))
+    profile_asked = None
+    if (
+        email_asked is None
+        and is_applicable(profile_spec)
+        and reading.get("basis") != "explicit"
+    ):
+        profile_asked = explicit_non_15_on_3_inch(thickness, profile_spec.get("value"))
+    door["trackRadius"] = quoted_track_radius(thickness, door.get("trackRadius"))
+    entry = door_sources.get("trackRadius")
+    if isinstance(entry, dict):
+        entry["value"] = door["trackRadius"]
+        entry["used"] = door["trackRadius"]
+    asked = email_asked or profile_asked
+    if not asked:
+        return False
+    who = "The email" if email_asked else "The customer profile"
+    reason = (
+        f'3" track comes only in a 15" radius. {who} asked for {asked}" '
+        "and that radius was not quoted. Held for review."
+    )
+    deviations.append({
+        "kind": "track_radius_not_available",
+        "field": "trackRadius",
+        "door_index": index + 1,
+        "from": asked,
+        "to": "15",
+        "applied_value": "15",
+        "email_value": reading.get("value") if email_asked else None,
+        "profile_value": profile_spec.get("value") if profile_spec else None,
+        "reason": reason,
+    })
+    if isinstance(entry, dict):
+        entry["note"] = reason
+    return True
+
+
 def apply_customer_profile(
     doors: List[dict],
     *,
@@ -1728,6 +1808,10 @@ def apply_customer_profile(
             inches = _HL_INCHES_RE.search(email_text or "")
             if inches and str(door.get("liftType") or "") == "high_lift" and not door.get("highLiftInches"):
                 door["highLiftInches"] = int(inches.group(1))
+        radius_hold = _enforce_three_inch_radius(
+            door, door_sources, readings if honour_email else {}, fields, deviations, index,
+        )
+        hold = hold or radius_hold
         sources_doors.append(door_sources)
         updated_doors.append(door)
 

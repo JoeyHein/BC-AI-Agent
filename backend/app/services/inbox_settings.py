@@ -20,12 +20,26 @@ ATTACHMENT_READING = "email_attachment_reading"
 MISSING_INFO_REPLY = "missing_info_reply"
 QUOTE_SEND_DRAFT = "quote_send_draft"
 CUSTOMER_APPROVAL = "customer_approval_detection"
+WINDOW_PATTERNS = "quote_window_patterns"
+OPENER_MAPPING = "quote_opener_mapping"
+STRUTS_PER_SECTION = "quote_struts_per_section"
+CRATING_HISTORY = "quote_crating_history"
+KANATA_SERIES_HISTORY = "quote_kanata_series_history"
+ADJUSTABLE_PREP = "quote_adjustable_prep"
+SERIES_FALLBACK = "quote_series_fallback"
 
 INBOX_SETTING_KEYS = (
     ATTACHMENT_READING,
     MISSING_INFO_REPLY,
     QUOTE_SEND_DRAFT,
     CUSTOMER_APPROVAL,
+    WINDOW_PATTERNS,
+    OPENER_MAPPING,
+    STRUTS_PER_SECTION,
+    CRATING_HISTORY,
+    KANATA_SERIES_HISTORY,
+    ADJUSTABLE_PREP,
+    SERIES_FALLBACK,
 )
 
 _DESCRIPTIONS = {
@@ -33,6 +47,13 @@ _DESCRIPTIONS = {
     MISSING_INFO_REPLY: "Draft one reply listing what a quote email still needs. Off, shadow, or on.",
     QUOTE_SEND_DRAFT: "Draft a threaded reply with the SQ PDF. Off, shadow, or on.",
     CUSTOMER_APPROVAL: "Queue a convert-to-SO when a customer approves a quote. Off, shadow, or on.",
+    WINDOW_PATTERNS: "Turn a window count or staggered pattern into glass kits per section. Off, shadow, or on.",
+    OPENER_MAPPING: "Map opener and keypad wording to catalog part numbers. Off, shadow, or on.",
+    STRUTS_PER_SECTION: "Put a strut on every section when the email or profile asks. Off, shadow, or on.",
+    CRATING_HISTORY: "Add crating from the email or the customer's history, and record pickup versus freight. Off, shadow, or on.",
+    KANATA_SERIES_HISTORY: "Count Kanata PN65 panels in the series history. Off, shadow, or on.",
+    ADJUSTABLE_PREP: "Record adjustable or opener prep when the email asks. Off, shadow, or on.",
+    SERIES_FALLBACK: "When the asked series cannot be built in that colour and design, use the closest series that can. Off, shadow, or on.",
 }
 
 

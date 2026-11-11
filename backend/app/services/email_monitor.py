@@ -291,8 +291,48 @@ class EmailMonitorService:
             except Exception:
                 logger.exception("Approval check failed. The message continues.")
                 level = "none"
-        also_new = level == "high" and contains_new_quote_ask(subject, approval_text)
-        if level == "low":
+        from app.services.quote_followup import approval_exception, sizes_on_matched_quotes
+        exception_text = approval_exception(approval_text) if level == "partial" else None
+        referenced_sizes = None
+        if level == "high" and approval_mode == "on":
+            try:
+                referenced_sizes = sizes_on_matched_quotes(
+                    db, approval_text, from_address, subject, email_log.id,
+                )
+            except Exception:
+                logger.exception("Could not read the quoted sizes. A repeated size will not start a new quote.")
+                referenced_sizes = None
+        # Shadow only logs. It must not send a go-ahead-plus-size email to the parser.
+        also_new = (
+            level == "high"
+            and approval_mode == "on"
+            and contains_new_quote_ask(subject, approval_text, referenced_sizes)
+        )
+        if level == "partial" and approval_mode == "shadow":
+            try:
+                note_low_approval(email_log, exception_text or approval_text)
+            except Exception:
+                logger.exception("Could not note the partial approval. The message continues.")
+        elif level == "partial" and approval_mode == "on":
+            try:
+                row = handle_customer_approval(
+                    db,
+                    email_log,
+                    subject=subject,
+                    body=approval_text,
+                    from_address=from_address,
+                    graph_message_id=message_id,
+                    mailbox=inbox_email,
+                    filenames=[page.file_name for page in pack.pages] if pack is not None else [],
+                    confidence="partial",
+                    exception_text=exception_text,
+                )
+                email_log.status = "informational"
+                db.commit()
+                return "customer_approval"
+            except Exception:
+                logger.exception("Partial approval failed. The message continues.")
+        elif level == "low":
             try:
                 note_low_approval(email_log, approval_text)
             except Exception:
@@ -321,8 +361,6 @@ class EmailMonitorService:
                         nested.rollback()
                     except Exception:
                         pass
-            if also_new:
-                is_quote_request = True
         elif level == "high" and approval_mode == "on":
             filenames = [page.file_name for page in pack.pages] if pack is not None else []
             approval_row = handle_customer_approval(
@@ -723,6 +761,54 @@ class EmailMonitorService:
                         live_delivery = "delivery"
                         delivery_explicit = False
                         profile_applied = False
+
+                from app.services.customer_profile_service import get_profile
+                from app.services.quote_round3 import apply_round3
+                profile_fields = None
+                if customer_id:
+                    nested = None
+                    try:
+                        nested = db.begin_nested()
+                        profile_row = get_profile(db, customer_id)
+                        nested.commit()
+                        if profile_row is not None:
+                            profile_fields = profile_row.fields or {}
+                    except Exception:
+                        logger.exception("Could not read the customer profile for round 3. Continuing.")
+                        if nested is not None:
+                            try:
+                                nested.rollback()
+                            except Exception:
+                                pass
+                        profile_fields = None
+                round3 = apply_round3(
+                    db,
+                    live_doors,
+                    email_text=quote_email_text(
+                        subject, body, getattr(email_log, "attachments", None),
+                    ),
+                    parsed_doors=doors,
+                    profile_fields=profile_fields,
+                )
+                if round3.shadow_notes:
+                    quote_request.parsed_data = {
+                        **(quote_request.parsed_data or {}),
+                        "round3_shadow": round3.shadow_notes,
+                    }
+                if round3.applied:
+                    live_doors = round3.doors
+                    if round3.delivery_type:
+                        live_delivery = round3.delivery_type
+                        delivery_explicit = True
+                    if round3.deviations:
+                        quote_request.deviations = list(quote_request.deviations or []) + round3.deviations
+                    quote_request.parsed_data = {
+                        **(quote_request.parsed_data or {}),
+                        "configurator_mapping": {
+                            **((quote_request.parsed_data or {}).get("configurator_mapping") or mapping),
+                            "doors": live_doors,
+                        },
+                    }
 
                 cfg_request = QuoteGenerationRequest(
                     doors=[DoorConfigRequest(**{k: v for k, v in d.items() if k != "_touched"}) for d in live_doors],

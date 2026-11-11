@@ -809,6 +809,11 @@ class DoorConfigRequest(BaseModel):
     includeTopSeal: bool = False  # optional upgrade for commercial doors
     includePusherSprings: bool = False  # optional upgrade: adds TR13-00031-00 + TR13-00032-00
     bumperSpring: bool = False  # leaf bumper spring pair: TR13-00029-00 + TR13-00030-00
+    # Round 3 quote flags. Off leaves these false, so a door built without
+    # the flags prices the same strut count and does not add crating.
+    strutsPerSection: bool = False
+    adjustablePrep: bool = False
+    includeCrating: bool = False
 
     @model_validator(mode="after")
     def _default_aluminum_track(self):
@@ -1688,6 +1693,9 @@ def build_bc_quote_from_doors(
                 "includePusherSprings": getattr(door, 'includePusherSprings', False),
                 "bumperSpring": getattr(door, 'bumperSpring', False),
                 "includePerforatedAngle": is_home_builder,
+                "strutsPerSection": getattr(door, "strutsPerSection", False),
+                "adjustablePrep": getattr(door, "adjustablePrep", False),
+                "includeCrating": getattr(door, "includeCrating", False),
             }
 
             try:
@@ -2720,6 +2728,9 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "includePusherSprings": getattr(door, 'includePusherSprings', False),
                 "bumperSpring": getattr(door, 'bumperSpring', False),
                 "includePerforatedAngle": is_home_builder,
+                "strutsPerSection": getattr(door, "strutsPerSection", False),
+                "adjustablePrep": getattr(door, "adjustablePrep", False),
+                "includeCrating": getattr(door, "includeCrating", False),
             }
 
             spring_inv = get_bc_spring_inventory()

@@ -51,7 +51,22 @@ _PREVIOUS_SQ = re.compile(
     re.I,
 )
 _APPROVED_RE = re.compile(r"\bapproved\b", re.I)
-_NEW_QUOTE_RE = re.compile(r"\b(?:please quote|need a quote|quote request|rfq|request for quote)\b", re.I)
+_NEW_QUOTE_RE = re.compile(
+    r"\b(?:please quote|please price|can you (?:quote|price)|need a quote|"
+    r"quote request|request for quote|rfq|re-?quote|revised quote|new quote)\b",
+    re.I,
+)
+_SIZE_PAIR_RE = re.compile(
+    r"(\d{1,2})(?:\s*(?:'|ft|feet))?\s*[x×]\s*(\d{1,2})",
+    re.I,
+)
+_PARTIAL_RE = re.compile(
+    r"\b(?:no|not|without|except|hold(?:\s+the)?|skip|exclude|minus|"
+    r"don'?t include|do not include)\b"
+    r".{0,40}\b(?:opener|operator|motor|windows?|glass|keypad|rail|springs?|track)\b"
+    r"|\b(?:opener|operator|motor|keypad)\b.{0,30}\b(?:no|not|without|except|hold)\b",
+    re.I,
+)
 _PO_FILE_RE = re.compile(r"\bPO[-_\s]?([A-Z0-9]*\d[A-Z0-9\-]*)", re.I)
 _PO_BODY_RE = re.compile(
     r"\b(?:P\.?O\.?|purchase order)(?:\s+(?:number|no\.?|#|is))?\s*[:#]?\s*([A-Z0-9][A-Z0-9\-]{2,})",
@@ -113,12 +128,20 @@ def _is_new_quote_writing(category: str, text: str) -> bool:
     )
 
 
-def approval_level(category: str, subject: str, body: str) -> str:
-    """high, low, or none.
+def approval_exception(text: str) -> Optional[str]:
+    """The sentence that makes an approval partial, such as 'but no opener'."""
+    for sentence in _sentences(text or ""):
+        if _PARTIAL_RE.search(sentence):
+            return sentence.strip()
+    return None
 
-    high is a clear go-ahead. low is a go-ahead tied to a change: do not
-    treat it as approval, and do not stop the modification path. none is
-    everything else, including questions and 'not yet'. Ambiguous is none.
+
+def approval_level(category: str, subject: str, body: str) -> str:
+    """high, partial, low, or none.
+
+    high is a clear go-ahead. partial is a go-ahead with an exception
+    ('approved, but no opener') and is never high. low is a go-ahead tied
+    to a change. none is everything else, including questions and 'not yet'.
 
     A new shop request that says "approved" or "go ahead" and then asks for
     a quote is not a go-ahead. A reply on the thread of a quote we sent can
@@ -147,6 +170,8 @@ def approval_level(category: str, subject: str, body: str) -> str:
             continue
         if _STRONG_RE.search(sentence) or _APPROVED_RE.search(sentence):
             high = True
+    if high and approval_exception(text):
+        return "partial"
     if high and (_CHANGE.search(text) or _GO_AHEAD_CHANGE.search(text)):
         return "low"
     if high and not low:
@@ -160,11 +185,29 @@ def _looks_like_reply_subject(subject: str) -> bool:
     return bool(re.match(r"^\s*(re|fw|fwd)\s*:", subject or "", re.I))
 
 
-def contains_new_quote_ask(subject: str, body: str) -> bool:
-    """The new writing asks for another quote or gives a door size."""
+def size_pairs(text: str):
+    """Door sizes written as 10x10 or 10' x 10'. Feet-and-inches are ignored."""
+    return {(int(a), int(b)) for a, b in _SIZE_PAIR_RE.findall(text or "")}
+
+
+def contains_new_quote_ask(subject: str, body: str, referenced_sizes=None) -> bool:
+    """True when the new writing asks for another quote.
+
+    A repeated size ('ship the 10x10 as quoted') is not a new quote.
+    A size is new only when it is not already on the referenced quote.
+    """
     del subject
     text = fresh_message_text(body or "")
-    return bool(_NEW_QUOTE_RE.search(text) or _SIZE_HINT_RE.search(text))
+    if _NEW_QUOTE_RE.search(text):
+        return True
+    found = size_pairs(text)
+    if not found or not referenced_sizes:
+        return False
+    known = set()
+    for item in referenced_sizes:
+        if isinstance(item, (tuple, list)) and len(item) == 2:
+            known.add((int(item[0]), int(item[1])))
+    return any(pair not in known for pair in found)
 
 
 def note_also_new_request(row: CustomerOrderApproval) -> None:
@@ -198,6 +241,8 @@ def handle_customer_approval(
     graph_message_id: Optional[str] = None,
     mailbox: Optional[str] = None,
     filenames: Optional[List[str]] = None,
+    confidence: str = "high",
+    exception_text: Optional[str] = None,
 ) -> Optional[CustomerOrderApproval]:
     """Queue a convert-to-SO, or log the match when the switch is shadow.
 
@@ -236,6 +281,8 @@ def handle_customer_approval(
     if duplicate is not None:
         return duplicate
     status, chosen_sq = _decision(candidates)
+    if confidence == "partial" and status == "ready":
+        status = "partial"
     superseded = _supersede_vague(
         db,
         from_address=from_address,
@@ -244,7 +291,7 @@ def handle_customer_approval(
         chosen_sq=chosen_sq,
         po_number=po_number,
         po_source=po_source,
-        excerpt=text[:500],
+        excerpt=_approval_excerpt(text, exception_text),
         email_log_id=email_log.id,
     )
     if superseded is not None:
@@ -254,11 +301,11 @@ def handle_customer_approval(
         status=status,
         match_method=payload["match_method"],
         bc_quote_number=chosen_sq,
-        quote_request_id=candidates[0].get("quote_request_id") if status == "ready" else None,
+        quote_request_id=candidates[0].get("quote_request_id") if status in {"ready", "partial"} else None,
         candidates=candidates,
         customer_po=po_number,
         po_source=po_source,
-        excerpt=text[:500],
+        excerpt=_approval_excerpt(text, exception_text),
         from_address=from_address,
         subject=subject,
         graph_message_id=graph_message_id,
@@ -289,6 +336,56 @@ def match_sales_quotes(
         return threaded
     # A recent quote is a suggestion. It is never a ready match on its own.
     return _recent_customer_quotes(db, from_address)
+
+
+def _size_pairs_on_quote(row: QuoteRequest):
+    pairs = set()
+    data = row.parsed_data if isinstance(row.parsed_data, dict) else {}
+    doors = []
+    mapping = data.get("configurator_mapping") or {}
+    if isinstance(mapping, dict):
+        doors.extend(mapping.get("doors") or [])
+    if isinstance(data.get("doors"), list):
+        doors.extend(data.get("doors") or [])
+    specs = row.door_specs
+    if isinstance(specs, dict):
+        doors.append(specs)
+    elif isinstance(specs, list):
+        doors.extend(specs)
+    for door in doors:
+        if not isinstance(door, dict):
+            continue
+        width_ft = door.get("width_ft")
+        height_ft = door.get("height_ft")
+        if width_ft and height_ft:
+            pairs.add((int(width_ft), int(height_ft)))
+            continue
+        width = door.get("doorWidth") or door.get("width")
+        height = door.get("doorHeight") or door.get("height")
+        if width and height:
+            pairs.add((int(width) // 12, int(height) // 12))
+    return pairs
+
+
+def sizes_on_matched_quotes(db: Session, text: str, from_address: str, subject: str, email_log_id: Optional[int]):
+    """Sizes on the quote this approval names. None when no quote was matched."""
+    candidates = match_sales_quotes(db, text, from_address, subject, email_log_id)
+    numbers = [
+        item.get("bc_quote_number")
+        for item in candidates
+        if item.get("bc_quote_number") and item.get("method") in {"number", "thread"}
+    ]
+    if not numbers:
+        return None
+    pairs = set()
+    found = False
+    for number in numbers:
+        row = _quote_by_number(db, number)
+        if row is None:
+            continue
+        found = True
+        pairs |= _size_pairs_on_quote(row)
+    return pairs if found else None
 
 
 def customer_po_number(text: str, filenames: List[str]):
@@ -561,7 +658,7 @@ def convert_customer_approval(
         return _approval_result(row, already=True)
     if row.status == "converting":
         raise HTTPException(status_code=409, detail="This approval is already being converted")
-    if row.status not in {"ready", "needs_choice"}:
+    if row.status not in {"ready", "partial", "needs_choice"}:
         raise HTTPException(status_code=400, detail="This approval is not waiting for a convert")
     chosen = (bc_quote_number or "").strip() or row.bc_quote_number
     candidates = row.candidates or []
@@ -611,11 +708,30 @@ def convert_customer_approval(
     return _approval_result(row, already=bool(order.get("already")))
 
 
+def _approval_excerpt(text: str, exception_text: Optional[str]) -> str:
+    body = (text or "")[:500]
+    if not exception_text:
+        return body
+    prefix = f"Exception: {exception_text.strip()}"
+    return f"{prefix}\n{body}"[:500]
+
+
+def _exception_from_excerpt(excerpt: Optional[str]):
+    text = excerpt or ""
+    if not text.startswith("Exception:"):
+        return None
+    first = text.split("\n", 1)[0]
+    return first[len("Exception:"):].strip() or None
+
+
 def approval_to_dict(row: CustomerOrderApproval) -> dict:
+    exception_text = _exception_from_excerpt(row.excerpt)
     return {
         "id": row.id,
         "email_log_id": row.email_log_id,
         "status": row.status,
+        "confidence": "partial" if row.status == "partial" or exception_text else "high",
+        "exception_text": exception_text,
         "match_method": row.match_method,
         "bc_quote_number": row.bc_quote_number,
         "quote_request_id": row.quote_request_id,
@@ -992,7 +1108,7 @@ def _duplicate_approval(db: Session, candidates: List[dict]):
         return None
     rows = (
         db.query(CustomerOrderApproval)
-        .filter(CustomerOrderApproval.status.in_(["ready", "needs_choice", "converting", "converted"]))
+        .filter(CustomerOrderApproval.status.in_(["ready", "partial", "needs_choice", "converting", "converted"]))
         .all()
     )
     for row in rows:
@@ -1015,14 +1131,24 @@ def _duplicate_approval(db: Session, candidates: List[dict]):
 
 
 def _bc_customer_ids(db: Session, address: str) -> set:
-    """Business Central customers this address, or its company domain, has quoted."""
+    """Business Central customers this address, or its company domain, has quoted.
+
+    The query is limited to that address and, for a company domain, addresses
+    on that domain. It does not load every quote.
+    """
+    from sqlalchemy import func, or_
+
     domain = _email_domain(address)
     wanted = (address or "").strip().lower()
     if not wanted:
         return set()
+    filters = [func.lower(QuoteRequest.contact_email) == wanted]
+    if _company_domain(domain):
+        filters.append(QuoteRequest.contact_email.ilike(f"%@{domain}"))
     rows = (
         db.query(QuoteRequest.matched_bc_customer_id, QuoteRequest.contact_email)
         .filter(QuoteRequest.matched_bc_customer_id.isnot(None))
+        .filter(or_(*filters))
         .all()
     )
     found = set()

@@ -197,6 +197,14 @@ class DoorConfiguration:
     # builders from account_type, not by the customer. Size + stick count come
     # off door weight (see PERFORATED_ANGLE_* constants above).
     include_perforated_angle: bool = False
+    # One strut on every section, instead of the single residential strut
+    # or the Thermalex chart count. Set only when that quote flag is on.
+    struts_per_section: bool = False
+    # The email asked for adjustable / opener prep. No catalog part is
+    # confirmed for this, so it is recorded and not invented as a line.
+    adjustable_prep: bool = False
+    # One crating charge on this door (the first door of the quote).
+    include_crating: bool = False
     # Silent substitutions recorded while this door is being turned into
     # part numbers (bracket height that does not exist, unstocked colour).
     # Quote review reads these. Not a customer-facing comment by itself.
@@ -1249,6 +1257,24 @@ class PartNumberService:
         # 14. WRAPPING. Per-door square footage, already rounded. The door
         # count multiplier below scales it — round first, then multiply, so
         # two 16'2" × 14' doors are 226 × 2 = 452, not round(452.67).
+        if config.adjustable_prep:
+            config.deviations.append({
+                "kind": "unresolved_option",
+                "field": "adjustablePrep",
+                "reason": (
+                    "Adjustable / opener prep was requested. "
+                    "No matching part number is in the item data, so none was added."
+                ),
+            })
+
+        if config.include_crating:
+            parts.append(PartSelection(
+                part_number="CRATING",
+                description="CRATING CHARGES",
+                quantity=1,
+                category="crating",
+            ))
+
         if door_needs_wrapping(config.door_type, hardware):
             per_door_sf = door_wrapping_sqft(config.door_width, config.door_height)
             width_ft = config.door_width / 12
@@ -1965,15 +1991,25 @@ class PartNumberService:
         track_size = int(config.track_thickness) if config.track_thickness else int(
             default_track_thickness(config.door_series, config.door_type)
         )
-        radius_inches = int(config.track_radius) if config.track_radius else 12
+        from app.services.track_defaults import quoted_track_radius
+        radius_inches = int(quoted_track_radius(track_size, config.track_radius))
 
         # Commercial: 2" track only allowed if height ≤14' AND width ≤18' per rulebook
         if config.door_type == "commercial" and track_size == 2:
             if config.door_height > 168 or config.door_width > 216:  # >14' or >18'
                 track_size = 3
-                # Off keeps 12". Shadow and on size the 3" upgrade at 15".
-                from app.services.customer_profile_service import consistent_track_radius_enabled
-                radius_inches = 15 if consistent_track_radius_enabled() else 12
+                if radius_inches != 15:
+                    config.deviations.append({
+                        "kind": "track_radius_adjusted",
+                        "field": "trackRadius",
+                        "from": str(radius_inches),
+                        "to": "15",
+                        "reason": (
+                            "This door is too large for 2 inch track. "
+                            "3 inch track comes only in a 15 inch radius."
+                        ),
+                    })
+                radius_inches = 15
 
         # Determine lift type and mount type
         # HIGH LIFT uses STANDARD LIFT track assemblies — the extension kits
@@ -2122,26 +2158,24 @@ class PartNumberService:
         }
         dc_lift_type = lift_type_map.get(config.lift_type, 'standard')
 
-        # 3" track forces D525-216 minimum (no D400 drums). While profile
-        # quoting is shadow or on, those drums are sized at 15". Off keeps
-        # the radius the door already has.
+        # 3" track forces D525-216 minimum (no D400 drums) and is sized at 15".
         track_size = int(config.track_thickness) if config.track_thickness else int(
             default_track_thickness(config.door_series, config.door_type)
         )
-        from app.services.customer_profile_service import consistent_track_radius_enabled
-        track_radius = int(config.track_radius) if config.track_radius else 15
-        if consistent_track_radius_enabled() and track_size == 3 and track_radius != 15:
+        from app.services.track_defaults import explicit_non_15_on_3_inch, quoted_track_radius
+        asked = explicit_non_15_on_3_inch(track_size, config.track_radius)
+        track_radius = int(quoted_track_radius(track_size, config.track_radius or None))
+        if asked:
             config.deviations.append({
                 "kind": "track_radius_adjusted",
                 "field": "trackRadius",
-                "from": str(track_radius),
+                "from": asked,
                 "to": "15",
                 "reason": (
-                    "3 inch track uses a 15 inch drum. "
-                    f"The {track_radius} inch radius was not used for spring sizing."
+                    "3 inch track comes only in a 15 inch radius. "
+                    f"The {asked} inch radius was not used for spring sizing."
                 ),
             })
-            track_radius = 15
         lift_config = {"type": dc_lift_type, "radius": track_radius}
         high_lift_inches = config.high_lift_inches or 0
         effective_height = config.door_height + high_lift_inches if dc_lift_type == 'high' else config.door_height
@@ -2856,22 +2890,31 @@ class PartNumberService:
         if series == "AL976":
             return []
 
-        # Residential doors (KANATA & CRAFT): always 1 x 20ga strut
+        # Residential doors (KANATA & CRAFT): 1 x 20ga strut, unless the
+        # quote asked for a strut on every section.
         if config.door_type == "residential" and config.door_series in ("KANATA", "CRAFT"):
             door_width_feet = config.door_width // 12
             mapper = get_bc_mapper()
             strut = mapper.get_strut(door_width_feet, 20)
+            quantity = 1
+            if config.struts_per_section:
+                quantity = max(1, self._calculate_panel_count(config.door_height))
             return [PartSelection(
                 part_number=strut.part_number,
                 description=strut.description,
-                quantity=1,
+                quantity=quantity,
                 category="strut"
             )]
 
-        # Commercial doors: use Thermalex strutting chart
+        # Commercial doors: use Thermalex strutting chart, unless the quote
+        # asked for a strut on every section.
         strut_info = self._get_strut_requirements(config.door_width, config.door_height)
         strut_count = strut_info["count"]
         strut_type = strut_info["type"]
+        if config.struts_per_section:
+            strut_count = max(strut_count, self._calculate_panel_count(config.door_height))
+            if not strut_type:
+                strut_type = "20ga"
 
         if strut_count == 0:
             return []
@@ -4534,7 +4577,11 @@ class PartNumberService:
                 rail_size = 10
 
             rail_pn = None
-            if "CHAIN DRIVE" in op_name or "CHAIN DR" in op_name:
+            known_rails = set(self.CHAIN_RAILS.values()) | set(self.BELT_RAILS.values())
+            # An explicit rail accessory is the rail. Don't add a second one.
+            if accessory_pns & known_rails:
+                rail_pn = None
+            elif "CHAIN DRIVE" in op_name or "CHAIN DR" in op_name:
                 rail_pn = self.CHAIN_RAILS.get(rail_size)
             elif "BELT DRIVE" in op_name or "BELT DR" in op_name:
                 rail_pn = self.BELT_RAILS.get(rail_size)
@@ -4862,6 +4909,9 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         include_shaft_accessory=bool(config_dict.get("includeShaftAccessory", True)),
         spring_finish=config_dict.get("springFinish", "oil_tempered"),
         include_perforated_angle=bool(config_dict.get("includePerforatedAngle", False)),
+        struts_per_section=bool(config_dict.get("strutsPerSection", False)),
+        adjustable_prep=bool(config_dict.get("adjustablePrep", False)),
+        include_crating=bool(config_dict.get("includeCrating", False)),
     )
 
     parts = part_number_service.get_parts_for_configuration(config)

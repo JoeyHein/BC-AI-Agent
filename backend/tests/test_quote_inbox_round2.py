@@ -298,7 +298,12 @@ def test_confirm_shadow_prices_the_original_door_and_labels_shadow(session, monk
     assert color["profile_says"] == "BLACK"
 
 
-def test_omitted_3_inch_radius_is_15_only_when_profile_quoting_is_on(monkeypatch):
+def test_omitted_3_inch_radius_is_15_in_every_mode():
+    """3 inch track is 15 inch radius even when profile quoting is off.
+
+    An omitted radius is corrected quietly. An email that asks for 12 inch
+    radius on 3 inch track is quoted at 15 and held.
+    """
     door = {
         "doorType": "commercial", "doorSeries": "TX450",
         "doorWidth": 144, "doorHeight": 120, "doorCount": 1,
@@ -307,19 +312,24 @@ def test_omitted_3_inch_radius_is_15_only_when_profile_quoting_is_on(monkeypatch
         "hardware": {"tracks": True, "springs": True},
     }
     applied = apply_customer_profile([dict(door)], email_text="Please quote this door.")
-    assert applied["doors"][0]["trackRadius"] == "12"
-    parts = get_parts_for_door_config({**door, "trackRadius": "12"})
-    kinds = [item.get("kind") for item in parts.get("deviations") or []]
-    assert "track_radius_adjusted" not in kinds
-    monkeypatch.setattr(
-        "app.services.customer_profile_service.consistent_track_radius_enabled",
-        lambda: True,
-    )
-    applied = apply_customer_profile([dict(door)], email_text="Please quote this door.")
     assert applied["doors"][0]["trackRadius"] == "15"
+    assert applied["hold_for_review"] is False
     parts = get_parts_for_door_config({**door, "trackRadius": "12"})
     kinds = [item.get("kind") for item in parts.get("deviations") or []]
     assert "track_radius_adjusted" in kinds
+    asked = apply_customer_profile(
+        [dict(door)],
+        email_text='Please quote this door with 12" radius track.',
+    )
+    assert asked["doors"][0]["trackRadius"] == "15"
+    assert asked["hold_for_review"] is True
+    assert any(item.get("kind") == "track_radius_not_available" for item in asked["deviations"])
+    two_inch = apply_customer_profile(
+        [{**door, "trackThickness": "2", "trackRadius": "12"}],
+        email_text='Please quote 2" track, 12" radius.',
+    )
+    assert two_inch["doors"][0]["trackRadius"] == "12"
+    assert two_inch["hold_for_review"] is False
 
 
 def test_attachment_reading_off_does_not_fetch_files(session, monkeypatch):
@@ -1288,8 +1298,11 @@ NEW_SHOP_GO_AHEAD = (
 )
 
 
-def test_off_mode_panorama_radius_matches_main_and_on_uses_15(monkeypatch):
-    """A 3\" Panorama door with no radius stays on main's 12\" until the switch is on."""
+def test_3_inch_radius_is_15_in_every_mode_and_2_inch_keeps_12(monkeypatch):
+    """3 inch track, including a 2 inch door that has to step up, is 15 inch radius.
+
+    A 2 inch door that fits on 2 inch track keeps an explicit 12.
+    """
     from types import SimpleNamespace
     from app.integrations.ai.client import ClaudeAIClient
     from app.services.door_calculator_service import door_calculator
@@ -1303,7 +1316,7 @@ def test_off_mode_panorama_radius_matches_main_and_on_uses_15(monkeypatch):
     }
     normalized = ClaudeAIClient._normalize_configurator_doors([door])[0]
     assert normalized["trackThickness"] == "3"
-    assert normalized["trackRadius"] == "12"
+    assert normalized["trackRadius"] == "15"
 
     seen = {}
 
@@ -1315,10 +1328,9 @@ def test_off_mode_panorama_radius_matches_main_and_on_uses_15(monkeypatch):
     QuoteGenerationService(None)._generate_spring_item(
         {"width_ft": 10, "height_ft": 8, "model": "PANORAMA"}, 1, {},
     )
-    assert seen["quote_radius"] == 12
+    assert seen["quote_radius"] == 15
 
     def _drum(*args, **kwargs):
-        seen["drum_radius"] = kwargs.get("lift_config", args[2] if len(args) > 2 else {}) 
         config = args[2] if len(args) > 2 else kwargs.get("lift_config") or {}
         seen["drum_radius"] = config.get("radius")
         return SimpleNamespace(model="D400-144")
@@ -1337,15 +1349,25 @@ def test_off_mode_panorama_radius_matches_main_and_on_uses_15(monkeypatch):
         door_weight=400,
     )
     PartNumberService()._get_spring_parts(config)
-    assert seen["drum_radius"] == 12
-    assert seen["spring_radius"] == 12
+    assert seen["drum_radius"] == 15
+    assert seen["spring_radius"] == 15
     assert not any(item.get("kind") == "track_radius_adjusted" for item in config.deviations)
+
+    asked = DoorConfiguration(
+        door_type="aluminium", door_series="PANORAMA",
+        door_width=120, door_height=96, door_count=1,
+        panel_color="WHITE", panel_design="FLUSH",
+        track_thickness="3", track_radius="12", door_weight=400,
+    )
+    PartNumberService()._get_spring_parts(asked)
+    assert seen["spring_radius"] == 15
+    assert any(item.get("kind") == "track_radius_adjusted" for item in asked.deviations)
 
     wide = DoorConfiguration(
         door_type="commercial", door_series="TX450",
         door_width=240, door_height=96, door_count=1,
         panel_color="WHITE", panel_design="FLUSH",
-        track_thickness="2", track_radius="15",
+        track_thickness="2", track_radius="12",
     )
 
     class _Mapper:
@@ -1355,28 +1377,16 @@ def test_off_mode_panorama_radius_matches_main_and_on_uses_15(monkeypatch):
 
     monkeypatch.setattr("app.services.part_number_service.get_bc_mapper", lambda: _Mapper())
     PartNumberService()._get_track_parts(wide)
-    assert seen["upgrade_radius"] == 12
+    assert seen["upgrade_radius"] == 15
 
-    monkeypatch.setattr(
-        "app.services.customer_profile_service.consistent_track_radius_enabled",
-        lambda: True,
-    )
-    assert ClaudeAIClient._normalize_configurator_doors([door])[0]["trackRadius"] == "15"
-    QuoteGenerationService(None)._generate_spring_item(
-        {"width_ft": 10, "height_ft": 8, "model": "PANORAMA"}, 1, {},
-    )
-    assert seen["quote_radius"] == 15
-    on_config = DoorConfiguration(
-        door_type="aluminium", door_series="PANORAMA",
+    kept = DoorConfiguration(
+        door_type="commercial", door_series="TX450",
         door_width=120, door_height=96, door_count=1,
         panel_color="WHITE", panel_design="FLUSH",
-        track_thickness="3", track_radius="12", door_weight=400,
+        track_thickness="2", track_radius="12",
     )
-    PartNumberService()._get_spring_parts(on_config)
-    assert seen["spring_radius"] == 15
-    assert any(item.get("kind") == "track_radius_adjusted" for item in on_config.deviations)
-    PartNumberService()._get_track_parts(wide)
-    assert seen["upgrade_radius"] == 15
+    PartNumberService()._get_track_parts(kept)
+    assert seen["upgrade_radius"] == 12
 
 
 def test_go_ahead_that_also_asks_for_a_quote_is_queued_and_parsed(session, monkeypatch):

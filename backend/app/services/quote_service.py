@@ -151,14 +151,13 @@ class QuoteGenerationService:
         panel_color = self._map_color_to_code(color, door_series)
 
         # Null/omitted track follows the series default (3" aluminum, 2" steel).
+        # 3 inch track is only 15 inch radius. 2 inch track in this older
+        # path keeps the 15 inch radius it already used.
         track_thickness = resolve_track_thickness(
             door_spec.get("track_type"), door_series, door_type,
         )
-        from app.services.customer_profile_service import consistent_track_radius_enabled
-        if consistent_track_radius_enabled() or track_thickness == "2":
-            quoted_radius = "15"
-        else:
-            quoted_radius = "12"
+        from app.services.track_defaults import quoted_track_radius
+        quoted_radius = quoted_track_radius(track_thickness, door_spec.get("track_radius"))
 
         # Create DoorConfiguration for the part number service
         try:
@@ -517,12 +516,8 @@ class QuoteGenerationService:
         track_type = resolve_track_thickness(
             door_spec.get("track_type"), door_series, door_type,
         )
-        # Off: 15" on 2" track, 12" on 3". Shadow and on size both at 15".
-        from app.services.customer_profile_service import consistent_track_radius_enabled
-        if consistent_track_radius_enabled():
-            track_radius = 15
-        else:
-            track_radius = 15 if track_type == "2" else 12
+        from app.services.track_defaults import quoted_track_radius
+        track_radius = int(quoted_track_radius(track_type, door_spec.get("track_radius")))
 
         # Calculate springs using Canimex methodology
         spring_qty = 2  # Standard residential = 2 springs

@@ -33,6 +33,40 @@ def default_track_thickness(
     return "3" if is_aluminum_door(door_series, door_type) else "2"
 
 
+def _track_size_token(thickness: Optional[object]) -> str:
+    text = str(thickness or "").strip().lower().strip('"').strip("'")
+    if text.startswith("3"):
+        return "3"
+    if text.startswith("2"):
+        return "2"
+    return ""
+
+
+def quoted_track_radius(thickness: Optional[object], requested: Optional[object] = None) -> str:
+    """Radius that is actually quoted.
+
+    3 inch track is manufactured only at 15 inch radius. 2 inch track keeps
+    an explicit 12, 15, or 20. An omitted 2 inch radius stays 15, which is
+    the radius this path already used.
+    """
+    if _track_size_token(thickness) == "3":
+        return "15"
+    raw = str(requested or "").strip()
+    if raw in {"12", "15", "20"}:
+        return raw
+    return "15"
+
+
+def explicit_non_15_on_3_inch(thickness: Optional[object], requested: Optional[object]) -> Optional[str]:
+    """The radius someone asked for, when 3 inch track cannot be built that way."""
+    if _track_size_token(thickness) != "3":
+        return None
+    raw = str(requested or "").strip()
+    if raw and raw != "15":
+        return raw
+    return None
+
+
 def resolve_track_thickness(
     explicit: Optional[object],
     door_series: Optional[str] = None,

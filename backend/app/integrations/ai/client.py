@@ -596,15 +596,9 @@ OUTPUT FORMAT — JSON only, no prose:
             from app.services.track_defaults import resolve_track_thickness
             raw_track = d.get("trackThickness") if "trackThickness" in d else None
             track_thickness = resolve_track_thickness(raw_track, series, door_type)
-            track_radius = str(d.get("trackRadius", "") or "").strip()
-            # An explicit 12 or 15 is kept. An omitted radius is 12" on 3"
-            # track unless profile quoting is shadow or on, which uses 15".
-            if track_radius not in {"12", "15"}:
-                from app.services.customer_profile_service import consistent_track_radius_enabled
-                if consistent_track_radius_enabled():
-                    track_radius = "15"
-                else:
-                    track_radius = "12" if track_thickness == "3" else "15"
+            from app.services.track_defaults import quoted_track_radius
+            # 3 inch track is only 15. 2 inch track keeps an explicit 12 or 15.
+            track_radius = quoted_track_radius(track_thickness, d.get("trackRadius"))
 
             hardware = d.get("hardware")
             if not isinstance(hardware, dict) or not hardware:
