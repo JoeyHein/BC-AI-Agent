@@ -1,13 +1,28 @@
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
 import { useCart } from '../../contexts/CartContext'
+import { useEffect, useState } from 'react'
 import { CUSTOMER_PARTS_FEATURES_ENABLED } from '../../config/featureFlags'
+import { sectionFinderApi } from '../../api/customerClient'
 
 function CustomerLayout() {
   const { user, logout, isBCLinked, isDealer, isHomeBuilder } = useCustomerAuth()
   const { itemCount } = useCart()
   const navigate = useNavigate()
   const location = useLocation()
+  const [finderMode, setFinderMode] = useState('off')
+
+  useEffect(() => {
+    let cancelled = false
+    sectionFinderApi.status()
+      .then((response) => {
+        if (!cancelled) setFinderMode(response.data?.mode || 'off')
+      })
+      .catch(() => {
+        if (!cancelled) setFinderMode('off')
+      })
+    return () => { cancelled = true }
+  }, [])
 
   const handleLogout = () => {
     logout()
@@ -24,6 +39,7 @@ function CustomerLayout() {
   const allNavItems = [
     { path: '', label: 'Dashboard', icon: HomeIcon },
     { path: 'saved-quotes', label: 'My Quotes', icon: DocumentIcon },
+    { path: 'section-finder', label: 'Sections', icon: CatalogIcon, finder: true },
     { path: 'catalog', label: 'Catalog', icon: CatalogIcon, dealerOnly: true, wip: true },
     { path: 'spring-builder', label: 'Spring Builder', icon: SpringIcon, dealerOnly: true, wip: true },
     { path: 'cart', label: 'Cart', icon: ShoppingBagIcon, badge: true, dealerOnly: true, wip: true },
@@ -34,7 +50,8 @@ function CustomerLayout() {
 
   const navItems = allNavItems.filter(item => {
     // Not-yet-released parts experience (Catalog / Spring Builder / Cart).
-    if (item.wip && !CUSTOMER_PARTS_FEATURES_ENABLED) return false
+    if (item.finder && finderMode !== 'on') return false
+    if (item.wip && !CUSTOMER_PARTS_FEATURES_ENABLED && !(item.path === 'cart' && finderMode === 'on')) return false
     if (item.dealerOnly && !isDealer) return false
     if (item.homeBuilderOnly && !isHomeBuilder) return false
     return true

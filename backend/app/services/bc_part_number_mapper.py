@@ -1039,7 +1039,8 @@ class BCPartNumberMapper:
         height_inches: int,
         color: str = "WHITE",
         end_cap_type: EndCapType = EndCapType.SINGLE,
-        stamp: str = "UDC"
+        stamp: str = "UDC",
+        allow_width_substitute: bool = True,
     ) -> BCPartNumber:
         """
         Get panel part number.
@@ -1164,7 +1165,10 @@ class BCPartNumberMapper:
         # priced BC item rather than a fabricated PN that prices at $0.
         notes = None
         if part_number not in self.bc_items:
-            substitute = self._find_closest_panel_width(part_number)
+            substitute = (
+                self._find_closest_panel_width(part_number)
+                if allow_width_substitute else None
+            )
             if substitute:
                 logger.info(
                     f"Panel {part_number} not in BC — substituted "

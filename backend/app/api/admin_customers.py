@@ -782,8 +782,8 @@ class InboxAutomationUpdate(BaseModel):
 
 
 class QuotePriceOverridesUpdate(BaseModel):
-    quote_replacement_panel_margin: Optional[str] = None
-    replacement_margin_percent: Optional[float] = None
+    quote_replacement_section_pricing: Optional[str] = None
+    quote_section_finder: Optional[str] = None
     quote_flat_residential_windows: Optional[str] = None
     residential_window_long_price: Optional[float] = None
     residential_window_short_price: Optional[float] = None
@@ -847,8 +847,8 @@ def update_quote_price_overrides(
         saved = save_price_overrides(
             db,
             user_id=current_admin.id,
-            panel_mode=body.quote_replacement_panel_margin,
-            margin_percent=body.replacement_margin_percent,
+            panel_mode=body.quote_replacement_section_pricing,
+            finder_mode=body.quote_section_finder,
             window_mode=body.quote_flat_residential_windows,
             long_price=body.residential_window_long_price,
             short_price=body.residential_window_short_price,

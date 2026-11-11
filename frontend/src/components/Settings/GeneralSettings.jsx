@@ -18,7 +18,7 @@ const QUOTE_BUILD_SWITCHES = [
   ['quote_series_fallback', 'Closest series', 'When the asked series cannot be built in that colour and design, quote the closest series that can.'],
 ]
 
-function PriceOverrideControl({ label, help, mode, onMode, children }) {
+function PriceOverrideControl({ label, help, mode, onMode, modes = ['off', 'shadow', 'on'], children }) {
   return (
     <div className="text-sm text-gray-700">
       <span className="block text-xs font-medium text-gray-500 mb-1">{label}</span>
@@ -29,9 +29,9 @@ function PriceOverrideControl({ label, help, mode, onMode, children }) {
         onChange={onMode}
         className="border border-gray-300 rounded-md px-2 py-1 text-sm"
       >
-        <option value="off">Off</option>
-        <option value="shadow">Shadow</option>
-        <option value="on">On</option>
+        {modes.map((value) => (
+          <option key={value} value={value}>{value === 'off' ? 'Off' : value === 'shadow' ? 'Shadow' : 'On'}</option>
+        ))}
       </select>
       {children}
     </div>
@@ -54,7 +54,8 @@ function GeneralSettings() {
   })
   const mode = data?.mode || 'off'
   const inboxModes = inbox.data?.modes || {}
-  const panelSetting = prices.data?.quote_replacement_panel_margin || {}
+  const panelSetting = prices.data?.quote_replacement_section_pricing || {}
+  const finderSetting = prices.data?.quote_section_finder || {}
   const windowSetting = prices.data?.quote_flat_residential_windows || {}
 
   async function changeMode(next) {
@@ -165,40 +166,28 @@ function GeneralSettings() {
           </p>
         </div>
         <PriceOverrideControl
-          label="Replacement section margin"
-          help="Panels-only and door-face orders price each steel section at unit cost divided by (1 minus this margin). A complete door is unchanged. 50 percent is cost times 2."
+          label="Replacement section list price"
+          help="Panels-only and door-face orders sell each steel section at the item-card list price. A complete door keeps the customer's price list. A missing list price is flagged and left as Business Central priced it."
           mode={panelSetting.mode}
           onMode={async (event) => {
             const next = event.target.value
-            if (!window.confirm(`Set Replacement section margin to ${next}?`)) return
-            await customersApi.setQuotePriceOverrides({ quote_replacement_panel_margin: next })
+            if (!window.confirm(`Set Replacement section list price to ${next}?`)) return
+            await customersApi.setQuotePriceOverrides({ quote_replacement_section_pricing: next })
             queryClient.invalidateQueries({ queryKey: ['quote-price-overrides'] })
           }}
-        >
-          <label className="block mt-2 text-xs text-gray-500">
-            Gross margin percent
-            <input
-              aria-label="Replacement section margin percent"
-              type="number"
-              min="0"
-              max="99"
-              step="1"
-              defaultValue={panelSetting.margin_percent ?? 50}
-              key={panelSetting.margin_percent ?? 50}
-              onBlur={async (event) => {
-                const next = event.target.value
-                if (String(next) === String(panelSetting.margin_percent ?? 50)) return
-                if (!window.confirm(`Set the replacement section margin to ${next} percent?`)) {
-                  event.target.value = panelSetting.margin_percent ?? 50
-                  return
-                }
-                await customersApi.setQuotePriceOverrides({ replacement_margin_percent: Number(next) })
-                queryClient.invalidateQueries({ queryKey: ['quote-price-overrides'] })
-              }}
-              className="mt-1 block w-28 border border-gray-300 rounded-md px-2 py-1 text-sm text-gray-900"
-            />
-          </label>
-        </PriceOverrideControl>
+        />
+        <PriceOverrideControl
+          label="Replacement section finder"
+          help="Customers can describe a replacement section in the portal. Off hides the page. On lets them add a resolved section to the cart, or send an unresolved one to staff. This switch has no shadow mode."
+          mode={finderSetting.mode === 'on' ? 'on' : 'off'}
+          modes={['off', 'on']}
+          onMode={async (event) => {
+            const next = event.target.value
+            if (!window.confirm(`Set Replacement section finder to ${next}?`)) return
+            await customersApi.setQuotePriceOverrides({ quote_section_finder: next })
+            queryClient.invalidateQueries({ queryKey: ['quote-price-overrides'] })
+          }}
+        />
         <PriceOverrideControl
           label="Flat residential windows"
           help="Residential doors price each glass kit at one rate per window. A decorative insert on that door is included at $0. Commercial doors, including TX450 and TX500, stay on the price list."

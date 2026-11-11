@@ -1,12 +1,12 @@
 """Quote price overrides. Both default to off.
 
-``quote_replacement_panel_margin``
+``quote_replacement_section_pricing``
     Section-only orders (portal Door Face Only / Panels Only, and the same
-    hardware scope on an emailed door) sell each steel section at
-    unit cost / (1 - margin). Default margin is 50 percent, which is cost
-    times 2. A missing or zero unit cost is flagged and left on the price
-    list. A complete door is not a section order, so its sections stay on
-    the price list.
+    hardware scope on an emailed door) sell each steel section at the BC
+    item-card list price (``unitPrice``), not the customer's price list.
+    A missing or zero list price is flagged and left as Business Central
+    priced it. A complete door keeps the customer's price list. The old
+    ``quote_replacement_panel_margin`` key is retired and is not read.
 
 ``quote_flat_residential_windows``
     Glass kits and inserts on a door whose doorType is residential use one
@@ -79,13 +79,12 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-REPLACEMENT_MARGIN_KEY = "quote_replacement_panel_margin"
+SECTION_PRICING_KEY = "quote_replacement_section_pricing"
+FINDER_KEY = "quote_section_finder"
 FLAT_WINDOWS_KEY = "quote_flat_residential_windows"
+# Retired. A stored value is left in app_settings and is not applied.
+RETIRED_MARGIN_KEY = "quote_replacement_panel_margin"
 
-DEFAULT_MARGIN_PERCENT = 50.0
-# Save and load both accept a margin from 0 up to, and not including, 100.
-MARGIN_MIN = 0.0
-MARGIN_MAX_EXCLUSIVE = 100.0
 DEFAULT_LONG_PRICE = 165.00
 DEFAULT_SHORT_PRICE = 120.00
 MODES = ("off", "shadow", "on")
@@ -118,17 +117,15 @@ _WORD_SHORT = re.compile(r"\bSHORT\b")
 @dataclass(frozen=True)
 class PriceOverrideSettings:
     panel_mode: str = "off"
-    margin_percent: float = DEFAULT_MARGIN_PERCENT
+    finder_mode: str = "off"
     window_mode: str = "off"
     long_price: float = DEFAULT_LONG_PRICE
     short_price: float = DEFAULT_SHORT_PRICE
 
     def as_api(self) -> dict:
         return {
-            REPLACEMENT_MARGIN_KEY: {
-                "mode": self.panel_mode,
-                "margin_percent": self.margin_percent,
-            },
+            SECTION_PRICING_KEY: {"mode": self.panel_mode},
+            FINDER_KEY: {"mode": self.finder_mode},
             FLAT_WINDOWS_KEY: {
                 "mode": self.window_mode,
                 "long_price": self.long_price,
@@ -144,21 +141,6 @@ def _mode(value: Any) -> str:
     return mode if mode in MODES else "off"
 
 
-def margin_in_range(number: float) -> bool:
-    """True when the margin can be used. The same bounds apply on save and load."""
-    return MARGIN_MIN <= number < MARGIN_MAX_EXCLUSIVE
-
-
-def _margin_percent(value: Any, default: float) -> float:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return default
-    if not margin_in_range(number):
-        return default
-    return number
-
-
 def _number(value: Any, default: float, *, low: float, high: float) -> float:
     try:
         number = float(value)
@@ -169,13 +151,8 @@ def _number(value: Any, default: float, *, low: float, high: float) -> float:
     return number
 
 
-def _parse_panel(raw: Any) -> tuple[str, float]:
-    if not isinstance(raw, dict):
-        return _mode(raw), DEFAULT_MARGIN_PERCENT
-    return (
-        _mode(raw),
-        _margin_percent(raw.get("margin_percent"), DEFAULT_MARGIN_PERCENT),
-    )
+def _parse_mode_value(raw: Any) -> str:
+    return _mode(raw)
 
 
 def _parse_windows(raw: Any) -> tuple[str, float, float]:
@@ -211,11 +188,15 @@ def _read_setting(db: Optional[Session], key: str) -> Any:
 
 
 def load_price_overrides(db: Optional[Session]) -> PriceOverrideSettings:
-    panel_mode, margin = _parse_panel(_read_setting(db, REPLACEMENT_MARGIN_KEY))
+    panel_mode = _parse_mode_value(_read_setting(db, SECTION_PRICING_KEY))
+    finder_mode = _parse_mode_value(_read_setting(db, FINDER_KEY))
+    # The finder has no customer-facing shadow. A stored shadow is off.
+    if finder_mode != "on":
+        finder_mode = "off"
     window_mode, long_price, short_price = _parse_windows(_read_setting(db, FLAT_WINDOWS_KEY))
     return PriceOverrideSettings(
         panel_mode=panel_mode,
-        margin_percent=margin,
+        finder_mode=finder_mode,
         window_mode=window_mode,
         long_price=long_price,
         short_price=short_price,
@@ -245,7 +226,7 @@ def save_price_overrides(
     *,
     user_id: Optional[int] = None,
     panel_mode: Optional[str] = None,
-    margin_percent: Optional[float] = None,
+    finder_mode: Optional[str] = None,
     window_mode: Optional[str] = None,
     long_price: Optional[float] = None,
     short_price: Optional[float] = None,
@@ -259,12 +240,13 @@ def save_price_overrides(
         panel_mode = cleaned
     else:
         panel_mode = current.panel_mode
-    if margin_percent is not None:
-        margin = float(margin_percent)
-        if not margin_in_range(margin):
-            raise ValueError("margin percent must be from 0 up to but not including 100")
+    if finder_mode is not None:
+        cleaned = str(finder_mode).strip().lower()
+        if cleaned not in ("off", "on"):
+            raise ValueError("finder mode must be off or on")
+        finder_mode = cleaned
     else:
-        margin = current.margin_percent
+        finder_mode = current.finder_mode
     if window_mode is not None:
         cleaned = str(window_mode).strip().lower()
         if cleaned not in MODES:
@@ -287,9 +269,16 @@ def save_price_overrides(
 
     _write_setting(
         db,
-        REPLACEMENT_MARGIN_KEY,
-        {"mode": panel_mode, "margin_percent": margin},
-        "Replacement section unit price is unit cost / (1 - margin). Off, shadow, or on.",
+        SECTION_PRICING_KEY,
+        {"mode": panel_mode},
+        "Replacement sections use the item-card list price. Off, shadow, or on.",
+        user_id,
+    )
+    _write_setting(
+        db,
+        FINDER_KEY,
+        {"mode": finder_mode},
+        "Customer portal replacement section finder. Off or on. Shadow is not used.",
         user_id,
     )
     _write_setting(
@@ -301,7 +290,7 @@ def save_price_overrides(
     )
     return PriceOverrideSettings(
         panel_mode=panel_mode,
-        margin_percent=margin,
+        finder_mode=finder_mode,
         window_mode=window_mode,
         long_price=long_price,
         short_price=short_price,
@@ -337,13 +326,12 @@ def note_parts_request(db: Optional[Session], subject: str, body: str) -> None:
     prefix = "SHADOW " if settings.panel_mode == "shadow" else ""
     logger.info(
         "%s%s: email parts request is %s. "
-        "Section lines on a panels-only or door-face-only quote would be "
-        "unit cost / (1 - %s%%). This email has no section lines, so it "
+        "Section lines on a panels-only or door-face-only quote would use "
+        "the item-card list price. This email has no section lines, so it "
         "stays in manual pricing.",
         prefix,
-        REPLACEMENT_MARGIN_KEY,
+        SECTION_PRICING_KEY,
         label,
-        settings.margin_percent,
     )
 
 
@@ -431,76 +419,72 @@ def is_section_panel_line(part: dict) -> bool:
     return pn.startswith(STEEL_SECTION_PREFIXES)
 
 
-def rounded_unit_cost(unit_cost: Any) -> Optional[float]:
-    """Round a unit cost to cents. None when it is missing, zero, or not a number.
+class ListPrice(float):
+    """A card price, with whether it came from live BC or the item export."""
 
-    The selling price is computed from this rounded cost, and the quote
-    note shows the same figure. $123.455 becomes $123.46, then $246.92
-    at a 50 percent margin.
-    """
-    if unit_cost is None or unit_cost == "":
-        return None
-    try:
-        cost = Decimal(str(unit_cost)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    except Exception:
-        return None
-    if cost <= 0:
-        return None
-    return float(cost)
+    source: str
+
+    def __new__(cls, amount: float, source: str = "live"):
+        value = float.__new__(cls, amount)
+        value.source = source
+        return value
 
 
-def replacement_unit_price(unit_cost: Any, margin_percent: float) -> Optional[float]:
-    """Rounded unit cost / (1 - margin). None when the cost cannot be used."""
-    cost = rounded_unit_cost(unit_cost)
-    if cost is None:
-        return None
-    if not margin_in_range(float(margin_percent)):
-        return None
-    margin = Decimal(str(margin_percent)) / Decimal("100")
-    price = (Decimal(str(cost)) / (Decimal("1") - margin)).quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP,
-    )
-    return float(price)
-
-
-def default_unit_cost(part_number: str) -> Optional[float]:
-    """Live BC ``unitCost`` only.
-
-    A cache hit is a cost previously fetched from Business Central. A cache
-    miss fetches that one item. If the fetch fails or the item is absent,
-    this returns None so the section stays on the price list. It does not
-    use the static ``bc_items`` export that ``_get_live_item`` falls back to.
-    """
-    import time
-
-    try:
-        import app.services.pricing_service as pricing
-    except Exception:
-        logger.warning("Unit cost lookup failed for %s", part_number, exc_info=True)
-        return None
-
-    item = None
-    if time.time() < pricing._cache_expiry and part_number in pricing._bc_cost_cache:
-        item = pricing._bc_cost_cache.get(part_number)
-    else:
-        try:
-            from app.integrations.bc.client import bc_client
-            items = bc_client.get_items_by_numbers([part_number]) or {}
-            item = items.get(part_number)
-        except Exception:
-            logger.warning("Live BC unit cost unavailable for %s", part_number, exc_info=True)
-            return None
-        if item:
-            pricing._bc_cost_cache[part_number] = item
-    if not item:
-        return None
-    raw = item.get("unitCost")
+def _positive_price(raw: Any, source: str = "live") -> Optional[ListPrice]:
     if raw is None or raw == "":
         return None
     try:
-        return float(raw)
-    except (TypeError, ValueError):
+        price = Decimal(str(raw)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except Exception:
         return None
+    if price <= 0:
+        return None
+    return ListPrice(float(price), source)
+
+
+def card_list_price(part_number: str) -> Optional[float]:
+    """Item-card ``unitPrice``.
+
+    A live Business Central item is used when the fetch succeeds. A zero
+    price on that live card is missing. When Business Central cannot be
+    reached, the card price in the local item export is the list price.
+    """
+    import time
+
+    live_item = None
+    live_down = False
+    try:
+        import app.services.pricing_service as pricing
+        if time.time() < pricing._cache_expiry and part_number in pricing._bc_cost_cache:
+            live_item = pricing._bc_cost_cache.get(part_number)
+        else:
+            from app.integrations.bc.client import bc_client
+            # The client logs and swallows a failed batch. The errors list is
+            # how this caller tells a dead call from "BC has no such item".
+            fetch_errors: list[str] = []
+            items = bc_client.get_items_by_numbers([part_number], errors=fetch_errors) or {}
+            if fetch_errors:
+                live_down = True
+            else:
+                live_item = items.get(part_number)
+                if live_item:
+                    pricing._bc_cost_cache[part_number] = live_item
+    except Exception:
+        logger.warning("Live list price unavailable for %s", part_number, exc_info=True)
+        live_down = True
+        live_item = None
+
+    if not live_down:
+        if live_item is None:
+            return None
+        return _positive_price(live_item.get("unitPrice"), "live")
+    try:
+        from app.services.bc_part_number_mapper import get_bc_mapper
+        exported = get_bc_mapper().bc_items.get(part_number) or {}
+    except Exception:
+        logger.warning("Item-card export unreadable for %s", part_number, exc_info=True)
+        return None
+    return _positive_price(exported.get("unitPrice"), "export")
 
 
 def _money(value: float) -> str:
@@ -553,7 +537,7 @@ def apply_price_overrides(
     door_type: str,
     door_series: str,
     settings: PriceOverrideSettings,
-    cost_lookup: Optional[Callable[[str], Optional[float]]] = None,
+    list_lookup: Optional[Callable[[str], Optional[float]]] = None,
     emit_notes: bool = True,
 ) -> list:
     """Apply whichever overrides are shadow or on. The list is mutated.
@@ -567,7 +551,7 @@ def apply_price_overrides(
         return parts
 
     scope = section_only_scope(hardware, door_type)
-    lookup = cost_lookup or default_unit_cost
+    lookup = list_lookup or card_list_price
     kit_sizes = _matching_kit_sizes(parts, door_type, door_series)
     rewritten: list = []
 
@@ -637,43 +621,41 @@ def apply_price_overrides(
         if settings.panel_mode == "off" or not scope or not is_section_panel_line(part):
             continue
         try:
-            cost = lookup(pn)
+            price = lookup(pn)
         except Exception:
-            logger.warning("Unit cost lookup failed for %s", pn, exc_info=True)
-            cost = None
-        shown_cost = rounded_unit_cost(cost)
-        price = replacement_unit_price(cost, settings.margin_percent)
-        if price is None or shown_cost is None:
+            logger.warning("List price lookup failed for %s", pn, exc_info=True)
+            price = None
+        if price is None or price <= 0:
             flag = (
-                f"FLAG: {pn} replacement section unit cost missing or zero; "
-                "list price kept"
+                f"FLAG: {pn} replacement section list price missing or zero; "
+                "customer price list kept"
             )
             if settings.panel_mode == "shadow":
                 logger.info(
-                    "SHADOW %s: %s unit cost missing or zero; would flag and keep the list price",
-                    REPLACEMENT_MARGIN_KEY, pn,
+                    "SHADOW %s: %s list price missing or zero; would flag and keep the customer price",
+                    SECTION_PRICING_KEY, pn,
                 )
             else:
                 part["pricing_flag"] = flag
-                logger.info("%s: %s", REPLACEMENT_MARGIN_KEY, flag)
+                logger.info("%s: %s", SECTION_PRICING_KEY, flag)
                 if emit_notes:
                     rewritten.append(_comment(flag))
             continue
+        export_note = " (export price)" if getattr(price, "source", "") == "export" else ""
         note = (
-            f"PRICE NOTE: {pn} replacement section at {settings.margin_percent:g}% "
-            f"gross margin, cost ${_money(shown_cost)}, unit ${_money(price)}"
+            f"PRICE NOTE: {pn} replacement section at list price ${_money(price)}{export_note}"
         )
         if settings.panel_mode == "shadow":
             logger.info(
-                "SHADOW %s: %s cost %s would be $%s (%s%% GM); quote unchanged",
-                REPLACEMENT_MARGIN_KEY, pn, _money(shown_cost), _money(price), settings.margin_percent,
+                "SHADOW %s: %s would be list price $%s; quote unchanged",
+                SECTION_PRICING_KEY, pn, _money(price),
             )
         else:
-            part["fixed_unit_price"] = price
+            part["fixed_unit_price"] = float(price)
             part["pricing_override"] = note
             logger.info(
-                "%s: %s cost %s fixed at $%s (%s%% GM)",
-                REPLACEMENT_MARGIN_KEY, pn, _money(shown_cost), _money(price), settings.margin_percent,
+                "%s: %s fixed at list price $%s",
+                SECTION_PRICING_KEY, pn, _money(price),
             )
             if emit_notes:
                 rewritten.append(_comment(note))
@@ -688,7 +670,7 @@ def apply_door_price_overrides(
     door: Any,
     settings: PriceOverrideSettings,
     *,
-    cost_lookup: Optional[Callable[[str], Optional[float]]] = None,
+    list_lookup: Optional[Callable[[str], Optional[float]]] = None,
     emit_notes: bool = True,
 ) -> list:
     """Read hardware and series off a configurator model or a portal dict."""
@@ -706,6 +688,6 @@ def apply_door_price_overrides(
         door_type=door_type,
         door_series=door_series,
         settings=settings,
-        cost_lookup=cost_lookup,
+        list_lookup=list_lookup,
         emit_notes=emit_notes,
     )

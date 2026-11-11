@@ -470,7 +470,8 @@ class BusinessCentralClient:
         return result.get("value", [])
 
     def get_items_by_numbers(self, part_numbers: List[str],
-                              company_id: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+                              company_id: Optional[str] = None,
+                              errors: Optional[List[str]] = None) -> Dict[str, Dict[str, Any]]:
         """
         Batch-fetch items by part number from BC.
 
@@ -502,6 +503,8 @@ class BusinessCentralClient:
                     result[item["number"]] = item
             except Exception as e:
                 logger.warning(f"Batch item fetch failed for {len(batch)} items: {e}")
+                if errors is not None:
+                    errors.append(str(e))
 
         return result
 
