@@ -101,6 +101,38 @@ def _next_bigger_width_skus(part_number: str, bc_items: Dict[str, Any]) -> Optio
     return candidates[0][1]
 
 
+# Hardware kits and extension tracks are built from a pattern BC stocks
+# even when the item export is behind. Commercial retainers are fixed
+# inch-sold SKUs (see BCPartNumberMapper.COMMERCIAL_RETAINER).
+_SKIP_VALIDATION_PREFIXES = ("HK02-", "HK03-", "HK12-", "HK13-", "TR02-EXT", "TR03-EXT")
+
+
+def catalog_keeps_part_number(
+    part_number: str,
+    bc_items: Dict[str, Any],
+    category: str = "",
+) -> bool:
+    """True when generate-quote must post this SKU unchanged.
+
+    A number missing from the item export is normally rewritten to a
+    sibling or left to fail into a comment ("not in BC"). The TX760 3"
+    retainer PL10-00136-00 is a real item (TOP/BOTTOM RETAINER - 3", UOM
+    IN). A stale export must not replace it, or the other commercial
+    retainers, with a different PL10 line.
+    """
+    pn = part_number or ""
+    if not pn:
+        return False
+    if pn in bc_items:
+        return True
+    if category == "wrapping" or pn == "WRAP":
+        return True
+    if any(pn.startswith(pfx) for pfx in _SKIP_VALIDATION_PREFIXES) and pn != f"{pn[:4]}-00000-RC":
+        return True
+    from app.services.bc_part_number_mapper import BCPartNumberMapper
+    return pn in BCPartNumberMapper.COMMERCIAL_RETAINER_NUMBERS
+
+
 # ============================================================================
 # CONFIGURATION DATA (from UPWARDOR_PORTAL_CONFIGURATION.md)
 # ============================================================================
@@ -1904,22 +1936,15 @@ def build_bc_quote_from_doors(
         from app.services.bc_part_number_mapper import get_bc_mapper
         mapper = get_bc_mapper()
 
-        # Part number prefixes that follow deterministic patterns and are
-        # known to exist in BC even if not in our item cache export.
-        SKIP_VALIDATION_PREFIXES = ("HK02-", "HK03-", "HK12-", "HK13-", "TR02-EXT", "TR03-EXT")
-
         for line in all_lines:
             if line.get("lineType") == "Comment" or not line.get("part_number"):
                 continue
             pn = line["part_number"]
-            if pn in mapper.bc_items:
-                continue
-            # WRAP is a portal-priced service item. A stale item cache must
-            # not rewrite it as WRAPALU just because both start with WRAP.
-            if line.get("category") == "wrapping" or pn == "WRAP":
-                continue
-            # Skip validation for deterministic HK hardware kit part numbers
-            if any(pn.startswith(pfx) for pfx in SKIP_VALIDATION_PREFIXES) and pn != f"{pn[:4]}-00000-RC":
+            # In the export, or a SKU we know BC stocks (WRAP, hardware kits,
+            # commercial retainers including TX760 PL10-00136-00). Rewriting
+            # the retainer is what turned it into a sibling PL10 line or a
+            # "not in BC" comment.
+            if catalog_keeps_part_number(pn, mapper.bc_items, line.get("category") or ""):
                 continue
 
             # Step-up substitution: if the failed SKU ends in a 4-digit

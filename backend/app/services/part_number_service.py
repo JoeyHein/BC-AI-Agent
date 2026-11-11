@@ -611,7 +611,7 @@ RETAINER_LBS_PER_FT = {
     "TX450-20": 0.175,
     "TX500": 0.1513,      # 2" retainer
     "TX500-20": 0.1513,
-    "TX760": 0.174,       # 3" retainer (PL10-00136-00) — TX500 +15% (interim est.)
+    "TX760": 0.174,       # 3" retainer (PL10-00136-00). Weight is still TX500 +15%; BC has no lbs.
     "KANATA": 0.15,       # residential retainer
     "CRAFT": 0.15,
 }
