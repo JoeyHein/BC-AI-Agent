@@ -1,0 +1,19 @@
+Drop-in DXF profiles for shop drawing details.
+
+When one of these files is present, the generator inserts it instead of the
+hand-built geometry. Delete the file to fall back to the parametric profile.
+
+    tx380_shiplap.dxf            TX-380 shiplap joint, full section stack
+    tx_tongue_and_groove.dxf     TX-450 / TX-500 tongue-and-groove stack
+    panorama_section.dxf         Panorama aluminium side profile
+    jamb_steel.dxf               Steel jamb plan (one side, door to the right)
+    jamb_wood.dxf                Wood jamb plan (one side, door to the right)
+
+Contract:
+- Units: inches. $INSUNITS = 1.
+- Origin: exterior face at the bottom of the detail. +X toward the interior.
+  +Y up.
+- Draw the detail at true size (panel thickness is the real thickness).
+  The sheet scales the block to the view.
+- Modelspace only. No paper space, no dimensions (the sheet adds leaders).
+- Keep the thermal-break bars, seal, and hinge reinforcing in the geometry.
