@@ -22,14 +22,11 @@ from app.services.configurator_quote_tag import (
     resolve_creator_tag,
 )
 from app.services.freight_service import (
-    allocate_freight_across_doors,
-    apply_freight_to_line_pricing,
     calculate_freight,
-    door_freight_amounts,
-    get_freight_config,
-    interleave_door_freight,
-    remember_added_door_line,
-    sum_line_amounts,
+    freight_pricing_row,
+    freight_settings,
+    post_quote_freight_line,
+    quote_freight_source_line,
 )
 from app.services.operator_service import find_operator_by_part_number
 from app.integrations.bc.client import bc_client
@@ -1218,9 +1215,9 @@ def _sort_parts_by_category(parts: List[dict]) -> List[dict]:
         # Cone sets should stay inline with their spring pair, not sort separately
         if category == "spring_accessory":
             category = "spring"
-        # WRAP is the last line of each door package, immediately above that
-        # door's freight line. WRAPALU stays aluminum_wrapping and is not
-        # pulled down here.
+        # WRAP is the last product line of each door. Quote freight is one
+        # line after every door, not part of the package. WRAPALU stays
+        # aluminum_wrapping and is not pulled down here.
         if category == "wrapping":
             return 10_000
         try:
@@ -1367,7 +1364,7 @@ def _parse_door_header(comment: str) -> Optional[Dict[str, Any]]:
 def _group_quote_lines_into_doors(lines: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Split a flat BC quote line list into per-door blocks at each header
     comment. Non-door lines before the first header (shouldn't normally
-    happen) and the trailing FREIGHT line are dropped from the door blocks."""
+    happen) and quote-level FREIGHT lines are dropped from the door blocks."""
     doors: List[Dict[str, Any]] = []
     current: Optional[Dict[str, Any]] = None
     for ql in lines:
@@ -1997,23 +1994,11 @@ def build_bc_quote_from_doors(
                 })
                 logger.warning(f"Part {pn} not in BC — no close match, will add as comment")
 
-        # Delivery quotes get a freight line under each door, immediately
-        # after WRAP. Pickup and home-builder quotes do not.
-        if (request.deliveryType or "").lower() != "pickup" and not is_home_builder:
-            freight_item = "FREIGHT"
-            if db:
-                try:
-                    freight_item = get_freight_config(db).get("freight_item_number", "FREIGHT")
-                except Exception:
-                    freight_item = "FREIGHT"
-            all_lines = interleave_door_freight(all_lines, freight_item)
-
-        # Step 4: Add line items to the quote in proper order
+        # Step 4: Add line items to the quote in proper order. Freight is
+        # not posted here — one FREIGHT line is appended after the goods
+        # subtotal is known. Pickup and home-builder quotes get none.
         lines_added = 0
         lines_failed = []
-        door_freight_slots = []
-        door_product_ids = {}
-        door_order = []
         # Track tier prices per BC line ID for escalating margin (avoids re-fetch race)
         tier_prices_by_line_id = {}  # { bc_line_id: { "price": float, "qty": float } }
 
@@ -2036,9 +2021,6 @@ def build_bc_quote_from_doors(
 
                 added_line = bc_client.add_quote_line(bc_quote_id, line_data)
                 lines_added += 1
-                remember_added_door_line(
-                    line, added_line, door_order, door_product_ids, door_freight_slots,
-                )
 
                 # Set Output=True on door descriptions, operators, and accessories
                 # so BC shows them on printed quotes and subtotals correctly.
@@ -2270,13 +2252,16 @@ def build_bc_quote_from_doors(
         # install total already bills per-km crew travel, so freight would
         # charge the same trip twice (mirrors the customer-portal behaviour).
 
-        # Step 5: Add freight line if delivery (skipped for home builders)
+        # Step 5: One FREIGHT line for the whole quote (skipped for home
+        # builders and pickup). The amount is the province percent of the
+        # combined goods subtotal — the same dollars the old per-door
+        # shares added up to — and the line is posted last.
         freight_info = None
         if pricing and not is_home_builder:
             try:
                 # Get customer province
                 customer_province = None
-                if request.customerId:
+                if request.customerId and db is not None:
                     bc_cust = db.query(BCCustomer).filter(
                         BCCustomer.bc_customer_id == request.customerId
                     ).first()
@@ -2291,99 +2276,37 @@ def build_bc_quote_from_doors(
                 )
                 freight_info = freight
 
-                if not freight["skip"] and freight["amount"] > 0 and door_freight_slots:
-                    # Placeholders were posted under each door, right after WRAP.
-                    # Split the same quote-level freight total across those lines.
-                    freight_added = False
-                    try:
-                        priced_lines = bc_client.get_quote_lines(bc_quote_id)
-                    except Exception:
-                        priced_lines = []
-                    amounts = door_freight_amounts(
-                        priced_lines, door_freight_slots, door_product_ids, freight["amount"],
-                    )
-                    for slot, amount in zip(door_freight_slots, amounts):
-                        if amount <= 0:
-                            try:
-                                bc_client.delete_quote_line(bc_quote_id, slot["id"])
-                            except Exception as del_err:
-                                logger.warning(f"Could not drop zero freight line: {del_err}")
-                            continue
+                if not freight["skip"] and freight["amount"] > 0:
+                    def _freight_output(line: Dict[str, Any]) -> None:
+                        # Output=True keeps freight off the door package subtotal.
+                        if not line.get("sequence"):
+                            return
                         try:
-                            bc_client.update_quote_line(
-                                bc_quote_id, slot["id"], "*",
-                                {
-                                    "unitPrice": amount,
-                                    "description": freight["description"][:100],
-                                },
+                            bc_client.set_quote_line_output(
+                                bc_quote_number, line["sequence"], output=True
                             )
-                            freight_added = True
-                            logger.info(
-                                f"Door freight ${amount:.2f} under door {slot.get('door_index')}"
+                        except Exception as out_err:
+                            logger.warning(
+                                f"Failed to set Output flag on freight line: {out_err}"
                             )
-                            if slot.get("sequence"):
-                                try:
-                                    bc_client.set_quote_line_output(
-                                        bc_quote_number, slot["sequence"], output=True
-                                    )
-                                except Exception as out_err:
-                                    logger.warning(f"Failed to set Output flag on freight line: {out_err}")
-                        except Exception as patch_err:
-                            logger.warning(f"Could not price door freight: {patch_err}")
-                    line_pricing = apply_freight_to_line_pricing(
-                        line_pricing, amounts, freight["description"],
+
+                    posted = post_quote_freight_line(
+                        bc_client,
+                        bc_quote_id,
+                        freight,
+                        freight_settings(db),
+                        on_output=_freight_output,
                     )
-                elif not freight["skip"] and freight["amount"] > 0:
-                    freight_config = get_freight_config(db)
-                    freight_item = freight_config.get("freight_item_number", "FREIGHT")
-                    freight_added = False
-
-                    # Try adding as Item line
-                    try:
-                        freight_line_data = {
-                            "lineType": "Item",
-                            "lineObjectNumber": freight_item,
-                            "description": freight["description"],
-                            "quantity": 1,
-                        }
-                        added_freight = bc_client.add_quote_line(bc_quote_id, freight_line_data)
-                        # PATCH unitPrice to the calculated freight amount
-                        etag = added_freight.get("@odata.etag", "*")
-                        bc_client.update_quote_line(
-                            bc_quote_id,
-                            added_freight["id"],
-                            etag,
-                            {"unitPrice": freight["amount"]},
-                        )
-                        freight_added = True
-                        logger.info(f"Added freight line: ${freight['amount']:.2f} ({freight['description']})")
-
-                        # Set Output=True so BC groups freight separately (not bundled with door package)
-                        if added_freight.get("sequence"):
-                            try:
-                                bc_client.set_quote_line_output(
-                                    bc_quote_number, added_freight["sequence"], output=True
-                                )
-                            except Exception as out_err:
-                                logger.warning(f"Failed to set Output flag on freight line: {out_err}")
-                    except Exception as freight_item_err:
-                        logger.warning(f"Could not add freight as Item '{freight_item}': {freight_item_err}")
-
-                        # Fallback to Comment line
-                        if freight_config.get("fallback_to_comment", True):
-                            try:
-                                comment_data = {
-                                    "lineType": "Comment",
-                                    "description": f"{freight['description']}: ${freight['amount']:.2f}",
-                                }
-                                bc_client.add_quote_line(bc_quote_id, comment_data)
-                                freight_added = True
-                                logger.info(f"Added freight as comment fallback: ${freight['amount']:.2f}")
-                            except Exception as comment_err:
-                                logger.warning(f"Could not add freight as comment: {comment_err}")
-
-                    # Re-fetch totals if freight was added as an Item
-                    if freight_added:
+                    if posted["posted"]:
+                        lines_added += 1
+                        if posted["as_item"]:
+                            total_parts += 1
+                            line_pricing.append(freight_pricing_row(
+                                freight, posted["item_number"],
+                            ))
+                            all_lines.append(quote_freight_source_line(
+                                freight, posted["item_number"],
+                            ))
                         try:
                             updated_quote = bc_client.get_sales_quote(bc_quote_id)
                             subtotal = updated_quote.get("totalAmountExcludingTax", 0)
