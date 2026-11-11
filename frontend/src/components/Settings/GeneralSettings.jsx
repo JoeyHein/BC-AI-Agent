@@ -8,6 +8,16 @@ const INBOX_SWITCHES = [
   ['customer_approval_detection', 'Customer approval', 'A go-ahead email queues a convert-to-sales-order for staff. Nothing converts on its own.'],
 ]
 
+const QUOTE_BUILD_SWITCHES = [
+  ['quote_window_patterns', 'Window patterns', 'Turn "3 windows in section 1" or a staggered pattern into glass kits on those sections.'],
+  ['quote_opener_mapping', 'Opener and keypad mapping', 'Map LiftMaster wording to a catalog part. An unsure name is flagged and not priced at $0.'],
+  ['quote_struts_per_section', 'Struts on every section', 'When the email or the profile asks for a truss on every section, quote one per section.'],
+  ['quote_crating_history', 'Crating, pickup, and freight', 'Add crating when the email asks or the customer usually takes it, and record pickup versus delivery.'],
+  ['quote_kanata_series_history', 'Kanata series history', 'Count Kanata PN65 panels when learning which series a customer orders.'],
+  ['quote_adjustable_prep', 'Adjustable prep', 'Record adjustable or opener prep when the email asks. No part is invented when the catalog has none.'],
+  ['quote_series_fallback', 'Closest series', 'When the asked series cannot be built in that colour and design, quote the closest series that can.'],
+]
+
 function GeneralSettings() {
   const queryClient = useQueryClient()
   const { data } = useQuery({
@@ -69,6 +79,36 @@ function GeneralSettings() {
           </p>
         </div>
         {INBOX_SWITCHES.map(([key, label, help]) => (
+          <label key={key} className="block text-sm text-gray-700">
+            <span className="block text-xs font-medium text-gray-500 mb-1">{label}</span>
+            <span className="block text-xs text-gray-500 mb-1">{help}</span>
+            <select
+              aria-label={label}
+              value={inboxModes[key] || 'off'}
+              onChange={async (event) => {
+                const next = event.target.value
+                if (!window.confirm(`Set ${label} to ${next}?`)) return
+                await customersApi.setInboxModes({ [key]: next })
+                queryClient.invalidateQueries({ queryKey: ['inbox-automation'] })
+              }}
+              className="border border-gray-300 rounded-md px-2 py-1 text-sm"
+            >
+              <option value="off">Off</option>
+              <option value="shadow">Shadow</option>
+              <option value="on">On</option>
+            </select>
+          </label>
+        ))}
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-lg p-5 space-y-5">
+        <div>
+          <h3 className="text-sm font-medium text-gray-900">Quote build</h3>
+          <p className="mt-1 text-sm text-gray-600">
+            Each one is off until you turn it on. Shadow writes down the parts it would add and leaves the quote unchanged. 3 inch track is always a 15 inch radius, and that is not one of these switches.
+          </p>
+        </div>
+        {QUOTE_BUILD_SWITCHES.map(([key, label, help]) => (
           <label key={key} className="block text-sm text-gray-700">
             <span className="block text-xs font-medium text-gray-500 mb-1">{label}</span>
             <span className="block text-xs text-gray-500 mb-1">{help}</span>

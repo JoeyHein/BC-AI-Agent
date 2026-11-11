@@ -64,14 +64,17 @@ function CustomerApprovals({ onChanged }) {
     queryKey: ['customer-approvals'],
     queryFn: async () => (await quotesApi.getCustomerApprovals()).data,
   })
-  const rows = (data || []).filter((row) => row.status === 'ready' || row.status === 'needs_choice')
+  const rows = (data || []).filter((row) => row.status === 'ready' || row.status === 'partial' || row.status === 'needs_choice')
   const [choice, setChoice] = useState({})
   const [note, setNote] = useState('')
   if (!rows.length) return null
   async function convert(row) {
     const picked = row.status === 'needs_choice' ? choice[row.id] : row.bc_quote_number
     if (!picked) return
-    if (!window.confirm(`Convert ${picked} to a sales order? This is not undone from here.`)) return
+    const exception = row.confidence === 'partial' && row.exception_text
+      ? `\n\nThis is a partial approval. Exception: ${row.exception_text}`
+      : ''
+    if (!window.confirm(`Convert ${picked} to a sales order? This is not undone from here.${exception}`)) return
     try {
       const response = await quotesApi.convertCustomerApproval(row.id, picked)
       setNote(response.data.bc_order_number ? `Created ${response.data.bc_order_number}` : 'Converted')
@@ -90,7 +93,8 @@ function CustomerApprovals({ onChanged }) {
         <div key={row.id} className="border border-gray-200 rounded-md p-4 space-y-2">
           <p className="text-sm font-medium text-gray-900">{row.subject || row.from_address}</p>
           <p className="text-sm text-gray-600">
-            {row.status === 'ready' ? `Matched ${row.bc_quote_number}` : 'Choose a quote'}
+            {row.status === 'needs_choice' ? 'Choose a quote' : `Matched ${row.bc_quote_number}`}
+            {row.status === 'partial' ? ' · Partial approval' : ''}
             {row.customer_po ? ` · PO ${row.customer_po}` : ''}
           </p>
           {row.excerpt && <p className="text-sm text-gray-800 whitespace-pre-wrap">{row.excerpt}</p>}

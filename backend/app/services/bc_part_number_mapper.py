@@ -887,6 +887,10 @@ class BCPartNumberMapper:
         Returns:
             BCPartNumber for track assembly
         """
+        # 3 inch track is stocked at 15 inch radius only. 2 inch track keeps
+        # the 12 or 15 the caller asked for.
+        if int(track_size or 0) == 3:
+            radius_inches = 15
         prefix = f"TR{track_size:02d}"
 
         if lift_type == LiftType.STANDARD:

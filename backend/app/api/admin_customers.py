@@ -772,6 +772,13 @@ class InboxAutomationUpdate(BaseModel):
     missing_info_reply: Optional[str] = None
     quote_send_draft: Optional[str] = None
     customer_approval_detection: Optional[str] = None
+    quote_window_patterns: Optional[str] = None
+    quote_opener_mapping: Optional[str] = None
+    quote_struts_per_section: Optional[str] = None
+    quote_crating_history: Optional[str] = None
+    quote_kanata_series_history: Optional[str] = None
+    quote_adjustable_prep: Optional[str] = None
+    quote_series_fallback: Optional[str] = None
 
 
 @router.get("/inbox-automation")

@@ -831,7 +831,8 @@ def test_silent_email_keeps_nondefault_mapper_values(session):
     assert quoted["panelColor"] == "STEEL_GREY"
     assert quoted["panelDesign"] == "UDC"
     assert quoted["trackThickness"] == "3"
-    assert quoted["trackRadius"] == "12"
+    # 3 inch track is only sold at 15. The mapper's 12 was the old omitted default.
+    assert quoted["trackRadius"] == "15"
     assert quoted["liftType"] == "high_lift"
     assert quoted["highLiftInches"] == 24
     assert applied["hold_for_review"] is False
@@ -996,7 +997,7 @@ def test_email_handoff_reaches_the_builder_with_mapper_values(session, monkeypat
     assert door.panelColor == "STEEL_GREY"
     assert door.panelDesign == "UDC"
     assert door.trackThickness == "3"
-    assert door.trackRadius == "12"
+    assert door.trackRadius == "15"
     assert door.liftType == "high_lift"
     assert door.highLiftInches == 24
 
