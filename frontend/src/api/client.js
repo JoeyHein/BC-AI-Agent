@@ -685,6 +685,12 @@ export const customersApi = {
 
   setInboxModes: (modes) =>
     apiClient.put('/api/admin/customers/inbox-automation', modes),
+
+  getQuotePriceOverrides: () =>
+    apiClient.get('/api/admin/customers/quote-price-overrides'),
+
+  setQuotePriceOverrides: (data) =>
+    apiClient.put('/api/admin/customers/quote-price-overrides', data),
 };
 
 // Admin global quote search (cross-customer)

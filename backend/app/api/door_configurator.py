@@ -1593,6 +1593,11 @@ def build_bc_quote_from_doors(
         # Step 1: Get parts for all doors with proper ordering
         all_lines = []  # Ordered lines ready for BC
         parts_by_door = []
+        from app.services.quote_price_overrides import (
+            apply_door_price_overrides,
+            load_price_overrides,
+        )
+        price_overrides = load_price_overrides(db)
 
         for i, door in enumerate(request.doors):
             door_index = i + 1
@@ -1725,6 +1730,7 @@ def build_bc_quote_from_doors(
 
             # Sort parts by standard line ordering
             sorted_parts = _sort_parts_by_category(parts_list)
+            apply_door_price_overrides(sorted_parts, door, price_overrides)
 
             # Add door index and type to each part for tracking/pricing
             # For aluminum doors, use commercial pricing on everything EXCEPT
@@ -2690,6 +2696,12 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
         # the perforated angle exactly when the committed quote would.
         is_home_builder = _get_home_builder_user(request.customerId, db) is not None
 
+        from app.services.quote_price_overrides import (
+            apply_door_price_overrides,
+            load_price_overrides,
+        )
+        price_overrides = load_price_overrides(db)
+
         for i, door in enumerate(request.doors):
             # Calculate window count from windowPositions array
             window_count = len(door.windowPositions) if door.windowPositions else (1 if door.windowSection else 0)
@@ -2755,7 +2767,14 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "parts": door_parts
             })
 
-            # Add to consolidated list
+            # Same price overrides as the quote that gets posted, without
+            # inserting comment lines into the consolidated part list.
+            apply_door_price_overrides(
+                door_parts.get("parts_list") or [],
+                door,
+                price_overrides,
+                emit_notes=False,
+            )
             all_parts.extend(door_parts.get("parts_list", []))
 
         # Consolidate duplicate parts

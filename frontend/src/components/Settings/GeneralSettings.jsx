@@ -18,6 +18,26 @@ const QUOTE_BUILD_SWITCHES = [
   ['quote_series_fallback', 'Closest series', 'When the asked series cannot be built in that colour and design, quote the closest series that can.'],
 ]
 
+function PriceOverrideControl({ label, help, mode, onMode, children }) {
+  return (
+    <div className="text-sm text-gray-700">
+      <span className="block text-xs font-medium text-gray-500 mb-1">{label}</span>
+      <span className="block text-xs text-gray-500 mb-1">{help}</span>
+      <select
+        aria-label={label}
+        value={mode || 'off'}
+        onChange={onMode}
+        className="border border-gray-300 rounded-md px-2 py-1 text-sm"
+      >
+        <option value="off">Off</option>
+        <option value="shadow">Shadow</option>
+        <option value="on">On</option>
+      </select>
+      {children}
+    </div>
+  )
+}
+
 function GeneralSettings() {
   const queryClient = useQueryClient()
   const { data } = useQuery({
@@ -28,8 +48,14 @@ function GeneralSettings() {
     queryKey: ['inbox-automation'],
     queryFn: async () => (await customersApi.getInboxModes()).data,
   })
+  const prices = useQuery({
+    queryKey: ['quote-price-overrides'],
+    queryFn: async () => (await customersApi.getQuotePriceOverrides()).data,
+  })
   const mode = data?.mode || 'off'
   const inboxModes = inbox.data?.modes || {}
+  const panelSetting = prices.data?.quote_replacement_panel_margin || {}
+  const windowSetting = prices.data?.quote_flat_residential_windows || {}
 
   async function changeMode(next) {
     const labels = {
@@ -129,6 +155,108 @@ function GeneralSettings() {
             </select>
           </label>
         ))}
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-lg p-5 space-y-5">
+        <div>
+          <h3 className="text-sm font-medium text-gray-900">Quote pricing</h3>
+          <p className="mt-1 text-sm text-gray-600">
+            Both are off until you turn them on. Shadow writes the price it would use and leaves the quote on the price list.
+          </p>
+        </div>
+        <PriceOverrideControl
+          label="Replacement section margin"
+          help="Panels-only and door-face orders price each steel section at unit cost divided by (1 minus this margin). A complete door is unchanged. 50 percent is cost times 2."
+          mode={panelSetting.mode}
+          onMode={async (event) => {
+            const next = event.target.value
+            if (!window.confirm(`Set Replacement section margin to ${next}?`)) return
+            await customersApi.setQuotePriceOverrides({ quote_replacement_panel_margin: next })
+            queryClient.invalidateQueries({ queryKey: ['quote-price-overrides'] })
+          }}
+        >
+          <label className="block mt-2 text-xs text-gray-500">
+            Gross margin percent
+            <input
+              aria-label="Replacement section margin percent"
+              type="number"
+              min="0"
+              max="99"
+              step="1"
+              defaultValue={panelSetting.margin_percent ?? 50}
+              key={panelSetting.margin_percent ?? 50}
+              onBlur={async (event) => {
+                const next = event.target.value
+                if (String(next) === String(panelSetting.margin_percent ?? 50)) return
+                if (!window.confirm(`Set the replacement section margin to ${next} percent?`)) {
+                  event.target.value = panelSetting.margin_percent ?? 50
+                  return
+                }
+                await customersApi.setQuotePriceOverrides({ replacement_margin_percent: Number(next) })
+                queryClient.invalidateQueries({ queryKey: ['quote-price-overrides'] })
+              }}
+              className="mt-1 block w-28 border border-gray-300 rounded-md px-2 py-1 text-sm text-gray-900"
+            />
+          </label>
+        </PriceOverrideControl>
+        <PriceOverrideControl
+          label="Flat residential windows"
+          help="Residential doors price each glass kit at one rate per window. A decorative insert on that door is included at $0. Commercial doors, including TX450 and TX500, stay on the price list."
+          mode={windowSetting.mode}
+          onMode={async (event) => {
+            const next = event.target.value
+            if (!window.confirm(`Set Flat residential windows to ${next}?`)) return
+            await customersApi.setQuotePriceOverrides({ quote_flat_residential_windows: next })
+            queryClient.invalidateQueries({ queryKey: ['quote-price-overrides'] })
+          }}
+        >
+          <div className="mt-2 flex gap-3">
+            <label className="block text-xs text-gray-500">
+              Long window, each (CAD)
+              <input
+                aria-label="Long window price"
+                type="number"
+                min="0.01"
+                step="0.01"
+                defaultValue={windowSetting.long_price ?? 165}
+                key={`long-${windowSetting.long_price ?? 165}`}
+                onBlur={async (event) => {
+                  const next = event.target.value
+                  if (String(next) === String(windowSetting.long_price ?? 165)) return
+                  if (!window.confirm(`Set the long window price to $${next}?`)) {
+                    event.target.value = windowSetting.long_price ?? 165
+                    return
+                  }
+                  await customersApi.setQuotePriceOverrides({ residential_window_long_price: Number(next) })
+                  queryClient.invalidateQueries({ queryKey: ['quote-price-overrides'] })
+                }}
+                className="mt-1 block w-28 border border-gray-300 rounded-md px-2 py-1 text-sm text-gray-900"
+              />
+            </label>
+            <label className="block text-xs text-gray-500">
+              Short window, each (CAD)
+              <input
+                aria-label="Short window price"
+                type="number"
+                min="0.01"
+                step="0.01"
+                defaultValue={windowSetting.short_price ?? 120}
+                key={`short-${windowSetting.short_price ?? 120}`}
+                onBlur={async (event) => {
+                  const next = event.target.value
+                  if (String(next) === String(windowSetting.short_price ?? 120)) return
+                  if (!window.confirm(`Set the short window price to $${next}?`)) {
+                    event.target.value = windowSetting.short_price ?? 120
+                    return
+                  }
+                  await customersApi.setQuotePriceOverrides({ residential_window_short_price: Number(next) })
+                  queryClient.invalidateQueries({ queryKey: ['quote-price-overrides'] })
+                }}
+                className="mt-1 block w-28 border border-gray-300 rounded-md px-2 py-1 text-sm text-gray-900"
+              />
+            </label>
+          </div>
+        </PriceOverrideControl>
       </div>
 
       {/* Placeholder content */}

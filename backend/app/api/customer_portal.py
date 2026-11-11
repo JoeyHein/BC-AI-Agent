@@ -665,6 +665,17 @@ LINE_ORDER = [
 ]
 
 
+def _portal_price_overrides(db):
+    """Shared with the email and staff configurator quote builders."""
+    from app.services.quote_price_overrides import load_price_overrides
+    return load_price_overrides(db)
+
+
+def _apply_portal_price_overrides(parts, door, settings):
+    from app.services.quote_price_overrides import apply_door_price_overrides
+    apply_door_price_overrides(parts, door, settings)
+
+
 def _sort_parts_by_category(parts: List[dict]) -> List[dict]:
     """Sort parts list according to BC quote line ordering standard.
 
@@ -986,6 +997,7 @@ def _generate_bc_quote_with_items(
     # Step 1: Build all ordered lines from door configs
     all_lines = []
     door_results = []
+    price_overrides = _portal_price_overrides(db)
 
     for i, door in enumerate(doors):
         door_index = i + 1
@@ -1071,6 +1083,7 @@ def _generate_bc_quote_with_items(
             door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inventory)
             parts_list = door_parts.get("parts_list", [])
             sorted_parts = _sort_parts_by_category(parts_list)
+            _apply_portal_price_overrides(sorted_parts, door, price_overrides)
             part_door_type = config_dict.get("doorType", "residential")
 
             # For aluminum doors, use commercial pricing on everything EXCEPT
@@ -2214,6 +2227,7 @@ def _edit_bc_quote_lines(
     }
 
     build_indices = list(range(1, len(new_doors) + 1)) if rebuild_all else []
+    price_overrides = _portal_price_overrides(db)
     for door_index in build_indices:
         door = new_doors[door_index - 1]
         door_desc = _format_door_description(door)
@@ -2248,6 +2262,7 @@ def _edit_bc_quote_lines(
             door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inventory)
             parts_list = door_parts.get("parts_list", [])
             sorted_parts = _sort_parts_by_category(parts_list)
+            _apply_portal_price_overrides(sorted_parts, door, price_overrides)
             part_door_type = config_dict.get("doorType", "residential")
             window_note_emitted = False
 
@@ -2579,6 +2594,7 @@ def _estimate_pricing_locally(
     all_lines = []
     door_results = []
     spring_inventory = get_bc_spring_inventory()
+    price_overrides = _portal_price_overrides(db)
 
     for i, door in enumerate(doors):
         door_index = i + 1
@@ -2655,6 +2671,7 @@ def _estimate_pricing_locally(
             door_parts = get_parts_for_door_config(config_dict, spring_inventory=spring_inventory)
             parts_list = door_parts.get("parts_list", [])
             sorted_parts = _sort_parts_by_category(parts_list)
+            _apply_portal_price_overrides(sorted_parts, door, price_overrides)
             part_door_type = config_dict.get("doorType", "residential")
 
             # For aluminum doors, use commercial pricing on everything EXCEPT
