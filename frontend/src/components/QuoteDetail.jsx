@@ -158,6 +158,99 @@ function FieldSources({ sources, deviations, match, status, onConfirmCustomer, c
   )
 }
 
+function Openings({ quote }) {
+  const read = quote.parsed_data?.attachments_read
+  if (!read) return null
+  const openings = read.openings || []
+  return (
+    <div className="bg-white shadow rounded-lg p-6" data-testid="quote-openings">
+      <h2 className="text-lg font-medium text-gray-900">Openings from attachments</h2>
+      <p className="mt-1 text-sm text-gray-600">
+        {read.opening_count ?? openings.length} opening{(read.opening_count ?? openings.length) === 1 ? '' : 's'} found.
+        {read.applied ? ' These counted as what the email said.' : ' Shadow only: they were not used on the quote.'}
+      </p>
+      <ul className="mt-3 space-y-2">
+        {(read.files || []).map((file) => (
+          <li key={file.name} className="text-sm text-gray-800">
+            <span className="font-medium">{file.name}</span>
+            {(file.pages || []).map((page) => (
+              <span key={page.page} className="ml-2 text-gray-500">page {page.page} · {page.method === 'ocr_unavailable' || page.method === 'no_text_layer' ? 'no text layer' : page.method}</span>
+            ))}
+          </li>
+        ))}
+        {openings.map((opening) => (
+          <li key={`${opening.file}-${opening.page}-${opening.index}`} className="text-sm text-gray-900 border border-gray-100 rounded-md p-3">
+            Opening {opening.index}: {opening.label}
+            <div className="text-xs text-gray-500">{opening.file} · page {opening.page}</div>
+          </li>
+        ))}
+        {openings.length === 0 && <li className="text-sm text-gray-500">No opening size was read. Check the file above.</li>}
+        {(read.reference_openings || []).map((opening) => (
+          <li key={`ref-${opening.file}-${opening.page}-${opening.index}`} className="text-sm text-gray-500">
+            Reference only: {opening.label} · {opening.file} page {opening.page}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function CustomerApproval({ quote, onChanged }) {
+  const approval = quote.customer_approval
+  const [choice, setChoice] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+  if (!approval || approval.status === 'dismissed') return null
+  const candidates = approval.candidates || []
+  async function convert() {
+    const chosen = approval.status === 'needs_choice' ? choice : approval.bc_quote_number
+    if (!chosen) return
+    if (!window.confirm(`Convert ${chosen} to a sales order? This is not undone from here.`)) return
+    setBusy(true)
+    setMessage('')
+    try {
+      const response = await quotesApi.convertCustomerApproval(approval.id, chosen)
+      setMessage(response.data.bc_order_number ? `Sales order ${response.data.bc_order_number}` : 'Converted')
+      onChanged()
+    } catch (err) {
+      setMessage(err.response?.data?.detail || 'Could not convert')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="bg-white shadow rounded-lg p-6 space-y-3" data-testid="customer-approval">
+      <h2 className="text-lg font-medium text-gray-900">Convert to sales order</h2>
+      <p className="text-sm text-gray-600">
+        {approval.status === 'converted'
+          ? `Already converted to ${approval.bc_order_number}.`
+          : approval.status === 'needs_choice'
+            ? 'More than one quote matches. Pick one. Nothing converts until you click.'
+            : `Matched ${approval.bc_quote_number}. Nothing converts until you click.`}
+      </p>
+      {approval.customer_po && (
+        <p className="text-sm text-gray-800">Customer PO {approval.customer_po} ({approval.po_source})</p>
+      )}
+      {approval.status === 'needs_choice' && (
+        <select aria-label="Quote to convert" value={choice} onChange={(event) => setChoice(event.target.value)} className="border border-gray-300 rounded-md px-2 py-1 text-sm">
+          <option value="">Choose a quote</option>
+          {candidates.map((item) => (
+            <option key={item.bc_quote_number} value={item.bc_quote_number}>
+              {item.bc_quote_number}{item.customer_name ? ` · ${item.customer_name}` : ''}
+            </option>
+          ))}
+        </select>
+      )}
+      {approval.status !== 'converted' && (
+        <button type="button" onClick={convert} disabled={busy || (approval.status === 'needs_choice' && !choice)} className="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium text-white bg-odc-600 disabled:opacity-50">
+          {busy ? 'Converting…' : 'Convert to SO'}
+        </button>
+      )}
+      {message && <p className="text-sm text-gray-700">{message}</p>}
+    </div>
+  )
+}
+
 function QuoteDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -340,6 +433,9 @@ function QuoteDetail() {
           </dl>
         </div>
       </div>
+
+      <Openings quote={quote} />
+      <CustomerApproval quote={quote} onChanged={() => queryClient.invalidateQueries({ queryKey: ['quote', id] })} />
 
       <FieldSources
         sources={quote.field_sources}

@@ -113,7 +113,10 @@ class GraphEmailClient:
         if filter_query:
             params["$filter"] = filter_query
 
-        result = self._make_request("GET", endpoint, params=params)
+        result = self._make_request(
+            "GET", endpoint, params=params,
+            headers={"Prefer": 'outlook.body-content-type="text"'},
+        )
         return result.get("value", [])
 
     def get_email_by_id(self, user_email: str, message_id: str) -> Dict[str, Any]:
@@ -174,7 +177,13 @@ class GraphEmailClient:
             logger.error(f"Failed to create folder: {e}")
             return None
 
-    def get_message_attachments(self, user_email: str, message_id: str) -> List[Dict[str, Any]]:
+    def get_message_attachments(
+        self,
+        user_email: str,
+        message_id: str,
+        *,
+        cap_bytes: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
         """List an email's attachments, with content included for fileAttachments.
 
         Graph inlines `contentBytes` (base64) directly on the attachment
@@ -182,10 +191,46 @@ class GraphEmailClient:
         fetch needed. Reference/item attachments (linked cloud files, another
         message) come back without contentBytes and are skipped by callers
         that need the actual bytes (e.g. invoice PDF extraction).
+
+        ``cap_bytes`` is opt-in. The quote inbox passes 8 MB so a large file
+        is listed and not downloaded. Other callers keep this single request.
         """
         endpoint = f"users/{user_email}/messages/{message_id}/attachments"
-        result = self._make_request("GET", endpoint)
-        return result.get("value", [])
+        if cap_bytes is None:
+            result = self._make_request("GET", endpoint)
+            return result.get("value", [])
+
+        listed = self._make_request(
+            "GET", endpoint,
+            params={"$select": "id,name,contentType,size,isInline"},
+        )
+        items = []
+        for att in listed.get("value", []):
+            size = att.get("size") or 0
+            if size > cap_bytes:
+                att = dict(att)
+                att["contentBytes"] = None
+                att["skipped"] = "too_large"
+                items.append(att)
+                continue
+            att_id = att.get("id")
+            if not att_id:
+                items.append(att)
+                continue
+            try:
+                full = self._make_request(
+                    "GET",
+                    f"users/{user_email}/messages/{message_id}/attachments/{att_id}",
+                )
+            except Exception:
+                logger.exception("Could not download attachment %s on %s", att_id, message_id)
+                skipped = dict(att)
+                skipped["contentBytes"] = None
+                skipped["skipped"] = "fetch_failed"
+                items.append(skipped)
+                continue
+            items.append(full)
+        return items
 
     def get_folders(self, user_email: str) -> List[Dict[str, Any]]:
         """Get all mail folders"""
@@ -308,6 +353,51 @@ class GraphEmailClient:
             result.get("id"), mailbox, subject,
         )
         return result
+
+    def send_reply(
+        self,
+        mailbox: str,
+        message_id: str,
+        html_body: str,
+        attachments: Optional[List[Dict[str, Any]]] = None,
+    ) -> Optional[str]:
+        """Send a reply on an existing thread. Called only after a person approves.
+
+        createReply makes an unsent draft. The body and files are written
+        onto that draft, then /send is called. This is not used while a
+        message is only sitting in the approval queue.
+        """
+        created = self._make_request(
+            "POST", f"users/{mailbox}/messages/{message_id}/createReply",
+        )
+        draft_id = created.get("id")
+        if not draft_id:
+            raise RuntimeError("Graph did not return a reply draft")
+        try:
+            self._make_request(
+                "PATCH",
+                f"users/{mailbox}/messages/{draft_id}",
+                json={"body": {"contentType": "HTML", "content": html_body}},
+            )
+            for attachment in self._file_attachments(attachments):
+                self._make_request(
+                    "POST",
+                    f"users/{mailbox}/messages/{draft_id}/attachments",
+                    json=attachment,
+                )
+            self._make_request("POST", f"users/{mailbox}/messages/{draft_id}/send")
+        except Exception:
+            self._delete_unsent(mailbox, draft_id)
+            raise
+        logger.info("Sent reply %s on message %s from %s", draft_id, message_id, mailbox)
+        return draft_id
+
+    def _delete_unsent(self, mailbox: str, draft_id: str) -> None:
+        """Remove a reply draft that was created but not sent."""
+        try:
+            self._make_request("DELETE", f"users/{mailbox}/messages/{draft_id}")
+        except Exception:
+            logger.exception("Could not delete unsent reply draft %s", draft_id)
 
     # ==================== Sending ====================
 

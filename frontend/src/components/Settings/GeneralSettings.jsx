@@ -1,13 +1,25 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { customersApi } from '../../api/client'
 
+const INBOX_SWITCHES = [
+  ['email_attachment_reading', 'Read email attachments', 'PDFs that already have text, and DXF drawings, are read for door sizes. A scanned page or a picture is listed and not read. Shadow logs the openings and does not change the quote.'],
+  ['missing_info_reply', 'Missing-info reply', 'Draft one reply listing what is still unknown. It waits in the approval queue.'],
+  ['quote_send_draft', 'Send-quote draft', 'When a quote is created from an email, draft a reply with the SQ PDF. It is not sent.'],
+  ['customer_approval_detection', 'Customer approval', 'A go-ahead email queues a convert-to-sales-order for staff. Nothing converts on its own.'],
+]
+
 function GeneralSettings() {
   const queryClient = useQueryClient()
   const { data } = useQuery({
     queryKey: ['profile-quoting-mode'],
     queryFn: async () => (await customersApi.getProfileQuotingMode()).data,
   })
+  const inbox = useQuery({
+    queryKey: ['inbox-automation'],
+    queryFn: async () => (await customersApi.getInboxModes()).data,
+  })
   const mode = data?.mode || 'off'
+  const inboxModes = inbox.data?.modes || {}
 
   async function changeMode(next) {
     const labels = {
@@ -47,6 +59,36 @@ function GeneralSettings() {
             <option value="on">On</option>
           </select>
         </label>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-lg p-5 space-y-5">
+        <div>
+          <h3 className="text-sm font-medium text-gray-900">Quote inbox</h3>
+          <p className="mt-1 text-sm text-gray-600">
+            Each one is off until you turn it on. Shadow writes down what it would do and does not create a draft or a quote. Mail still leaves only after someone approves it.
+          </p>
+        </div>
+        {INBOX_SWITCHES.map(([key, label, help]) => (
+          <label key={key} className="block text-sm text-gray-700">
+            <span className="block text-xs font-medium text-gray-500 mb-1">{label}</span>
+            <span className="block text-xs text-gray-500 mb-1">{help}</span>
+            <select
+              aria-label={label}
+              value={inboxModes[key] || 'off'}
+              onChange={async (event) => {
+                const next = event.target.value
+                if (!window.confirm(`Set ${label} to ${next}?`)) return
+                await customersApi.setInboxModes({ [key]: next })
+                queryClient.invalidateQueries({ queryKey: ['inbox-automation'] })
+              }}
+              className="border border-gray-300 rounded-md px-2 py-1 text-sm"
+            >
+              <option value="off">Off</option>
+              <option value="shadow">Shadow</option>
+              <option value="on">On</option>
+            </select>
+          </label>
+        ))}
       </div>
 
       {/* Placeholder content */}

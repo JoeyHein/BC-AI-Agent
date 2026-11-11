@@ -83,6 +83,27 @@ def quoting_mode(db: Optional[Session]) -> str:
     return mode
 
 
+def consistent_track_radius_enabled() -> bool:
+    """15 inch drums for an omitted 3 inch radius, only in shadow or on.
+
+    Off matches the path this shipped with: 3 inch track stays 12 inch.
+    A missing setting, or a database that cannot be read, stays off.
+    """
+    try:
+        from app.db.database import SessionLocal
+        db = SessionLocal()
+        try:
+            return quoting_mode(db) in {"shadow", "on"}
+        finally:
+            db.close()
+    except Exception:
+        logger.warning(
+            "Could not read quoting mode for track radius; using the off-mode radius",
+            exc_info=True,
+        )
+        return False
+
+
 def set_quoting_mode(db: Session, mode: str, user_id: Optional[int] = None) -> str:
     """Persist the switch. Unknown values are rejected by the caller."""
     from app.db.models import AppSettings
@@ -300,9 +321,19 @@ _DESIGN_PATTERNS = (
     ("MUSKOKA", r"\bmuskoka\b"),
 )
 _SERIES_RE = re.compile(
-    r"\b(TX450-20|TX500-20|TX450|TX500|TX380|TX760|KANATA|CRAFT|AL976|PANORAMA|SOLALITE|SWD)\b",
+    r"\b(TX450-20S|TX500-20S|TX450-20|TX500-20|TX450|TX500|TX380|TX760|KANATA|CRAFT|AL976|PANORAMA|SOLALITE|SWD)\b",
     re.IGNORECASE,
 )
+
+
+def canonical_series(raw: str) -> str:
+    """TX450-20S is the 20-gauge TX450, not the plain TX450."""
+    text = (raw or "").upper()
+    if text in {"TX450-20S", "TX450-20"}:
+        return "TX450-20"
+    if text in {"TX500-20S", "TX500-20"}:
+        return "TX500-20"
+    return text
 _FREIGHT_NUMBERS = frozenset({"FREIGHT", "SHIPPING", "FREIGHT-OUT"})
 _SERIES_PREFIX = {
     "PN40": "TX380",
@@ -1108,12 +1139,13 @@ def start_background_seed(customer_ids: Sequence[str], fetch, session_factory, p
 # ---------------------------------------------------------------------------
 
 def quote_email_text(subject: str = "", body: str = "", attachments: Any = None) -> str:
-    """Body plus any text already extracted from attachments.
+    """Subject, the new body, then attachment text.
 
-    Attachment files are not parsed here. When a later step has already
-    pulled text out of one, that text is part of what the email said.
+    Quoted history is removed from the body only. Stripping the whole
+    string would throw away a drawing that was appended after 'On ... wrote:'.
     """
-    parts = [subject or "", body or ""]
+    from app.services.email_text import fresh_message_text
+    parts = [subject or "", fresh_message_text(body or "")]
     for item in attachments or []:
         if isinstance(item, str):
             parts.append(item)
@@ -1167,6 +1199,10 @@ def analyse_email(email_text: str, parsed_door: Optional[dict] = None) -> Dict[s
     ``ambiguous`` is wording like "same as usual" with no value of its own.
     ``low_confidence`` is a parser value below the line we will quote.
     ``silent`` means the email did not address the field.
+
+    The body is already the new writing. ``quote_email_text`` strips quoted
+    history from the body, then appends attachment text unchanged. Stripping
+    this joined string would cut a purchase order at its From/To/Date lines.
     """
     text = email_text or ""
     parsed = parsed_door or {}
@@ -1221,7 +1257,7 @@ def analyse_email(email_text: str, parsed_door: Optional[dict] = None) -> Dict[s
     series = _SERIES_RE.search(text)
     if series:
         readings["doorSeries"] = {
-            "basis": "explicit", "value": series.group(1).upper(),
+            "basis": "explicit", "value": canonical_series(series.group(1)),
             "confidence": TEXT_EXPLICIT_CONFIDENCE, "phrase": None,
         }
     for color_code, pattern in _COLOR_PATTERNS:
@@ -1317,6 +1353,9 @@ def _system_default(door_key: str, door: dict) -> Any:
     if door_key == "trackThickness":
         return default_track_thickness(series, door_type)
     if door_key == "trackRadius":
+        # Off keeps 12" on 3" track. Shadow and on use the 15" drum.
+        if consistent_track_radius_enabled():
+            return "15"
         thickness = str(door.get("trackThickness") or default_track_thickness(series, door_type))
         return "12" if thickness == "3" else "15"
     if door_key == "liftType":

@@ -58,6 +58,25 @@ class OrderLifecycleService:
         if not quote_request.bc_quote_id:
             return {"success": False, "error": "No BC quote ID found - create BC quote first"}
 
+        already = (
+            db.query(SalesOrder)
+            .filter(SalesOrder.quote_request_id == quote_request.id)
+            .first()
+        )
+        if already is not None and (already.bc_order_number or quote_request.status == "converted_to_order"):
+            return {
+                "success": True,
+                "already": True,
+                "bc_order_number": already.bc_order_number,
+                "bc_order_id": already.bc_order_id or already.bc_id,
+            }
+        if quote_request.status == "converted_to_order":
+            return {
+                "success": False,
+                "already": True,
+                "error": "This quote was already converted",
+            }
+
         try:
             # By document number. This does not depend on the profile
             # switch: the first page of salesQuotes drops SQ-003xxx once
