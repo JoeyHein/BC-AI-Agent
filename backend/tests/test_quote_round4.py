@@ -24,8 +24,11 @@ from sqlalchemy.pool import StaticPool
 
 from app.api.door_configurator import _format_scope_label
 from app.db.models import AppSettings
+from app.services.bc_part_number_mapper import get_bc_mapper
+from app.services.part_number_service import get_parts_for_door_config
 from app.services.quote_price_overrides import (
     PriceOverrideSettings,
+    REPLACEMENT_MARGIN_KEY,
     apply_door_price_overrides,
     apply_price_overrides,
     classify_residential_window,
@@ -348,6 +351,167 @@ def test_missing_or_zero_cost_is_flagged():
     assert "unit cost missing" in zero["pricing_flag"]
 
 
+def _generated(overrides):
+    base = {
+        "doorWidth": 96,
+        "doorHeight": 84,
+        "doorCount": 1,
+        "panelColor": "WHITE",
+        "hardware": COMPLETE,
+        "trackThickness": "2",
+        "trackRadius": "15",
+        "trackMount": "bracket",
+        "liftType": "standard",
+        "hasWindows": True,
+    }
+    base.update(overrides)
+    return get_parts_for_door_config(base).get("parts_list", [])
+
+
+def test_commercial_tx450_windows_keep_list_price():
+    """A commercial TX450 emits GK15 kits. Those stay on the price list."""
+    parts = _generated({
+        "doorType": "commercial",
+        "doorSeries": "TX450",
+        "doorWidth": 144,
+        "doorHeight": 144,
+        "panelColor": "WHITE",
+        "panelDesign": "FLUSH",
+        "windowCount": 3,
+        "windowSize": "long",
+    })
+    kits = [part for part in parts if part.get("part_number") == "GK15-11200-00"]
+    assert len(kits) == 1
+    assert kits[0]["quantity"] == 3
+    apply_price_overrides(
+        parts,
+        hardware=COMPLETE,
+        door_type="commercial",
+        door_series="TX450",
+        settings=ON,
+    )
+    assert "fixed_unit_price" not in kits[0]
+    assert kits[0]["quantity"] == 3
+    assert not any(part.get("pricing_note") for part in parts)
+
+
+def test_decorative_kit_and_insert_are_one_price_per_window():
+    """Real generator output: the kit carries the rate and the insert is $0.
+
+    Short inserts are not emitted (the short catalog is not offered), so the
+    short pair is the generator's GK15 plus the GL19 row that same lookup
+    returns. A lone insert, with no kit, still takes the per-window rate.
+    """
+    long_parts = _generated({
+        "doorType": "residential",
+        "doorSeries": "KANATA",
+        "doorWidth": 192,
+        "doorHeight": 84,
+        "panelColor": "BLACK",
+        "panelDesign": "SHXL",
+        "windowCount": 6,
+        "windowSize": "long",
+        "windowInsert": "STOCKTON_STANDARD",
+    })
+    long_kits = [part for part in long_parts if str(part.get("part_number", "")).startswith("GK15-")]
+    long_inserts = [part for part in long_parts if str(part.get("part_number", "")).startswith("GL18-")]
+    assert len(long_kits) == 1 and long_kits[0]["part_number"] == "GK15-11205-00"
+    assert long_kits[0]["quantity"] == 6
+    assert len(long_inserts) == 1 and long_inserts[0]["quantity"] == 6
+
+    apply_price_overrides(
+        long_parts,
+        hardware=COMPLETE,
+        door_type="residential",
+        door_series="KANATA",
+        settings=ON,
+    )
+    assert long_kits[0]["fixed_unit_price"] == 165.00
+    assert long_inserts[0]["fixed_unit_price"] == 0.00
+    assert "included in flat window rate" in long_inserts[0]["pricing_override"]
+    assert long_kits[0]["quantity"] * long_kits[0]["fixed_unit_price"] == 990.00
+    assert long_inserts[0]["quantity"] * long_inserts[0]["fixed_unit_price"] == 0.00
+
+    short_parts = _generated({
+        "doorType": "residential",
+        "doorSeries": "KANATA",
+        "doorWidth": 96,
+        "doorHeight": 84,
+        "panelColor": "SANDTONE",
+        "panelDesign": "SH",
+        "windowCount": 2,
+        "windowSize": "short",
+        "windowInsert": "STOCKTON_STANDARD",
+    })
+    short_kits = [part for part in short_parts if str(part.get("part_number", "")).startswith("GK15-")]
+    assert len(short_kits) == 1 and short_kits[0]["part_number"].startswith("GK15-10")
+    assert short_kits[0]["quantity"] == 2
+    assert not any(str(part.get("part_number", "")).startswith("GL") for part in short_parts)
+    insert = get_bc_mapper().get_frame_insert("STOCKTON_STANDARD", "SANDTONE", insert_prefix="GL19")
+    assert insert is not None
+    short_parts.append({
+        "part_number": insert.part_number,
+        "description": insert.description,
+        "quantity": short_kits[0]["quantity"],
+        "category": "window",
+    })
+    apply_price_overrides(
+        short_parts,
+        hardware=COMPLETE,
+        door_type="residential",
+        door_series="KANATA",
+        settings=ON,
+    )
+    priced_insert = next(
+        part for part in short_parts if part.get("part_number") == insert.part_number
+    )
+    assert short_kits[0]["fixed_unit_price"] == 120.00
+    assert priced_insert["fixed_unit_price"] == 0.00
+    assert "included in flat window rate" in priced_insert["pricing_override"]
+    assert short_kits[0]["quantity"] * short_kits[0]["fixed_unit_price"] == 240.00
+
+
+def test_cost_is_rounded_to_cents_before_the_margin():
+    line = _panel("PN65-21005-1600", 1)
+    _apply(
+        [line],
+        hardware=DOOR_FACE,
+        door_type="residential",
+        door_series="KANATA",
+        settings=PriceOverrideSettings(panel_mode="on", margin_percent=50, window_mode="off"),
+        costs={"PN65-21005-1600": 123.455},
+    )
+    assert line["fixed_unit_price"] == 246.92
+    assert "cost $123.46" in line["pricing_override"]
+    assert "unit $246.92" in line["pricing_override"]
+    assert replacement_unit_price(123.455, 50) == 246.92
+
+
+def test_static_item_export_is_not_used_when_bc_is_down(monkeypatch):
+    import app.integrations.bc.client as bc_client_mod
+    import app.services.pricing_service as pricing
+
+    exported = get_bc_mapper().bc_items["PN65-21005-1600"]["unitCost"]
+    assert exported == 204.45
+    monkeypatch.setattr(pricing, "_cache_expiry", 0)
+    monkeypatch.setattr(pricing, "_bc_cost_cache", {})
+
+    def offline(part_numbers):
+        raise RuntimeError("BC unavailable")
+
+    monkeypatch.setattr(bc_client_mod.bc_client, "get_items_by_numbers", offline)
+    line = _panel("PN65-21005-1600", 1)
+    apply_price_overrides(
+        [line],
+        hardware=DOOR_FACE,
+        door_type="residential",
+        door_series="KANATA",
+        settings=PriceOverrideSettings(panel_mode="on", margin_percent=50, window_mode="off"),
+    )
+    assert "fixed_unit_price" not in line
+    assert "unit cost missing" in line["pricing_flag"]
+
+
 def test_custom_margin_uses_cost_over_one_minus_margin():
     line = _panel("PN65-21005-1600", 1)
     settings = PriceOverrideSettings(panel_mode="on", margin_percent=40, window_mode="off")
@@ -409,7 +573,9 @@ def test_window_patterns():
     assert classify_residential_window("GK15-99200-00", "LONG", "window", "residential", "KANATA") == "unknown"
     assert classify_residential_window("GK16-23205-00", "LONG", "window", "commercial", "TX450") is None
     assert classify_residential_window("GK17-10100-00", "", "window", "aluminium", "AL976") is None
-    assert classify_residential_window("GK15-11205-00", "", "window", "commercial", "TX450") == "long"
+    assert classify_residential_window("GK15-11205-00", "", "window", "commercial", "TX450") is None
+    assert classify_residential_window("GK15-11205-00", "", "window", "commercial", "KANATA") is None
+    assert classify_residential_window("GK15-11205-00", "", "window", "residential", "TX450") == "long"
     assert classify_residential_window("GK15-11205-00", "", "window", "commercial", "TX760") is None
 
 
@@ -511,6 +677,19 @@ def test_settings_default_off_and_round_trip(session):
     kept = load_price_overrides(session)
     assert kept.panel_mode == "off"
     assert kept.margin_percent == 40
+
+    save_price_overrides(session, margin_percent=99.999)
+    session.commit()
+    assert load_price_overrides(session).margin_percent == 99.999
+
+    stored = session.query(AppSettings).filter(
+        AppSettings.setting_key == REPLACEMENT_MARGIN_KEY
+    ).one()
+    stored.setting_value = {"mode": "on", "margin_percent": 100}
+    session.commit()
+    loaded_invalid = load_price_overrides(session)
+    assert loaded_invalid.panel_mode == "on"
+    assert loaded_invalid.margin_percent == 50
 
     with pytest.raises(ValueError):
         save_price_overrides(session, margin_percent=100)

@@ -9,10 +9,14 @@
     the price list.
 
 ``quote_flat_residential_windows``
-    Residential glass kits and inserts on a residential steel door use one
+    Glass kits and inserts on a door whose doorType is residential use one
     rate per window. Default long is $165.00 and short is $120.00, CAD.
-    Commercial GK16 and aluminum GK17 lines are left alone. A size that is
-    not long or short is flagged and left on the price list.
+    When a GL17, GL18, or GL19 insert shares the door with a GK15 kit of
+    the same size, the kit carries that rate and the insert is a fixed
+    $0.00 (included in the flat window rate). An insert with no matching
+    kit keeps the per-window rate. Commercial doors, including TX450 and
+    TX500, stay on the price list even if the part generator emits a GK15.
+    A size that is not long or short is flagged and left on the price list.
 
 off does nothing. shadow logs the price it would set and does not change
 the quote. on writes a fixed unit price and a note on the quote.
@@ -56,7 +60,9 @@ Unknown, flagged, not overridden:
     GK15-SSxxx-xx where SS is not 10, 11, or 55
     A GK15 that does not match the pattern and does not say LONG or SHORT
 Left unchanged:
-    GK16-  commercial thermopane, including TX450 and TX500
+    Any window on a door whose doorType is not residential, including a
+    GK15 the generator emits for a commercial TX450 or TX500
+    GK16-  commercial thermopane
     GK17- and GK19-  aluminum and full-view kits
     Any window on an aluminum door
 """
@@ -77,9 +83,13 @@ REPLACEMENT_MARGIN_KEY = "quote_replacement_panel_margin"
 FLAT_WINDOWS_KEY = "quote_flat_residential_windows"
 
 DEFAULT_MARGIN_PERCENT = 50.0
+# Save and load both accept a margin from 0 up to, and not including, 100.
+MARGIN_MIN = 0.0
+MARGIN_MAX_EXCLUSIVE = 100.0
 DEFAULT_LONG_PRICE = 165.00
 DEFAULT_SHORT_PRICE = 120.00
 MODES = ("off", "shadow", "on")
+INCLUDED_IN_FLAT_RATE = "included in flat window rate"
 
 # Steel insulated sections. Aluminum full-view (PN10, PN12, PN97) is absent.
 STEEL_SECTION_PREFIXES = (
@@ -104,9 +114,6 @@ _SECTION_TEXT = re.compile(
 )
 _WORD_LONG = re.compile(r"\bLONG\b")
 _WORD_SHORT = re.compile(r"\bSHORT\b")
-
-_RESIDENTIAL_SERIES = {"KANATA", "KANATA_EXECUTIVE", "CRAFT"}
-
 
 @dataclass(frozen=True)
 class PriceOverrideSettings:
@@ -137,6 +144,21 @@ def _mode(value: Any) -> str:
     return mode if mode in MODES else "off"
 
 
+def margin_in_range(number: float) -> bool:
+    """True when the margin can be used. The same bounds apply on save and load."""
+    return MARGIN_MIN <= number < MARGIN_MAX_EXCLUSIVE
+
+
+def _margin_percent(value: Any, default: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not margin_in_range(number):
+        return default
+    return number
+
+
 def _number(value: Any, default: float, *, low: float, high: float) -> float:
     try:
         number = float(value)
@@ -152,7 +174,7 @@ def _parse_panel(raw: Any) -> tuple[str, float]:
         return _mode(raw), DEFAULT_MARGIN_PERCENT
     return (
         _mode(raw),
-        _number(raw.get("margin_percent"), DEFAULT_MARGIN_PERCENT, low=0.0, high=99.99),
+        _margin_percent(raw.get("margin_percent"), DEFAULT_MARGIN_PERCENT),
     )
 
 
@@ -239,7 +261,7 @@ def save_price_overrides(
         panel_mode = current.panel_mode
     if margin_percent is not None:
         margin = float(margin_percent)
-        if margin < 0 or margin >= 100:
+        if not margin_in_range(margin):
             raise ValueError("margin percent must be from 0 up to but not including 100")
     else:
         margin = current.margin_percent
@@ -326,42 +348,27 @@ def note_parts_request(db: Optional[Session], subject: str, body: str) -> None:
 
 
 def section_only_scope(hardware: Optional[dict], door_type: str = "") -> Optional[str]:
-    """PANELS ONLY, DOOR FACE ONLY, or None for a complete door.
+    """PANELS ONLY or DOOR FACE ONLY. A complete door and NO DOOR FACE are None.
 
-    Same rules as the configurator's scope label. A missing hardware key
-    means that component is included, so an empty map is a complete door.
+    Uses the configurator's ``_format_scope_label`` so the two cannot drift.
+    A missing hardware key means that component is included, so an empty
+    map is a complete door.
     """
-    hardware = hardware or {}
-    panels_on = (door_type or "") == "aluminium" or hardware.get("panels", True)
-    retainer_on = hardware.get("bottomRetainer", True)
-    any_operating = any((
-        hardware.get("tracks", True),
-        hardware.get("springs", True),
-        hardware.get("struts", True),
-        hardware.get("hardwareKits", True),
-        hardware.get("weatherStripping", True),
-        hardware.get("shafts", True),
-    ))
-    if panels_on and not any_operating:
-        return "DOOR FACE ONLY" if retainer_on else "PANELS ONLY"
+    from app.api.door_configurator import _format_scope_label
+    label = _format_scope_label(hardware or {}, door_type or "")
+    if label in ("PANELS ONLY", "DOOR FACE ONLY"):
+        return label
     return None
 
 
-def _residential_steel(door_type: str, door_series: str) -> bool:
-    """Kanata, Craft, TX450/TX500, and any other residential-type door.
+def _residential_door(door_type: str, door_series: str = "") -> bool:
+    """Flat window rates apply only when doorType is residential.
 
-    Aluminum is excluded. The flat rate still does not apply to a GK16
-    or GK17 line on these series; that filter is the part number.
+    Series is not a fallback. A commercial TX450 or TX500 stays on the
+    price list even when the part generator emits a GK15.
     """
-    dtype = (door_type or "").strip().lower()
-    if dtype in ("aluminium", "aluminum"):
-        return False
-    if dtype == "residential":
-        return True
-    series = (door_series or "").strip().upper()
-    if series in _RESIDENTIAL_SERIES:
-        return True
-    return series.startswith("TX450") or series.startswith("TX500")
+    del door_series
+    return (door_type or "").strip().lower() == "residential"
 
 
 def classify_residential_window(
@@ -372,7 +379,7 @@ def classify_residential_window(
     door_series: str = "",
 ) -> Optional[str]:
     """``long``, ``short``, ``unknown``, or None when the line is not one of these windows."""
-    if not _residential_steel(door_type, door_series):
+    if not _residential_door(door_type, door_series):
         return None
     pn = (part_number or "").strip().upper()
     if pn.startswith(("GK16-", "GK17-", "GK19-")):
@@ -424,33 +431,68 @@ def is_section_panel_line(part: dict) -> bool:
     return pn.startswith(STEEL_SECTION_PREFIXES)
 
 
-def replacement_unit_price(unit_cost: Any, margin_percent: float) -> Optional[float]:
-    """unit cost / (1 - margin). None when the cost is missing, zero, or not a number."""
+def rounded_unit_cost(unit_cost: Any) -> Optional[float]:
+    """Round a unit cost to cents. None when it is missing, zero, or not a number.
+
+    The selling price is computed from this rounded cost, and the quote
+    note shows the same figure. $123.455 becomes $123.46, then $246.92
+    at a 50 percent margin.
+    """
     if unit_cost is None or unit_cost == "":
         return None
     try:
-        cost = Decimal(str(unit_cost))
+        cost = Decimal(str(unit_cost)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     except Exception:
         return None
     if cost <= 0:
         return None
-    try:
-        margin = Decimal(str(margin_percent)) / Decimal("100")
-    except Exception:
+    return float(cost)
+
+
+def replacement_unit_price(unit_cost: Any, margin_percent: float) -> Optional[float]:
+    """Rounded unit cost / (1 - margin). None when the cost cannot be used."""
+    cost = rounded_unit_cost(unit_cost)
+    if cost is None:
         return None
-    if margin < 0 or margin >= 1:
+    if not margin_in_range(float(margin_percent)):
         return None
-    price = (cost / (Decimal("1") - margin)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    margin = Decimal(str(margin_percent)) / Decimal("100")
+    price = (Decimal(str(cost)) / (Decimal("1") - margin)).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP,
+    )
     return float(price)
 
 
 def default_unit_cost(part_number: str) -> Optional[float]:
-    """BC item card ``unitCost``. A lookup failure is a missing cost."""
+    """Live BC ``unitCost`` only.
+
+    A cache hit is a cost previously fetched from Business Central. A cache
+    miss fetches that one item. If the fetch fails or the item is absent,
+    this returns None so the section stays on the price list. It does not
+    use the static ``bc_items`` export that ``_get_live_item`` falls back to.
+    """
+    import time
+
     try:
-        from app.services.pricing_service import _get_live_item
-        item = _get_live_item(part_number) or {}
+        import app.services.pricing_service as pricing
     except Exception:
         logger.warning("Unit cost lookup failed for %s", part_number, exc_info=True)
+        return None
+
+    item = None
+    if time.time() < pricing._cache_expiry and part_number in pricing._bc_cost_cache:
+        item = pricing._bc_cost_cache.get(part_number)
+    else:
+        try:
+            from app.integrations.bc.client import bc_client
+            items = bc_client.get_items_by_numbers([part_number]) or {}
+            item = items.get(part_number)
+        except Exception:
+            logger.warning("Live BC unit cost unavailable for %s", part_number, exc_info=True)
+            return None
+        if item:
+            pricing._bc_cost_cache[part_number] = item
+    if not item:
         return None
     raw = item.get("unitCost")
     if raw is None or raw == "":
@@ -463,6 +505,35 @@ def default_unit_cost(part_number: str) -> Optional[float]:
 
 def _money(value: float) -> str:
     return f"{float(value):.2f}"
+
+
+def _matching_kit_sizes(parts: list, door_type: str, door_series: str) -> set:
+    """Long/short sizes that have a GK15 kit on this door."""
+    sizes = set()
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        pn = (part.get("part_number") or "").strip().upper()
+        if not pn.startswith("GK15-"):
+            continue
+        kind = classify_residential_window(
+            pn,
+            part.get("description") or "",
+            part.get("category") or "",
+            door_type,
+            door_series,
+        )
+        if kind in ("long", "short"):
+            sizes.add(kind)
+    return sizes
+
+
+def _insert_included_in_kit(part_number: str, window: str, kit_sizes: set) -> bool:
+    """True when this insert shares the door with a GK15 of the same size."""
+    pn = (part_number or "").strip().upper()
+    if not pn.startswith(("GL17-", "GL18-", "GL19-")):
+        return False
+    return window in kit_sizes
 
 
 def _comment(text: str) -> dict:
@@ -497,6 +568,7 @@ def apply_price_overrides(
 
     scope = section_only_scope(hardware, door_type)
     lookup = cost_lookup or default_unit_cost
+    kit_sizes = _matching_kit_sizes(parts, door_type, door_series)
     rewritten: list = []
 
     for part in parts:
@@ -521,22 +593,29 @@ def apply_price_overrides(
                 door_series,
             )
         if window == "long" or window == "short":
-            rate = settings.long_price if window == "long" else settings.short_price
-            note = (
-                f"PRICE NOTE: {pn} flat {window} residential window "
-                f"${_money(rate)} each (qty {qty:g})"
-            )
+            included = _insert_included_in_kit(pn, window, kit_sizes)
+            if included:
+                rate = 0.0
+                note = f"PRICE NOTE: {pn} {INCLUDED_IN_FLAT_RATE}"
+                size_label = INCLUDED_IN_FLAT_RATE
+            else:
+                rate = settings.long_price if window == "long" else settings.short_price
+                note = (
+                    f"PRICE NOTE: {pn} flat {window} residential window "
+                    f"${_money(rate)} each (qty {qty:g})"
+                )
+                size_label = window
             if settings.window_mode == "shadow":
                 logger.info(
                     "SHADOW %s: %s qty %s would be $%s each (%s); quote unchanged",
-                    FLAT_WINDOWS_KEY, pn, qty, _money(rate), window,
+                    FLAT_WINDOWS_KEY, pn, qty, _money(rate), size_label,
                 )
             else:
                 part["fixed_unit_price"] = float(rate)
                 part["pricing_override"] = note
                 logger.info(
                     "%s: %s qty %s fixed at $%s each (%s)",
-                    FLAT_WINDOWS_KEY, pn, qty, _money(rate), window,
+                    FLAT_WINDOWS_KEY, pn, qty, _money(rate), size_label,
                 )
                 if emit_notes:
                     rewritten.append(_comment(note))
@@ -562,8 +641,9 @@ def apply_price_overrides(
         except Exception:
             logger.warning("Unit cost lookup failed for %s", pn, exc_info=True)
             cost = None
+        shown_cost = rounded_unit_cost(cost)
         price = replacement_unit_price(cost, settings.margin_percent)
-        if price is None:
+        if price is None or shown_cost is None:
             flag = (
                 f"FLAG: {pn} replacement section unit cost missing or zero; "
                 "list price kept"
@@ -581,19 +661,19 @@ def apply_price_overrides(
             continue
         note = (
             f"PRICE NOTE: {pn} replacement section at {settings.margin_percent:g}% "
-            f"gross margin, cost ${_money(cost)}, unit ${_money(price)}"
+            f"gross margin, cost ${_money(shown_cost)}, unit ${_money(price)}"
         )
         if settings.panel_mode == "shadow":
             logger.info(
                 "SHADOW %s: %s cost %s would be $%s (%s%% GM); quote unchanged",
-                REPLACEMENT_MARGIN_KEY, pn, cost, _money(price), settings.margin_percent,
+                REPLACEMENT_MARGIN_KEY, pn, _money(shown_cost), _money(price), settings.margin_percent,
             )
         else:
             part["fixed_unit_price"] = price
             part["pricing_override"] = note
             logger.info(
                 "%s: %s cost %s fixed at $%s (%s%% GM)",
-                REPLACEMENT_MARGIN_KEY, pn, cost, _money(price), settings.margin_percent,
+                REPLACEMENT_MARGIN_KEY, pn, _money(shown_cost), _money(price), settings.margin_percent,
             )
             if emit_notes:
                 rewritten.append(_comment(note))

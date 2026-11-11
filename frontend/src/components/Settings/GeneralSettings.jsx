@@ -201,7 +201,7 @@ function GeneralSettings() {
         </PriceOverrideControl>
         <PriceOverrideControl
           label="Flat residential windows"
-          help="Kanata, Craft, TX450, and TX500 residential glass kits and inserts use one price per window. Commercial GK16 and aluminum windows stay on the price list."
+          help="Residential doors price each glass kit at one rate per window. A decorative insert on that door is included at $0. Commercial doors, including TX450 and TX500, stay on the price list."
           mode={windowSetting.mode}
           onMode={async (event) => {
             const next = event.target.value
