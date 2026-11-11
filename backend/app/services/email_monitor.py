@@ -686,13 +686,19 @@ class EmailMonitorService:
                 customer_id = self._legacy_bc_customer_id(db, quote_request)
                 # An explicit non-15 radius on 3 inch track is held in every
                 # mode, before a profile is applied and before Business Central
-                # is called. The normalizer keeps the asked radius on
-                # requestedTrackRadius so this still sees a 12.
+                # is called. A failure here must not hold a quote that we
+                # could not check.
                 from app.services.track_defaults import unavailable_3_inch_radius
                 radius_text = quote_email_text(
                     subject, body, getattr(email_log, "attachments", None),
                 )
-                radius_holds = unavailable_3_inch_radius(live_doors, doors, radius_text)
+                try:
+                    radius_holds = unavailable_3_inch_radius(live_doors, doors, radius_text)
+                except Exception:
+                    logger.exception(
+                        "Could not check 3 inch track radius. The quote is not held."
+                    )
+                    radius_holds = []
                 if radius_holds:
                     quote_request.deviations = list(quote_request.deviations or []) + radius_holds
                     quote_request.status = "held_for_standard_deviation"

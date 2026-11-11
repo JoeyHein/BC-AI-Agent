@@ -598,9 +598,162 @@ def test_explicit_12_on_3_inch_is_held_in_every_mode(session, monkeypatch, mode)
     assert quote.bc_quote_id is None
     assert any(item.get("kind") == "track_radius_not_available" for item in (quote.deviations or []))
     stored = quote.parsed_data["configurator_mapping"]["doors"][0]
-    assert stored["requestedTrackRadius"] == "12"
     assert stored["trackRadius"] == "15"
     assert stored["trackThickness"] == "3"
+    assert not stored.get("requestedTrackRadius")
+
+
+def test_email_radius_does_not_hold_a_silent_3_inch_door_beside_a_2_inch_door():
+    """A 12 on the 2 inch door is not an ask for the 3 inch door next to it."""
+    from app.services.track_defaults import unavailable_3_inch_radius
+    mapped = [
+        {"trackThickness": "2", "trackRadius": "12"},
+        {"trackThickness": "3", "trackRadius": "15"},
+    ]
+    parsed = [{"track_radius": "12"}, {}]
+    email = 'The first door is 2" track with 12" radius. The second is 3" track.'
+    assert unavailable_3_inch_radius(mapped, parsed, email) == []
+    # The same sentence does hold when that is the only door, or every door is 3".
+    only = unavailable_3_inch_radius(
+        [{"trackThickness": "3"}], [], 'Please quote 12" radius.',
+    )
+    assert [item["door_index"] for item in only] == [1]
+    both = unavailable_3_inch_radius(
+        [{"trackThickness": "3"}, {"trackThickness": "3"}],
+        [{}, {}],
+        'Both doors, 12" radius.',
+    )
+    assert [item["door_index"] for item in both] == [1, 2]
+    # A parsed ask on the 3 inch door still holds that door alone.
+    own = unavailable_3_inch_radius(
+        mapped,
+        [{"track_radius": "12"}, {"track_radius": "12"}],
+        email,
+    )
+    assert [item["door_index"] for item in own] == [2]
+
+
+def test_mapper_radius_alone_does_not_hold_a_3_inch_door(session, monkeypatch):
+    """The mapper filling 12 is not a customer request. Quote 15 and do not hold."""
+    from app.integrations.ai.client import ClaudeAIClient
+    service = _service(monkeypatch)
+    body = "Please quote one 10x8 Panorama."
+    log = EmailLog(
+        message_id="mapper-12",
+        from_address="buyer@acme.test",
+        subject="Panorama",
+        body=body,
+        status="new",
+    )
+    session.add(log)
+    session.flush()
+    monkeypatch.setattr(service.ai_client, "parse_email_for_quote", lambda *a, **k: {
+        "success": True,
+        "confidence": 0.95,
+        "model": "stub",
+        "tokens": {"input": 1, "output": 1},
+        "data": {
+            "customer": {"company_name": "Acme", "email": "buyer@acme.test", "confidence": 0.9},
+            "doors": [{"model": "PANORAMA", "width_ft": 10, "height_ft": 8}],
+            "project": {},
+        },
+    })
+
+    def _map(parsed, subject, email_body):
+        raw = [{
+            "doorType": "aluminium",
+            "doorSeries": "PANORAMA",
+            "doorWidth": 120,
+            "doorHeight": 96,
+            "panelColor": "WHITE",
+            "panelDesign": "FLUSH",
+            "trackThickness": "3",
+            "trackRadius": "12",
+            "doorCount": 1,
+            "hardware": {"tracks": True},
+        }]
+        return {
+            "success": True,
+            "request_kind": "door_quote",
+            "confidence": 0.9,
+            "doors": ClaudeAIClient._normalize_configurator_doors(raw),
+        }
+
+    monkeypatch.setattr(service.ai_client, "map_email_to_configurator", _map)
+    seen = {}
+
+    def _build(request, db, source="email", **kwargs):
+        seen["radius"] = request.doors[0].trackRadius
+        return {"success": False, "data": {}}
+
+    import app.api.door_configurator as dc
+    monkeypatch.setattr(dc, "build_bc_quote_from_doors", _build)
+    service._parse_quote_request(session, log, "Panorama", body, "Buyer", "buyer@acme.test")
+    quote = session.query(QuoteRequest).one()
+    assert quote.status != "held_for_standard_deviation"
+    assert not any(
+        item.get("kind") == "track_radius_not_available" for item in (quote.deviations or [])
+    )
+    assert seen["radius"] == "15"
+
+
+def test_radius_check_failure_does_not_hold(session, monkeypatch):
+    service = _service(monkeypatch)
+    body = "Please quote one 10x8 Panorama with 12 inch radius."
+    log = EmailLog(
+        message_id="radius-boom",
+        from_address="buyer@acme.test",
+        subject="Panorama",
+        body=body,
+        status="new",
+    )
+    session.add(log)
+    session.flush()
+    monkeypatch.setattr(service.ai_client, "parse_email_for_quote", lambda *a, **k: {
+        "success": True,
+        "confidence": 0.95,
+        "model": "stub",
+        "tokens": {"input": 1, "output": 1},
+        "data": {
+            "customer": {"company_name": "Acme", "email": "buyer@acme.test", "confidence": 0.9},
+            "doors": [{"model": "PANORAMA", "width_ft": 10, "height_ft": 8, "track_radius": "12"}],
+            "project": {},
+        },
+    })
+    monkeypatch.setattr(service.ai_client, "map_email_to_configurator", lambda *a, **k: {
+        "success": True,
+        "request_kind": "door_quote",
+        "confidence": 0.9,
+        "doors": [{
+            "doorType": "aluminium",
+            "doorSeries": "PANORAMA",
+            "doorWidth": 120,
+            "doorHeight": 96,
+            "panelColor": "WHITE",
+            "panelDesign": "FLUSH",
+            "trackThickness": "3",
+            "trackRadius": "15",
+            "doorCount": 1,
+            "hardware": {"tracks": True},
+        }],
+    })
+
+    def _explode(*args, **kwargs):
+        raise RuntimeError("radius check failed")
+
+    monkeypatch.setattr("app.services.track_defaults.unavailable_3_inch_radius", _explode)
+    seen = {}
+
+    def _build(request, db, source="email", **kwargs):
+        seen["built"] = True
+        return {"success": False, "data": {}}
+
+    import app.api.door_configurator as dc
+    monkeypatch.setattr(dc, "build_bc_quote_from_doors", _build)
+    service._parse_quote_request(session, log, "Panorama", body, "Buyer", "buyer@acme.test")
+    quote = session.query(QuoteRequest).one()
+    assert seen.get("built") is True
+    assert quote.status != "held_for_standard_deviation"
 
 
 def test_20_inch_radius_is_kept_only_for_craft():

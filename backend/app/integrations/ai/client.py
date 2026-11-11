@@ -597,11 +597,13 @@ OUTPUT FORMAT — JSON only, no prose:
             raw_track = d.get("trackThickness") if "trackThickness" in d else None
             track_thickness = resolve_track_thickness(raw_track, series, door_type)
             from app.services.track_defaults import quoted_track_radius
-            # Keep the radius the email asked for. The quote may use a different
-            # one (3 inch track is only 15), and the hold check reads this
-            # before a quote is built.
-            requested_radius = str(d.get("trackRadius") or "").strip()
-            track_radius = quoted_track_radius(track_thickness, requested_radius, series=series)
+            # The mapper fills trackRadius even when the customer was silent.
+            # That fill-in is not a customer request, so it is not kept as one.
+            # 3 inch track is quoted at 15. The hold reads the email and the
+            # parsed customer request, not this value.
+            track_radius = quoted_track_radius(
+                track_thickness, d.get("trackRadius"), series=series,
+            )
 
             hardware = d.get("hardware")
             if not isinstance(hardware, dict) or not hardware:
@@ -624,7 +626,6 @@ OUTPUT FORMAT — JSON only, no prose:
                 "glazingType": d.get("glazingType") or None,
                 "trackThickness": track_thickness,
                 "trackRadius": track_radius,
-                "requestedTrackRadius": requested_radius or None,
                 "trackMount": str(d.get("trackMount", "bracket") or "bracket"),
                 "liftType": str(d.get("liftType", "standard") or "standard"),
                 "highLiftInches": _to_int(d.get("highLiftInches")) or None,

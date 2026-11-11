@@ -64,12 +64,24 @@ def quoted_track_radius(
     return "15"
 
 
+def _parsed_radius(parsed: Optional[dict]) -> Optional[str]:
+    """Radius on the customer's parsed request, not the mapper's fill-in."""
+    if not isinstance(parsed, dict):
+        return None
+    for key in ("track_radius", "trackRadius", "radius"):
+        value = parsed.get(key)
+        if value not in (None, ""):
+            return str(value).strip()
+    return None
+
+
 def unavailable_3_inch_radius(mapped_doors, parsed_doors=None, email_text: str = "") -> list:
     """Deviations for an explicit non-15 radius on 3 inch track.
 
-    The mapped thickness is what the door will be built with. The radius is
-    the one the email or the parser asked for, including the value the
-    normalizer saved on requestedTrackRadius before quoting 15.
+    The mapped thickness is what the door will be built with. The radius
+    has to be the customer's: that door's parsed request, or one radius in
+    the email or attachment when there is a single door or every door is
+    on 3 inch track. The mapper's own trackRadius is not a request.
     """
     email_radius = None
     if email_text:
@@ -78,25 +90,20 @@ def unavailable_3_inch_radius(mapped_doors, parsed_doors=None, email_text: str =
         if reading.get("basis") == "explicit":
             email_radius = reading.get("value")
     parsed_doors = list(parsed_doors or [])
+    doors = [door for door in (mapped_doors or []) if isinstance(door, dict)]
+    all_three_inch = bool(doors) and all(
+        _track_size_token(door.get("trackThickness")) == "3" for door in doors
+    )
+    # One radius in the message applies to every 3 inch door only when it
+    # cannot belong to a neighbouring 2 inch door.
+    use_email_radius = email_radius is not None and (len(doors) <= 1 or all_three_inch)
     deviations = []
-    for index, mapped in enumerate(mapped_doors or []):
-        if not isinstance(mapped, dict):
-            continue
-        parsed = parsed_doors[index] if index < len(parsed_doors) and isinstance(parsed_doors[index], dict) else {}
+    for index, mapped in enumerate(doors):
+        parsed = parsed_doors[index] if index < len(parsed_doors) else {}
         thickness = mapped.get("trackThickness")
-        asked = None
-        # mapped trackRadius may already be the quoted 15. The ask is the
-        # parser field, the value the normalizer saved, or the email text.
-        for value in (
-            parsed.get("track_radius"),
-            parsed.get("trackRadius"),
-            parsed.get("radius"),
-            mapped.get("requestedTrackRadius"),
-            email_radius,
-        ):
-            asked = explicit_non_15_on_3_inch(thickness, value)
-            if asked:
-                break
+        asked = explicit_non_15_on_3_inch(thickness, _parsed_radius(parsed))
+        if not asked and use_email_radius:
+            asked = explicit_non_15_on_3_inch(thickness, email_radius)
         if not asked:
             continue
         deviations.append({
