@@ -235,7 +235,8 @@ class EmailMonitorService:
         from_address = email.get("from", {}).get("emailAddress", {}).get("address", "")
         from_name = email.get("from", {}).get("emailAddress", {}).get("name", from_address)
         subject = email.get("subject", "")
-        body = email.get("body", {}).get("content", "")
+        from app.services.email_text import html_to_text
+        body = html_to_text(email.get("body", {}).get("content", "") or "")
 
         logger.info(f"Processing new email from {from_name}: {subject[:50]}")
 
@@ -274,24 +275,42 @@ class EmailMonitorService:
         db.flush()
 
         from app.services.inbox_settings import CUSTOMER_APPROVAL, inbox_mode
-        from app.services.quote_followup import handle_customer_approval, is_customer_approval
+        from app.services.quote_followup import (
+            approval_level,
+            handle_customer_approval,
+            note_low_approval,
+        )
         approval_mode = inbox_mode(db, CUSTOMER_APPROVAL)
         approval_text = parse_body if pack is not None and approval_mode == "on" else body
-        looks_like_approval = approval_mode != "off" and is_customer_approval(category, subject, approval_text)
-        if looks_like_approval and approval_mode == "shadow":
-            filenames = [page.file_name for page in pack.pages] if pack is not None else []
-            handle_customer_approval(
-                db,
-                email_log,
-                subject=subject,
-                body=approval_text,
-                from_address=from_address,
-                graph_message_id=message_id,
-                mailbox=inbox_email,
-                filenames=filenames,
-            )
-            logger.info("  -> Approval shadow logged. The message continues on the normal path.")
-        elif looks_like_approval and approval_mode == "on":
+        level = "none"
+        if approval_mode != "off":
+            try:
+                level = approval_level(category, subject, approval_text)
+            except Exception:
+                logger.exception("Approval check failed. The message continues.")
+                level = "none"
+        if level == "low":
+            try:
+                note_low_approval(email_log, approval_text)
+            except Exception:
+                logger.exception("Could not note the low-confidence approval. The message continues.")
+        elif level == "high" and approval_mode == "shadow":
+            try:
+                filenames = [page.file_name for page in pack.pages] if pack is not None else []
+                handle_customer_approval(
+                    db,
+                    email_log,
+                    subject=subject,
+                    body=approval_text,
+                    from_address=from_address,
+                    graph_message_id=message_id,
+                    mailbox=inbox_email,
+                    filenames=filenames,
+                )
+                logger.info("  -> Approval shadow logged. The message continues on the normal path.")
+            except Exception:
+                logger.exception("Approval shadow failed. The message continues.")
+        elif level == "high" and approval_mode == "on":
             filenames = [page.file_name for page in pack.pages] if pack is not None else []
             handle_customer_approval(
                 db,

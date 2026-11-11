@@ -768,6 +768,8 @@ def test_man_door_and_brochure_are_not_overhead_openings():
     assert pack.pages[0].counts_as_email is False
     assert "grey" not in pack.combined_text
     assert pack.as_email_log()[0]["extracted_text"] == ""
+    assert pack.openings == []
+    assert pack.reference_openings and pack.reference_openings[0]["label"]
 
 
 def test_attachment_reader_caps_size_and_pages():
@@ -1044,6 +1046,281 @@ def test_forwarded_request_is_addressed_to_the_customer():
     )
     assert forwarded is True
     assert address == "buyer@acme.test"
+
+
+OUTLOOK_REPLY = """<html><body>
+<div>Approved SQ-1001. Our PO is 44521.</div>
+<div id="divRplyFwdMsg" dir="ltr"><font face="Calibri, sans-serif"><b>From:</b> Joey Heinrichs &lt;joey@opendc.ca&gt;<br>
+<b>Sent:</b> Tuesday, November 10, 2026 9:00 AM<br>
+<b>To:</b> Preston &lt;preston@doortech.ca&gt;<br>
+<b>Subject:</b> RE: warehouse quote</font></div>
+<div>Please quote this grey.</div>
+</body></html>"""
+
+GMAIL_REPLY = """<div dir="ltr">Approved SQ-1001. Our PO is 44521.</div>
+<div class="gmail_quote">
+<div class="gmail_attr">On Tue, Nov 10, 2026 at 9:00 AM Pat &lt;pat@acme.test&gt; wrote:</div>
+<blockquote class="gmail_quote">Please quote this grey.</blockquote>
+</div>"""
+
+APPLE_REPLY = """<html><body>
+<div>Approved SQ-1001.</div>
+<blockquote type="cite">
+<div>On Nov 10, 2026, at 9:00 AM, Pat &lt;pat@acme.test&gt; wrote:</div>
+Please quote this grey.
+</blockquote>
+</body></html>"""
+
+DOORTECH_REPLY = """Thanks Joey, we are good with the price.
+
+-------- Original message --------
+From: Joey Heinrichs <joey@opendc.ca>
+Date: Tue, 10 Nov 2026 09:00:00 -0600
+Subject: RE: warehouse quote
+
+Can you confirm the black TX450?
+"""
+
+
+def test_doortech_reply_is_not_a_forward_to_joey():
+    from app.services.email_text import reply_recipient
+    address, forwarded = reply_recipient(
+        "Re: warehouse quote",
+        DOORTECH_REPLY,
+        "preston@doortech.ca",
+    )
+    assert forwarded is False
+    assert address == "preston@doortech.ca"
+    html = (
+        "<div>Thanks, we are good.</div>"
+        "<div>-------- Original message --------<br>"
+        "From: Joey Heinrichs &lt;joey@opendc.ca&gt;</div>"
+    )
+    address, forwarded = reply_recipient("Re: warehouse quote", html, "preston@doortech.ca")
+    assert forwarded is False
+    assert address == "preston@doortech.ca"
+
+
+def test_outlook_and_gmail_html_quotes_do_not_set_the_old_colour():
+    from app.services.customer_profile_service import apply_customer_profile, quote_email_text
+    from app.services.quote_followup import customer_po_number, is_customer_approval
+    door = {
+        "doorType": "commercial", "doorSeries": "TX450", "doorWidth": 120, "doorHeight": 96,
+        "panelColor": "WHITE", "panelDesign": "FLUSH", "trackMount": "bracket",
+        "trackThickness": "2", "doorCount": 1, "hardware": {"tracks": True},
+    }
+    for html in (OUTLOOK_REPLY, GMAIL_REPLY, APPLE_REPLY):
+        assert is_customer_approval("order_confirmation", "Re: warehouse quote", html) is True
+        po, _source = customer_po_number(html, [])
+        assert po == "44521" or "PO" not in html
+        text = quote_email_text("Re: warehouse quote", html, [{
+            "name": "plan.pdf",
+            "extracted_text": "12x14 TX450 BLACK",
+        }])
+        assert "grey" not in text.lower()
+        assert "BLACK" in text
+        applied = apply_customer_profile([dict(door)], email_text=text)
+        assert applied["doors"][0]["panelColor"] == "BLACK"
+
+
+def test_approval_is_conservative_about_questions_and_changes(session, monkeypatch):
+    from app.services.quote_followup import approval_level, is_customer_approval
+    assert is_customer_approval("order_confirmation", "Re:", "This hasn't been approved") is False
+    assert is_customer_approval("order_confirmation", "Re:", "Has SQ-1001 been approved?") is False
+    assert is_customer_approval("order_confirmation", "Re:", "Once SQ-1001 is approved by the GC we can order") is False
+    assert is_customer_approval("quote_modification", "Re:", "Please go ahead with the colour change") is False
+    assert is_customer_approval("order_confirmation", "Re:", "We can't go ahead with SQ-1001 at this price") is False
+    assert is_customer_approval("order_confirmation", "Re:", "Don't go ahead yet") is False
+    assert approval_level(
+        "quote_modification", "Re: quote", "Go ahead with SQ-1001 but make it black",
+    ) == "low"
+    set_inbox_mode(session, "customer_approval_detection", "on")
+    session.commit()
+    service = EmailMonitorService()
+    service.graph_client, _calls = _graph([])
+    seen = {}
+    _stub_ai(monkeypatch, service, seen)
+    _categorize(monkeypatch, "quote_modification")
+
+    def _mod(*args, **kwargs):
+        seen["modification"] = True
+
+    monkeypatch.setattr(service, "_parse_quote_modification", _mod)
+    result = service._process_single_email(
+        session,
+        _email(subject="Re: quote", body="Go ahead with SQ-1001 but make it black"),
+        "joey@opendc.ca",
+    )
+    assert result == "quote_modification"
+    assert seen["modification"] is True
+    assert session.query(CustomerOrderApproval).count() == 0
+    log = session.query(EmailLog).one()
+    assert any(item.get("kind") == "customer_approval_low" for item in (log.inbox_shadow or []))
+
+
+def test_a_specific_approval_replaces_a_vague_one(session, monkeypatch):
+    set_inbox_mode(session, "customer_approval_detection", "on")
+    log = EmailLog(message_id="vague-q", from_address="buyer@acme.test", subject="q", body="q", status="parsed")
+    session.add(log)
+    session.flush()
+    session.add(QuoteRequest(
+        email_id=log.id, customer_name="Acme", contact_email="buyer@acme.test",
+        status="bc_created", confidence_scores={"overall": 0.9},
+        bc_quote_id="SQ-1077", matched_bc_customer_id="ACME", created_at=datetime.utcnow(),
+    ))
+    session.add(CustomerOrderApproval(
+        email_log_id=log.id, status="needs_choice", match_method="customer_recent",
+        bc_quote_number=None,
+        candidates=[{"bc_quote_number": "SQ-1070", "method": "customer_recent", "quote_request_id": None}],
+        from_address="buyer@acme.test", subject="Go ahead", excerpt="Go ahead.",
+        created_at=datetime.utcnow(),
+    ))
+    session.commit()
+    service = EmailMonitorService()
+    service.graph_client = _graph([])[0]
+    _categorize(monkeypatch, "order_confirmation")
+    service._process_single_email(
+        session,
+        _email(subject="Approved", body="Approved SQ-1077. PO 44521."),
+        "joey@opendc.ca",
+    )
+    rows = session.query(CustomerOrderApproval).all()
+    assert len(rows) == 1
+    assert rows[0].status == "ready"
+    assert rows[0].bc_quote_number == "SQ-1077"
+    assert rows[0].customer_po == "44521"
+
+
+def test_same_company_domain_matches_and_gmail_does_not(session, monkeypatch):
+    set_inbox_mode(session, "customer_approval_detection", "on")
+    log = EmailLog(message_id="domain", from_address="orders@acme.test", subject="q", body="q", status="parsed")
+    session.add(log)
+    session.flush()
+    session.add(QuoteRequest(
+        email_id=log.id, customer_name="Acme", contact_email="orders@acme.test",
+        status="bc_created", confidence_scores={"overall": 0.9},
+        bc_quote_id="SQ-1088", matched_bc_customer_id="ACME", created_at=datetime.utcnow(),
+    ))
+    session.commit()
+    service = EmailMonitorService()
+    service.graph_client = _graph([])[0]
+    _categorize(monkeypatch, "order_confirmation")
+    service._process_single_email(
+        session,
+        _email(sender="pat@acme.test", subject="Approved", body="Approved SQ-1088"),
+        "joey@opendc.ca",
+    )
+    row = session.query(CustomerOrderApproval).one()
+    assert row.status == "ready"
+    assert row.bc_quote_number == "SQ-1088"
+    gmail_log = EmailLog(message_id="gmail", from_address="other@gmail.com", subject="q", body="q", status="parsed")
+    session.add(gmail_log)
+    session.flush()
+    session.add(QuoteRequest(
+        email_id=gmail_log.id, customer_name="Someone", contact_email="other@gmail.com",
+        status="bc_created", confidence_scores={"overall": 0.9},
+        bc_quote_id="SQ-1089", created_at=datetime.utcnow(),
+    ))
+    session.commit()
+    service._process_single_email(
+        session,
+        _email(sender="pat@gmail.com", internet="g", message_id="g", subject="Approved", body="Approved SQ-1089"),
+        "joey@opendc.ca",
+    )
+    gmail_row = session.query(CustomerOrderApproval).filter_by(from_address="pat@gmail.com").one()
+    assert gmail_row.bc_quote_number is None
+
+
+def test_staff_can_pick_another_sq_for_the_same_bc_customer(session, monkeypatch):
+    from app.services.quote_followup import convert_customer_approval
+    log = EmailLog(message_id="staff", from_address="pat@acme.test", subject="q", body="q", status="parsed")
+    session.add(log)
+    session.flush()
+    session.add(QuoteRequest(
+        email_id=log.id, customer_name="Acme", contact_email="pat@acme.test",
+        status="bc_created", confidence_scores={"overall": 0.9},
+        bc_quote_id="SQ-1", matched_bc_customer_id="ACME", created_at=datetime.utcnow(),
+    ))
+    session.add(QuoteRequest(
+        email_id=log.id, customer_name="Acme", contact_email="billing@acme.test",
+        status="bc_created", confidence_scores={"overall": 0.9},
+        bc_quote_id="SQ-2", matched_bc_customer_id="ACME", created_at=datetime.utcnow(),
+    ))
+    session.flush()
+    session.add(CustomerOrderApproval(
+        email_log_id=log.id, status="needs_choice", match_method="customer_recent",
+        candidates=[{"bc_quote_number": "SQ-1", "method": "customer_recent"}],
+        from_address="pat@acme.test", subject="Go ahead", excerpt="Go ahead.",
+        created_at=datetime.utcnow(),
+    ))
+    session.commit()
+    monkeypatch.setattr(
+        "app.services.quote_followup._convert_sq",
+        lambda *a, **k: {"bc_order_number": "SO-2", "already": False},
+    )
+    approval = session.query(CustomerOrderApproval).one()
+    result = convert_customer_approval(session, approval.id, bc_quote_number="SQ-2", user_email="joey@opendc.ca")
+    assert result["bc_order_number"] == "SO-2"
+    assert result["bc_quote_number"] == "SQ-2"
+
+
+def test_graph_skips_download_when_the_attachment_is_over_8_mb():
+    from app.integrations.email.client import GraphEmailClient
+    calls = []
+
+    class Fake(GraphEmailClient):
+        def __init__(self):
+            pass
+
+        def _make_request(self, method, endpoint, **kwargs):
+            calls.append((endpoint, kwargs.get("params"), kwargs.get("headers")))
+            if endpoint.endswith("/attachments") and "/attachments/" not in endpoint:
+                return {"value": [
+                    {"id": "big", "name": "big.pdf", "size": 9_000_000, "contentType": "application/pdf"},
+                    {"id": "small", "name": "a.pdf", "size": 120, "contentType": "application/pdf"},
+                ]}
+            if endpoint.endswith("/attachments/small"):
+                return {"id": "small", "name": "a.pdf", "size": 120, "contentBytes": "YQ=="}
+            if "mailFolders/inbox/messages" in endpoint:
+                return {"value": []}
+            raise AssertionError(endpoint)
+
+    items = Fake().get_message_attachments("joey@opendc.ca", "msg")
+    assert items[0]["skipped"] == "too_large"
+    assert items[0].get("contentBytes") is None
+    assert items[1]["contentBytes"] == "YQ=="
+    assert not any("/attachments/big" in endpoint for endpoint, _params, _headers in calls)
+    Fake().get_inbox_emails("joey@opendc.ca")
+    prefer = [
+        headers for endpoint, _params, headers in calls
+        if endpoint and "mailFolders/inbox/messages" in endpoint
+    ]
+    assert prefer and prefer[0].get("Prefer") == 'outlook.body-content-type="text"'
+
+
+def test_shadow_failure_still_parses_the_quote(session, monkeypatch):
+    set_inbox_mode(session, "customer_approval_detection", "shadow")
+    session.commit()
+    service = EmailMonitorService()
+    service.graph_client, _calls = _graph([])
+    seen = {}
+    _stub_ai(monkeypatch, service, seen, doors=[{"model": "TX450", "width_ft": 8, "height_ft": 8}])
+    _categorize(monkeypatch, "quote_request")
+    monkeypatch.setattr(service.ai_client, "map_email_to_configurator", lambda *a, **k: {
+        "success": False, "error": "stop", "doors": [],
+    })
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("shadow blew up")
+
+    monkeypatch.setattr("app.services.quote_followup.handle_customer_approval", _boom)
+    result = service._process_single_email(
+        session,
+        _email(subject="Approved", body="Approved SQ-1001"),
+        "joey@opendc.ca",
+    )
+    assert result == "quote_request"
+    assert "body" in seen
 
 
 def test_inbox_migration_upgrades_and_downgrades(tmp_path):

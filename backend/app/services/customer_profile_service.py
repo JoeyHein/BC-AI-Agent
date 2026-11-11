@@ -1118,12 +1118,13 @@ def start_background_seed(customer_ids: Sequence[str], fetch, session_factory, p
 # ---------------------------------------------------------------------------
 
 def quote_email_text(subject: str = "", body: str = "", attachments: Any = None) -> str:
-    """Body plus any text already extracted from attachments.
+    """Subject, the new body, then attachment text.
 
-    Attachment files are not parsed here. When a later step has already
-    pulled text out of one, that text is part of what the email said.
+    Quoted history is removed from the body only. Stripping the whole
+    string would throw away a drawing that was appended after 'On ... wrote:'.
     """
-    parts = [subject or "", body or ""]
+    from app.services.email_text import fresh_message_text
+    parts = [subject or "", fresh_message_text(body or "")]
     for item in attachments or []:
         if isinstance(item, str):
             parts.append(item)

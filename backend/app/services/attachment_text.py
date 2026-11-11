@@ -65,6 +65,7 @@ class PageText:
 class AttachmentRead:
     pages: List[PageText] = field(default_factory=list)
     openings: List[dict] = field(default_factory=list)
+    reference_openings: List[dict] = field(default_factory=list)
     combined_text: str = ""
 
     def staff_payload(self, applied: bool) -> dict:
@@ -90,6 +91,7 @@ class AttachmentRead:
             "applied": applied,
             "opening_count": len(self.openings),
             "openings": self.openings,
+            "reference_openings": self.reference_openings,
             "files": files,
         }
 
@@ -151,6 +153,10 @@ def read_graph_attachments(raw_attachments: Optional[list]) -> AttachmentRead:
         name = item.get("name") or "attachment"
         content_type = (item.get("contentType") or "").split(";")[0].strip().lower()
         encoded = item.get("contentBytes")
+        size = item.get("size") or 0
+        if item.get("skipped") == "too_large" or (not encoded and size > MAX_FILE_BYTES):
+            pages.append(PageText(name, 1, "", "too_large", counts_as_email=False))
+            continue
         if not encoded:
             pages.append(PageText(name, 1, "", "no_bytes"))
             continue
@@ -165,15 +171,30 @@ def read_graph_attachments(raw_attachments: Optional[list]) -> AttachmentRead:
             pages.append(PageText(name, 1, "", "too_large", counts_as_email=False))
             continue
         pages.extend(_read_one(name, content_type, data, time.monotonic() + MAX_SECONDS))
-    openings = find_openings(pages)
+    openings = find_openings([page for page in pages if page.counts_as_email])
+    reference = find_openings(
+        [_as_customer_page(page) for page in pages if not page.counts_as_email]
+    )
     combined = _combined(pages)
-    return AttachmentRead(pages=pages, openings=openings, combined_text=combined)
+    return AttachmentRead(
+        pages=pages,
+        openings=openings,
+        reference_openings=reference,
+        combined_text=combined,
+    )
+
+
+def _as_customer_page(page: PageText) -> PageText:
+    return PageText(page.file_name, page.page, page.text, page.method, counts_as_email=True)
 
 
 def find_openings(pages: List[PageText]) -> List[dict]:
+    """Openings the customer asked for. Brochure pages are not included."""
     found = []
     seen = set()
     for page in pages:
+        if not page.counts_as_email:
+            continue
         for opening in _openings_in_text(page.text or ""):
             key = (page.file_name, page.page, opening["width_in"], opening["height_in"])
             if key in seen:

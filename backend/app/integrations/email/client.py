@@ -113,7 +113,10 @@ class GraphEmailClient:
         if filter_query:
             params["$filter"] = filter_query
 
-        result = self._make_request("GET", endpoint, params=params)
+        result = self._make_request(
+            "GET", endpoint, params=params,
+            headers={"Prefer": 'outlook.body-content-type="text"'},
+        )
         return result.get("value", [])
 
     def get_email_by_id(self, user_email: str, message_id: str) -> Dict[str, Any]:
@@ -175,17 +178,36 @@ class GraphEmailClient:
             return None
 
     def get_message_attachments(self, user_email: str, message_id: str) -> List[Dict[str, Any]]:
-        """List an email's attachments, with content included for fileAttachments.
+        """List an email's attachments. Files over 8 MB are not downloaded.
 
-        Graph inlines `contentBytes` (base64) directly on the attachment
-        resource for regular file attachments under its size cap — no second
-        fetch needed. Reference/item attachments (linked cloud files, another
-        message) come back without contentBytes and are skipped by callers
-        that need the actual bytes (e.g. invoice PDF extraction).
+        The list is metadata only (`size` is on that response). The bytes
+        are a second request, and only when the file is within the cap.
         """
+        from app.services.attachment_text import MAX_FILE_BYTES
+
         endpoint = f"users/{user_email}/messages/{message_id}/attachments"
-        result = self._make_request("GET", endpoint)
-        return result.get("value", [])
+        listed = self._make_request(
+            "GET", endpoint,
+            params={"$select": "id,name,contentType,size,isInline"},
+        )
+        items = []
+        for att in listed.get("value", []):
+            size = att.get("size") or 0
+            if size > MAX_FILE_BYTES:
+                att["contentBytes"] = None
+                att["skipped"] = "too_large"
+                items.append(att)
+                continue
+            att_id = att.get("id")
+            if not att_id:
+                items.append(att)
+                continue
+            full = self._make_request(
+                "GET",
+                f"users/{user_email}/messages/{message_id}/attachments/{att_id}",
+            )
+            items.append(full)
+        return items
 
     def get_folders(self, user_email: str) -> List[Dict[str, Any]]:
         """Get all mail folders"""

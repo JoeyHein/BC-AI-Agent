@@ -185,6 +185,11 @@ function Openings({ quote }) {
           </li>
         ))}
         {openings.length === 0 && <li className="text-sm text-gray-500">No opening size was read. Check the file above.</li>}
+        {(read.reference_openings || []).map((opening) => (
+          <li key={`ref-${opening.file}-${opening.page}-${opening.index}`} className="text-sm text-gray-500">
+            Reference only: {opening.label} · {opening.file} page {opening.page}
+          </li>
+        ))}
       </ul>
     </div>
   )

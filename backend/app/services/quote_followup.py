@@ -30,11 +30,17 @@ _STRONG_RE = re.compile(
     re.I,
 )
 _GO_AHEAD_CHANGE = re.compile(
-    r"\bgo ahead\b(?:\s+and)?\s+(?:change|revise|update|modify|adjust)\b",
+    r"\bgo ahead\b.{0,40}\b(?:change|revise|update|modify|adjust|colour|color)\b"
+    r"|\b(?:change|revise|update|modify|adjust)\b.{0,40}\bgo ahead\b",
     re.I,
 )
-_NEGATED_APPROVAL = re.compile(
-    r"\b(?:not|never|no|n't)\b(?:\s+\w+){0,3}\s+approved\b|\bapproved\b(?:\s+\w+){0,2}\s+yet\b",
+_CHANGE = re.compile(
+    r"\b(?:change|revise|update|modify|adjust|make it|but make)\b",
+    re.I,
+)
+_CONDITIONAL = re.compile(r"\b(?:once|when|if|after|before)\b", re.I)
+_NEGATION = re.compile(
+    r"\b(?:not|never|no|nor|cannot)\b|\b(?:can|do|won|is|are|was|were|has|have|had|did|should|would|could)n['’]t\b|\w+n['’]t\b",
     re.I,
 )
 _PREVIOUS_SQ = re.compile(
@@ -62,31 +68,75 @@ _ASSUMPTION_FIELDS = (
 )
 
 
-def is_customer_approval(category: str, subject: str, body: str) -> bool:
-    """True when the new writing is a go-ahead, not a change or a new request.
+def _sentences(text: str) -> List[str]:
+    parts = re.split(r"\n+|(?<=[.!?])\s+", text or "")
+    return [part.strip() for part in parts if part.strip()]
 
-    Quoted older mail is ignored. "Not approved yet" and "go ahead and
-    change the colour" are not approvals. A new request that mentions an
-    older SQ having been approved is not an approval either.
+
+def _mentions_approval(sentence: str) -> bool:
+    return bool(_STRONG_RE.search(sentence) or _APPROVED_RE.search(sentence))
+
+
+def _blocked(sentence: str) -> bool:
+    """A question, a conditional, a negation, or a change is not a go-ahead."""
+    if "?" in sentence:
+        return True
+    if _CONDITIONAL.search(sentence) or _NEGATION.search(sentence):
+        return True
+    if _GO_AHEAD_CHANGE.search(sentence) or _CHANGE.search(sentence):
+        return True
+    return False
+
+
+def approval_level(category: str, subject: str, body: str) -> str:
+    """high, low, or none.
+
+    high is a clear go-ahead. low is a go-ahead tied to a change: do not
+    treat it as approval, and do not stop the modification path. none is
+    everything else, including questions and 'not yet'. Ambiguous is none.
     """
-    text = fresh_message_text(f"{subject or ''}\n{body or ''}")
-    if _NEGATED_APPROVAL.search(text) or _GO_AHEAD_CHANGE.search(text):
-        return False
-    new_request = bool(_NEW_QUOTE_RE.search(text) or _SIZE_HINT_RE.search(text))
-    if new_request and _PREVIOUS_SQ.search(text):
-        return False
-    if new_request and category in {"quote_request", "quote_modification", ""}:
-        return False
-    has_sq = _SQ_RE.search(text) is not None
-    strong = _STRONG_RE.search(text) is not None
-    approved = _APPROVED_RE.search(text) is not None
-    if category == "order_confirmation" and (strong or approved or has_sq):
-        return True
-    if category == "order_confirmation":
-        return False
-    if strong:
-        return True
-    return bool(approved and has_sq)
+    del category
+    text = fresh_message_text(body or "")
+    if subject and not _looks_like_reply_subject(subject):
+        text = f"{subject}\n{text}"
+    if _PREVIOUS_SQ.search(text) and (_NEW_QUOTE_RE.search(text) or _SIZE_HINT_RE.search(text)):
+        return "none"
+    high = False
+    low = False
+    for sentence in _sentences(text):
+        if not _mentions_approval(sentence):
+            continue
+        if _blocked(sentence):
+            if _SQ_RE.search(sentence) and (_CHANGE.search(sentence) or _GO_AHEAD_CHANGE.search(sentence)):
+                if not _NEGATION.search(sentence) and "?" not in sentence and not _CONDITIONAL.search(sentence):
+                    low = True
+            continue
+        if _STRONG_RE.search(sentence) or _APPROVED_RE.search(sentence):
+            high = True
+    if high and (_CHANGE.search(text) or _GO_AHEAD_CHANGE.search(text)):
+        return "low"
+    if high and not low:
+        return "high"
+    if low:
+        return "low"
+    return "none"
+
+
+def _looks_like_reply_subject(subject: str) -> bool:
+    return bool(re.match(r"^\s*(re|fw|fwd)\s*:", subject or "", re.I))
+
+
+def is_customer_approval(category: str, subject: str, body: str) -> bool:
+    """True only for a clear go-ahead. A change, a question, or a maybe is not."""
+    return approval_level(category, subject, body) == "high"
+
+
+def note_low_approval(email_log: EmailLog, text: str) -> None:
+    """A go-ahead mixed with a change. Noted, not queued, and not a divert."""
+    _shadow_note(email_log, "customer_approval_low", {
+        "confidence": "low",
+        "excerpt": (text or "")[:500],
+    })
 
 
 def handle_customer_approval(
@@ -137,6 +187,19 @@ def handle_customer_approval(
     if duplicate is not None:
         return duplicate
     status, chosen_sq = _decision(candidates)
+    superseded = _supersede_vague(
+        db,
+        from_address=from_address,
+        candidates=candidates,
+        status=status,
+        chosen_sq=chosen_sq,
+        po_number=po_number,
+        po_source=po_source,
+        excerpt=text[:500],
+        email_log_id=email_log.id,
+    )
+    if superseded is not None:
+        return superseded
     row = CustomerOrderApproval(
         email_log_id=email_log.id,
         status=status,
@@ -455,14 +518,15 @@ def convert_customer_approval(
     candidates = row.candidates or []
     if row.status == "needs_choice" and not chosen:
         raise HTTPException(status_code=400, detail="Choose which quote to convert")
-    if candidates and chosen and not _candidate_has(candidates, chosen):
-        raise HTTPException(status_code=400, detail="That quote is not one of the matches")
     if not chosen:
         raise HTTPException(status_code=400, detail="No quote number to convert")
     portal_quote = _quote_by_number(db, chosen)
     if portal_quote is None:
         raise HTTPException(status_code=400, detail="That quote is not in the portal")
-    if row.from_address and not _belongs_to_sender(portal_quote, row.from_address):
+    same_customer = bool(row.from_address) and _same_customer(db, portal_quote, row.from_address)
+    if candidates and chosen and not _candidate_has(candidates, chosen) and not same_customer:
+        raise HTTPException(status_code=400, detail="That quote is not one of the matches")
+    if row.from_address and not same_customer:
         raise HTTPException(status_code=400, detail="That quote is not this customer's")
     previous = row.status
     claimed = (
@@ -701,7 +765,7 @@ def _quotes_for_numbers(db: Session, numbers: List[str], from_address: str) -> L
         return []
     by_key = {}
     for row in _rows_for_numbers(db, numbers):
-        if not _belongs_to_sender(row, from_address):
+        if not _same_customer(db, row, from_address):
             continue
         by_key.setdefault(_sq_key(row.bc_quote_id), row)
     found = []
@@ -751,20 +815,26 @@ def _quotes_on_thread(db: Session, from_address: str, subject: str, email_log_id
 
 
 def _recent_customer_quotes(db: Session, from_address: str) -> List[dict]:
+    """Recent quotes for this person, their company domain, or that BC customer."""
     if not from_address:
         return []
     cutoff = datetime.utcnow() - timedelta(days=90)
     rows = (
         db.query(QuoteRequest)
         .filter(
-            QuoteRequest.contact_email == from_address,
             QuoteRequest.bc_quote_id.isnot(None),
             QuoteRequest.created_at >= cutoff,
         )
         .order_by(QuoteRequest.created_at.desc())
         .all()
     )
-    return [_quote_candidate(row, "customer_recent") for row in rows]
+    found = []
+    for row in rows:
+        if _same_customer(db, row, from_address):
+            found.append(_quote_candidate(row, "customer_recent"))
+        if len(found) >= 8:
+            break
+    return found
 
 
 def _quote_candidate(row: QuoteRequest, method: str) -> dict:
@@ -794,10 +864,46 @@ def _quote_by_number(db: Session, sq_number: str) -> Optional[QuoteRequest]:
     return rows[0] if rows else None
 
 
+def _email_domain(address: str) -> str:
+    text = (address or "").strip().lower()
+    if "@" not in text:
+        return ""
+    return text.rsplit("@", 1)[-1]
+
+
+def _company_domain(domain: str) -> bool:
+    from app.services.customer_profile_service import FREE_MAIL_DOMAINS, INTERNAL_DOMAINS
+    return bool(domain) and domain not in FREE_MAIL_DOMAINS and domain not in INTERNAL_DOMAINS
+
+
 def _belongs_to_sender(row: QuoteRequest, from_address: str) -> bool:
+    """Same person, or the same company's own domain. Free mail does not count."""
     sender = (from_address or "").strip().lower()
     contact = (row.contact_email or "").strip().lower()
-    return bool(sender and contact and sender == contact)
+    if sender and contact and sender == contact:
+        return True
+    sender_domain = _email_domain(sender)
+    contact_domain = _email_domain(contact)
+    return bool(_company_domain(sender_domain) and sender_domain == contact_domain)
+
+
+def _same_customer(db: Session, row: QuoteRequest, from_address: str) -> bool:
+    """The sender, their company domain, or another contact on the same BC customer."""
+    if _belongs_to_sender(row, from_address):
+        return True
+    customer_id = (row.matched_bc_customer_id or "").strip()
+    domain = _email_domain(from_address)
+    if not customer_id or not _company_domain(domain):
+        return False
+    sibling = (
+        db.query(QuoteRequest.id)
+        .filter(
+            QuoteRequest.matched_bc_customer_id == customer_id,
+            QuoteRequest.contact_email.ilike(f"%@{domain}"),
+        )
+        .first()
+    )
+    return sibling is not None
 
 
 def _decision(candidates: List[dict]):
@@ -807,10 +913,33 @@ def _decision(candidates: List[dict]):
     return "needs_choice", None
 
 
+def _is_vague(row: CustomerOrderApproval) -> bool:
+    """A suggestion list with no chosen SQ. It must not block a later explicit one."""
+    if row.bc_quote_number:
+        return False
+    methods = {
+        item.get("method")
+        for item in (row.candidates or [])
+        if isinstance(item, dict)
+    }
+    return not methods or methods <= {"customer_recent"}
+
+
 def _duplicate_approval(db: Session, candidates: List[dict]):
-    keys = {_sq_key(item.get("bc_quote_number")) for item in candidates if item.get("bc_quote_number")}
-    keys.discard("")
-    if not keys:
+    """An open approval for the same SQ.
+
+    A vague 'which quote?' row does not block a later email that names an SQ.
+    Two vague rows for the same suggestion still collapse into one.
+    """
+    explicit = {
+        _sq_key(item.get("bc_quote_number"))
+        for item in candidates
+        if item.get("bc_quote_number") and item.get("method") in {"number", "thread"}
+    }
+    explicit.discard("")
+    suggested = {_sq_key(item.get("bc_quote_number")) for item in candidates if item.get("bc_quote_number")}
+    suggested.discard("")
+    if not explicit and not suggested:
         return None
     rows = (
         db.query(CustomerOrderApproval)
@@ -823,10 +952,62 @@ def _duplicate_approval(db: Session, candidates: List[dict]):
             row_keys.add(_sq_key(row.bc_quote_number))
         for item in row.candidates or []:
             if isinstance(item, dict) and item.get("bc_quote_number"):
+                if explicit and item.get("method") not in {"number", "thread"} and not row.bc_quote_number:
+                    continue
                 row_keys.add(_sq_key(item.get("bc_quote_number")))
-        if keys & row_keys:
+        if explicit:
+            if _is_vague(row):
+                continue
+            if explicit & row_keys:
+                return row
+        elif suggested & row_keys and _is_vague(row):
             return row
     return None
+
+
+def _supersede_vague(
+    db: Session,
+    *,
+    from_address: str,
+    candidates: List[dict],
+    status: str,
+    chosen_sq: Optional[str],
+    po_number: Optional[str],
+    po_source: Optional[str],
+    excerpt: str,
+    email_log_id: int,
+):
+    """A later 'approved SQ-x, PO y' replaces an open 'which quote?' row."""
+    if not chosen_sq:
+        return None
+    vague = (
+        db.query(CustomerOrderApproval)
+        .filter(
+            CustomerOrderApproval.status == "needs_choice",
+            CustomerOrderApproval.bc_quote_number.is_(None),
+            CustomerOrderApproval.from_address == from_address,
+        )
+        .order_by(CustomerOrderApproval.id.desc())
+        .first()
+    )
+    if vague is None or not _is_vague(vague):
+        return None
+    kept_po = po_number or vague.customer_po
+    kept_source = po_source if po_number else vague.po_source
+    vague.status = status
+    vague.bc_quote_number = chosen_sq
+    vague.quote_request_id = next(
+        (item.get("quote_request_id") for item in candidates if item.get("bc_quote_number") == chosen_sq),
+        None,
+    )
+    vague.candidates = candidates
+    vague.match_method = "number"
+    vague.customer_po = kept_po
+    vague.po_source = kept_source
+    vague.excerpt = excerpt
+    vague.email_log_id = email_log_id
+    db.flush()
+    return vague
 
 
 def _draft_recipient(email_log: Optional[EmailLog], fallback: Optional[str]):
