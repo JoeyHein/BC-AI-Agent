@@ -30,10 +30,10 @@ from app.services.freight_service import (
     calculate_freight,
     door_freight_amounts,
     get_freight_config,
-    interleave_door_freight,
     remember_added_door_line,
     sum_line_amounts,
 )
+from app.services.quote_line_layout import apply_quote_line_layout, line_needs_output
 from app.services.install_pricing_service import install_pricing_service
 from app.services.track_defaults import resolve_track_thickness
 
@@ -1210,16 +1210,23 @@ def _generate_bc_quote_with_items(
         f"PRICING MODE: trust_bc=True, enable_volume_curve={enable_volume_curve}"
     )
 
-    # Delivery quotes get a freight line under each door, immediately after
-    # WRAP. Pickup and home-builder (install) quotes do not.
-    if (delivery_type or "").lower() != "pickup" and not provides_install:
-        freight_item = "FREIGHT"
-        if db:
-            try:
-                freight_item = get_freight_config(db).get("freight_item_number", "FREIGHT")
-            except Exception:
-                freight_item = "FREIGHT"
-        all_lines = interleave_door_freight(all_lines, freight_item)
+    # Delivery quotes charge freight. Home-builder (install) quotes do not.
+    # Off: one FREIGHT line under each door, immediately after WRAP.
+    # quote_line_layout_v2: one FREIGHT line at the very end, operators
+    # lifted out of the door packages, wrapping left inside each package.
+    include_freight = (delivery_type or "").lower() != "pickup" and not provides_install
+    freight_item = "FREIGHT"
+    if include_freight and db:
+        try:
+            freight_item = get_freight_config(db).get("freight_item_number", "FREIGHT")
+        except Exception:
+            freight_item = "FREIGHT"
+    all_lines, layout_v2 = apply_quote_line_layout(
+        all_lines,
+        db=db,
+        include_freight=include_freight,
+        freight_item=freight_item,
+    )
 
     # Step 4: Add line items
     lines_added = 0
@@ -1269,12 +1276,10 @@ def _generate_bc_quote_with_items(
             else:
                 _track_door_line(line.get("door_index"), added_line)
 
-            # Set Output=True on door descriptions, operators, and accessories
-            # so BC shows them on printed quotes and subtotals correctly.
-            needs_output = (
-                line.get("is_door_desc")
-                or line.get("category") in ("operator",)
-            )
+            # Output check mark starts a BC subtotal of the lines below it.
+            # Layout v2 leaves the chain/belt rail unchecked so it stays in
+            # the operator head's group.
+            needs_output = line_needs_output(line, layout_v2=layout_v2)
             if needs_output and added_line.get("sequence"):
                 try:
                     bc_client.set_quote_line_output(
@@ -2135,10 +2140,13 @@ def _edit_bc_quote_lines(
     """
     Edit an existing BC sales quote, keeping the same quote id and number.
 
-    Any add, remove, resize, or reorder rebuilds every remaining door so the
-    posted order stays ``[door lines, WRAP, that door's FREIGHT]``. Business
-    Central only appends lines, so leaving unchanged doors in place and
-    tacking one freight line on the end would collapse the per-door split.
+    Any add, remove, resize, or reorder rebuilds every remaining door.
+    With the layout flag off the posted order stays
+    ``[door lines, WRAP, that door's FREIGHT]``. Business Central only
+    appends lines, so leaving unchanged doors in place and tacking one
+    freight line on the end would collapse the per-door split.
+    ``quote_line_layout_v2`` rebuilds the same way but posts
+    ``[every door package with its WRAP, then operators, then one FREIGHT]``.
     Pickup quotes are rebuilt without freight lines. A PO-only edit does not
     touch lines.
 
@@ -2306,17 +2314,24 @@ def _edit_bc_quote_lines(
                 "parts_count": 0, "success": False, "error": str(e),
             })
 
-        # WRAP stays the last product line. Freight placeholders are inserted
-        # under it below, one per door, before anything is posted.
+        # WRAP stays inside the door. Freight placement depends on the layout
+        # flag and is applied once the door list is complete.
 
-    if rebuild_all and (delivery_type or "").lower() != "pickup" and not provides_install:
+    layout_v2 = False
+    if rebuild_all:
+        include_freight = (delivery_type or "").lower() != "pickup" and not provides_install
         freight_item = "FREIGHT"
-        if db:
+        if include_freight and db:
             try:
                 freight_item = get_freight_config(db).get("freight_item_number", "FREIGHT")
             except Exception:
                 freight_item = "FREIGHT"
-        all_new_lines = interleave_door_freight(all_new_lines, freight_item)
+        all_new_lines, layout_v2 = apply_quote_line_layout(
+            all_new_lines,
+            db=db,
+            include_freight=include_freight,
+            freight_item=freight_item,
+        )
 
     # Warm BC cost cache for regenerated parts
     item_pns = [l["part_number"] for l in all_new_lines if l.get("part_number") and not l.get("is_door_freight")]
@@ -2381,7 +2396,7 @@ def _edit_bc_quote_lines(
             elif di and added_line and added_line.get("id"):
                 line_map["doors"].setdefault(str(di), []).append(added_line["id"])
 
-            needs_output = line.get("is_door_desc") or line.get("category") in ("operator",)
+            needs_output = line_needs_output(line, layout_v2=layout_v2)
             if needs_output and added_line.get("sequence"):
                 try:
                     bc_client.set_quote_line_output(bc_quote_number, added_line["sequence"], output=True)
@@ -2607,6 +2622,10 @@ def _estimate_pricing_locally(
             "lineType": "Comment",
             "description": door_desc,
             "door_index": door_index,
+            # Same package marker the BC builders use. Layout v2 splits
+            # subtotal groups on it; without it the estimate would leave
+            # operators inside the door lines.
+            "is_door_desc": True,
         })
 
         # Mount-surface install note for the shop.
@@ -2740,12 +2759,14 @@ def _estimate_pricing_locally(
                 "error": str(e),
             })
 
-        # WRAP stays the last line of the door. Freight rows are inserted
-        # under it once the door subtotals are known.
+        # WRAP stays inside the door. Freight placement follows the layout flag.
 
     # Warm the BC cost cache so pricing uses live production costs
-    if (delivery_type or "").lower() != "pickup":
-        all_lines = interleave_door_freight(all_lines)
+    all_lines, layout_v2 = apply_quote_line_layout(
+        all_lines,
+        db=db,
+        include_freight=(delivery_type or "").lower() != "pickup",
+    )
     item_pns = [l["part_number"] for l in all_lines if l.get("part_number") and not l.get("is_door_freight")]
     warm_bc_cost_cache(item_pns)
 
@@ -2808,15 +2829,20 @@ def _estimate_pricing_locally(
         freight_info = freight
 
         if not freight["skip"] and freight["amount"] > 0:
-            door_subs = []
-            seen_door = False
-            for row in line_pricing:
-                if row.get("line_type") == "Comment":
-                    door_subs.append(0.0)
-                    seen_door = True
-                elif seen_door and row.get("part_number") != "FREIGHT":
-                    door_subs[-1] += row.get("line_total") or 0
-            amounts = allocate_freight_across_doors(door_subs, freight["amount"])
+            if layout_v2:
+                # The single trailing freight line takes the whole charge.
+                # Per-door shares would price that one line as only the first door.
+                amounts = [freight["amount"]]
+            else:
+                door_subs = []
+                seen_door = False
+                for row in line_pricing:
+                    if row.get("line_type") == "Comment":
+                        door_subs.append(0.0)
+                        seen_door = True
+                    elif seen_door and row.get("part_number") != "FREIGHT":
+                        door_subs[-1] += row.get("line_total") or 0
+                amounts = allocate_freight_across_doors(door_subs, freight["amount"])
             line_pricing = apply_freight_to_line_pricing(
                 line_pricing, amounts, freight["description"],
             )
