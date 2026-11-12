@@ -449,12 +449,12 @@ EVERY field, using the defaults shown when the email is silent:
 
 {{
   "doorType": "commercial",        // "residential" | "commercial" | "aluminium". DEFAULT "commercial" unless the email clearly indicates a residential/house door or an aluminium/full-view glass door.
-  "doorSeries": "TX450",           // commercial: TX450 (default), TX450-20, TX500, TX500-20. residential: KANATA (default) or CRAFT. aluminium: AL976 (default), SWD, Solalite, Panorama.
+  "doorSeries": "TX450",           // commercial: TX450 (default), TX450-20, TX500, TX500-20, TX760 (3" thick commercial door only — not 3" track). residential: KANATA (default) or CRAFT. aluminium: AL976 (default), SWD, Solalite, Panorama.
   "doorWidth": 0,                   // INTEGER inches (feet*12 + inches). REQUIRED.
   "doorHeight": 0,                  // INTEGER inches. REQUIRED.
   "doorCount": 1,                   // quantity of identical doors
   "panelColor": "WHITE",           // WHITE (default), BLACK, NEW_BROWN, SANDTONE, BRONZE, STEEL_GREY, IRON_ORE, NEW_ALMOND, WALNUT, HAZELWOOD, ENGLISH_CHESTNUT
-  "panelDesign": "FLUSH",          // commercial DEFAULT "FLUSH"; residential DEFAULT "SHXL"; others: UDC, BCXL, TRAFALGAR. Use what the email implies.
+  "panelDesign": "FLUSH",          // commercial DEFAULT "FLUSH", except TX760 which is MICROGROOVE; residential DEFAULT "SHXL"; others: UDC, BCXL, TRAFALGAR. Use what the email implies.
   "hasWindows": false,
   "windowQty": 0,                   // commercial window/section count if windows requested
   "glazingType": null,              // e.g. "THERMOPANE", "SINGLE", "POLYCARBONATE" if mentioned
@@ -474,6 +474,7 @@ RULES:
 - If a door's size is entirely missing, still emit the door but set its size to
   0 and add a note "size missing"; the caller will route it to manual review.
 - Keep doorSeries consistent with doorType (don't put TX450 on a residential door).
+- TX760 is the 3" thick commercial door. When the email names TX760 or a 3" thick commercial door, keep doorSeries "TX760" and panelDesign "MICROGROOVE". A 3" track on another series is not TX760.
 - Do NOT invent windows, operators, or high-lift unless the email mentions them.
 - Be conservative: if unsure about a value, use the default and mention it in notes.
 
@@ -558,7 +559,7 @@ OUTPUT FORMAT — JSON only, no prose:
             "HAZELWOOD": "HAZELWOOD", "ENGLISH_CHESTNUT": "ENGLISH_CHESTNUT",
             "CHESTNUT": "ENGLISH_CHESTNUT",
         }
-        COMMERCIAL_SERIES = {"TX450", "TX450-20", "TX500", "TX500-20"}
+        COMMERCIAL_SERIES = {"TX450", "TX450-20", "TX500", "TX500-20", "TX760"}
         RESIDENTIAL_SERIES = {"KANATA", "CRAFT"}
         ALUMINIUM_SERIES = {"AL976", "SWD", "SOLALITE", "PANORAMA"}
 
@@ -590,7 +591,10 @@ OUTPUT FORMAT — JSON only, no prose:
             panel_color = COLOR_MAP.get(color_key, color_key if color_key else "WHITE")
 
             design = str(d.get("panelDesign", "") or "").upper().strip()
-            if not design:
+            if series == "TX760":
+                # PN75/PN76 is stocked only in the micro-groove stamp.
+                design = "MICROGROOVE"
+            elif not design:
                 design = "FLUSH" if door_type == "commercial" else "SHXL"
 
             from app.services.track_defaults import resolve_track_thickness
