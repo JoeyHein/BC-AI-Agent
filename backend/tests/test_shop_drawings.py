@@ -219,45 +219,82 @@ class TestLengthDualFormat:
         assert fmt_length_dual(0) == "0'-0\" [0mm]"
 
 
-# Normalized DXF hashes of the schematic sheet. Header clocks and ezdxf
-# GUIDs move between writes; everything else is the drawing. These were
-# taken with shop_drawing_real_profiles off.
+# Normalized DXF hashes of the schematic sheet, with the flag off.
+# Header clocks, ezdxf GUIDs, and the "ezdxf x.y.z @ timestamp" comment
+# move between writes. CLASS records (LAYOUT vs ACDBPLACEHOLDER) are
+# also emitted in either order, so those records are sorted before hashing.
 _VOLATILE_HEADER = {
     "$TDCREATE", "$TDUCREATE", "$TDUPDATE", "$TDUUPDATE",
     "$TDINDWG", "$TDUSRTIMER", "$FINGERPRINTGUID", "$VERSIONGUID",
 }
 _FLAG_OFF_SHA256 = {
-    "shxl_wood": "cc2283f844711ee3a95c76e7d3a03bcf7c9667fd85fc69d2c671356e4f6eeee4",
-    "tx450_steel": "7bc1f45e3b1b19c844a72a51a9a5c72541573b8e8707fcbeaac0a3eb68408113",
-    "tx450_wood": "ff2131c728b126d063ffc5ea95b6d2a45c781605a44f1a0f59a9d897f6f54956",
-    "tx380_steel": "76c03bb7faa08506a549d6bdce8637bbe5747613479242211847df095d5519c0",
-    "tx380_wood": "5a24902b95f0c186d87e5c0b214ce0fa2abe1d629c37cf969cd7a3e0ef5ffd1c",
-    "tx500_steel": "93d2fabf531109bbd98f85ab342964c9ff1ff53d09656ba4a1e5d664c4c0e98f",
-    "tx450_20": "60ef5f58baf9f93c60fdead88fc2b63622bbd7eb6ea6b33f83088eeff133006d",
-    "pano_wood": "36a56495f25384091dc1c55fa5fa35067ed1b6cbb988642e0e1d3a528c5c4994",
+    "shxl_wood": "98c16517601e474773fc1b8b76206c6c98e08acaf04a29d6b200922cd955be14",
+    "tx450_steel": "544ff95918fc2a2a847eeeb7ce2582262aba70ad7827260e1feb5e59f98abf3e",
+    "tx450_wood": "385c469b30e22552228df35c734034f74e03bee3a66b725ad2291a98420c8021",
+    "tx380_steel": "1096bdd1d172fd66c310478b0ebc4b01b7885a606ccf9a0c984c609c56bd0cea",
+    "tx380_wood": "339d951877508db3439167627c2f6641866b1fac4d950d1742ea4f8d28afa5a2",
+    "tx500_steel": "3402f9ae3d35db9b9e84e65d30c09579c7c6201080f75d0a69085f7c9eb21977",
+    "tx450_20": "75a1a1422950873d003ef2b9b0a8945d686a5afcb16a8f2fe2809f7bc4a7c378",
+    "pano_wood": "67daaa008c5339e7b90aebdef9b3c90c24d1e837e18c444d7b0d304dd97acee7",
 }
+
+
+def _class_name(block: list[str]) -> str:
+    for i, line in enumerate(block[:-1]):
+        if line.strip() == "1":
+            return block[i + 1].strip()
+    return ""
 
 
 def _normalize_dxf(raw: bytes) -> bytes:
     import re
-    lines = raw.decode("utf-8").splitlines(keepends=True)
-    out = []
+    lines = raw.decode("utf-8").splitlines()
+    cleaned = []
     i = 0
     while i < len(lines):
         token = lines[i].strip()
         if token in _VOLATILE_HEADER and i + 2 < len(lines):
-            out.append(lines[i])
-            out.append(lines[i + 1])
-            out.append("<volatile>\n")
+            cleaned.append(lines[i])
+            cleaned.append(lines[i + 1])
+            cleaned.append("<volatile>")
             i += 3
             continue
-        if re.match(r"\d+\.\d+\.\d+ @ ", lines[i].strip()):
-            out.append("<volatile>\n")
+        if re.match(r"\d+\.\d+\.\d+ @ ", token):
+            cleaned.append("<volatile>")
             i += 1
             continue
-        out.append(lines[i])
+        cleaned.append(lines[i])
         i += 1
-    return "".join(out).encode()
+
+    out = []
+    i = 0
+    while i < len(cleaned):
+        # Group code 0 is the three-character field "  0". A numeric
+        # value of 0 is just "0", so the two must not be confused.
+        is_class = (
+            cleaned[i] == "  0"
+            and i + 1 < len(cleaned)
+            and cleaned[i + 1].strip() == "CLASS"
+        )
+        if not is_class:
+            out.append(cleaned[i])
+            i += 1
+            continue
+        blocks = []
+        while (
+            i < len(cleaned)
+            and cleaned[i] == "  0"
+            and i + 1 < len(cleaned)
+            and cleaned[i + 1].strip() == "CLASS"
+        ):
+            start = i
+            i += 2
+            while i < len(cleaned) and cleaned[i] != "  0":
+                i += 1
+            blocks.append(cleaned[start:i])
+        for block in sorted(blocks, key=_class_name):
+            out.extend(block)
+    return ("\n".join(out) + "\n").encode()
 
 
 def _profile_context(**overrides) -> DrawingContext:
