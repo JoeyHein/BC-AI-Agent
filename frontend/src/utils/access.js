@@ -16,6 +16,7 @@ const NAV = {
   '/reviews': 'quotes.view',
   '/door-configurator': ['configurator.use', 'quotes.edit'],
   '/production': 'production.view',
+  '/shop-tv': ['production.view', 'sales_orders.view'],
   '/cut-work-orders': 'production.view',
   '/install-referrals': 'customers.view',
   '/purchasing': 'purchase_orders.view',

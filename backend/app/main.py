@@ -38,6 +38,7 @@ from app.api import external_purchase_orders
 from app.api import external_door_config
 from app.api import bc_read, staff_service_keys
 from app.api import kpi_dashboard
+from app.api import shop_tv
 from app.api.staff_permission_middleware import staff_permission_middleware
 from app.api.staff_service_key_middleware import staff_service_key_middleware
 
@@ -382,6 +383,8 @@ logger.info(f"Including upwardor plan router: {upwardor_plan.router.prefix}")
 app.include_router(upwardor_plan.router)
 logger.info(f"Including kpi dashboard router: {kpi_dashboard.router.prefix}")
 app.include_router(kpi_dashboard.router)
+logger.info(f"Including shop TV router: {shop_tv.router.prefix}")
+app.include_router(shop_tv.router)
 
 # Integrations router (service-to-service — Donna PA, email agents)
 logger.info(f"Including integrations router: {integrations.router.prefix}")

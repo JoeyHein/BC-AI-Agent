@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { navAllowed, showDashboard, showSettings } from '../utils/access'
+import { shopTvApi } from '../api/client'
 
 const DASHBOARD = { path: '/', label: 'Dashboard', icon: 'home' }
 
@@ -49,6 +50,7 @@ function isActive(pathname, path) {
 }
 
 function pageTitle(pathname) {
+  if (pathname === '/shop-tv') return 'Shop TV'
   const match = ALL_ITEMS.find((item) => isActive(pathname, item.path))
   return match?.label || 'OpenDC Portal'
 }
@@ -71,6 +73,7 @@ function Icon({ name }) {
     flag: 'M5 21V4M5 4h9l-1.5 3L14 10H5',
     clock: 'M12 7v5l3 2M12 21a9 9 0 110-18 9 9 0 010 18z',
     mail: 'M4 6h16v12H4zM4 7l8 6 8-6',
+    tv: 'M4 7h16a1 1 0 011 1v8a1 1 0 01-1 1H4a1 1 0 01-1-1V8a1 1 0 011-1zM8 19h8',
     cog: 'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9c.3.6.9 1 1.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z',
   }
   return (
@@ -84,11 +87,17 @@ function Logo({ className = 'h-8' }) {
   return <img src="/assets/opendc-logo.jpg" alt="Open Distribution Company" className={`${className} w-auto`} />
 }
 
-function SideNav({ pathname, onNavigate, user }) {
-  const sections = SECTIONS.map((section) => ({
-    ...section,
-    items: section.items.filter((item) => navAllowed(user, item.path)),
-  })).filter((section) => section.items.length > 0)
+function SideNav({ pathname, onNavigate, user, shopTvOn }) {
+  const sections = SECTIONS.map((section) => {
+    let items = section.items.filter((item) => navAllowed(user, item.path))
+    if (section.label === 'Operations' && shopTvOn && navAllowed(user, '/shop-tv')) {
+      const shop = { path: '/shop-tv', label: 'Shop TV', icon: 'tv' }
+      const at = items.findIndex((item) => item.path === '/production')
+      items = [...items]
+      items.splice(at + 1, 0, shop)
+    }
+    return { ...section, items }
+  }).filter((section) => section.items.length > 0)
   const linkClass = (active) =>
     `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium whitespace-nowrap ${
       active
@@ -242,10 +251,23 @@ function StaffShell({ children }) {
   const { user, isAuthenticated } = useAuth()
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [shopTvOn, setShopTvOn] = useState(false)
 
   useEffect(() => {
     setMobileOpen(false)
   }, [location.pathname])
+
+  useEffect(() => {
+    if (!isAuthenticated || !navAllowed(user, '/shop-tv')) {
+      setShopTvOn(false)
+      return undefined
+    }
+    let cancelled = false
+    shopTvApi.enabled()
+      .then(() => { if (!cancelled) setShopTvOn(true) })
+      .catch(() => { if (!cancelled) setShopTvOn(false) })
+    return () => { cancelled = true }
+  }, [isAuthenticated, user])
 
   useEffect(() => {
     const media = window.matchMedia('(min-width: 1024px)')
@@ -270,7 +292,7 @@ function StaffShell({ children }) {
     }
   }, [mobileOpen])
 
-  if (!isAuthenticated) {
+  if (location.pathname === '/shop-tv' || !isAuthenticated) {
     return children
   }
 
@@ -282,7 +304,7 @@ function StaffShell({ children }) {
             <Logo />
           </Link>
         </div>
-        <SideNav pathname={location.pathname} user={user} />
+        <SideNav pathname={location.pathname} user={user} shopTvOn={shopTvOn} />
       </aside>
 
       {mobileOpen && (
@@ -309,7 +331,7 @@ function StaffShell({ children }) {
                 </svg>
               </button>
             </div>
-            <SideNav pathname={location.pathname} user={user} onNavigate={() => setMobileOpen(false)} />
+            <SideNav pathname={location.pathname} user={user} shopTvOn={shopTvOn} onNavigate={() => setMobileOpen(false)} />
           </aside>
         </div>
       )}
