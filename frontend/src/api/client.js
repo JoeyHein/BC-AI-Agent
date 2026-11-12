@@ -680,6 +680,12 @@ export const customersApi = {
   setProfileQuotingMode: (mode) =>
     apiClient.put('/api/admin/customers/profile-quoting', { mode }),
 
+  getShopDrawingFlags: () =>
+    apiClient.get('/api/admin/customers/shop-drawing-flags'),
+
+  setShopDrawingFlags: (modes) =>
+    apiClient.put('/api/admin/customers/shop-drawing-flags', modes),
+
   getInboxModes: () =>
     apiClient.get('/api/admin/customers/inbox-automation'),
 

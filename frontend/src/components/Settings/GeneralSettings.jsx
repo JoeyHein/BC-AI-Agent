@@ -48,12 +48,17 @@ function GeneralSettings() {
     queryKey: ['inbox-automation'],
     queryFn: async () => (await customersApi.getInboxModes()).data,
   })
+  const shopDrawings = useQuery({
+    queryKey: ['shop-drawing-flags'],
+    queryFn: async () => (await customersApi.getShopDrawingFlags()).data,
+  })
   const prices = useQuery({
     queryKey: ['quote-price-overrides'],
     queryFn: async () => (await customersApi.getQuotePriceOverrides()).data,
   })
   const mode = data?.mode || 'off'
   const inboxModes = inbox.data?.modes || {}
+  const shopModes = shopDrawings.data?.modes || {}
   const panelSetting = prices.data?.quote_replacement_section_pricing || {}
   const finderSetting = prices.data?.quote_section_finder || {}
   const windowSetting = prices.data?.quote_flat_residential_windows || {}
@@ -93,6 +98,35 @@ function GeneralSettings() {
           >
             <option value="off">Off</option>
             <option value="shadow">Shadow</option>
+            <option value="on">On</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-lg p-5 space-y-5">
+        <div>
+          <h3 className="text-sm font-medium text-gray-900">Shop drawings</h3>
+          <p className="mt-1 text-sm text-gray-600">
+            Off keeps the current schematic. On draws the Upwardor tongue-and-groove profile and the wood or steel jamb sideroom.
+          </p>
+        </div>
+        <label className="block text-sm text-gray-700">
+          <span className="block text-xs font-medium text-gray-500 mb-1">Real panel profiles</span>
+          <span className="block text-xs text-gray-500 mb-1">
+            TX thickness follows the series number in millimetres. Wood jambs use 3.75 inch sideroom. Steel jamb welds stay at 3.5 inch.
+          </span>
+          <select
+            aria-label="Real panel profiles"
+            value={shopModes.shop_drawing_real_profiles || 'off'}
+            onChange={async (event) => {
+              const next = event.target.value
+              if (!window.confirm(`Set Real panel profiles to ${next}?`)) return
+              await customersApi.setShopDrawingFlags({ shop_drawing_real_profiles: next })
+              queryClient.invalidateQueries({ queryKey: ['shop-drawing-flags'] })
+            }}
+            className="border border-gray-300 rounded-md px-2 py-1 text-sm"
+          >
+            <option value="off">Off</option>
             <option value="on">On</option>
           </select>
         </label>

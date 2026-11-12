@@ -219,6 +219,284 @@ class TestLengthDualFormat:
         assert fmt_length_dual(0) == "0'-0\" [0mm]"
 
 
+# Normalized DXF hashes of the schematic sheet. Header clocks and ezdxf
+# GUIDs move between writes; everything else is the drawing. These were
+# taken with shop_drawing_real_profiles off.
+_VOLATILE_HEADER = {
+    "$TDCREATE", "$TDUCREATE", "$TDUPDATE", "$TDUUPDATE",
+    "$TDINDWG", "$TDUSRTIMER", "$FINGERPRINTGUID", "$VERSIONGUID",
+}
+_FLAG_OFF_SHA256 = {
+    "shxl_wood": "cc2283f844711ee3a95c76e7d3a03bcf7c9667fd85fc69d2c671356e4f6eeee4",
+    "tx450_steel": "7bc1f45e3b1b19c844a72a51a9a5c72541573b8e8707fcbeaac0a3eb68408113",
+    "tx450_wood": "ff2131c728b126d063ffc5ea95b6d2a45c781605a44f1a0f59a9d897f6f54956",
+    "tx380_steel": "76c03bb7faa08506a549d6bdce8637bbe5747613479242211847df095d5519c0",
+    "tx380_wood": "5a24902b95f0c186d87e5c0b214ce0fa2abe1d629c37cf969cd7a3e0ef5ffd1c",
+    "tx500_steel": "93d2fabf531109bbd98f85ab342964c9ff1ff53d09656ba4a1e5d664c4c0e98f",
+    "tx450_20": "60ef5f58baf9f93c60fdead88fc2b63622bbd7eb6ea6b33f83088eeff133006d",
+    "pano_wood": "36a56495f25384091dc1c55fa5fa35067ed1b6cbb988642e0e1d3a528c5c4994",
+}
+
+
+def _normalize_dxf(raw: bytes) -> bytes:
+    import re
+    lines = raw.decode("utf-8").splitlines(keepends=True)
+    out = []
+    i = 0
+    while i < len(lines):
+        token = lines[i].strip()
+        if token in _VOLATILE_HEADER and i + 2 < len(lines):
+            out.append(lines[i])
+            out.append(lines[i + 1])
+            out.append("<volatile>\n")
+            i += 3
+            continue
+        if re.match(r"\d+\.\d+\.\d+ @ ", lines[i].strip()):
+            out.append("<volatile>\n")
+            i += 1
+            continue
+        out.append(lines[i])
+        i += 1
+    return "".join(out).encode()
+
+
+def _profile_context(**overrides) -> DrawingContext:
+    fields = dict(
+        job_number="J1",
+        customer_name="C",
+        door_series="TX450",
+        door_type="commercial",
+        door_width_in=96,
+        door_height_in=96,
+        door_count=1,
+        drawing_date="2026-04-24",
+        section_height_in=24,
+        jamb_type="steel",
+    )
+    fields.update(overrides)
+    return DrawingContext(**fields)
+
+
+def _dxf_text(ctx: DrawingContext) -> str:
+    return dxf_to_string(build_dxf(ctx)).decode("utf-8")
+
+
+class TestRealProfilesFlagOff:
+    def test_schematic_bytes_match_today(self):
+        import hashlib
+        samples = {
+            "shxl_wood": _profile_context(
+                door_series="SHXL", door_type="residential", section_height_in=21,
+                jamb_type="wood", door_width_in=192, door_height_in=96,
+            ),
+            "tx450_steel": _profile_context(door_series="TX450", jamb_type="steel"),
+            "tx450_wood": _profile_context(door_series="TX450", jamb_type="wood"),
+            "tx380_steel": _profile_context(door_series="TX380", jamb_type="steel"),
+            "tx380_wood": _profile_context(door_series="TX380", jamb_type="wood"),
+            "tx500_steel": _profile_context(door_series="TX500", jamb_type="steel"),
+            "tx450_20": _profile_context(door_series="TX450-20", jamb_type="steel"),
+            "pano_wood": _profile_context(
+                door_series="PANORAMA", door_type="aluminium",
+                section_height_in=21, jamb_type="wood",
+            ),
+        }
+        for name, ctx in samples.items():
+            assert ctx.real_profiles is False
+            digest = hashlib.sha256(_normalize_dxf(dxf_to_string(build_dxf(ctx)))).hexdigest()
+            assert digest == _FLAG_OFF_SHA256[name], name
+
+    def test_missing_setting_leaves_the_schematic(self):
+        from app.services.shop_drawing_settings import real_profiles_enabled
+        assert real_profiles_enabled(None) is False
+
+
+class TestRealProfilesFlagOn:
+    def _on(self, **overrides) -> str:
+        return _dxf_text(_profile_context(real_profiles=True, **overrides))
+
+    def test_thickness_comes_from_the_series_number(self):
+        from app.services.shop_drawings.real_profiles import (
+            nominal_inches,
+            parse_tx_series,
+            real_panel_thickness_in,
+        )
+        assert parse_tx_series("TX-450") == (45.0, "")
+        assert parse_tx_series("TX450-20") == (45.0, "20")
+        assert parse_tx_series("TX-500-20") == (50.0, "20")
+        assert parse_tx_series("TX380") == (38.0, "")
+        assert nominal_inches(38) == 1.5
+        assert nominal_inches(45) == 1.75
+        assert nominal_inches(50) == 2.0
+        assert real_panel_thickness_in("TX380") == 1.5
+        assert real_panel_thickness_in("TX-450") == 1.75
+        assert real_panel_thickness_in("TX450-20") == 1.75
+        assert real_panel_thickness_in("TX500") == 2.0
+        assert real_panel_thickness_in("TX500-20") == 2.0
+        assert real_panel_thickness_in("PANORAMA") == 1.75
+
+    def test_tx450_is_the_full_hinge_joint(self):
+        text = self._on(door_series="TX450", jamb_type="wood")
+        assert '1-3/4" (45 mm)' in text
+        assert "TONGUE-AND-GROOVE" in text
+        assert "FULL HINGE" in text
+        assert "HINGE-REINFORCING STRIPS" in text
+        assert "26 GA STUCCO-EMBOSSED" in text
+        assert "20 GA" not in text
+        assert "FOAMED-IN-PLACE" in text
+        assert "POLYURETHANE" in text
+        assert "POLYURATHANE" not in text
+        assert "2.5 PCF" in text
+        assert "THERMALLY BROKEN" in text
+        assert "PVC RETAINER" in text
+        assert "WEATHER SEAL" in text
+        assert "LOW-TEMP VINYL" in text
+        assert "BOTTOM ASTRAGAL" in text
+        assert "OPTIONAL LOW-TEMP" in text
+        assert "PROVISIONAL" not in text
+        assert "SIDEROOM 0'-3.75\"" in text
+        assert "RAMSET FASTENED" in text
+
+    def test_tx380_is_half_hinge_at_one_and_a_half(self):
+        text = self._on(door_series="TX380", jamb_type="steel")
+        assert '1-1/2" (38 mm)' in text
+        assert "HALF-HINGE APPLICATION" in text
+        assert "HINGE-REINFORCING STRIP" in text
+        assert "HINGE-REINFORCING STRIPS" not in text
+        assert "FULL HINGE" not in text
+        assert "26 GA" in text
+        assert "20 GA" not in text
+        assert "1-3/4\"" not in text
+        assert "SIDEROOM 0'-3.5\"" in text
+        assert "WELDED ANGLE" in text
+        assert "RAMSET" not in text
+        assert "0'-3.75\"" not in text
+
+    def test_tx500_is_the_tx450_joint_at_50mm(self):
+        text = self._on(door_series="TX500", jamb_type="steel")
+        assert '2" (50 mm)' in text
+        assert "TONGUE-AND-GROOVE" in text
+        assert "FULL HINGE" in text
+        assert "HINGE-REINFORCING STRIPS" in text
+        assert "POLYURETHANE" in text
+        assert "1-3/4\"" not in text
+        assert "45 mm" not in text
+        assert "PROVISIONAL" not in text
+        assert "0'-1.75\"" not in text
+
+    def test_twenty_gauge_exterior_keeps_26ga_interior(self):
+        tx450 = self._on(door_series="TX450-20", jamb_type="steel")
+        tx500 = self._on(door_series="TX500-20", jamb_type="wood")
+        for text in (tx450, tx500):
+            assert "20 GA STUCCO-EMBOSSED" in text
+            assert "FLUSH WHITE EXTERIOR" in text
+            assert "26 GA STUCCO-EMBOSSED WHITE INTERIOR" in text
+            assert "POLYURETHANE" in text
+        assert '1-3/4" (45 mm)' in tx450
+        assert '2" (50 mm)' in tx500
+        assert "SIDEROOM 0'-3.75\"" in tx500
+
+    def test_panorama_is_aluminum_full_view(self):
+        text = self._on(
+            door_series="PANORAMA", door_type="aluminium",
+            section_height_in=21, jamb_type="wood",
+        )
+        assert '1-3/4"' in text
+        assert "45 mm" not in text
+        assert "ALUMINUM" in text
+        assert "FULL-VIEW" in text
+        assert "GLAZING MOULDING" in text
+        assert "12 GA GALV." in text
+        assert "ADJUSTABLE TOP ROLLER" in text
+        assert "BOTTOM BRACKET" in text
+        assert "WEATHER SEAL" in text
+        assert "LOW-TEMP VINYL" in text
+        assert "BOTTOM ASTRAGAL" in text
+        assert "POLYURETHANE" not in text
+        assert "TONGUE-AND-GROOVE" not in text
+        assert "PROVISIONAL" not in text
+        assert "SIDEROOM 0'-3.75\"" in text
+
+    def test_wood_and_steel_sideroom(self):
+        from app.services.shop_drawings.real_profiles import real_sideroom_in
+        assert real_sideroom_in("wood") == 3.75
+        assert real_sideroom_in("steel") == 3.5
+        assert real_sideroom_in("") == 3.75
+        wood = self._on(door_series="TX450", jamb_type="wood")
+        steel = self._on(door_series="TX450", jamb_type="steel")
+        assert "SIDEROOM 0'-3.75\"" in wood
+        assert "SIDEROOM 0'-3.5\"" in steel
+        assert "WELDED ANGLE" in steel
+        assert "RAMSET FASTENED" in wood
+
+
+class TestShopDrawingFlagSetting:
+    def test_round_trip_defaults_off(self):
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from sqlalchemy.pool import StaticPool
+        from app.db.models import AppSettings
+        from app.services.shop_drawing_settings import (
+            REAL_PROFILES,
+            real_profiles_enabled,
+            set_shop_drawing_mode,
+        )
+        engine = create_engine(
+            "sqlite://",
+            future=True,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        AppSettings.__table__.create(engine)
+        db = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+        try:
+            assert real_profiles_enabled(db) is False
+            assert set_shop_drawing_mode(db, REAL_PROFILES, "on") == "on"
+            assert real_profiles_enabled(db) is True
+            assert set_shop_drawing_mode(db, REAL_PROFILES, "off") == "off"
+            assert real_profiles_enabled(db) is False
+            with pytest.raises(ValueError):
+                set_shop_drawing_mode(db, REAL_PROFILES, "shadow")
+        finally:
+            db.close()
+
+    def test_generator_reads_the_setting(self):
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from sqlalchemy.pool import StaticPool
+        from app.db.models import AppSettings
+        from app.services.shop_drawing_settings import REAL_PROFILES, set_shop_drawing_mode
+        engine = create_engine(
+            "sqlite://",
+            future=True,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        AppSettings.__table__.create(engine)
+        db = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+        config = {"doors": [{
+            "doorSeries": "TX450",
+            "doorType": "commercial",
+            "doorWidth": 96,
+            "doorHeight": 96,
+        }]}
+        try:
+            off = generate_framing_drawing(
+                config_data=config, customer_name="C", job_number="J",
+                fmt="dxf", drawing_date=datetime(2026, 4, 24), db=db,
+            )
+            assert b"TONGUE-AND-GROOVE" not in off
+            set_shop_drawing_mode(db, REAL_PROFILES, "on")
+            on = generate_framing_drawing(
+                config_data=config, customer_name="C", job_number="J",
+                fmt="dxf", drawing_date=datetime(2026, 4, 24), db=db,
+            )
+            assert b"TONGUE-AND-GROOVE" in on
+            assert b"1-3/4\" (45 mm)" in on
+            assert b"POLYURETHANE" in on
+        finally:
+            db.close()
+
+
 class TestSheetSize:
     def test_ansi_b_landscape_dimensions(self):
         from app.services.shop_drawings.framing import SHEET_W, SHEET_H

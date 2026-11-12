@@ -127,6 +127,9 @@ class DrawingContext:
     bumper_spring: bool = False
     track_guards: bool = False
     exhaust_port: bool = False
+    # Supplier tongue-and-groove profiles and jamb sideroom. Off keeps the
+    # schematic that shipped before this flag existed.
+    real_profiles: bool = False
 
 
 # ─── DXF setup ──────────────────────────────────────────────────────────────
@@ -1953,14 +1956,15 @@ def _draw_panel_profile(msp: Modelspace, ctx: DrawingContext,
                         box: Tuple[float, float, float, float]) -> None:
     """Side profile (cross-section) of ONE door section.
 
-    Shows:
-      - Door thickness (1-3/4" residential, 2" commercial) — vertical rect
-      - Steel end cap with vinyl weather strip (top cap detail)
-      - Glazing moulding (only on glass series — AL976/SWD/PANORAMA)
-      - Bottom bracket (12GA galv steel) protruding from bottom
-      - Low temp vinyl bottom astragal (seal under door)
-      - Dimension callout: 1-3/4" thickness
+    ``real_profiles`` swaps in the supplier tongue-and-groove (or Panorama
+    aluminum) detail. Series we do not have a supplier profile for keep
+    the schematic below. Flag off never takes that branch.
     """
+    if ctx.real_profiles:
+        from app.services.shop_drawings.real_profiles import draw_real_panel_profile
+        if draw_real_panel_profile(msp, ctx, box):
+            return
+
     bx0, by0, bx1, by1 = box
     box_w = bx1 - bx0
     box_h = by1 - by0
@@ -2267,6 +2271,9 @@ def _draw_plan_view(msp: Modelspace, ctx: DrawingContext,
     door_w = ctx.door_width_in or 96.0
     ro_w = _ro_width(door_w)
     sideroom_in = 3.5  # minimum required sideroom each side (wall thickness)
+    if ctx.real_profiles:
+        from app.services.shop_drawings.real_profiles import real_sideroom_in
+        sideroom_in = real_sideroom_in(ctx.jamb_type)
     jamb_2x_thickness_in = 1.5  # visible 2x6 lumber thickness
     door_thickness_in = _panel_thickness_in(ctx.door_series, ctx.door_type)
     # Plan-view geometry. The "sideroom" callout matches the reference and
@@ -2414,40 +2421,58 @@ def _draw_plan_view(msp: Modelspace, ctx: DrawingContext,
     )
 
     # ── Callouts (MTEXT so newlines work) with short leaders ────────────
-    # Weather strip (exterior face) — label above-left of section
-    ws_leader_x = d_x0 + (d_x1 - d_x0) * 0.25
-    ws_label_x = bx0 + 0.15
-    ws_label_y = sec_y_top + SX(1.5) + 0.30
-    msp.add_line((ws_leader_x, sec_y_top), (ws_label_x + 0.80, ws_label_y),
-                 dxfattribs={"layer": "ANNOTATIONS"})
-    mt = msp.add_mtext(
-        "WEATHER STRIPPING\\PRAMSET FASTENED",
-        dxfattribs={
-            "layer": "ANNOTATIONS", "char_height": TEXT_SMALL * 0.75,
-            "style": "Standard", "attachment_point": 7,  # bottom-left
-            "width": 1.1,
-        },
-    )
-    mt.dxf.insert = (ws_label_x, ws_label_y)
+    # Weather strip (exterior face) — label above-left of section.
+    # A steel jamb with real profiles shows the welded angle instead of
+    # the ramset weatherstrip. Flag off keeps the callouts below, in this
+    # order, so the sheet bytes do not change.
+    if ctx.real_profiles and is_steel_jamb:
+        from app.services.shop_drawings.real_profiles import draw_welded_jamb
+        draw_welded_jamb(
+            msp,
+            d_x0=d_x0, d_x1=d_x1, sec_y_bot=sec_y_bot, sec_y_top=sec_y_top,
+            bx0=bx0, bx1=bx1, opening_dim_y=opening_dim_y,
+        )
+    else:
+        ws_leader_x = d_x0 + (d_x1 - d_x0) * 0.25
+        ws_label_x = bx0 + 0.15
+        ws_label_y = sec_y_top + SX(1.5) + 0.30
+        msp.add_line((ws_leader_x, sec_y_top), (ws_label_x + 0.80, ws_label_y),
+                     dxfattribs={"layer": "ANNOTATIONS"})
+        mt = msp.add_mtext(
+            "WEATHER STRIPPING\\PRAMSET FASTENED",
+            dxfattribs={
+                "layer": "ANNOTATIONS", "char_height": TEXT_SMALL * 0.75,
+                "style": "Standard", "attachment_point": 7,  # bottom-left
+                "width": 1.1,
+            },
+        )
+        mt.dxf.insert = (ws_label_x, ws_label_y)
 
-    # Steel end cap (interior face) — label below-right of section
-    ec_leader_x = d_x0 + (d_x1 - d_x0) * 0.75
-    ec_label_x = bx1 - 1.3
-    ec_label_y = sec_y_bot - 0.10
-    # Push label below INTERIOR label if needed
-    if ec_label_y > opening_dim_y - 0.60:
-        ec_label_y = opening_dim_y - 0.60
-    msp.add_line((ec_leader_x, sec_y_bot), (ec_label_x + 0.05, ec_label_y + 0.08),
-                 dxfattribs={"layer": "ANNOTATIONS"})
-    mt2 = msp.add_mtext(
-        "STEEL END CAP\\PC/W VINYL WEATHER STRIP",
-        dxfattribs={
-            "layer": "ANNOTATIONS", "char_height": TEXT_SMALL * 0.75,
-            "style": "Standard", "attachment_point": 4,  # middle-left
-            "width": 1.25,
-        },
-    )
-    mt2.dxf.insert = (ec_label_x, ec_label_y)
+        # Steel end cap (interior face) — label below-right of section
+        ec_leader_x = d_x0 + (d_x1 - d_x0) * 0.75
+        ec_label_x = bx1 - 1.3
+        ec_label_y = sec_y_bot - 0.10
+        # Push label below INTERIOR label if needed
+        if ec_label_y > opening_dim_y - 0.60:
+            ec_label_y = opening_dim_y - 0.60
+        msp.add_line((ec_leader_x, sec_y_bot), (ec_label_x + 0.05, ec_label_y + 0.08),
+                     dxfattribs={"layer": "ANNOTATIONS"})
+        mt2 = msp.add_mtext(
+            "STEEL END CAP\\PC/W VINYL WEATHER STRIP",
+            dxfattribs={
+                "layer": "ANNOTATIONS", "char_height": TEXT_SMALL * 0.75,
+                "style": "Standard", "attachment_point": 4,  # middle-left
+                "width": 1.25,
+            },
+        )
+        mt2.dxf.insert = (ec_label_x, ec_label_y)
+    if ctx.real_profiles and not is_steel_jamb:
+        from app.services.shop_drawings.real_profiles import draw_wood_jamb_hardware
+        draw_wood_jamb_hardware(
+            msp,
+            d_x0=d_x0, d_x1=d_x1, sec_y_bot=sec_y_bot, sec_y_top=sec_y_top,
+            jl_x0=jl_x0, jl_x1=jl_x1, jr_x0=jr_x0, jr_x1=jr_x1,
+        )
 
     # ── Jamb application label at the bottom ─────────────────────────────
     jamb_label = msp.add_text(
@@ -2997,10 +3022,14 @@ def generate_framing_drawing(
     drawing_date: Optional[datetime] = None,
     config_id: Optional[int] = None,
     door_index: int = 0,
+    db=None,
 ) -> bytes:
     """Top-level helper: config → bytes.
 
     fmt: "pdf" (default) or "dxf".
+
+    ``shop_drawing_real_profiles`` is read from app_settings when a session
+    is passed. A missing session or a missing row leaves the schematic.
     """
     ctx = build_context_from_config(
         config_data=config_data,
@@ -3010,6 +3039,8 @@ def generate_framing_drawing(
         config_id=config_id,
         door_index=door_index,
     )
+    from app.services.shop_drawing_settings import real_profiles_enabled
+    ctx.real_profiles = real_profiles_enabled(db)
     doc = build_dxf(ctx)
     if fmt == "dxf":
         return dxf_to_string(doc)
