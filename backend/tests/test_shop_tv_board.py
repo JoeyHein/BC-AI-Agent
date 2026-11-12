@@ -70,6 +70,10 @@ class TestLaneMapping:
                     shipmentMethodCode="PICKUP",
                     requestedDeliveryDate="2026-11-12T10:30:00",
                     orderDate="2026-01-01",
+                    salesOrderLines=[
+                        {"lineType": "Comment", "description": "Job note"},
+                        {"lineType": "Item", "description": "16x7 insulated"},
+                    ],
                 ),
                 _order(
                     number="SO-1002",
@@ -108,26 +112,14 @@ class TestLaneMapping:
                     orderDate="2026-11-12",
                 ),
             ],
+            "scheduled_dates": {"SO-1001": "2026-11-12"},
             "production_orders": [
                 {
-                    "order_no": "PROD-1",
-                    "sales_order_no": "SO-1001",
-                    "status": "Released",
-                    "due_date": "2026-11-12",
-                    "description": "16x7 insulated",
-                },
-                {
-                    "order_no": "PROD-2",
+                    "order_no": "PROD-9",
                     "sales_order_no": "SO-2000",
-                    "status": "Finished",
-                    "due_date": "2026-11-12",
-                    "description": "done",
-                },
-                {
-                    "order_no": "PROD-3",
-                    "sales_order_no": "SO-2001",
                     "status": "Released",
-                    "description": "no date",
+                    "due_date": "2026-11-12",
+                    "description": "must not appear",
                 },
             ],
         })
@@ -153,38 +145,54 @@ class TestLaneMapping:
         assert board["omitted"]["unmapped_shipment"] >= 3
 
         assert set(production) == {"SO-1001"}
-        assert production["SO-1001"]["when_label"] == "Build"
+        assert "SO-2000" not in production
+        assert production["SO-1001"]["when_label"] == "Scheduled"
         assert production["SO-1001"]["detail"] == "16x7 insulated"
         assert production["SO-1001"]["date"] == "2026-11-12"
+        assert production["SO-1001"]["customer"] == "Prairie Door Co"
 
-    def test_order_date_and_scheduled_date_alone_stay_off_the_board(self):
+    def test_order_date_stays_off_and_scheduled_date_is_the_build_date(self):
         board = _board({
             "sales_orders": [
                 _order(number="SO-3001", orderDate="2026-11-12", shipmentMethodCode="PICKUP"),
+                _order(number="SO-3003", customerName="Glenview School", orderDate="2026-01-01"),
             ],
             "sales_order_master": [
                 {"Sales_Order_No": "SO-3002", "Status": "Unscheduled", "Prodn_Order_No": "PROD-9"},
             ],
+            "production_orders": [
+                {"order_no": "PROD-9", "sales_order_no": "SO-3002", "status": "Released", "due_date": "2026-11-12"},
+            ],
             "scheduled_dates": {"SO-3003": "2026-11-12"},
         })
         assert _items(board, "pickups") == []
-        assert _items(board, "production") == []
-        assert board["omitted"]["no_date"] >= 1
+        assert set(_by_number(board, "production")) == {"SO-3003"}
+        assert _by_number(board, "production")["SO-3003"]["when_label"] == "Scheduled"
+        assert "SO-3002" not in _by_number(board, "production")
 
-    def test_master_unscheduled_uses_portal_scheduled_date_not_order_date(self):
+    def test_shipment_date_is_the_build_date_when_nothing_is_scheduled(self):
         board = _board({
             "sales_orders": [
-                _order(number="SO-3002", orderDate="2026-01-01", customerName="Glenview School"),
+                _order(
+                    number="SO-3002",
+                    orderDate="2026-01-01",
+                    customerName="Glenview School",
+                    shipmentDate="2026-11-14T00:00:00",
+                    requestedDeliveryDate="2026-11-20",
+                    salesOrderLines=[
+                        {"description": "10x8 emergency build"},
+                        {"description": "Operator"},
+                    ],
+                ),
             ],
-            "sales_order_master": [
-                {"Sales_Order_No": "SO-3002", "Status": "Unscheduled"},
-            ],
-            "scheduled_dates": {"SO-3002": "2026-11-14"},
+            "scheduled_dates": {},
         })
         item = _by_number(board, "production")["SO-3002"]
         assert item["date"] == "2026-11-14"
-        assert item["when_label"] == "Scheduled"
+        assert item["when_label"] == "Shipment"
         assert item["customer"] == "Glenview School"
+        assert item["detail"] == "10x8 emergency build · 2 items"
+        assert item["time"] is None
 
     def test_configurable_codes_and_shipping_agent(self):
         config = default_lane_config()
@@ -201,16 +209,26 @@ class TestLaneMapping:
         assert set(_by_number(board, "pickups")) == {"SO-4002"}
         assert set(_by_number(board, "deliveries")) == {"SO-4003"}
 
-    def test_two_jobs_use_the_earliest_due_date(self):
+    def test_scheduled_date_wins_over_the_shipment_date(self):
         board = _board({
+            "sales_orders": [
+                _order(
+                    number="SO-5001",
+                    customerName="North Hill Homes",
+                    shipmentDate="2026-11-15",
+                    salesOrderLines=[{"description": "18x8 commercial"}],
+                ),
+            ],
+            "scheduled_dates": {"SO-5001": "2026-11-13"},
             "production_orders": [
-                {"order_no": "PROD-A", "sales_order_no": "SO-5001", "status": "Released", "due_date": "2026-11-15", "description": "A"},
-                {"order_no": "PROD-B", "sales_order_no": "SO-5001", "status": "Firm Planned", "due_date": "2026-11-13", "description": "B"},
+                {"order_no": "PROD-A", "sales_order_no": "SO-5001", "due_date": "2026-11-01", "description": "ignored"},
             ],
         })
         item = _by_number(board, "production")["SO-5001"]
         assert item["date"] == "2026-11-13"
-        assert item["detail"] == "2 jobs"
+        assert item["when_label"] == "Scheduled"
+        assert item["detail"] == "18x8 commercial"
+        assert len(_items(board, "production")) == 1
 
     def test_line_shipment_date_and_midnight_has_no_invented_time(self):
         board = _board({
@@ -234,13 +252,11 @@ class TestLaneMapping:
                 _order(number="SO-7001", status="Draft", shipmentMethodCode="PICKUP", requestedDeliveryDate="2026-11-12"),
                 _order(number="SO-7002", fullyShipped=True, shipmentMethodCode="TRUCK", requestedDeliveryDate="2026-11-12"),
             ],
-            "production_orders": [
-                {"order_no": "PROD-7", "sales_order_no": "SO-7001", "status": "Released", "due_date": "2026-11-12"},
-            ],
+            "scheduled_dates": {"SO-7001": "2026-11-12", "SO-7002": "2026-11-12"},
         })
         assert _items(board, "pickups") == []
         assert _items(board, "deliveries") == []
-        assert "SO-7001" in _by_number(board, "production")
+        assert _items(board, "production") == []
 
     def test_outlook_stub_adds_nothing(self):
         source = OutlookShippingCalendarSource()
@@ -250,8 +266,8 @@ class TestLaneMapping:
         assert status["configured"] is False
         assert status["mailbox"] == "shipping@opendc.ca"
         assert fetched["orders"] == []
-        assert fetched["production_orders"] == []
-        board = _board({"sales_orders": fetched["orders"], "production_orders": fetched["production_orders"]})
+        assert "production_orders" not in fetched
+        board = _board({"sales_orders": fetched["orders"]})
         assert _items(board, "pickups") == []
         assert _items(board, "deliveries") == []
         assert _items(board, "production") == []

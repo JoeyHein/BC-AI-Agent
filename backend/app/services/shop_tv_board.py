@@ -3,18 +3,15 @@
 Lane mapping (configurable in app_settings key ``shop_tv_board_lanes``):
 
 PRODUCTION
-    A job is on this lane only when Business Central already says it is
-    being built, or the nightly SalesOrderMaster page says a line is still
-    in production (status ``Unscheduled``: a production order exists and
-    quantity is still left to make). The date is the first real one of:
-    production order Due_Date (labeled Build), Ending_Date (Finish),
-    the portal sales_orders.scheduled_date when that job is already known
-    to be in production (Scheduled), Starting_Date (Start), then the
-    sales order's shipment / promised / requested date (Ready).
-    ``scheduled_date`` by itself is not a build. It is also the picking
-    date, so an order with only that field stays off this lane.
-    A production order with no date, and no date on the sales order, stays
-    off the board.
+    One row per open sales order. Business Central production orders are
+    not read. The build date is the portal ``sales_orders.scheduled_date``
+    (the column the portal already stores as the production/picking date).
+    When that is blank, the date is the sales order shipment date: header
+    ``shipmentDate``, otherwise the earliest line ``shipmentDate``.
+    Promised and requested delivery dates stay on the pickup and delivery
+    lanes. The order date is never a build date. A sales order with neither
+    a scheduled date nor a shipment date stays off this lane. The row text
+    is a short summary of the item lines on that sales order.
 
 PICKUPS and DELIVERIES
     Open sales orders that are not fully shipped and not Draft.
@@ -105,9 +102,9 @@ _GUID = re.compile(
 )
 
 MAPPING_NOTES = [
-    "Production: a released, planned, firm planned, or simulated production order, or a SalesOrderMaster line whose status is Unscheduled. Finished production orders stay off.",
-    "Production date, first one that exists: Due_Date (Build), ending date (Finish), portal scheduled date (Scheduled, only after the order is already in production), starting date (Start), then the sales order ship / promised / requested date (Ready).",
-    "A portal scheduled date alone is not a build. That column is also the picking date.",
+    "Production is one open sales order per row. Business Central production orders are not read.",
+    "Production date: the portal scheduled date when it is set (labeled Scheduled). Otherwise the sales order shipment date, header first, then the earliest line (labeled Shipment). Promised and requested dates are not build dates.",
+    "The row summary is the item descriptions on that sales order. Comment lines are skipped.",
     "Pickup vs delivery: shipment method code. Default pickup codes are PICKUP, PICK UP, PICK-UP, PU, WILL CALL, COLLECT, and CUSTOMER PICKUP. Default delivery codes are DELIVERY, TRUCK, FREIGHT, OUR TRUCK, and COURIER.",
     "A shipping agent counts only when its code is listed, or when Settings says any agent means a delivery. Otherwise the agent is ignored.",
     "shipmentMethodId is a GUID on the standard sales order API. A GUID does not choose a lane. The board reads shipmentMethodCode when Business Central sends it.",
@@ -128,8 +125,6 @@ def default_lane_config() -> dict:
         "delivery_shipping_agents": [],
         "shipping_agent_means_delivery": False,
         "outlook_calendar_enabled": False,
-        "production_master_statuses": ["Unscheduled"],
-        "production_statuses": ["Planned", "Firm Planned", "Released", "Simulated"],
     }
 
 
@@ -156,7 +151,6 @@ class OutlookShippingCalendarSource:
         return {
             **self.status(),
             "orders": [],
-            "production_orders": [],
         }
 
 
@@ -280,8 +274,6 @@ def save_lane_config(db: Session, updates: dict, user_id: Optional[int] = None) 
         "delivery_shipment_methods",
         "pickup_shipping_agents",
         "delivery_shipping_agents",
-        "production_master_statuses",
-        "production_statuses",
     ):
         if key in updates:
             current[key] = _clean_codes(updates[key])
@@ -371,18 +363,6 @@ def parse_when(value):
     return moment.date(), clock.replace(second=0)
 
 
-def _min_when(rows, key):
-    found = []
-    for row in rows or []:
-        parsed = parse_when(row.get(key) if isinstance(row, dict) else None)
-        if parsed:
-            found.append(parsed)
-    if not found:
-        return None
-    found.sort(key=lambda item: (item[0], item[1] or clock_time.min))
-    return found[0]
-
-
 def _method_code(order: dict) -> str:
     raw = _first(order, _METHOD_FIELDS)
     if raw is None:
@@ -424,18 +404,15 @@ def classify_outbound(order: dict, config: dict) -> Optional[str]:
     return None
 
 
-def outbound_when(order: dict):
-    """First real ship, promised, or requested date. Line shipment is the fallback."""
-    for kind, keys in (
-        ("shipment", _SHIPMENT_FIELDS),
-        ("promised", _PROMISED_FIELDS),
-        ("requested", _REQUESTED_FIELDS),
-    ):
-        parsed = parse_when(_first(order, keys))
-        if parsed:
-            return parsed[0], parsed[1], kind
+def shipment_when(order: dict):
+    """Header shipment date, otherwise the earliest line shipment date."""
+    parsed = parse_when(_first(order, _SHIPMENT_FIELDS))
+    if parsed:
+        return parsed[0], parsed[1], "shipment"
     found = []
     for line in order.get("salesOrderLines") or order.get("lines") or []:
+        if not isinstance(line, dict):
+            continue
         parsed = parse_when(_first(line, _SHIPMENT_FIELDS))
         if parsed:
             found.append(parsed)
@@ -443,6 +420,51 @@ def outbound_when(order: dict):
         return None, None, None
     found.sort(key=lambda item: (item[0], item[1] or clock_time.min))
     return found[0][0], found[0][1], "shipment"
+
+
+def outbound_when(order: dict):
+    """First real ship, promised, or requested date. Line shipment is the fallback."""
+    day, clock, kind = shipment_when(order)
+    if day is not None:
+        return day, clock, kind
+    for next_kind, keys in (
+        ("promised", _PROMISED_FIELDS),
+        ("requested", _REQUESTED_FIELDS),
+    ):
+        parsed = parse_when(_first(order, keys))
+        if parsed:
+            return parsed[0], parsed[1], next_kind
+    return None, None, None
+
+
+def production_when(order: dict, scheduled_value):
+    """Portal scheduled date, otherwise the sales order shipment date."""
+    scheduled = parse_when(scheduled_value)
+    if scheduled:
+        return scheduled[0], scheduled[1], "scheduled"
+    return shipment_when(order)
+
+
+def item_summary(order: dict) -> Optional[str]:
+    """Short item or door text from the sales order lines. Comments are skipped."""
+    texts = []
+    for line in order.get("salesOrderLines") or order.get("lines") or []:
+        if not isinstance(line, dict):
+            continue
+        line_type = str(line.get("lineType") or line.get("line_type") or "Item").strip().lower()
+        if line_type == "comment":
+            continue
+        text = str(line.get("description") or "").strip()
+        if text and text not in texts:
+            texts.append(text)
+    if not texts:
+        return None
+    first = texts[0]
+    if len(first) > 72:
+        first = first[:69].rstrip() + "…"
+    if len(texts) == 1:
+        return first
+    return f"{first} · {len(texts)} items"
 
 
 def customer_name(order: dict) -> str:
@@ -486,6 +508,8 @@ def _when_label(lane: str, kind: str) -> str:
         return "Pickup"
     if kind == "shipment" and lane == "deliveries":
         return "Delivery"
+    if kind == "shipment" and lane == "production":
+        return "Shipment"
     return {
         "due": "Build",
         "ending": "Finish",
@@ -508,47 +532,6 @@ def _is_draft(order: dict) -> bool:
 
 def _is_shipped(order: dict) -> bool:
     return _truthy(order.get("fullyShipped") if "fullyShipped" in order else order.get("Fully_Shipped"))
-
-
-def _prod_status(row: dict) -> str:
-    return str(row.get("status") or row.get("Status") or "").strip().lower()
-
-
-def _active_production(row: dict, config: dict) -> bool:
-    status = _prod_status(row)
-    if status in {"finished"}:
-        return False
-    allowed = {item.strip().lower() for item in config.get("production_statuses") or [] if str(item).strip()}
-    if not status:
-        return True
-    return status in allowed
-
-
-def _master_in_production(lines, config: dict) -> bool:
-    wanted = {
-        str(item).strip().lower()
-        for item in config.get("production_master_statuses") or []
-        if str(item).strip()
-    }
-    for line in lines or []:
-        if str(line.get("Status") or "").strip().lower() in wanted:
-            return True
-    return False
-
-
-def _index_master(lines):
-    by_so = defaultdict(list)
-    by_prod = {}
-    for line in lines or []:
-        if not isinstance(line, dict):
-            continue
-        sales_no = str(line.get("Sales_Order_No") or "").strip()
-        prod_no = str(line.get("Prodn_Order_No") or "").strip()
-        if sales_no:
-            by_so[sales_no].append(line)
-        if prod_no and sales_no:
-            by_prod[prod_no] = sales_no
-    return by_so, by_prod
 
 
 def _day_heading(day: date, today: date) -> dict:
@@ -616,13 +599,7 @@ def build_board(records: Optional[dict], *, today: date, now: Optional[datetime]
     horizon = int(config.get("horizon_days") or 7)
     window_end = today + timedelta(days=horizon)
     sales_orders = [row for row in records.get("sales_orders") or [] if isinstance(row, dict)]
-    sales_by_number = {}
-    for order in sales_orders:
-        number = order_number(order)
-        if number:
-            sales_by_number[number] = order
     scheduled = records.get("scheduled_dates") or {}
-    by_so, by_prod = _index_master(records.get("sales_order_master") or [])
 
     omitted = {
         "no_date": 0,
@@ -634,71 +611,6 @@ def build_board(records: Optional[dict], *, today: date, now: Optional[datetime]
     pickup_items = []
     delivery_items = []
 
-    groups = defaultdict(list)
-    for row in records.get("production_orders") or []:
-        if not isinstance(row, dict) or not _active_production(row, config):
-            continue
-        prod_no = str(row.get("order_no") or row.get("No") or "").strip()
-        sales_no = str(row.get("sales_order_no") or row.get("Sales_Order_No") or "").strip()
-        sales_no = sales_no or by_prod.get(prod_no, "")
-        key = sales_no or prod_no
-        if not key:
-            continue
-        groups[key].append(row)
-    for sales_no, lines in by_so.items():
-        if sales_no not in groups and _master_in_production(lines, config):
-            groups[sales_no] = []
-
-    for key, prod_rows in groups.items():
-        sales = sales_by_number.get(key)
-        if sales is not None and _is_shipped(sales):
-            omitted["draft_or_shipped"] += 1
-            continue
-        chosen = None
-        kind = None
-        for field, label in (("due_date", "due"), ("ending_date", "ending"), ("starting_date", "starting")):
-            found = _min_when(prod_rows, field)
-            if found:
-                chosen, kind = found, label
-                break
-        if chosen is None:
-            scheduled_when = parse_when(scheduled.get(key))
-            if scheduled_when and (prod_rows or _master_in_production(by_so.get(key), config)):
-                chosen, kind = scheduled_when, "scheduled"
-        if chosen is None and sales is not None:
-            ready_day, ready_clock, _ready_kind = outbound_when(sales)
-            if ready_day is not None:
-                chosen, kind = (ready_day, ready_clock), "ready"
-        if chosen is None:
-            omitted["no_date"] += 1
-            continue
-        day, clock = chosen
-        if day > window_end:
-            omitted["outside_window"] += 1
-            continue
-        descriptions = []
-        for row in prod_rows:
-            text = str(row.get("description") or row.get("Description") or "").strip()
-            if text and text not in descriptions:
-                descriptions.append(text)
-        if len(prod_rows) > 1:
-            detail = f"{len(prod_rows)} jobs"
-        elif descriptions:
-            detail = descriptions[0]
-        else:
-            detail = None
-        customer = customer_name(sales) if sales else ""
-        timing = _serialize_when(day, clock, today, now, "production", kind)
-        production_items.append({
-            "id": f"production:{key}",
-            "lane": "production",
-            "order_number": key,
-            "customer": customer,
-            "detail": detail,
-            "destination": None,
-            **timing,
-        })
-
     for order in sales_orders:
         number = order_number(order)
         if not number:
@@ -706,6 +618,25 @@ def build_board(records: Optional[dict], *, today: date, now: Optional[datetime]
         if _is_draft(order) or _is_shipped(order):
             omitted["draft_or_shipped"] += 1
             continue
+        scheduled_value = scheduled.get(number)
+        if scheduled_value is None:
+            scheduled_value = _first(order, ("scheduledDate", "scheduled_date", "Scheduled_Date"))
+        build_day, build_clock, build_kind = production_when(order, scheduled_value)
+        if build_day is None:
+            omitted["no_date"] += 1
+        elif build_day > window_end:
+            omitted["outside_window"] += 1
+        else:
+            timing = _serialize_when(build_day, build_clock, today, now, "production", build_kind)
+            production_items.append({
+                "id": f"production:{number}",
+                "lane": "production",
+                "order_number": number,
+                "customer": customer_name(order),
+                "detail": item_summary(order),
+                "destination": None,
+                **timing,
+            })
         lane = classify_outbound(order, config)
         if lane is None:
             omitted["unmapped_shipment"] += 1
@@ -754,30 +685,6 @@ def build_board(records: Optional[dict], *, today: date, now: Optional[datetime]
     }
 
 
-def normalize_production_row(item: dict, prod_so: Optional[dict] = None) -> dict:
-    order_no = str(item.get("No") or item.get("order_no") or "").strip()
-    sales_no = str(item.get("Sales_Order_No") or item.get("sales_order_no") or "").strip()
-    if not sales_no and prod_so:
-        sales_no = str(prod_so.get(order_no) or "").strip()
-    return {
-        "order_no": order_no,
-        "sales_order_no": sales_no,
-        "description": item.get("Description") or item.get("description") or "",
-        "status": item.get("Status") or item.get("status") or "",
-        "due_date": item.get("Due_Date") if "Due_Date" in item else item.get("due_date"),
-        "starting_date": (
-            item.get("Starting_Date_Time")
-            or item.get("Starting_Date")
-            or item.get("starting_date")
-        ),
-        "ending_date": (
-            item.get("Ending_Date_Time")
-            or item.get("Ending_Date")
-            or item.get("ending_date")
-        ),
-    }
-
-
 _cache_lock = threading.Lock()
 _cache = {"at": 0.0, "key": None, "records": None}
 
@@ -820,10 +727,7 @@ def _scheduled_dates(db: Optional[Session]) -> dict:
 def load_board_records(db: Optional[Session], config: Optional[dict] = None, *, use_cache: bool = True) -> dict:
     """Read Business Central. Failures become an empty lane, not a guessed row."""
     config = config or lane_config(db)
-    cache_key = (
-        bool(config.get("outlook_calendar_enabled")),
-        tuple(config.get("production_statuses") or []),
-    )
+    cache_key = bool(config.get("outlook_calendar_enabled"))
     now_mono = time.monotonic()
     if use_cache:
         with _cache_lock:
@@ -842,33 +746,6 @@ def load_board_records(db: Optional[Session], config: Optional[dict] = None, *, 
         sales_ok = False
         sales_note = "Business Central sales orders could not be read."
 
-    production_orders = []
-    production_note = None
-    master = []
-    try:
-        from app.services.bc_production_service import ODATA_ENDPOINTS, bc_production_service
-        try:
-            prod_so = bc_production_service.get_prod_so_map() or {}
-        except Exception:
-            logger.warning("Shop TV production-to-sales map unavailable", exc_info=True)
-            prod_so = {}
-        try:
-            raw_orders = bc_production_service._make_odata_request_all(
-                ODATA_ENDPOINTS["production_orders"]
-            ) or []
-            production_orders = [normalize_production_row(row, prod_so) for row in raw_orders]
-        except Exception:
-            logger.warning("Shop TV could not read production orders", exc_info=True)
-            production_note = "Production orders could not be read."
-        try:
-            master = bc_production_service.get_sales_order_master() or []
-        except Exception:
-            logger.warning("Shop TV could not read SalesOrderMaster", exc_info=True)
-            master = []
-    except Exception:
-        logger.warning("Shop TV production service unavailable", exc_info=True)
-        production_note = "Production orders could not be read."
-
     outlook = OutlookShippingCalendarSource()
     outlook_state = outlook.status()
     if config.get("outlook_calendar_enabled"):
@@ -876,22 +753,12 @@ def load_board_records(db: Optional[Session], config: Optional[dict] = None, *, 
         outlook_state = {key: fetched.get(key) for key in ("id", "mailbox", "available", "configured", "note")}
         if fetched.get("available"):
             sales = list(sales) + list(fetched.get("orders") or [])
-            production_orders = list(production_orders) + [
-                normalize_production_row(row) for row in fetched.get("production_orders") or []
-            ]
 
     records = {
         "sales_orders": sales,
-        "production_orders": production_orders,
-        "sales_order_master": master,
         "scheduled_dates": _scheduled_dates(db),
         "sources": [
             {"id": "business_central", "available": sales_ok, "note": sales_note},
-            {
-                "id": "business_central_production",
-                "available": production_note is None,
-                "note": production_note,
-            },
             outlook_state,
         ],
     }

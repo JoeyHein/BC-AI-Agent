@@ -22,10 +22,10 @@ Migration `d1e2f3a4b5c7` adds `shop_tv_kiosk_tokens`. The on/off switch and the 
 
 Anything without a real date stays off the board. `0001-01-01` and the order date are not dates. Midnight means there is no appointment time.
 
-| Lane | Included when | Date, first one that exists |
+| Lane | Included when | Date |
 | --- | --- | --- |
-| Production | Released, planned, firm planned, or simulated production order, or SalesOrderMaster status `Unscheduled` | Due date (Build), ending date (Finish), portal `scheduled_date` (Scheduled, only if the order is already in production), starting date (Start), then the sales order ship / promised / requested date (Ready) |
-| Pickups | Open, not fully shipped, shipment method or listed shipping agent is a pickup code | Shipment date (header, else earliest line), promised delivery date, requested delivery date |
+| Production | One open sales order per row. Draft and fully shipped stay off. Business Central production orders are not read. | Portal `sales_orders.scheduled_date` when it is set (Scheduled). Otherwise the sales order shipment date: header `shipmentDate`, else the earliest line `shipmentDate` (Shipment). |
+| Pickups | Open, not fully shipped, shipment method or listed shipping agent is a pickup code | Shipment date (header, else earliest line), then promised delivery date, then requested delivery date |
 | Deliveries | Open, not fully shipped, shipment method or listed shipping agent is a delivery code | Same dates as pickups. Destination is the ship-to address |
 
 Default pickup codes: `PICKUP`, `PICK UP`, `PICK-UP`, `PU`, `WILL CALL`, `COLLECT`, `CUSTOMER PICKUP`.
@@ -34,7 +34,7 @@ Default delivery codes: `DELIVERY`, `TRUCK`, `FREIGHT`, `OUR TRUCK`, `COURIER`.
 
 A shipping agent does nothing until its code is listed, or Settings says any other agent is a delivery. That switch defaults off. `shipmentMethodId` is a GUID on the standard sales order and does not choose a lane. This portal already reads `shipmentMethodCode` when Business Central sends it.
 
-`scheduled_date` on the portal sales order is also the picking date, so it is not a build by itself.
+The production date is the portal scheduled date because that column is already the production/picking date stored on the sales order (`sales_orders.scheduled_date`, migration `h2i3j4k5l6m7`). When it is blank, the shipment date on the same sales order is the build date. Promised and requested dates are customer dates and stay on Pickups and Deliveries. The order date is never used. A sales order with neither a scheduled date nor a shipment date stays off Production. The row summary is the item descriptions on that sales order, with comment lines skipped.
 
 An order can be in Production and in Pickups or Deliveries. It is never in both Pickups and Deliveries.
 
