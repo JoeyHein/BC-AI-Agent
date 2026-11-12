@@ -276,6 +276,9 @@ def _draw_title_block(msp: Modelspace, ctx: DrawingContext) -> None:
                      dxfattribs={"layer": "TITLE_BLOCK", "lineweight": 9})
         msp.add_line((mid_x + 0.10, r3_top - y_off), (x1 - 0.10, r3_top - y_off),
                      dxfattribs={"layer": "TITLE_BLOCK", "lineweight": 9})
+    if ctx.real_profiles:
+        from app.services.shop_drawings.full_detail import annotate_springs
+        annotate_springs(msp, ctx, (x0, r3_bot, mid_x, r3_top))
 
     # ── Row 4: DISTRIBUTOR | PROJECT NAME ────────────────────────────────
     # PROJECT NAME carries the job number — reference uses one field for both.
@@ -594,6 +597,10 @@ def _draw_front_elevation(msp: Modelspace, ctx: DrawingContext,
       view="exterior":  DOOR FACE: OUTSIDE LOOKING IN — same door but with
                         surrounding wall context (simple hatch), no shaft.
     """
+    if ctx.real_profiles:
+        from app.services.shop_drawings.full_detail import draw_front_detail
+        draw_front_detail(msp, ctx, box, view=view)
+        return
     draw_x0, draw_y0, draw_x1, draw_y1 = box
     draw_w = draw_x1 - draw_x0
     draw_h = draw_y1 - draw_y0
@@ -1228,6 +1235,10 @@ def _draw_side_elevation(msp: Modelspace, ctx: DrawingContext,
       - Track drawn as a TWO-LINE cross-section (showing the U-channel
         depth), with mounting bolt circles dotted along the horizontal
     """
+    if ctx.real_profiles:
+        from app.services.shop_drawings.full_detail import draw_side_detail
+        draw_side_detail(msp, ctx, box)
+        return
     bx0, by0, bx1, by1 = box
     box_w = bx1 - bx0
     box_h = by1 - by0
@@ -2657,6 +2668,17 @@ def _draw_optional_extras(msp: Modelspace, ctx: DrawingContext,
         (bx0 + 0.65, y - 0.02), (bx1 - 0.10, y - 0.02),
         dxfattribs={"layer": "ANNOTATIONS", "lineweight": 13},
     )
+    if ctx.real_profiles:
+        from app.services.shop_drawings.full_detail import hardware
+        hw = hardware(ctx)
+        turns_value = f"{hw.turns:.1f}" if hw.turns is not None else "BY FACTORY"
+        turns_num = msp.add_text(
+            turns_value,
+            dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_SMALL * 0.85,
+                        "style": "Standard"},
+        )
+        turns_num.set_placement((bx0 + 0.72, y),
+                                align=TextEntityAlignment.MIDDLE_LEFT)
 
 
 def _draw_box_with_title(msp: Modelspace, box: Tuple[float, float, float, float],
