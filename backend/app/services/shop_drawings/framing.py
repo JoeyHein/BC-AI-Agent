@@ -2255,6 +2255,10 @@ def _draw_plan_view(msp: Modelspace, ctx: DrawingContext,
       - Steel end cap w/ vinyl weather strip callout (inside)
       - Jamb application label below ("STEEL/WOOD JAMB WELD APPLICATION")
     """
+    if ctx.real_profiles:
+        from app.services.shop_drawings.real_profiles import draw_real_plan_view
+        draw_real_plan_view(msp, ctx, box)
+        return
     bx0, by0, bx1, by1 = box
     box_w = bx1 - bx0
     box_h = by1 - by0

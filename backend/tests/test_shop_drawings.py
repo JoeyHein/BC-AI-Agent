@@ -371,66 +371,65 @@ class TestRealProfilesFlagOn:
         assert real_panel_thickness_in("TX500-20") == 2.0
         assert real_panel_thickness_in("PANORAMA") == 1.75
 
-    def test_tx450_is_the_full_hinge_joint(self):
+    def test_tx450_uses_the_supplier_callouts(self):
         text = self._on(door_series="TX450", jamb_type="wood")
-        assert '1-3/4" (45 mm)' in text
-        assert "TONGUE-AND-GROOVE" in text
-        assert "FULL HINGE" in text
-        assert "HINGE-REINFORCING STRIPS" in text
-        assert "26 GA STUCCO-EMBOSSED" in text
-        assert "20 GA" not in text
+        assert '1-3/4"' in text
+        assert "FULL" in text and "HINGE" in text and "APPLICATION" in text
+        assert "2 STEEL STRIPS" in text
+        assert '1-1/4" W' in text
+        assert "26GA STUCCO" in text
+        assert "EMBOSSED FINISH: WHITE" in text
+        assert "20GA STUCCO" not in text
         assert "FOAMED-IN-PLACE" in text
         assert "POLYURETHANE" in text
-        assert "POLYURATHANE" not in text
+        assert "POLYURETHENE" not in text
         assert "2.5 PCF" in text
-        assert "THERMALLY BROKEN" in text
-        assert "PVC RETAINER" in text
+        assert "THERMALLY" in text and "BROKEN" in text
+        assert "P.V.C." in text and "RETAINER" in text
         assert "WEATHER SEAL" in text
-        assert "LOW-TEMP VINYL" in text
         assert "BOTTOM ASTRAGAL" in text
-        assert "OPTIONAL LOW-TEMP" in text
+        assert "TOP SEAL" in text and "OPTIONAL" in text
         assert "PROVISIONAL" not in text
-        assert "SIDEROOM 0'-3.75\"" in text
-        assert "RAMSET FASTENED" in text
+        assert '3.75"' in text
+        assert "RAMSET" in text
+        assert "WOOD JAMB APPLICATION" in text
 
     def test_tx380_is_half_hinge_at_one_and_a_half(self):
         text = self._on(door_series="TX380", jamb_type="steel")
-        assert '1-1/2" (38 mm)' in text
-        assert "HALF-HINGE APPLICATION" in text
-        assert "HINGE-REINFORCING STRIP" in text
-        assert "HINGE-REINFORCING STRIPS" not in text
-        assert "FULL HINGE" not in text
-        assert "26 GA" in text
-        assert "20 GA" not in text
-        assert "1-3/4\"" not in text
-        assert "SIDEROOM 0'-3.5\"" in text
-        assert "WELDED ANGLE" in text
-        assert "RAMSET" not in text
-        assert "0'-3.75\"" not in text
+        assert '1-1/2"' in text
+        assert "HALF" in text and "HINGE" in text
+        assert "STEEL STRIP" in text
+        assert "2 STEEL STRIPS" not in text
+        assert "26GA STUCCO" in text
+        assert "20GA STUCCO" not in text
+        assert '1-3/4"' not in text
+        assert "POLYURETHANE" in text
+        assert "POLYURETHENE" not in text
+        assert '3.5"' in text
+        assert '3.75"' not in text
+        assert "STEEL JAMB WELD APPLICATION" in text
 
     def test_tx500_is_the_tx450_joint_at_50mm(self):
         text = self._on(door_series="TX500", jamb_type="steel")
         assert '2" (50 mm)' in text
-        assert "TONGUE-AND-GROOVE" in text
-        assert "FULL HINGE" in text
-        assert "HINGE-REINFORCING STRIPS" in text
+        assert "2 STEEL STRIPS" in text
         assert "POLYURETHANE" in text
-        assert "1-3/4\"" not in text
-        assert "45 mm" not in text
+        assert '1-3/4"' not in text
         assert "PROVISIONAL" not in text
-        assert "0'-1.75\"" not in text
+        assert '3.5"' in text
 
     def test_twenty_gauge_exterior_keeps_26ga_interior(self):
         tx450 = self._on(door_series="TX450-20", jamb_type="steel")
         tx500 = self._on(door_series="TX500-20", jamb_type="wood")
         for text in (tx450, tx500):
-            assert "20 GA STUCCO-EMBOSSED" in text
-            assert "FLUSH WHITE EXTERIOR" in text
-            assert "26 GA STUCCO-EMBOSSED WHITE INTERIOR" in text
+            assert "20GA STUCCO" in text
+            assert "FLUSH WHITE" in text
+            assert "26GA STUCCO" in text
             assert "POLYURETHANE" in text
-        assert '1-3/4" (45 mm)' in tx450
+            assert "POLYURETHENE" not in text
+        assert '1-3/4"' in tx450
         assert '2" (50 mm)' in tx500
-        assert "SIDEROOM 0'-3.75\"" in tx500
+        assert '3.75"' in tx500
 
     def test_panorama_is_aluminum_full_view(self):
         text = self._on(
@@ -438,20 +437,15 @@ class TestRealProfilesFlagOn:
             section_height_in=21, jamb_type="wood",
         )
         assert '1-3/4"' in text
-        assert "45 mm" not in text
-        assert "ALUMINUM" in text
-        assert "FULL-VIEW" in text
-        assert "GLAZING MOULDING" in text
-        assert "12 GA GALV." in text
+        assert "GLAZING" in text and "MOULDING" in text
         assert "ADJUSTABLE TOP ROLLER" in text
-        assert "BOTTOM BRACKET" in text
-        assert "WEATHER SEAL" in text
-        assert "LOW-TEMP VINYL" in text
-        assert "BOTTOM ASTRAGAL" in text
+        assert "BOTTOM BRACKET 12GA" in text
+        assert "BRACKET12GA" not in text
+        assert "WEATHER" in text and "SEAL" in text
+        assert "BOTTOM" in text and "ASTRAGAL" in text
         assert "POLYURETHANE" not in text
-        assert "TONGUE-AND-GROOVE" not in text
         assert "PROVISIONAL" not in text
-        assert "SIDEROOM 0'-3.75\"" in text
+        assert '3.75"' in text
 
     def test_wood_and_steel_sideroom(self):
         from app.services.shop_drawings.real_profiles import real_sideroom_in
@@ -460,10 +454,19 @@ class TestRealProfilesFlagOn:
         assert real_sideroom_in("") == 3.75
         wood = self._on(door_series="TX450", jamb_type="wood")
         steel = self._on(door_series="TX450", jamb_type="steel")
-        assert "SIDEROOM 0'-3.75\"" in wood
-        assert "SIDEROOM 0'-3.5\"" in steel
-        assert "WELDED ANGLE" in steel
-        assert "RAMSET FASTENED" in wood
+        assert '3.75"' in wood
+        assert "MIN. REQ." in wood and "SIDEROOM" in wood
+        assert '3.5"' in steel
+        assert '3.75"' not in steel
+
+    def test_library_is_the_supplier_linework(self):
+        from app.services.shop_drawings.real_profiles import load_profile
+        for name, minimum in (
+            ("tx450", 1500), ("tx450_20", 1500), ("tx380", 1500),
+            ("panorama", 400), ("wood_jamb", 800), ("steel_jamb", 800),
+        ):
+            lines = sum(1 for item in load_profile(name)["items"] if item[0] == "L")
+            assert lines >= minimum, name
 
 
 class TestShopDrawingFlagSetting:
@@ -521,15 +524,16 @@ class TestShopDrawingFlagSetting:
                 config_data=config, customer_name="C", job_number="J",
                 fmt="dxf", drawing_date=datetime(2026, 4, 24), db=db,
             )
-            assert b"TONGUE-AND-GROOVE" not in off
+            assert b"SIDE VIEW ILLUSTRATION" not in off
             set_shop_drawing_mode(db, REAL_PROFILES, "on")
             on = generate_framing_drawing(
                 config_data=config, customer_name="C", job_number="J",
                 fmt="dxf", drawing_date=datetime(2026, 4, 24), db=db,
             )
-            assert b"TONGUE-AND-GROOVE" in on
-            assert b"1-3/4\" (45 mm)" in on
+            assert b"SIDE VIEW ILLUSTRATION" in on
+            assert b"1-3/4\"" in on
             assert b"POLYURETHANE" in on
+            assert b"POLYURETHENE" not in on
         finally:
             db.close()
 
