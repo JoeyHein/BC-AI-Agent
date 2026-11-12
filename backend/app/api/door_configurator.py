@@ -27,10 +27,10 @@ from app.services.freight_service import (
     calculate_freight,
     door_freight_amounts,
     get_freight_config,
-    interleave_door_freight,
     remember_added_door_line,
     sum_line_amounts,
 )
+from app.services.quote_line_layout import apply_quote_line_layout, line_needs_output
 from app.services.operator_service import find_operator_by_part_number
 from app.integrations.bc.client import bc_client
 from app.api.staff_principal import require_staff
@@ -2036,16 +2036,22 @@ def build_bc_quote_from_doors(
             allow_unresolved_parts=allow_unresolved_parts,
         )
 
-        # Delivery quotes get a freight line under each door, immediately
-        # after WRAP. Pickup and home-builder quotes do not.
-        if (request.deliveryType or "").lower() != "pickup" and not is_home_builder:
-            freight_item = "FREIGHT"
-            if db:
-                try:
-                    freight_item = get_freight_config(db).get("freight_item_number", "FREIGHT")
-                except Exception:
-                    freight_item = "FREIGHT"
-            all_lines = interleave_door_freight(all_lines, freight_item)
+        # Delivery quotes charge freight. Home-builder quotes do not.
+        # Off: one FREIGHT line under each door, immediately after WRAP.
+        # quote_line_layout_v2: one FREIGHT line at the very end.
+        include_freight = (request.deliveryType or "").lower() != "pickup" and not is_home_builder
+        freight_item = "FREIGHT"
+        if include_freight and db:
+            try:
+                freight_item = get_freight_config(db).get("freight_item_number", "FREIGHT")
+            except Exception:
+                freight_item = "FREIGHT"
+        all_lines, layout_v2 = apply_quote_line_layout(
+            all_lines,
+            db=db,
+            include_freight=include_freight,
+            freight_item=freight_item,
+        )
 
         # Step 4: Add line items to the quote in proper order
         lines_added = 0
@@ -2079,12 +2085,10 @@ def build_bc_quote_from_doors(
                     line, added_line, door_order, door_product_ids, door_freight_slots,
                 )
 
-                # Set Output=True on door descriptions, operators, and accessories
-                # so BC shows them on printed quotes and subtotals correctly.
-                needs_output = (
-                    line.get("is_door_desc")
-                    or line.get("category") in ("operator",)
-                )
+                # Output check mark starts a BC subtotal of the lines below it.
+                # Layout v2 leaves the chain/belt rail unchecked so it stays
+                # in the operator head's group.
+                needs_output = line_needs_output(line, layout_v2=layout_v2)
                 if needs_output and added_line.get("sequence"):
                     try:
                         bc_client.set_quote_line_output(
