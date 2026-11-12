@@ -28,6 +28,7 @@ _CATALOG = Path(__file__).resolve().parent.parent / "data" / "bc_analysis" / "bc
 _RETAINERS = {
     "PL10-00134-00",
     "PL10-00135-00",
+    "PL10-00136-00",
     "PL10-00141-00",
     "PL10-00145-01",
     "PL10-00146-00",

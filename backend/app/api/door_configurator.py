@@ -1259,6 +1259,130 @@ def _flag_unresolved_line_as_comment(line: dict, pn: str, reason: str) -> dict:
     }
 
 
+# Hardware kits and extension tracks are built from a pattern BC stocks
+# even when the item export is behind. Commercial retainers are fixed
+# inch-sold SKUs (BCPartNumberMapper.COMMERCIAL_RETAINER), including the
+# TX760 3" retainer PL10-00136-00.
+_SKIP_VALIDATION_PREFIXES = ("HK02-", "HK03-", "HK12-", "HK13-", "TR02-EXT", "TR03-EXT")
+
+
+def catalog_keeps_part_number(
+    part_number: str,
+    bc_items: Dict[str, Any],
+    category: str = "",
+) -> bool:
+    """True when generate-quote must post this SKU unchanged.
+
+    A number missing from the item export is normally rewritten to a
+    sibling or left to fail into a comment ("not in BC" / not available).
+    The TX760 3" retainer is a real item. A stale export must not replace
+    it, or the other commercial retainers, with a different PL10 line.
+    """
+    pn = part_number or ""
+    if not pn:
+        return False
+    if pn in bc_items:
+        return True
+    if category == "wrapping" or pn == "WRAP":
+        return True
+    if any(pn.startswith(pfx) for pfx in _SKIP_VALIDATION_PREFIXES) and pn != f"{pn[:4]}-00000-RC":
+        return True
+    from app.services.bc_part_number_mapper import BCPartNumberMapper
+    return pn in BCPartNumberMapper.COMMERCIAL_RETAINER_NUMBERS
+
+
+def resolve_unstocked_part_numbers(
+    lines: List[dict],
+    bc_items: Dict[str, Any],
+    *,
+    bc_quote_number: str = "",
+    allow_unresolved_parts: bool = False,
+) -> List[dict]:
+    """Rewrite unknown SKUs before they are posted, and return warnings.
+
+    Known commercial retainers, WRAP, and patterned hardware kits are left
+    as item lines. Everything else follows the existing step-up / sibling /
+    manual-entry rules.
+    """
+    part_warnings: List[dict] = []
+    for line in lines:
+        if line.get("lineType") == "Comment" or not line.get("part_number"):
+            continue
+        pn = line["part_number"]
+        if catalog_keeps_part_number(pn, bc_items, line.get("category") or ""):
+            continue
+
+        is_panel_like = line.get("category") in (
+            "panel", "aluminum_section", "v130g_section"
+        )
+        stepped_up_pn = _next_bigger_width_skus(pn, bc_items)
+        if stepped_up_pn:
+            part_warnings.append({
+                "original": pn,
+                "substituted": stepped_up_pn,
+                "description": line.get("description", ""),
+                "message": f"{pn} not in BC. Stepped up to next size: {stepped_up_pn}",
+            })
+            logger.info(f"{pn} not in BC — stepped up to {stepped_up_pn}")
+            line["part_number"] = stepped_up_pn
+            line["_original_part_number"] = pn
+            continue
+
+        if is_panel_like:
+            reason = "not stocked in BC and no larger size available"
+            # A series-legal width can still sit past the stocked section
+            # table (TX450 36'2" is PN46-*-3602; the item cache stops at
+            # 32'0" / PN46-*-3200). Aborting drops the rest of a valid BOM
+            # and the old step-down shipped a shorter section. Keep the
+            # exact part number as a MANUAL ENTRY comment so the office
+            # adds the section, and let every other line post.
+            # allow_unresolved_parts (forceGenerate) used to be the only
+            # way past the abort; it no longer gates this path.
+            logger.warning(
+                f"{line.get('category','panel').upper()} {pn} — {reason}; "
+                f"flagging as MANUAL ENTRY on {bc_quote_number} "
+                f"(forceGenerate={allow_unresolved_parts})"
+            )
+            part_warnings.append(
+                _flag_unresolved_line_as_comment(line, pn, reason)
+            )
+            continue
+
+        # Non-panel part with no width-code suffix — find a sibling in
+        # the same prefix family. Prefer the next-biggest where any
+        # numeric suffix is comparable; otherwise pick by description
+        # similarity (length proximity is a poor heuristic and was
+        # picking the smallest SKU every time).
+        prefix = pn.split("-")[0] if "-" in pn else pn[:4]
+        candidates = [
+            (bc_pn, item.get("displayName", ""))
+            for bc_pn, item in bc_items.items()
+            if bc_pn.startswith(prefix)
+        ]
+        candidates.sort(key=lambda x: abs(len(x[0]) - len(pn)))
+
+        if candidates:
+            closest_pn, closest_desc = candidates[0]
+            part_warnings.append({
+                "original": pn,
+                "substituted": closest_pn,
+                "description": line.get("description", ""),
+                "message": f"Part {pn} not found in BC. Using closest match: {closest_pn}"
+            })
+            logger.warning(f"Part {pn} not in BC — substituting {closest_pn}")
+            line["part_number"] = closest_pn
+            line["_original_part_number"] = pn
+        else:
+            part_warnings.append({
+                "original": pn,
+                "substituted": None,
+                "description": line.get("description", ""),
+                "message": f"Part {pn} not found in BC and no close match. Will add as comment."
+            })
+            logger.warning(f"Part {pn} not in BC — no close match, will add as comment")
+    return part_warnings
+
+
 # ============================================================================
 # LOAD EXISTING QUOTE — reverse-parse a live BC quote back into the
 # configurator so staff can pull up an existing quote, edit it, and hit
@@ -1898,104 +2022,19 @@ def build_bc_quote_from_doors(
             item_pns = [l["part_number"] for l in all_lines if l.get("part_number")]
             warm_bc_cost_cache(item_pns)
 
-        # Step 3: Validate part numbers against BC before sending
-        # Find closest matches for any that don't exist
-        part_warnings = []
+        # Step 3: Validate part numbers against the item export before sending.
+        # A missing number is rewritten to a sibling, unless it is a SKU we
+        # know BC stocks (WRAP, hardware kits, commercial retainers including
+        # the TX760 3" retainer). Rewriting that retainer is what turned the
+        # bottom line into another PL10 item or a "not in BC" comment.
         from app.services.bc_part_number_mapper import get_bc_mapper
         mapper = get_bc_mapper()
-
-        # Part number prefixes that follow deterministic patterns and are
-        # known to exist in BC even if not in our item cache export.
-        SKIP_VALIDATION_PREFIXES = ("HK02-", "HK03-", "HK12-", "HK13-", "TR02-EXT", "TR03-EXT")
-
-        for line in all_lines:
-            if line.get("lineType") == "Comment" or not line.get("part_number"):
-                continue
-            pn = line["part_number"]
-            if pn in mapper.bc_items:
-                continue
-            # WRAP is a portal-priced service item. A stale item cache must
-            # not rewrite it as WRAPALU just because both start with WRAP.
-            if line.get("category") == "wrapping" or pn == "WRAP":
-                continue
-            # Skip validation for deterministic HK hardware kit part numbers
-            if any(pn.startswith(pfx) for pfx in SKIP_VALIDATION_PREFIXES) and pn != f"{pn[:4]}-00000-RC":
-                continue
-
-            # Step-up substitution: if the failed SKU ends in a 4-digit
-            # width code (e.g. "...-2402"), pick the smallest BC SKU with
-            # the same prefix and a LARGER width — i.e. the next biggest
-            # available size, never the smallest. Applies to steel panels,
-            # aluminum sections (PN80/PN20/PN70/PN97), V130G sections, and
-            # anything else built with a {prefix}-{wwww} pattern.
-            is_panel_like = line.get("category") in (
-                "panel", "aluminum_section", "v130g_section"
-            )
-            stepped_up_pn = _next_bigger_width_skus(pn, mapper.bc_items)
-            if stepped_up_pn:
-                part_warnings.append({
-                    "original": pn,
-                    "substituted": stepped_up_pn,
-                    "description": line.get("description", ""),
-                    "message": f"{pn} not in BC. Stepped up to next size: {stepped_up_pn}",
-                })
-                logger.info(f"{pn} not in BC — stepped up to {stepped_up_pn}")
-                line["part_number"] = stepped_up_pn
-                line["_original_part_number"] = pn
-                continue
-
-            if is_panel_like:
-                reason = "not stocked in BC and no larger size available"
-                # A series-legal width can still sit past the stocked section
-                # table (TX450 36'2" is PN46-*-3602; the item cache stops at
-                # 32'0" / PN46-*-3200). Aborting drops the rest of a valid BOM
-                # and the old step-down shipped a shorter section. Keep the
-                # exact part number as a MANUAL ENTRY comment so the office
-                # adds the section, and let every other line post.
-                # allow_unresolved_parts (forceGenerate) used to be the only
-                # way past the abort; it no longer gates this path.
-                logger.warning(
-                    f"{line.get('category','panel').upper()} {pn} — {reason}; "
-                    f"flagging as MANUAL ENTRY on {bc_quote_number} "
-                    f"(forceGenerate={allow_unresolved_parts})"
-                )
-                part_warnings.append(
-                    _flag_unresolved_line_as_comment(line, pn, reason)
-                )
-                continue
-
-            # Non-panel part with no width-code suffix — find a sibling in
-            # the same prefix family. Prefer the next-biggest where any
-            # numeric suffix is comparable; otherwise pick by description
-            # similarity (length proximity is a poor heuristic and was
-            # picking the smallest SKU every time).
-            prefix = pn.split("-")[0] if "-" in pn else pn[:4]
-            candidates = [
-                (bc_pn, item.get("displayName", ""))
-                for bc_pn, item in mapper.bc_items.items()
-                if bc_pn.startswith(prefix)
-            ]
-            candidates.sort(key=lambda x: abs(len(x[0]) - len(pn)))
-
-            if candidates:
-                closest_pn, closest_desc = candidates[0]
-                part_warnings.append({
-                    "original": pn,
-                    "substituted": closest_pn,
-                    "description": line.get("description", ""),
-                    "message": f"Part {pn} not found in BC. Using closest match: {closest_pn}"
-                })
-                logger.warning(f"Part {pn} not in BC — substituting {closest_pn}")
-                line["part_number"] = closest_pn
-                line["_original_part_number"] = pn
-            else:
-                part_warnings.append({
-                    "original": pn,
-                    "substituted": None,
-                    "description": line.get("description", ""),
-                    "message": f"Part {pn} not found in BC and no close match. Will add as comment."
-                })
-                logger.warning(f"Part {pn} not in BC — no close match, will add as comment")
+        part_warnings = resolve_unstocked_part_numbers(
+            all_lines,
+            mapper.bc_items,
+            bc_quote_number=bc_quote_number,
+            allow_unresolved_parts=allow_unresolved_parts,
+        )
 
         # Delivery quotes get a freight line under each door, immediately
         # after WRAP. Pickup and home-builder quotes do not.

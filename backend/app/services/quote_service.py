@@ -170,7 +170,11 @@ class QuoteGenerationService:
                 door_height=door_height_inches,
                 door_count=1,  # Parts are per-door, we multiply by quantity later
                 panel_color=panel_color,
-                panel_design="FLUSH" if door_type == "commercial" else "SHXL",  # Default designs
+                panel_design=(
+                    "MICROGROOVE" if door_series == "TX760"
+                    else "FLUSH" if door_type == "commercial"
+                    else "SHXL"
+                ),
                 window_insert=None,  # TODO: parse from glazing
                 window_section=None,
                 glazing_type=glazing.upper() if glazing else None,
@@ -270,6 +274,7 @@ class QuoteGenerationService:
 
         # Direct mappings
         series_map = {
+            "TX760": "TX760",  # 3" commercial — before shorter TX* keys
             "TX450": "TX450",
             "TX500": "TX500",
             "TX450-20": "TX450-20",
@@ -305,7 +310,7 @@ class QuoteGenerationService:
         model_upper = model.upper()
 
         # Commercial models
-        if any(x in model_upper for x in ["TX450", "TX500", "THERMALEX", "COMMERCIAL"]):
+        if any(x in model_upper for x in ["TX760", "TX450", "TX500", "THERMALEX", "COMMERCIAL"]):
             return "commercial"
 
         # Aluminum
