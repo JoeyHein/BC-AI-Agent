@@ -1,10 +1,13 @@
 """Flag-on elevations, shaft, and track. The section profile is not drawn here.
 
-Track headroom, backroom, and underside of track come from the Thermalex
-tables in shop_drawing_service. Spring, drum, and shaft text come from the
-parts calculator. A figure with no source is labeled BY FACTORY.
+Every view on this sheet uses one scale. Spring length and outside diameter,
+shaft diameter and length, drum diameter, door thickness, section joints,
+and the track radius are the calculator and Thermalex figures. A part with
+no source is labeled BY FACTORY and is not given a made-up size.
 """
 from __future__ import annotations
+
+import re
 
 from ezdxf.enums import TextEntityAlignment
 
@@ -18,6 +21,8 @@ from app.services.shop_drawings.framing import (
 from app.services.shop_drawings.real_profiles import real_panel_thickness_in
 from app.services.shop_drawings.shop_hardware import BY_FACTORY, ShopHardware, resolve_shop_hardware
 
+_TOP_NOTE = re.compile(r"to\s+(\d+)", re.I)
+
 
 def hardware(ctx) -> ShopHardware:
     cached = getattr(ctx, "_shop_hw", None)
@@ -25,6 +30,45 @@ def hardware(ctx) -> ShopHardware:
         cached = resolve_shop_hardware(ctx)
         ctx._shop_hw = cached
     return cached
+
+
+def section_heights(door_h: float) -> list[float]:
+    """Bottom-to-top section heights from the section table.
+
+    The table's note puts the cut section on top. Otherwise the 21 in.
+    sections are the lower ones and the 24 in. sections are above them,
+    which is how the parts list orders them.
+    """
+    from app.services.door_calculator_service import SECTION_HEIGHT_TABLE
+
+    key = int(round(door_h or 0))
+    entry = SECTION_HEIGHT_TABLE.get(key)
+    if not entry:
+        return []
+    note = _TOP_NOTE.search(entry.get("note") or "")
+    if note:
+        top = float(note.group(1))
+        full = max(int(entry["total"]) - 1, 0)
+        return [21.0] * full + [top]
+    n21 = int(entry.get("21") or 0)
+    n24 = int(entry.get("24") or 0)
+    return [21.0] * n21 + [24.0] * n24
+
+
+def _section_label(heights: list[float]) -> str:
+    if not heights:
+        return "SECTIONS — BY FACTORY"
+    if len(set(round(h, 3) for h in heights)) == 1:
+        return f"{len(heights)} SECTIONS @ {fmt_length_imperial(heights[0])}"
+    parts = []
+    run = 1
+    for prev, cur in zip(heights, heights[1:] + [None]):
+        if cur is not None and abs(cur - prev) < 0.01:
+            run += 1
+            continue
+        parts.append(f"{run} @ {fmt_length_imperial(prev)}")
+        run = 1
+    return "SECTIONS " + " + ".join(parts)
 
 
 def _text(msp, value, xy, height=None, align=TextEntityAlignment.MIDDLE_CENTER):
@@ -53,14 +97,24 @@ def _thickness_label(inches: float) -> str:
 
 
 def _line(msp, a, b, layer="FRAMING", weight=18):
-    msp.add_line(a, b, dxfattribs={"layer": layer, "lineweight": weight})
+    color = 8 if layer == "DIMENSIONS" else 250
+    msp.add_line(a, b, dxfattribs={"layer": layer, "lineweight": weight, "color": color})
 
 
 def _rect(msp, x0, y0, x1, y1, layer="FRAMING", weight=25):
     msp.add_lwpolyline(
         [(x0, y0), (x1, y0), (x1, y1), (x0, y1)],
         close=True,
-        dxfattribs={"layer": layer, "lineweight": weight},
+        dxfattribs={"layer": layer, "lineweight": weight, "color": 250},
+    )
+
+
+def _fill(msp, x0, y0, x1, y1):
+    """Light gray fill so a framing member reads as material, not a void."""
+    hatch = msp.add_hatch(dxfattribs={"layer": "FRAMING", "color": 9})
+    hatch.paths.add_polyline_path(
+        [(x0, y0), (x1, y0), (x1, y1), (x0, y1)],
+        is_closed=True,
     )
 
 
@@ -72,31 +126,45 @@ def draw_front_detail(msp, ctx, box, view: str = "interior") -> None:
     door_h = ctx.door_height_in or 84.0
     wood = (ctx.jamb_type or "wood") != "steel"
     jamb_w = 5.5 if wood else 3.0
-    header_h = 5.5 if wood else 3.0
-    section_h = ctx.section_height_in or 21.0
-    n_sec = max(3, int(door_h / section_h))
-    sec_h = door_h / n_sec
+    header_h = jamb_w
+    heights = section_heights(door_h)
+    if not heights:
+        heights = [door_h]
     thick = real_panel_thickness_in(ctx.door_series, ctx.door_type) or 1.75
+    track = float(hw.track_size)
+    headroom = hw.headroom or 0.0
 
     title = "INSIDE LOOKING OUT" if interior else "OUTSIDE LOOKING IN"
-    _text(msp, f"{ctx.door_series}  {title}", ((x0 + x1) / 2, y1 - 0.14), TEXT_MED)
+    member = "2x6" if wood else '3" ANGLE'
+    _text(msp, f"{ctx.door_series}  {title}", ((x0 + x1) / 2, y1 - 0.12), TEXT_MED * 0.85)
     _text(
         msp,
-        f"{n_sec} SECTIONS @ {fmt_length_imperial(sec_h)}    {ctx.panel_design}    {ctx.panel_color or 'WHITE'}",
-        ((x0 + x1) / 2, y1 - 0.32),
-        TEXT_SMALL * 0.8,
+        f"{_section_label(heights)}    {member} JAMB / HEADER    {ctx.panel_design}",
+        ((x0 + x1) / 2, y1 - 0.28),
+        TEXT_SMALL * 0.62,
     )
+    if interior:
+        _hardware_notes(msp, hw, x0, x1, y1)
 
-    # The shaft is a separate strip above the door so its labels are not
-    # scaled down with a 16 ft opening.
-    top_reserve = 1.85 if interior else 0.55
-    bot_reserve = 0.55
-    overhead = max((hw.headroom or 0) - header_h, 4.0) + 2.0
-    span_w = door_w + 2 * jamb_w + (24 if interior else 8)
-    span_h = door_h + header_h + overhead
-    scale = min((x1 - x0 - 0.3) / span_w, (y1 - y0 - top_reserve - bot_reserve) / span_h)
-    ox = x0 + 0.2 + max(((x1 - x0 - 0.3) - span_w * scale) / 2, 0)
-    oy = y0 + bot_reserve
+    # One scale for the opening, the framing, and (inside) the shaft.
+    shaft_len = hw.shaft_length or 0.0
+    shaft_x0 = door_w / 2 - shaft_len / 2 if shaft_len else 0.0
+    shaft_y = door_h + hw.shaft_cl if (interior and hw.shaft_cl is not None) else door_h
+    drum_d = hw.drum_diameter or 0.0
+    y_top = door_h + max(headroom, (hw.shaft_cl or 0) + drum_d)
+    x_left = -jamb_w - track - 1.0
+    x_right = door_w + jamb_w + track + 1.0
+    if interior and shaft_len:
+        x_left = min(x_left, shaft_x0 - 1.0)
+        x_right = max(x_right, shaft_x0 + shaft_len + 1.0)
+
+    title_band = 0.78 if interior else 0.46
+    bot_band = 0.28
+    avail_w = max((x1 - x0) - 0.20, 0.4)
+    avail_h = max((y1 - y0) - title_band - bot_band, 0.4)
+    scale = min(avail_w / (x_right - x_left), avail_h / max(y_top, 1.0))
+    ox = x0 + 0.10 + (avail_w - (x_right - x_left) * scale) / 2 - x_left * scale
+    oy = y0 + bot_band
 
     def X(inches):
         return ox + inches * scale
@@ -104,172 +172,208 @@ def draw_front_detail(msp, ctx, box, view: str = "interior") -> None:
     def Y(inches):
         return oy + inches * scale
 
-    # Opening, then the framing member outside it.
-    open_x0 = jamb_w
-    open_x1 = jamb_w + door_w
-    _rect(msp, X(0), Y(0), X(jamb_w), Y(door_h), weight=35)
-    _rect(msp, X(open_x1), Y(0), X(open_x1 + jamb_w), Y(door_h), weight=35)
-    _rect(msp, X(0), Y(door_h), X(open_x1 + jamb_w), Y(door_h + header_h), weight=35)
-    _rect(msp, X(open_x0), Y(0), X(open_x1), Y(door_h), weight=40)
-    member = '2x6' if wood else '3" ANGLE'
-    _text(msp, member, (X(jamb_w / 2), Y(door_h * 0.22)), TEXT_SMALL * 0.55)
-    _text(msp, f"HEADER {member}", (X(open_x0 + door_w / 2), Y(door_h + header_h / 2)), TEXT_SMALL * 0.6)
+    # Framing members at their real width, filled gray, outlined black.
+    _fill(msp, X(x_left + track + 1), Y(0), X(0), Y(door_h))
+    _fill(msp, X(door_w), Y(0), X(door_w + jamb_w), Y(door_h))
+    _fill(msp, X(x_left + track + 1), Y(door_h), X(door_w + jamb_w), Y(door_h + header_h))
+    _rect(msp, X(0) - jamb_w * scale, Y(0), X(0), Y(door_h), weight=35)
+    _rect(msp, X(door_w), Y(0), X(door_w) + jamb_w * scale, Y(door_h), weight=35)
+    _rect(msp, X(0) - jamb_w * scale, Y(door_h), X(door_w) + jamb_w * scale,
+          Y(door_h + header_h), weight=35)
+    _rect(msp, X(0), Y(0), X(door_w), Y(door_h), weight=50)
 
-    for i in range(1, n_sec):
-        _line(msp, (X(open_x0), Y(sec_h * i)), (X(open_x1), Y(sec_h * i)), weight=18)
+    # Joints at the real section heights, not equal slices of the opening.
+    acc = 0.0
+    joints = []
+    for height in heights[:-1]:
+        acc += height
+        joints.append(acc)
+        _line(msp, (X(0), Y(acc)), (X(door_w), Y(acc)), layer="HORIZONTALS", weight=25)
+
     if ctx.has_windows and ctx.window_positions:
         for pos in ctx.window_positions:
             sec = int(pos.get("section", 0))
             col = int(pos.get("col", 0))
-            wy0 = sec_h * sec + sec_h * 0.25
-            wy1 = wy0 + sec_h * 0.45
-            wx0 = open_x0 + door_w * (col + 0.25) / 4
-            wx1 = wx0 + door_w * 0.18
-            _rect(msp, X(wx0), Y(wy0), X(wx1), Y(wy1), layer="ANNOTATIONS", weight=13)
+            base = sum(heights[:sec])
+            sec_h = heights[sec] if sec < len(heights) else heights[-1]
+            _rect(
+                msp,
+                X(door_w * (col + 0.28) / 4), Y(base + sec_h * 0.25),
+                X(door_w * (col + 0.52) / 4), Y(base + sec_h * 0.72),
+                layer="ANNOTATIONS", weight=18,
+            )
     elif ctx.has_windows:
-        _text(msp, f"WINDOWS — {BY_FACTORY}", (X(open_x0 + door_w / 2), Y(door_h * 0.5)), TEXT_SMALL * 0.7)
+        _text(msp, f"WINDOWS — {BY_FACTORY}", (X(door_w / 2), Y(door_h * 0.5)), TEXT_SMALL * 0.6)
 
-    # Struts from the Thermalex chart. Zero is a real answer, not a placeholder.
-    if hw.strut_count <= 0:
-        _text(msp, f"STRUTS: NONE ({hw.strut_gauge or '20ga'} CHART)",
-              (X(open_x0 + door_w / 2), Y(door_h * 0.5)), TEXT_SMALL * 0.55)
-    else:
+    if hw.strut_count > 0:
         gauge = (hw.strut_gauge or "20ga").upper()
-        for i in range(min(hw.strut_count, n_sec)):
-            yy = sec_h * i + sec_h * 0.55
-            _line(msp, (X(open_x0 + 2), Y(yy)), (X(open_x1 - 2), Y(yy)), layer="STRUTS", weight=30)
+        for i in range(min(hw.strut_count, len(heights))):
+            base = sum(heights[:i])
+            _line(
+                msp, (X(2), Y(base + heights[i] * 0.5)),
+                (X(door_w - 2), Y(base + heights[i] * 0.5)),
+                layer="STRUTS", weight=30,
+            )
         _text(msp, f"{hw.strut_count} {gauge} STRUTS",
-              (X(open_x0 + 4), Y(sec_h * 0.2)), TEXT_SMALL * 0.55,
-              TextEntityAlignment.MIDDLE_LEFT)
+              (X(door_w / 2), Y(heights[0] * 0.5)), TEXT_SMALL * 0.5)
 
+    # Hinges at each joint. The number is the position along the joint.
+    # The hinge model itself is not in the parts list.
     n_cols = _hinge_columns(door_w)
     hinge_xs = []
     for k in range(n_cols):
         t = k / (n_cols - 1) if n_cols > 1 else 0.5
-        hinge_xs.append(open_x0 + 3.5 + (door_w - 7) * t)
-    for joint in range(1, n_sec):
+        hinge_xs.append(3.5 + (door_w - 7) * t)
+    for joint in joints:
         for n, hx in enumerate(hinge_xs, start=1):
-            s = 1.1
-            _rect(msp, X(hx - s), Y(sec_h * joint - 0.6), X(hx + s), Y(sec_h * joint + 0.6),
+            _rect(msp, X(hx - 1.0), Y(joint - 0.7), X(hx + 1.0), Y(joint + 0.7),
                   layer="HARDWARE", weight=18)
-            if joint == 1:
-                _text(msp, str(n), (X(hx), Y(sec_h + 2.2)), TEXT_SMALL * 0.5)
+            if joint == joints[0]:
+                _text(msp, str(n), (X(hx), Y(joint) + 0.08), 0.045)
 
-    # Bottom bracket and top fixture. Models are not in the parts list.
-    for edge in (open_x0, open_x1 - 4):
-        _rect(msp, X(edge), Y(0.4), X(edge + 4), Y(3.2), layer="HARDWARE", weight=25)
-    _text(msp, f"BOTTOM BRACKET — {BY_FACTORY}",
-          (X(open_x0 + 5), Y(sec_h * 0.55)), TEXT_SMALL * 0.5, TextEntityAlignment.MIDDLE_LEFT)
-    for edge in (open_x0, open_x1 - 3):
-        _rect(msp, X(edge), Y(door_h - 3), X(edge + 3), Y(door_h - 0.3), layer="HARDWARE", weight=25)
-    _text(msp, f"TOP FIXTURE — {BY_FACTORY}",
-          (X(open_x0 + 4), Y(door_h - sec_h * 0.45)), TEXT_SMALL * 0.5,
-          TextEntityAlignment.MIDDLE_LEFT)
+    # Bottom bracket and top fixture. Drawn, not sized: no catalog model.
+    for edge in (0.0, door_w - 4.0):
+        _rect(msp, X(edge), Y(0.3), X(edge + 4.0), Y(3.0), layer="HARDWARE", weight=25)
+    for edge in (0.0, door_w - 3.0):
+        _rect(msp, X(edge), Y(door_h - 2.6), X(edge + 3.0), Y(door_h - 0.2),
+              layer="HARDWARE", weight=25)
 
-    # Vertical tracks and brackets just outside the jambs.
-    track = float(hw.track_size)
-    for side in (-track - 0.5, open_x1 + jamb_w + 0.5):
-        _rect(msp, X(side), Y(0), X(side + track), Y(door_h), layer="TRACKS", weight=18)
-    bracket_note = f"TRACK BRACKET — {BY_FACTORY}"
+    # Vertical track just outside each jamb. High lift continues the
+    # track above the opening by the high-lift amount.
+    track_top = door_h + hw.high_lift
+    for side in (-jamb_w - track - 0.4, door_w + jamb_w + 0.4):
+        _rect(msp, X(side), Y(0), X(side + track), Y(track_top), layer="TRACKS", weight=35)
     yb = 24.0
-    while yb < door_h - 6:
-        _line(msp, (X(-track - 1.6), Y(yb)), (X(0), Y(yb)), layer="HARDWARE", weight=13)
-        _line(msp, (X(open_x1 + jamb_w), Y(yb)), (X(open_x1 + jamb_w + track + 1.1), Y(yb)),
+    while yb < track_top - 6:
+        _line(msp, (X(-jamb_w - track - 1.2), Y(yb)), (X(-jamb_w), Y(yb)),
+              layer="HARDWARE", weight=13)
+        _line(msp, (X(door_w + jamb_w), Y(yb)), (X(door_w + jamb_w + track + 0.8), Y(yb)),
               layer="HARDWARE", weight=13)
         yb += 24.0
-    _text(msp, bracket_note, (X(open_x1 - 2), Y(door_h * 0.72)),
-          TEXT_SMALL * 0.45, TextEntityAlignment.MIDDLE_RIGHT)
 
-    _text(msp, "JAMB", (X(jamb_w / 2), Y(-3)), TEXT_SMALL * 0.7)
-    _text(msp, "JAMB", (X(open_x1 + jamb_w / 2), Y(-3)), TEXT_SMALL * 0.7)
-    _text(msp, fmt_length_dual(door_w), (X(open_x0 + door_w / 2), Y(-6)), TEXT_SMALL * 0.75)
-    _text(msp, fmt_length_dual(door_h), (X(open_x1 + jamb_w + 8), Y(door_h / 2)), TEXT_SMALL * 0.7)
+    if headroom:
+        ceil = door_h + headroom
+        _line(msp, (X(-jamb_w), Y(ceil)), (X(door_w + jamb_w), Y(ceil)), weight=18)
 
-    # Headroom above the header, from the Thermalex table.
-    if hw.headroom:
-        ceil = door_h + header_h + max(hw.headroom - header_h, 1)
-        _line(msp, (X(0), Y(ceil)), (X(open_x1 + jamb_w), Y(ceil)), weight=18)
-        _text(
-            msp,
-            f"REQ. HEADROOM {fmt_length_imperial(hw.headroom)}",
-            (X(open_x0 + door_w / 2), Y(door_h + header_h + (ceil - door_h - header_h) / 2)),
-            TEXT_SMALL * 0.65,
-        )
+    # Dimensions sit outside the opening.
+    _dim_h(msp, X(0), X(door_w), oy - 0.08, fmt_length_dual(door_w))
+    _dim_v(msp, Y(0), Y(door_h), X(door_w + jamb_w) + 0.10, fmt_length_imperial(door_h))
 
-    if not interior:
-        return
-
-    cable = f'{hw.cable_diameter:g}"' if hw.cable_diameter else BY_FACTORY
-    for edge in (open_x0 + 1.5, open_x1 - 1.5):
-        _line(msp, (X(edge), Y(door_h - 1)), (X(edge), Y(2.5)), layer="HARDWARE", weight=13)
-    _text(msp, f"CABLE {cable}", (X(open_x0 + 3), Y(door_h * 0.62)),
-          TEXT_SMALL * 0.5, TextEntityAlignment.MIDDLE_LEFT)
-    _draw_shaft_strip(msp, hw, x0 + 0.12, y1 - 1.72, x1 - 0.12, y1 - 0.48)
+    if interior:
+        _draw_shaft(msp, hw, X, Y, door_w, door_h, scale)
 
 
-def _draw_shaft_strip(msp, hw: ShopHardware, x0, y0, x1, y1):
-    """Shaft, springs and drums at true relative length, in a sheet-space strip.
-
-    Spring length and OD are scaled with the shaft, not with the door, so a
-    30 in. spring stays readable on a 16 ft opening.
-    """
-    length = hw.shaft_length or 0
-    if length <= 0:
-        _text(msp, f"SHAFT — {BY_FACTORY}", ((x0 + x1) / 2, (y0 + y1) / 2), TEXT_SMALL * 0.6)
-        return
-    pad = 0.15
-    scale = (x1 - x0 - 2 * pad) / length
-    cy = (y0 + y1) / 2 - 0.02
-
-    def X(inches):
-        return x0 + pad + inches * scale
-
-    dia = hw.shaft_diameter or 1.0
-    bar = max(dia * scale * 2.2, 0.035)
-    _rect(msp, X(0), cy - bar / 2, X(length), cy + bar / 2, layer="HARDWARE", weight=25)
+def _hardware_notes(msp, hw: ShopHardware, x0, x1, y1):
     kind = hw.shaft_kind or BY_FACTORY
-    shown = fmt_length_imperial(length) if hw.shaft_length else BY_FACTORY
-    _text(msp, f"SHAFT {kind}  {shown}", ((x0 + x1) / 2, y1 - 0.06), TEXT_SMALL * 0.48)
-
-    od_in = (hw.coil_id or 2.0) + (hw.wire or 0.25)
-    span = hw.spring_length or 0
-    od = max(od_in * scale * 3.5, 0.09)
-    gap = 3.0
-    cx = length / 2
-    if hw.lh_count and span:
-        _coil_sheet(msp, X(cx - gap - span), X(cx - gap), cy, od)
-        _text(msp, "LH", (X(cx - gap - span / 2), cy + od + 0.07), TEXT_SMALL * 0.42)
-    if hw.rh_count and span:
-        _coil_sheet(msp, X(cx + gap), X(cx + gap + span), cy, od)
-        _text(msp, "RH", (X(cx + gap + span / 2), cy + od + 0.07), TEXT_SMALL * 0.42)
-    _rect(msp, X(cx) - 0.05, cy - od, X(cx) + 0.05, cy + od, layer="HARDWARE", weight=30)
-
-    drum_d = hw.drum_diameter or 4.0
-    drum_w = max(drum_d * 0.85, 3.0)
-    for end in (drum_w, length - drum_w):
-        _drum_sheet(msp, X(end), cy, max(drum_d * scale * 3.2, 0.16), max(drum_w * scale, 0.10))
-        # End bearing plate just outboard of the drum.
-        _rect(msp, X(end) - 0.035, cy - od * 1.35, X(end) + 0.035, cy + od * 1.35,
-              layer="HARDWARE", weight=30)
-    model = hw.drum_model or BY_FACTORY
-    dia_note = f'{drum_d:g}"' if hw.drum_diameter else BY_FACTORY
-    if span and hw.wire and hw.coil_id:
-        turns = f"{hw.turns:.1f} TURNS" if hw.turns is not None else BY_FACTORY
-        spring = f'LH/RH {hw.wire:g}" x {hw.coil_id:g}" ID x {span:g}"  {turns}'
+    shown = fmt_length_imperial(hw.shaft_length) if hw.shaft_length else BY_FACTORY
+    _text(msp, f"SHAFT {kind}  {shown}", ((x0 + x1) / 2, y1 - 0.44), TEXT_SMALL * 0.55)
+    if hw.wire and hw.coil_id and hw.spring_length:
+        turns = f"{hw.turns:.1f} TURNS" if hw.turns is not None else f"TURNS {BY_FACTORY}"
+        spring = (
+            f'LH/RH {hw.wire:g}" x {hw.coil_id:g}" ID x {hw.spring_length:g}"  {turns}'
+        )
     else:
         spring = f"SPRINGS — {BY_FACTORY}"
-    _text(msp, f"DRUM {model} {dia_note}", ((x0 + x1) / 2, y0 + 0.20), TEXT_SMALL * 0.42)
-    _text(msp, spring, ((x0 + x1) / 2, y0 + 0.06), TEXT_SMALL * 0.42)
-    _text(msp, f"END BRG / CTR BRKT — {BY_FACTORY}", (x1 - 0.02, y1 - 0.20),
-          TEXT_SMALL * 0.38, TextEntityAlignment.MIDDLE_RIGHT)
+    drum = hw.drum_model or BY_FACTORY
+    dia = f'{hw.drum_diameter:g}"' if hw.drum_diameter else BY_FACTORY
+    cable = f'{hw.cable_diameter:g}"' if hw.cable_diameter else BY_FACTORY
+    _text(msp, f"DRUM {drum} {dia}    CABLE {cable}    {spring}",
+          ((x0 + x1) / 2, y1 - 0.58), TEXT_SMALL * 0.5)
+    strut = (
+        f"STRUTS: NONE ({hw.strut_gauge or '20ga'} CHART)"
+        if hw.strut_count <= 0 else ""
+    )
+    extra = f"{strut}    " if strut else ""
+    _text(
+        msp,
+        f"{extra}END BRG / CTR BRKT / BOTTOM BRACKET / TOP FIXTURE / TRACK BRACKET — {BY_FACTORY}",
+        ((x0 + x1) / 2, y1 - 0.72),
+        TEXT_SMALL * 0.42,
+    )
 
 
-def _coil_sheet(msp, x0, x1, cy, od):
+def _dim_h(msp, x0, x1, y, text):
+    _line(msp, (x0, y + 0.06), (x0, y - 0.03), layer="DIMENSIONS", weight=9)
+    _line(msp, (x1, y + 0.06), (x1, y - 0.03), layer="DIMENSIONS", weight=9)
+    _line(msp, (x0, y), (x1, y), layer="DIMENSIONS", weight=9)
+    _text(msp, text, ((x0 + x1) / 2, y - 0.07), TEXT_SMALL * 0.55)
+
+
+def _dim_v(msp, y0, y1, x, text):
+    _line(msp, (x - 0.04, y0), (x + 0.05, y0), layer="DIMENSIONS", weight=9)
+    _line(msp, (x - 0.04, y1), (x + 0.05, y1), layer="DIMENSIONS", weight=9)
+    _line(msp, (x, y0), (x, y1), layer="DIMENSIONS", weight=9)
+    entity = msp.add_text(
+        text,
+        dxfattribs={"layer": "ANNOTATIONS", "height": TEXT_SMALL * 0.55,
+                    "style": "Standard", "rotation": 90},
+    )
+    entity.set_placement(((x + 0.08), (y0 + y1) / 2), align=TextEntityAlignment.MIDDLE_LEFT)
+
+
+def _draw_shaft(msp, hw: ShopHardware, X, Y, door_w, door_h, scale):
+    """Shaft, springs, drums and cable in the same scale as the door.
+
+    Drums sit on the cable line, which drops straight to the bottom
+    bracket. The end bearing plate is immediately outboard of each drum.
+    Springs are the calculated length and outside diameter, LH on the
+    left of the center bracket and RH on the right.
+    """
+    length = hw.shaft_length
+    if not length or hw.shaft_cl is None:
+        _text(msp, f"SHAFT — {BY_FACTORY}", (X(door_w / 2), Y(door_h + 4)), TEXT_SMALL * 0.5)
+        return
+    dia = hw.shaft_diameter or 1.0
+    shaft_x0 = door_w / 2 - length / 2
+    shaft_y = door_h + hw.shaft_cl
+    _rect(
+        msp, X(shaft_x0), Y(shaft_y - dia / 2), X(shaft_x0 + length), Y(shaft_y + dia / 2),
+        layer="HARDWARE", weight=50,
+    )
+
+    # Cable centers land inside the bottom brackets. The drum is centered
+    # on that cable. Its drawn barrel length equals the known diameter
+    # because the catalog does not publish an axial length.
+    drum_d = hw.drum_diameter or 4.0
+    drum_w = drum_d if hw.drum_diameter else 4.0
+    cable_xs = (3.0, door_w - 3.0)
+    for cx in cable_xs:
+        _drum(msp, X(cx), Y(shaft_y), drum_d * scale, drum_w * scale)
+        outboard = -1 if cx < door_w / 2 else 1
+        plate = cx + outboard * (drum_w / 2 + 0.35)
+        _rect(
+            msp, X(plate), Y(shaft_y - drum_d * 0.7),
+            X(plate + outboard * 0.4), Y(shaft_y + drum_d * 0.7),
+            layer="HARDWARE", weight=35,
+        )
+        _line(
+            msp, (X(cx), Y(shaft_y - drum_d / 2)), (X(cx), Y(3.0)),
+            layer="HARDWARE", weight=25,
+        )
+
+    span = hw.spring_length or 0.0
+    od = ((hw.coil_id or 0.0) + (hw.wire or 0.0)) or 0.0
+    gap = 1.5
+    mid = door_w / 2
+    if span and od and hw.lh_count:
+        _coil(msp, X(mid - gap - span), X(mid - gap), Y(shaft_y), od * scale)
+    if span and od and hw.rh_count:
+        _coil(msp, X(mid + gap), X(mid + gap + span), Y(shaft_y), od * scale)
+    _rect(
+        msp, X(mid - 1.0), Y(shaft_y - max(od, dia) * 0.9),
+        X(mid + 1.0), Y(shaft_y + max(od, dia) * 0.9),
+        layer="HARDWARE", weight=35,
+    )
+
+
+def _coil(msp, x0, x1, cy, od):
+    if x1 <= x0 or od <= 0:
+        return
     _line(msp, (x0, cy + od / 2), (x1, cy + od / 2), layer="HARDWARE", weight=18)
     _line(msp, (x0, cy - od / 2), (x1, cy - od / 2), layer="HARDWARE", weight=18)
     _line(msp, (x0, cy - od / 2), (x0, cy + od / 2), layer="HARDWARE", weight=25)
     _line(msp, (x1, cy - od / 2), (x1, cy + od / 2), layer="HARDWARE", weight=25)
-    steps = 8
+    steps = 10
     span = x1 - x0
     for i in range(steps):
         xa = x0 + span * i / steps
@@ -279,15 +383,15 @@ def _coil_sheet(msp, x0, x1, cy, od):
         _line(msp, (xa, ya), (xb, yb), layer="HARDWARE", weight=13)
 
 
-def _drum_sheet(msp, cx, cy, diameter, width):
-    """Stepped cable drum: narrow barrel, wider flanges."""
+def _drum(msp, cx, cy, diameter, width):
+    """Cable drum: flanges at the known diameter, barrel between them."""
     flange = diameter
     barrel = diameter * 0.62
-    _rect(msp, cx - width / 2, cy - flange / 2, cx - width / 2 + width * 0.18,
+    _rect(msp, cx - width / 2, cy - flange / 2, cx - width / 2 + width * 0.22,
           cy + flange / 2, layer="HARDWARE", weight=25)
-    _rect(msp, cx + width / 2 - width * 0.18, cy - flange / 2, cx + width / 2,
+    _rect(msp, cx + width / 2 - width * 0.22, cy - flange / 2, cx + width / 2,
           cy + flange / 2, layer="HARDWARE", weight=25)
-    _rect(msp, cx - width * 0.32, cy - barrel / 2, cx + width * 0.32,
+    _rect(msp, cx - width * 0.28, cy - barrel / 2, cx + width * 0.28,
           cy + barrel / 2, layer="HARDWARE", weight=18)
 
 
@@ -301,30 +405,10 @@ def draw_side_detail(msp, ctx, box) -> None:
     hl = hw.high_lift
     lift = (ctx.lift_type or "standard").lower()
     vertical = lift in ("full_vertical", "vertical")
-    headroom = hw.headroom if hw.headroom is not None else (door_h + 18 if vertical else radius + 6)
-    backroom = hw.backroom if hw.backroom is not None else (18 if vertical else door_h + 18)
-    ust = hw.ust if hw.ust is not None else (0 if vertical else (hl if hl else 6.5))
-    # Vertical track rises by the high-lift amount. The horizontal
-    # underside then sits `ust` above the opening, which already includes
-    # that high lift in the Thermalex table.
-    y_ust = door_h + ust
-    # The ordered radius turns the vertical track into the horizontal rail,
-    # and the rail lands on the published underside (the high-lift amount
-    # when this is a high-lift door). The straight vertical therefore
-    # stops one radius below that underside.
-    arc_start = y_ust - radius
-    vert_top = door_h + headroom if vertical else max(arc_start, 0)
-    view_w = max(backroom, 24) + thick + 30
-    view_h = max(y_ust + track, door_h + headroom, vert_top) + 18
-    scale = min((bx1 - bx0) * 0.78 / view_w, (by1 - by0) * 0.72 / view_h)
-    ox = bx0 + (bx1 - bx0) * 0.16
-    oy = by0 + 0.35
-
-    def X(inches):
-        return ox + inches * scale
-
-    def Y(inches):
-        return oy + inches * scale
+    headroom = hw.headroom if hw.headroom is not None else 0.0
+    backroom = hw.backroom if hw.backroom is not None else 0.0
+    ust = hw.ust if hw.ust is not None else 0.0
+    heights = section_heights(door_h) or [door_h]
 
     if vertical:
         label = f'{int(track)}" FULL VERTICAL LIFT'
@@ -332,51 +416,107 @@ def draw_side_detail(msp, ctx, box) -> None:
         label = f'{int(radius)}"R {int(track)}" HIGH LIFT'
     else:
         label = f'{int(radius)}"R {int(track)}" STANDARD LIFT'
-    _text(msp, label, ((bx0 + bx1) / 2, by1 - 0.12), TEXT_MED)
+    _text(msp, label, ((bx0 + bx1) / 2, by1 - 0.12), TEXT_MED * 0.85)
 
-    # Door at the series thickness.
-    _rect(msp, X(-thick), Y(0), X(0), Y(door_h), weight=35)
-    _line(msp, (X(-thick - 4), Y(0)), (X(backroom), Y(0)), weight=25)
-    # Two-line track. The inner rail is the ordered radius; the outer rail
-    # is one track size larger, so the pair reads as a 2" or 3" section.
-    _line(msp, (X(0), Y(0)), (X(0), Y(vert_top)), layer="TRACKS", weight=18)
-    _line(msp, (X(track), Y(0)), (X(track), Y(vert_top)), layer="TRACKS", weight=18)
+    # The horizontal rail lands on the published underside. The radius is
+    # the ordered 12" or 15", so the straight vertical stops one radius
+    # below that rail. For high lift the underside is the high-lift amount,
+    # and the track therefore rises by that amount.
+    y_ust = door_h + ust
+    arc_start = y_ust - radius
+    if vertical:
+        vert_top = door_h + headroom
+        y_max = vert_top + 4
+        x_max = 30.0
+    else:
+        vert_top = max(arc_start, 0.0)
+        y_max = max(y_ust + track, door_h + headroom) + 4
+        x_max = max(backroom, radius + track) + thick + 6
+
+    geo_right = bx0 + (bx1 - bx0) * 0.56
+    avail_w = max(geo_right - bx0 - 0.35, 0.4)
+    avail_h = max((by1 - 0.32) - (by0 + 0.22), 0.4)
+    scale = min(avail_w / x_max, avail_h / y_max)
+    ox = bx0 + 0.28
+    oy = by0 + 0.22
+
+    def X(inches):
+        return ox + inches * scale
+
+    def Y(inches):
+        return oy + inches * scale
+
+    # Door at the series thickness, with the same section joints.
+    _rect(msp, X(-thick), Y(0), X(0), Y(door_h), weight=50)
+    acc = 0.0
+    for height in heights[:-1]:
+        acc += height
+        _line(msp, (X(-thick), Y(acc)), (X(0), Y(acc)), layer="HORIZONTALS", weight=18)
+    _line(msp, (X(-thick - 6), Y(0)), (X(x_max - 4), Y(0)), weight=25)
+
+    _line(msp, (X(0), Y(0)), (X(0), Y(vert_top)), layer="TRACKS", weight=35)
+    _line(msp, (X(track), Y(0)), (X(track), Y(vert_top)), layer="TRACKS", weight=35)
     if not vertical and backroom > radius:
         center = (X(track + radius), Y(arc_start))
-        r_in = radius * scale
-        r_out = (radius + track) * scale
-        msp.add_arc(center, r_in, 90, 180, dxfattribs={"layer": "TRACKS", "lineweight": 18})
-        msp.add_arc(center, r_out, 90, 180, dxfattribs={"layer": "TRACKS", "lineweight": 18})
-        _line(msp, (X(track + radius), Y(y_ust)), (X(backroom), Y(y_ust)), layer="TRACKS", weight=18)
-        _line(msp, (X(track + radius), Y(y_ust + track)), (X(backroom), Y(y_ust + track)), layer="TRACKS", weight=18)
-        _line(msp, (X(backroom), Y(y_ust)), (X(backroom), Y(y_ust + track)), layer="TRACKS", weight=25)
-    elif vertical:
-        _line(msp, (X(0), Y(vert_top)), (X(18), Y(vert_top)), layer="TRACKS", weight=18)
-        _text(msp, f"BACKROOM {fmt_length_imperial(backroom)}",
-              (X(10), Y(vert_top + 4)), TEXT_SMALL * 0.65)
+        msp.add_arc(
+            center, radius * scale, 90, 180,
+            dxfattribs={"layer": "TRACKS", "lineweight": 35, "color": 250},
+        )
+        msp.add_arc(
+            center, (radius + track) * scale, 90, 180,
+            dxfattribs={"layer": "TRACKS", "lineweight": 35, "color": 250},
+        )
+        _line(msp, (X(track + radius), Y(y_ust)), (X(backroom), Y(y_ust)),
+              layer="TRACKS", weight=35)
+        _line(msp, (X(track + radius), Y(y_ust + track)), (X(backroom), Y(y_ust + track)),
+              layer="TRACKS", weight=35)
+        _line(msp, (X(backroom), Y(y_ust)), (X(backroom), Y(y_ust + track)),
+              layer="TRACKS", weight=25)
 
-    ceil = door_h + headroom
-    _line(msp, (X(-thick - 2), Y(ceil)), (X(min(backroom, 36) if not vertical else 20), Y(ceil)), weight=18)
-    # Notes sit in the right margin. At door scale a 12 ft opening makes
-    # an inch of text taller than a foot of track, so leaders on the
-    # radius collide.
-    notes = [
-        f"REQ. HEADROOM {fmt_length_imperial(headroom)}",
-        f"DOOR HEIGHT {fmt_length_imperial(door_h)}",
-        f"DOOR {_thickness_label(thick)}",
-    ]
+    if headroom:
+        _line(msp, (X(-thick - 2), Y(door_h + headroom)),
+              (X(min(18, x_max / 3)), Y(door_h + headroom)), weight=18)
+
+    # Door height and thickness are far from the track, so each gets its
+    # own level leader. The clearance figures all live at the head of the
+    # track; one leader feeds a stacked block so the lines do not cross.
+    _stacked_leaders(msp, [
+        (Y(door_h / 2), (X(-thick), Y(door_h / 2)), f"DOOR HEIGHT {fmt_length_imperial(door_h)}"),
+        (Y(6.0), (X(-thick / 2), Y(6.0)), f"DOOR {_thickness_label(thick)}"),
+    ], bx1 - 0.06)
+    clearance = []
+    if headroom:
+        clearance.append(f"REQ. HEADROOM {fmt_length_imperial(headroom)}")
     if not vertical and hw.floor_to_ust:
-        notes.append(f"UNDERSIDE OF TRACK {fmt_length_imperial(hw.floor_to_ust)}")
-    if backroom:
-        notes.append(f"BACKROOM {fmt_length_imperial(backroom)}")
+        clearance.append(f"UNDERSIDE OF TRACK {fmt_length_imperial(hw.floor_to_ust)}")
     if hl and not vertical:
-        notes.append(f"HI-LIFT {fmt_length_imperial(hl)}")
-    ny = by1 - 0.36
-    for line in notes:
-        _text(msp, line, (bx1 - 0.08, ny), TEXT_SMALL * 0.62, TextEntityAlignment.MIDDLE_RIGHT)
-        ny -= 0.16
-    _text(msp, "EXTERIOR", (bx0 + 0.08, by0 + 0.10), TEXT_SMALL * 0.55, TextEntityAlignment.MIDDLE_LEFT)
-    _text(msp, "INTERIOR", (bx1 - 0.08, by0 + 0.10), TEXT_SMALL * 0.55, TextEntityAlignment.MIDDLE_RIGHT)
+        clearance.append(f"HI-LIFT {fmt_length_imperial(hl)}")
+    if backroom:
+        clearance.append(f"BACKROOM {fmt_length_imperial(backroom)}")
+    if clearance:
+        anchor_y = Y(y_ust if not vertical else vert_top)
+        anchor = (X(min(backroom, radius + 8) if not vertical else 12), anchor_y)
+        _line(msp, anchor, (bx1 - 1.7, anchor_y), layer="DIMENSIONS", weight=9)
+        ty = anchor_y
+        for line in clearance:
+            _text(msp, line, (bx1 - 0.06, ty), TEXT_SMALL * 0.52, TextEntityAlignment.MIDDLE_RIGHT)
+            ty -= 0.15
+    _text(msp, "EXTERIOR", (bx0 + 0.06, by0 + 0.08), TEXT_SMALL * 0.5, TextEntityAlignment.MIDDLE_LEFT)
+    _text(msp, "INTERIOR", (geo_right, by0 + 0.08), TEXT_SMALL * 0.5, TextEntityAlignment.MIDDLE_RIGHT)
+
+
+def _stacked_leaders(msp, items, text_x, gap=0.14):
+    """Horizontal leaders. Text stacks when two features are closer than a line."""
+    placed = []
+    ordered = sorted(items, key=lambda item: item[0], reverse=True)
+    for feature_y, anchor, text in ordered:
+        ty = feature_y
+        for prev in placed:
+            if prev - gap < ty < prev + gap:
+                ty = prev - gap
+        placed.append(ty)
+        _line(msp, anchor, (text_x - 0.04, ty), layer="DIMENSIONS", weight=9)
+        _text(msp, text, (text_x, ty), TEXT_SMALL * 0.52, TextEntityAlignment.MIDDLE_RIGHT)
 
 
 def annotate_springs(msp, ctx, box) -> None:

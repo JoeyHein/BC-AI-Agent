@@ -477,6 +477,19 @@ class TestRealProfilesFlagOn:
         assert '1-3/4"' in resi
         assert "POLYURETHANE" in resi
         assert "BY FACTORY" in resi
+        assert "4 SECTIONS @ 1'-9\"" in resi
+
+        from app.services.shop_drawings.framing import build_dxf
+        on_doc = build_dxf(_profile_context(
+            real_profiles=True, door_series="TX450", door_type="residential",
+            door_width_in=192, door_height_in=84, jamb_type="wood",
+        ))
+        off_doc = build_dxf(_profile_context(door_series="TX450", jamb_type="steel"))
+        assert on_doc.layers.get("FRAMING").color == 250
+        assert on_doc.layers.get("TRACKS").color == 250
+        assert on_doc.layers.get("HARDWARE").color == 250
+        assert off_doc.layers.get("FRAMING").color == 1
+        assert off_doc.layers.get("TRACKS").color == 5
 
         comm = self._on(
             door_series="TX450", door_type="commercial",
@@ -494,6 +507,7 @@ class TestRealProfilesFlagOn:
         assert "3.5\"" in comm
         assert "12'-0\"" in comm
         assert "16'-0\"" not in comm
+        assert "6 SECTIONS @ 2'-0\"" in comm
 
     def test_library_is_the_supplier_linework(self):
         from app.services.shop_drawings.real_profiles import load_profile

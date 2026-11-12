@@ -46,6 +46,7 @@ class ShopHardware:
     strut_count: int = 0
     strut_gauge: Optional[str] = None
     headroom: Optional[float] = None
+    shaft_cl: Optional[float] = None
     backroom: Optional[float] = None
     floor_to_ust: Optional[float] = None
     ust: Optional[float] = None
@@ -211,6 +212,7 @@ def resolve_shop_hardware(ctx) -> ShopHardware:
             lhr_mount=ctx.lhr_mount or "front",
         )
         hw.headroom = float(geo["headroom_min"])
+        hw.shaft_cl = float(geo["cl_shaft"])
         hw.backroom = float(geo["backroom"])
         hw.ust = float(geo["ust"])
         hw.floor_to_ust = geo.get("floor_to_ust")

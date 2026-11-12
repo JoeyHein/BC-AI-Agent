@@ -216,6 +216,9 @@ def _draw_title_block(msp: Modelspace, ctx: DrawingContext) -> None:
     # X′-2″ variants, otherwise = door); height = door height.
     ro_w_str = fmt_length_imperial(_ro_width(ctx.door_width_in))
     num_sections_tb = max(3, int(ctx.door_height_in / ctx.section_height_in))
+    if ctx.real_profiles:
+        from app.services.shop_drawings.full_detail import section_heights
+        num_sections_tb = len(section_heights(ctx.door_height_in or 0))
     high_h_str = (fmt_length_imperial(ctx.high_lift_inches)
                   if ctx.high_lift_inches else "—")
     r1_cells = [
@@ -2842,6 +2845,12 @@ def build_dxf(ctx: DrawingContext) -> ezdxf.document.Drawing:
       +--------------------+----------+---------------------------+
     """
     doc = _new_drawing()
+    if ctx.real_profiles:
+        # The portal PDF is rendered from these layer colors. Flag on is
+        # a monochrome shop sheet. Flag off keeps the existing colors so
+        # its regression hash does not move.
+        for name in ("FRAMING", "HORIZONTALS", "TRACKS", "STRUTS", "HARDWARE", "CENTERLINE"):
+            doc.layers.get(name).color = 250
     msp = doc.modelspace()
     _draw_sheet_border(msp)
     _draw_title_block(msp, ctx)
