@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Navigate, Routes, Route } from 'react-router-dom'
+import { BrowserRouter as Router, Navigate, Routes, Route, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import StaffShell from './components/StaffShell'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -27,6 +27,7 @@ import PurchasingDashboard from './components/Purchasing/PurchasingDashboard'
 import CutWorkOrders from './components/Purchasing/CutWorkOrders'
 import { ResetPassword, SetupAccount } from './components/SetupAccount'
 import { showChat, showDashboard } from './utils/access'
+import ShopTvBoard from './components/ShopTvBoard'
 
 function HomeGate() {
   const { user, loading, can } = useAuth()
@@ -50,6 +51,8 @@ function HomeGate() {
 
 function AppContent() {
   const { user, isAuthenticated } = useAuth()
+  const location = useLocation()
+  const shopTv = location.pathname === '/shop-tv'
 
   // Handler for when chat actions are taken (refresh data as needed)
   const handleChatAction = (actions) => {
@@ -60,9 +63,9 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className={shopTv ? 'h-screen overflow-hidden bg-[#071629]' : 'min-h-screen bg-gray-100'}>
       <StaffShell>
-      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+      <main className={shopTv ? 'h-screen overflow-hidden' : 'max-w-7xl mx-auto py-6 sm:px-6 lg:px-8'}>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/setup" element={<SetupAccount />} />
@@ -187,12 +190,14 @@ function AppContent() {
               <WeeklyEmail />
             </ProtectedRoute>
           } />
+
+          <Route path="/shop-tv" element={<ShopTvBoard />} />
         </Routes>
       </main>
       </StaffShell>
 
       {/* Global AI Chat Box - only visible when authenticated */}
-      {isAuthenticated && showChat(user) && <ChatBox onAction={handleChatAction} />}
+      {isAuthenticated && showChat(user) && !shopTv && <ChatBox onAction={handleChatAction} />}
     </div>
   )
 }

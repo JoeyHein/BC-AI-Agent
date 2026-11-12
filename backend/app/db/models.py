@@ -2932,3 +2932,38 @@ class UpwardorReconRun(Base):
 
     def __repr__(self):
         return f"<UpwardorReconRun(id={self.id} rows={self.row_count})>"
+
+
+class ShopTvKioskToken(Base):
+    """Read-only token for the shop TV board.
+
+    A cast URL cannot safely hold a staff login: that login can change
+    quotes, orders, and settings. This token is a separate secret, hashed
+    at rest, accepted only by the board read, and revoked from Settings.
+    The plaintext is shown once. ``scope`` stays ``shop_tv:read``.
+    """
+
+    __tablename__ = "shop_tv_kiosk_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    key_prefix = Column(String(12), nullable=False, index=True)
+    key_hash = Column(String(64), nullable=False)
+    scope = Column(String(40), nullable=False, default="shop_tv:read")
+    status = Column(String(20), nullable=False, default="active", index=True)
+    created_by_user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    last_used_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    revoked_by_user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    def __repr__(self):
+        return (
+            f"<ShopTvKioskToken(id={self.id}, name='{self.name}', "
+            f"prefix='{self.key_prefix}', status='{self.status}')>"
+        )

@@ -919,4 +919,12 @@ export const externalKeysApi = {
   rotate: (id) => apiClient.post(`/api/external-keys/${id}/rotate`),
 };
 
+export const shopTvApi = {
+  enabled: () => apiClient.get('/api/shop-tv/enabled'),
+  settings: () => apiClient.get('/api/shop-tv/settings'),
+  saveSettings: (body) => apiClient.put('/api/shop-tv/settings', body),
+  createKiosk: (body) => apiClient.post('/api/shop-tv/kiosk-tokens', body),
+  revokeKiosk: (id) => apiClient.post(`/api/shop-tv/kiosk-tokens/${id}/revoke`),
+};
+
 export default apiClient;

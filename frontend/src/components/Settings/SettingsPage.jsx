@@ -9,6 +9,7 @@ import InventoryDashboard from '../InventoryAgent/InventoryDashboard'
 import POAgentDashboard from '../POAgent/POAgentDashboard'
 import ServiceKeysSettings from './ServiceKeysSettings'
 import ExternalKeysSettings from './ExternalKeysSettings'
+import ShopTvSettings from './ShopTvSettings'
 import UsersSettings from './UsersSettings'
 import { useAuth } from '../../contexts/AuthContext'
 
@@ -24,6 +25,7 @@ const TAB_DEFS = [
   { id: 'general', name: 'General', icon: 'adjustments', view: 'settings.view', edit: 'settings.edit' },
   { id: 'users', name: 'Users', icon: 'adjustments', view: 'users.view', edit: 'users.manage' },
   { id: 'service-keys', name: 'Service keys', icon: 'adjustments', view: 'users.manage', edit: 'users.manage' },
+  { id: 'shop-tv', name: 'Shop TV', icon: 'adjustments', view: 'users.manage', edit: 'users.manage' },
   { id: 'external-keys', name: 'External API keys', icon: 'adjustments', view: 'users.manage', edit: 'users.manage' },
 ]
 
@@ -126,6 +128,7 @@ function SettingsPage() {
           {activeTab === 'users' && <UsersSettings />}
           {activeTab === 'service-keys' && <ServiceKeysSettings />}
           {activeTab === 'external-keys' && <ExternalKeysSettings />}
+          {activeTab === 'shop-tv' && <ShopTvSettings />}
         </div>
       </div>
     </div>
