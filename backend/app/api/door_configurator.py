@@ -3193,7 +3193,10 @@ class FramingDrawingPreviewRequest(BaseModel):
 
 
 @router.post("/preview-framing-drawing")
-def preview_framing_drawing(req: FramingDrawingPreviewRequest):
+def preview_framing_drawing(
+    req: FramingDrawingPreviewRequest,
+    db: Session = Depends(get_db),
+):
     """Generate a shop drawing PDF/DXF directly from raw config data.
 
     Same output as the customer portal /saved-quotes/{id}/framing-drawing
@@ -3213,6 +3216,7 @@ def preview_framing_drawing(req: FramingDrawingPreviewRequest):
             job_number=req.job_number or "PREVIEW",
             fmt=fmt,
             door_index=req.door_index,
+            db=db,
         )
     except ValueError as e:
         raise HTTPException(400, str(e))

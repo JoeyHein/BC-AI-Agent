@@ -767,6 +767,10 @@ def update_profile_quoting_mode(
     return {"mode": mode}
 
 
+class ShopDrawingFlagUpdate(BaseModel):
+    shop_drawing_real_profiles: Optional[str] = None
+
+
 class InboxAutomationUpdate(BaseModel):
     email_attachment_reading: Optional[str] = None
     missing_info_reply: Optional[str] = None
@@ -787,6 +791,41 @@ class QuotePriceOverridesUpdate(BaseModel):
     quote_flat_residential_windows: Optional[str] = None
     residential_window_long_price: Optional[float] = None
     residential_window_short_price: Optional[float] = None
+
+
+@router.get("/shop-drawing-flags")
+def get_shop_drawing_flags(
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Shop-drawing switches. Each one is off until someone turns it on."""
+    from app.services.shop_drawing_settings import shop_drawing_modes
+    return {"modes": shop_drawing_modes(db)}
+
+
+@router.put("/shop-drawing-flags")
+def update_shop_drawing_flags(
+    body: ShopDrawingFlagUpdate,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    from app.services.shop_drawing_settings import (
+        SHOP_DRAWING_SETTING_KEYS,
+        set_shop_drawing_mode,
+        shop_drawing_modes,
+    )
+    updates = body.model_dump(exclude_unset=True)
+    unknown = [key for key in updates if key not in SHOP_DRAWING_SETTING_KEYS]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown setting {unknown[0]}")
+    try:
+        for key, mode in updates.items():
+            set_shop_drawing_mode(db, key, mode, user_id=current_admin.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    db.commit()
+    logger.info("Shop drawing flags updated by %s: %s", current_admin.email, updates)
+    return {"modes": shop_drawing_modes(db)}
 
 
 @router.get("/inbox-automation")

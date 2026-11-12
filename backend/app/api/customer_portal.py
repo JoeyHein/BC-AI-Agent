@@ -3407,6 +3407,7 @@ def generate_framing_drawing_endpoint(
             drawing_date=config.updated_at or config.created_at,
             config_id=config.id,
             door_index=door_index,
+            db=db,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
