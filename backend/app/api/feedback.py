@@ -298,6 +298,44 @@ def dismiss_customer_approval(
     return approval_to_dict(row)
 
 
+class QuotePoAcceptBody(BaseModel):
+    bc_quote_number: Optional[str] = None
+
+
+@router.get("/quote-po-intakes")
+def list_quote_po_intakes_route(db: Session = Depends(get_db)):
+    """Purchase-order emails waiting on staff. Missed ones are first."""
+    from app.services.quote_po_auto_convert import list_quote_po_intakes
+    return list_quote_po_intakes(db)
+
+
+@router.post("/quote-po-intakes/{intake_id}/accept")
+def accept_quote_po_route(
+    intake_id: int,
+    body: Optional[QuotePoAcceptBody] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Convert the matched quote, or the quote number staff typed in."""
+    from app.services.quote_po_auto_convert import accept_quote_po
+    return accept_quote_po(
+        db,
+        intake_id,
+        bc_quote_number=body.bc_quote_number if body else None,
+        user_email=current_user.email,
+    )
+
+
+@router.post("/quote-po-intakes/{intake_id}/dismiss")
+def dismiss_quote_po_route(
+    intake_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.quote_po_auto_convert import dismiss_quote_po
+    return dismiss_quote_po(db, intake_id, user_email=current_user.email)
+
+
 @router.get("/{quote_id}", response_model=QuoteResponse)
 def get_quote(quote_id: int, db: Session = Depends(get_db)):
     """Get a specific quote request by ID

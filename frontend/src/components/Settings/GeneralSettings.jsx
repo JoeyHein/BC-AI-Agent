@@ -6,6 +6,7 @@ const INBOX_SWITCHES = [
   ['missing_info_reply', 'Missing-info reply', 'Draft one reply listing what is still unknown. It waits in the approval queue.'],
   ['quote_send_draft', 'Send-quote draft', 'When a quote is created from an email, draft a reply with the SQ PDF. It is not sent.'],
   ['customer_approval_detection', 'Customer approval', 'A go-ahead email queues a convert-to-sales-order for staff. Nothing converts on its own.'],
+  ['quote_po_auto_convert', 'Purchase order to sales order', 'A customer PO email converts the one matching open quote. Shadow lists the match and does not call Business Central. Off ignores the mail.'],
 ]
 
 const QUOTE_BUILD_SWITCHES = [

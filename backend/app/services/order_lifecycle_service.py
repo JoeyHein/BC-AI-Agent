@@ -30,7 +30,9 @@ class OrderLifecycleService:
         self,
         db: Session,
         quote_request_id: int,
-        user_id: str
+        user_id: str,
+        *,
+        allow_manual_fallback: bool = True,
     ) -> Dict[str, Any]:
         """
         Convert an approved quote to a sales order in BC.
@@ -102,8 +104,16 @@ class OrderLifecycleService:
 
             bc_quote_guid = bc_quote.get("id")
 
-            # Convert quote to order in BC using makeOrder action
-            bc_order = self.bc_client.convert_quote_to_order(bc_quote_guid)
+            # Convert quote to order in BC using makeOrder action.
+            # The purchase-order trigger passes allow_manual_fallback=False
+            # so a failed makeOrder is not rebuilt by copying lines.
+            if allow_manual_fallback:
+                bc_order = self.bc_client.convert_quote_to_order(bc_quote_guid)
+            else:
+                bc_order = self.bc_client.convert_quote_to_order(
+                    bc_quote_guid,
+                    allow_manual_fallback=False,
+                )
 
             # Create local SalesOrder record
             sales_order = SalesOrder(

@@ -27,27 +27,34 @@ class PurchasingReportService:
         """Compute requirements and email the digest. Returns a result dict."""
         result = purchasing_demand_service.compute_requirements(db)
         summary = result["summary"]
+        missed = self._missed_purchase_orders(db)
 
         recipients = recipients or self._default_recipients()
         sender = sender or settings.NOTIFICATION_SENDER_EMAIL
 
-        if summary["shortfall_items"] == 0:
+        if summary["shortfall_items"] == 0 and not missed:
             logger.info("[PurchasingReport] No shortfalls — skipping digest email")
-            return {"sent": False, "reason": "no_shortfalls", "summary": summary}
+            return {"sent": False, "reason": "no_shortfalls", "summary": summary, "missed_purchase_orders": []}
 
-        subject = (
-            f"Purchasing — {summary['shortfall_items']} item(s) to buy "
-            f"across {summary['vendor_count']} vendor(s) (~${summary['estimated_cost']:,.0f})"
-        )
-        html = self.build_digest_html(result, db=db)
+        if summary["shortfall_items"] == 0:
+            subject = (
+                f"Purchase orders waiting — {len(missed)} customer PO email(s) "
+                "have no sales order"
+            )
+        else:
+            subject = (
+                f"Purchasing — {summary['shortfall_items']} item(s) to buy "
+                f"across {summary['vendor_count']} vendor(s) (~${summary['estimated_cost']:,.0f})"
+            )
+        html = self.build_digest_html(result, db=db, missed_purchase_orders=missed)
 
         try:
             graph_client.send_mail(sender, recipients, subject, html)
             logger.info(f"[PurchasingReport] Digest sent to {recipients}")
-            return {"sent": True, "recipients": recipients, "summary": summary}
+            return {"sent": True, "recipients": recipients, "summary": summary, "missed_purchase_orders": missed}
         except Exception as e:
             logger.error(f"[PurchasingReport] Failed to send digest: {e}")
-            return {"sent": False, "error": str(e), "summary": summary}
+            return {"sent": False, "error": str(e), "summary": summary, "missed_purchase_orders": missed}
 
     def _default_recipients(self) -> List[str]:
         raw = settings.ADMIN_NOTIFICATION_EMAILS or "joey@opendc.ca"
@@ -92,7 +99,50 @@ class PurchasingReportService:
         body.append("</table></div>")
         return "".join(body)
 
-    def build_digest_html(self, result: dict, db: Optional[Session] = None) -> str:
+    def _missed_purchase_orders(self, db: Session) -> list:
+        try:
+            from app.services.quote_po_auto_convert import missed_purchase_orders
+            return missed_purchase_orders(db)
+        except Exception as exc:
+            logger.error("[PurchasingReport] missed purchase orders unavailable: %s", exc)
+            return []
+
+    def _missed_po_section_html(self, missed: list) -> str:
+        if not missed:
+            return ""
+        rows = []
+        for item in missed:
+            rows.append(
+                "<tr style='border-top:1px solid #fecaca'>"
+                f"<td style='padding:3px 6px'>{item.get('customer_po') or '—'}</td>"
+                f"<td style='padding:3px 6px'>{item.get('from_address') or ''}</td>"
+                f"<td style='padding:3px 6px'>{item.get('bc_quote_number') or 'no quote match'}</td>"
+                f"<td style='padding:3px 6px'>{item.get('subject') or ''}</td>"
+                "</tr>"
+            )
+        return (
+            "<div style='background:#fef2f2;border:1px solid #fecaca;border-radius:8px;"
+            "padding:12px 14px;margin:12px 0'>"
+            f"<div style='font-weight:700;color:#991b1b;margin-bottom:6px'>"
+            f"{len(missed)} customer purchase order(s) still have no sales order "
+            "after 4 business hours</div>"
+            "<table style='width:100%;border-collapse:collapse;font-size:13px'>"
+            "<tr style='text-align:left;color:#6b7280'>"
+            "<th style='padding:3px 6px'>PO</th><th style='padding:3px 6px'>From</th>"
+            "<th style='padding:3px 6px'>Quote</th><th style='padding:3px 6px'>Subject</th></tr>"
+            + "".join(rows)
+            + "</table>"
+            "<p style='margin:8px 0 0;font-size:13px'>"
+            "<a href='https://portal.opendc.ca/reviews' style='color:#b91c1c'>"
+            "Open the review queue →</a></p></div>"
+        )
+
+    def build_digest_html(
+        self,
+        result: dict,
+        db: Optional[Session] = None,
+        missed_purchase_orders: Optional[list] = None,
+    ) -> str:
         s = result["summary"]
         when = datetime.utcnow().strftime("%A, %B %d, %Y")
 
@@ -115,6 +165,10 @@ class PurchasingReportService:
             except Exception as e:
                 logger.error(f"[PurchasingReport] auto-PO section unavailable: {e}")
 
+        if missed_purchase_orders is None and db is not None:
+            missed_purchase_orders = self._missed_purchase_orders(db)
+        missed_html = self._missed_po_section_html(missed_purchase_orders or [])
+
         prod_note = "" if result.get("production_included") else (
             "<p style='color:#92400e;background:#fef3c7;padding:8px 12px;border-radius:6px;"
             "font-size:13px;margin:8px 0'>Production-order demand not included "
@@ -126,6 +180,7 @@ class PurchasingReportService:
             <h2 style="margin:0 0 4px">OPENDC Daily Purchasing Report</h2>
             <p style="color:#6b7280;margin:0 0 12px;font-size:13px">{when}</p>
             {brief_html}
+            {missed_html}
             {auto_html}
             <div style="display:flex;gap:16px;margin:12px 0">
               <div style="flex:1;background:#f3f4f6;border-radius:8px;padding:12px">

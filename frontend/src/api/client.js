@@ -46,6 +46,17 @@ export const quotesApi = {
   dismissCustomerApproval: (approvalId) =>
     apiClient.post(`/api/quotes/customer-approvals/${approvalId}/dismiss`),
 
+  getQuotePoIntakes: () =>
+    apiClient.get('/api/quotes/quote-po-intakes'),
+
+  acceptQuotePo: (intakeId, bcQuoteNumber) =>
+    apiClient.post(`/api/quotes/quote-po-intakes/${intakeId}/accept`, {
+      bc_quote_number: bcQuoteNumber || null,
+    }),
+
+  dismissQuotePo: (intakeId) =>
+    apiClient.post(`/api/quotes/quote-po-intakes/${intakeId}/dismiss`),
+
   // Approve quote
   approveQuote: (quoteId, { notes = '', bc_customer_id = null, create_in_bc = false } = {}) =>
     apiClient.post(`/api/quotes/${quoteId}/approve`, {

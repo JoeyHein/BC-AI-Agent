@@ -1779,13 +1779,23 @@ class BusinessCentralClient:
 
     # ==================== Quote to Order Conversion ====================
 
-    def convert_quote_to_order(self, quote_id: str, company_id: Optional[str] = None) -> Dict[str, Any]:
+    def convert_quote_to_order(
+        self,
+        quote_id: str,
+        company_id: Optional[str] = None,
+        *,
+        allow_manual_fallback: bool = True,
+    ) -> Dict[str, Any]:
         """
         Convert a sales quote to a sales order.
 
         Tries makeOrder first. If BC rejects it (e.g. requestedDeliveryDate
         not on the v2.0 salesQuotes entity), falls back to manually creating
         a sales order and copying all quote lines.
+
+        ``allow_manual_fallback=False`` stops after makeOrder. The purchase
+        order trigger uses that so a failed makeOrder stays a review item
+        instead of being rebuilt by copying lines.
 
         Args:
             quote_id: The BC sales quote ID (GUID)
@@ -1805,6 +1815,8 @@ class BusinessCentralClient:
             return result
         except Exception as e:
             error_msg = str(e)
+            if not allow_manual_fallback:
+                raise
             if "delivery" not in error_msg.lower() and "Requested" not in error_msg:
                 raise  # Not the delivery date issue, re-raise
 

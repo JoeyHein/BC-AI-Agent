@@ -284,6 +284,17 @@ class SchedulerService:
             if stats['errors'] > 0:
                 logger.warning(f"{stats['errors']} error(s) occurred during email check")
 
+            try:
+                from app.db.database import SessionLocal
+                from app.services.quote_po_auto_convert import refresh_missed_purchase_orders
+                check = SessionLocal()
+                try:
+                    refresh_missed_purchase_orders(check)
+                finally:
+                    check.close()
+            except Exception:
+                logger.exception("Missed purchase-order check failed")
+
         except Exception as e:
             logger.error(f"Critical error in email monitor job: {str(e)}", exc_info=True)
 
