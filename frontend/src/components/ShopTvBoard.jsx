@@ -178,8 +178,14 @@ function DayBlock({ day }) {
   )
 }
 
-function Lane({ lane, days, page, pageCount, budget }) {
+function Lane({ lane, days, budget }) {
+  const [page, setPage] = useState(0)
   const pages = useMemo(() => paginate(days, budget), [days, budget])
+  useEffect(() => {
+    if (pages.length < 2) return undefined
+    const timer = setInterval(() => setPage((value) => value + 1), ROTATE_MS)
+    return () => clearInterval(timer)
+  }, [pages.length])
   const index = pages.length ? page % pages.length : 0
   const visible = pages[index] || []
   return (
@@ -204,7 +210,6 @@ function ShopTvBoard() {
   const [phase, setPhase] = useState('loading')
   const [stale, setStale] = useState(false)
   const [now, setNow] = useState(() => new Date())
-  const [tick, setTick] = useState(0)
   const [budget, setBudget] = useState(860)
 
   useEffect(() => {
@@ -221,11 +226,7 @@ function ShopTvBoard() {
 
   useEffect(() => {
     const clock = setInterval(() => setNow(new Date()), 1000)
-    const rotate = setInterval(() => setTick((value) => value + 1), ROTATE_MS)
-    return () => {
-      clearInterval(clock)
-      clearInterval(rotate)
-    }
+    return () => clearInterval(clock)
   }, [])
 
   useEffect(() => {
@@ -307,10 +308,6 @@ function ShopTvBoard() {
   const updated = board.generated_at ? formatStamp(new Date(board.generated_at)) : ''
   const bcDown = (board.sources || []).some((source) => source.id === 'business_central' && source.available === false)
   const lanes = board.incoming_enabled ? LANES : LANES.filter((lane) => lane.id !== 'incoming')
-  const maxPages = Math.max(
-    1,
-    ...lanes.map((lane) => paginate(board.lanes?.[lane.id]?.days || [], budget).length),
-  )
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col overflow-hidden bg-[#071629] text-white">
@@ -340,16 +337,12 @@ function ShopTvBoard() {
           <Lane
             lane={lanes.find((lane) => lane.id === 'incoming')}
             days={board.lanes?.incoming?.days || []}
-            page={tick}
-            pageCount={maxPages}
             budget={budget}
           />
         )}
         <Lane
           lane={lanes.find((lane) => lane.id === 'production')}
           days={board.lanes?.production?.days || []}
-          page={tick}
-          pageCount={maxPages}
           budget={budget}
         />
         {board.incoming_enabled ? (
@@ -357,15 +350,11 @@ function ShopTvBoard() {
             <Lane
               lane={lanes.find((lane) => lane.id === 'pickups')}
               days={board.lanes?.pickups?.days || []}
-              page={tick}
-              pageCount={maxPages}
               budget={Math.max(160, Math.floor((budget - 12) / 2))}
             />
             <Lane
               lane={lanes.find((lane) => lane.id === 'deliveries')}
               days={board.lanes?.deliveries?.days || []}
-              page={tick}
-              pageCount={maxPages}
               budget={Math.max(160, Math.floor((budget - 12) / 2))}
             />
           </div>
@@ -374,15 +363,11 @@ function ShopTvBoard() {
             <Lane
               lane={lanes.find((lane) => lane.id === 'pickups')}
               days={board.lanes?.pickups?.days || []}
-              page={tick}
-              pageCount={maxPages}
               budget={budget}
             />
             <Lane
               lane={lanes.find((lane) => lane.id === 'deliveries')}
               days={board.lanes?.deliveries?.days || []}
-              page={tick}
-              pageCount={maxPages}
               budget={budget}
             />
           </>

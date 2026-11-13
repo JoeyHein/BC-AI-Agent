@@ -138,8 +138,26 @@ def supplier_key_from_sender(sender: str) -> str:
     compact = domain.replace("-", "")
     if "globaloverhead" in compact:
         return "global"
-    if "teamstransport" in compact:
+    return ""
+
+
+def carrier_key_from_sender(sender: str) -> str:
+    """Carriers are not vendors. TEAMS and Manitoulin do not pick a supplier."""
+    match = re.search(r"@([a-z0-9.-]+)", (sender or "").lower())
+    domain = (match.group(1) if match else "").replace("-", "")
+    if "teamstransport" in domain:
         return "teams"
+    if "manitoulin" in domain:
+        return "manitoulin"
+    return ""
+
+
+def carrier_key_from_text(carrier: str) -> str:
+    text = (carrier or "").lower()
+    if "teams transport" in text:
+        return "teams"
+    if "manitoulin" in text:
+        return "manitoulin"
     return ""
 
 
@@ -153,8 +171,6 @@ def vendor_supplier_key(po: dict) -> str:
         return "dek"
     if re.search(r"(?i)global overhead", blob):
         return "global"
-    if re.search(r"(?i)teams", blob):
-        return "teams"
     return ""
 
 
@@ -217,6 +233,9 @@ def extract_shipping_notice(subject: str = "", body: str = "", sender: str = "")
         "our_po_number": our_po,
         "sales_orders": sales_orders,
         "carrier": carrier_match.group(1).strip() if carrier_match else "",
+        "carrier_key": carrier_key_from_sender(sender) or carrier_key_from_text(
+            carrier_match.group(1) if carrier_match else ""
+        ),
         "tracking": waybill_match.group(1).strip() if waybill_match else "",
         "eta": eta_match.group(1) if eta_match else "",
         "lines": lines,
@@ -287,33 +306,63 @@ def _pos_for_vendor(purchase_orders, supplier_key: str) -> list:
     return [po for po in purchase_orders or [] if vendor_supplier_key(po) == supplier_key]
 
 
-def decide_match(extracted: dict, purchase_orders, maps=None, tracker_links=None, sales_orders=None) -> dict:
-    """Apply only an exact vendor-scoped match. Anything else is a review."""
+def _exact_pos(purchase_orders, po_number: str) -> list:
+    key = po_digits(po_number)
+    if not key:
+        return []
+    return [po for po in purchase_orders or [] if po_digits(po.get("number")) == key]
+
+
+def decide_match(extracted: dict, purchase_orders, maps=None, tracker_links=None, sales_orders=None, staff_po: str = "") -> dict:
+    """Apply only an exact match. Anything else is a review.
+
+    A PO number typed by staff is looked up across every open purchase
+    order. The vendor then comes from that PO. A carrier is not a vendor:
+    the email may name our PO number, and it applies only when that number
+    is one open purchase order.
+    """
     sales_by_number = {}
     for order in sales_orders or []:
         number = str(order.get("number") or "").upper()
         if number:
             sales_by_number[number] = order
     maps = maps or []
-    supplier_order = canonical_supplier_order(
-        extracted.get("supplier_order_no") or "",
-        extracted.get("supplier_key") or "",
-    )
     supplier_key = extracted.get("supplier_key") or ""
-    if not supplier_key:
+    supplier_order = canonical_supplier_order(extracted.get("supplier_order_no") or "", supplier_key)
+    carrier_key = extracted.get("carrier_key") or ""
+    po = None
+    reason = ""
+    saved = None
+
+    if staff_po:
+        matches = _exact_pos(purchase_orders, staff_po)
+        if len(matches) != 1:
+            return _review(extracted, "That PO number is missing or matches more than one open purchase order.")
+        po = matches[0]
+        supplier_key = vendor_supplier_key(po) or supplier_key
+        supplier_order = canonical_supplier_order(extracted.get("supplier_order_no") or "", supplier_key)
+        reason = "staff selected the purchase order"
+    elif not supplier_key and carrier_key:
+        if not extracted.get("our_po_number"):
+            return _review(extracted, "A carrier email needs our PO number.")
+        matches = _exact_pos(purchase_orders, extracted["our_po_number"])
+        if len(matches) != 1:
+            return _review(extracted, "The PO number on the carrier email is not one open purchase order.")
+        po = matches[0]
+        supplier_key = vendor_supplier_key(po) or ""
+        supplier_order = canonical_supplier_order(extracted.get("supplier_order_no") or "", supplier_key)
+        reason = "PO number on the carrier email"
+    elif not supplier_key:
         return _review(extracted, "Unknown sender. A staff person has to match this email.")
 
-    saved = None
-    if supplier_order:
+    if po is None and supplier_order:
         for row in maps:
             row_key = row.get("supplier_key") or ""
             row_order = canonical_supplier_order(row.get("supplier_order_no") or "", row_key)
             if row_key and row_key == supplier_key and row_order == supplier_order:
                 saved = row
                 break
-    po = None
-    reason = ""
-    if saved:
+    if po is None and saved:
         candidates = [
             item for item in _pos_for_vendor(purchase_orders, supplier_key)
             if po_digits(item.get("number")) == po_digits(saved.get("our_po_number"))
@@ -322,7 +371,7 @@ def decide_match(extracted: dict, purchase_orders, maps=None, tracker_links=None
             return _review(extracted, "Saved map does not point at one open purchase order for this supplier.")
         po = candidates[0]
         reason = "saved supplier map"
-    elif extracted.get("our_po_number"):
+    elif po is None and extracted.get("our_po_number"):
         candidates = [
             item for item in _pos_for_vendor(purchase_orders, supplier_key)
             if po_digits(item.get("number")) == po_digits(extracted["our_po_number"])
@@ -331,7 +380,7 @@ def decide_match(extracted: dict, purchase_orders, maps=None, tracker_links=None
             return _review(extracted, "The PO number on the email is not one open purchase order for this supplier.")
         po = candidates[0]
         reason = "PO number on the email"
-    elif supplier_order:
+    elif po is None and supplier_order:
         candidates = []
         for candidate in _pos_for_vendor(purchase_orders, supplier_key):
             vendor_order = canonical_supplier_order(
@@ -501,7 +550,7 @@ def build_incoming_days(purchase_orders, sales_orders=None, notices=None, tracke
 
 
 def load_purchase_orders(bc=None):
-    """GET open purchase orders. This is the only Business Central call."""
+    """Read open purchase orders. Calls get_open_purchase_orders_with_lines only."""
     if bc is None:
         from app.integrations.bc.client import bc_client
         bc = bc_client
@@ -801,11 +850,16 @@ def accept_review(db: Session, review_id: int, po_number: Optional[str] = None, 
         return {"ok": False, "reason": "already handled", "status": row.status}
     extracted = dict(row.extracted_json or {})
     chosen = po_number or row.proposed_po or extracted.get("our_po_number")
-    if chosen:
-        extracted["our_po_number"] = format_po(chosen) or chosen
     if purchase_orders is None:
         purchase_orders = []
-    decision = decide_match(extracted, purchase_orders, _maps(db), _tracker_links(db), sales_orders)
+    decision = decide_match(
+        extracted,
+        purchase_orders,
+        _maps(db),
+        _tracker_links(db),
+        sales_orders,
+        staff_po=chosen or "",
+    )
     if decision["action"] != "apply":
         return {"ok": False, "reason": decision["reason"]}
     _save_apply(db, decision)

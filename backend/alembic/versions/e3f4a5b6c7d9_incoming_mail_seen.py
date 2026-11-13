@@ -6,6 +6,8 @@ Create Date: 2026-11-13 16:10:00.000000
 
 The poll stores Graph internetMessageId (or the Graph id) so the same
 message does not open a second review. Reviews keep that id too.
+message_id is unique through one constraint. A second unique index is
+not created.
 """
 from typing import Sequence, Union
 
@@ -28,14 +30,12 @@ def upgrade() -> None:
         sa.Column("message_id", sa.String(length=400), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("message_id"),
+        sa.UniqueConstraint("message_id", name="uq_incoming_mail_seen_message_id"),
     )
     op.create_index("ix_incoming_mail_seen_id", "incoming_mail_seen", ["id"])
-    op.create_index("ix_incoming_mail_seen_message_id", "incoming_mail_seen", ["message_id"], unique=True)
 
 
 def downgrade() -> None:
-    op.drop_index("ix_incoming_mail_seen_message_id", table_name="incoming_mail_seen")
     op.drop_index("ix_incoming_mail_seen_id", table_name="incoming_mail_seen")
     op.drop_table("incoming_mail_seen")
     op.drop_index("ix_incoming_email_reviews_message_id", table_name="incoming_email_reviews")

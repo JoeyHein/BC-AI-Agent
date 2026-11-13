@@ -3033,7 +3033,7 @@ class IncomingMailSeen(Base):
     __tablename__ = "incoming_mail_seen"
 
     id = Column(Integer, primary_key=True, index=True)
-    message_id = Column(String(400), nullable=False, unique=True, index=True)
+    message_id = Column(String(400), nullable=False, unique=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     def __repr__(self):

@@ -29,6 +29,7 @@ from app.db.models import (
 from app.services.auth_service import AuthService
 from app.services.shop_tv_incoming import (
     EMAIL_FLAG,
+    accept_review,
     attach_incoming,
     build_incoming_days,
     decide_match,
@@ -462,3 +463,66 @@ def test_kiosk_token_cannot_open_or_reject_reviews(session):
     headers = {"X-Shop-Tv-Token": plaintext}
     assert client.get("/api/shop-tv/incoming/reviews", headers=headers).status_code == 401
     assert client.post("/api/shop-tv/incoming/reviews/1/reject", headers={"Authorization": f"Bearer {plaintext}"}).status_code == 401
+
+
+def test_staff_fix_applies_an_unknown_sender_to_the_typed_po(session):
+    extracted = extract_shipping_notice(
+        "Shipped PO-000111",
+        "On the truck. No supplier domain.",
+        "someone@gmail.com",
+    )
+    assert extracted["supplier_key"] == ""
+    queued = route_notice(session, extracted, [PO], SALES)
+    assert queued["action"] == "review"
+    result = accept_review(
+        session,
+        queued["review_id"],
+        po_number="PO-000962",
+        purchase_orders=[PO],
+        sales_orders=SALES,
+    )
+    assert result["ok"] is True
+    assert result["po_number"] == "PO-000962"
+    notice = session.query(IncomingShipmentNotice).one()
+    assert notice.our_po_number == "PO-000962"
+    assert notice.status == "shipped"
+    review = session.query(IncomingEmailReview).one()
+    assert review.status == "accepted"
+
+
+def test_staff_fix_applies_a_teams_notice_to_the_upwardor_po(session):
+    extracted = extract_shipping_notice(
+        "Shipped — on the truck",
+        "Carrier: TEAMS Transport\nP.O. No. PO-000962\nWaybill: TW-88421\nETA: 2026-11-14",
+        "dispatch@teamstransport.com",
+    )
+    assert extracted["supplier_key"] == ""
+    assert extracted["carrier_key"] == "teams"
+    assert extracted["our_po_number"] == "PO-000962"
+    auto = decide_match(extracted, [PO], sales_orders=SALES)
+    assert auto["action"] == "apply"
+    assert auto["po_number"] == "PO-000962"
+    assert auto["supplier_key"] == "upwardor"
+    ambiguous = decide_match(extracted, [PO, dict(PO)])
+    assert ambiguous["action"] == "review"
+    queued = route_notice(session, {**extracted, "our_po_number": "", "message_id": "teams-review"}, [], SALES)
+    assert queued["action"] == "review"
+    fixed = accept_review(
+        session,
+        queued["review_id"],
+        po_number="PO-000962",
+        purchase_orders=[PO],
+        sales_orders=SALES,
+    )
+    assert fixed["ok"] is True
+    assert fixed["po_number"] == "PO-000962"
+    other = route_notice(session, {**extracted, "our_po_number": "", "message_id": "teams-missing"}, [], SALES)
+    missing = accept_review(
+        session,
+        other["review_id"],
+        po_number="PO-999999",
+        purchase_orders=[PO],
+    )
+    assert missing["ok"] is False
+    assert "missing or matches more than one" in missing["reason"]
+    assert session.query(IncomingEmailReview).filter_by(id=other["review_id"]).one().status == "pending"
