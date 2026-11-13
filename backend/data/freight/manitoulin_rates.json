@@ -1,0 +1,382 @@
+{
+  "agreement": "19067426",
+  "carrier": "Manitoulin Transport",
+  "service": "Preferential Service Agreement",
+  "currency": "CAD",
+  "rate_unit": "CAD per CWT",
+  "breaks": [
+    "L5C",
+    "500",
+    "1000",
+    "2000",
+    "5000",
+    "10000",
+    "20000"
+  ],
+  "l5c_applies_below_lb": 500,
+  "placeholder": true,
+  "status": "partial",
+  "notice": "PLACEHOLDER. Preferential Service Agreement #19067426 was not in the repo. Cells with source verified_example are the Redcliff to Calgary, Edmonton, and Regina figures from the rating examples. Every other cell is null and returns 'no contract rate - get a spot quote'. Run scripts/import_manitoulin_rates.py against the workbook (the copy named on the box is /workspace/freight/190674sa26 (1).xlsx) to fill the table. A null cell is not $0. The agreement must be signed before these rates are used.",
+  "workbook": "190674sa26 (1).xlsx",
+  "origins": [
+    {
+      "id": "redcliff",
+      "label": "Redcliff AB"
+    },
+    {
+      "id": "milton",
+      "label": "Milton ON"
+    },
+    {
+      "id": "mississauga",
+      "label": "Mississauga ON"
+    }
+  ],
+  "destinations": [
+    {
+      "id": "calgary",
+      "label": "Calgary"
+    },
+    {
+      "id": "edmonton",
+      "label": "Edmonton"
+    },
+    {
+      "id": "grande_prairie",
+      "label": "Grande Prairie"
+    },
+    {
+      "id": "red_deer",
+      "label": "Red Deer"
+    },
+    {
+      "id": "vancouver",
+      "label": "Vancouver"
+    },
+    {
+      "id": "winnipeg",
+      "label": "Winnipeg"
+    },
+    {
+      "id": "regina",
+      "label": "Regina"
+    }
+  ],
+  "lanes": [
+    {
+      "origin": "redcliff",
+      "destination": "calgary",
+      "min": 66,
+      "rates": {
+        "L5C": null,
+        "500": null,
+        "1000": 14.41,
+        "2000": 11.42,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "verified_example"
+    },
+    {
+      "origin": "redcliff",
+      "destination": "edmonton",
+      "min": 80,
+      "rates": {
+        "L5C": null,
+        "500": null,
+        "1000": 20.5,
+        "2000": 16.97,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "verified_example"
+    },
+    {
+      "origin": "redcliff",
+      "destination": "grande_prairie",
+      "min": null,
+      "rates": {
+        "L5C": null,
+        "500": null,
+        "1000": null,
+        "2000": null,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "placeholder"
+    },
+    {
+      "origin": "redcliff",
+      "destination": "red_deer",
+      "min": null,
+      "rates": {
+        "L5C": null,
+        "500": null,
+        "1000": null,
+        "2000": null,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "placeholder"
+    },
+    {
+      "origin": "redcliff",
+      "destination": "vancouver",
+      "min": null,
+      "rates": {
+        "L5C": null,
+        "500": null,
+        "1000": null,
+        "2000": null,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "placeholder"
+    },
+    {
+      "origin": "redcliff",
+      "destination": "winnipeg",
+      "min": null,
+      "rates": {
+        "L5C": null,
+        "500": null,
+        "1000": null,
+        "2000": null,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "placeholder"
+    },
+    {
+      "origin": "redcliff",
+      "destination": "regina",
+      "min": 76,
+      "rates": {
+        "L5C": 32.63,
+        "500": 25.59,
+        "1000": 20.0,
+        "2000": 16.65,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "verified_example"
+    },
+    {
+      "origin": "milton",
+      "destination": "calgary",
+      "min": null,
+      "rates": {
+        "L5C": null,
+        "500": null,
+        "1000": null,
+        "2000": null,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "placeholder"
+    },
+    {
+      "origin": "milton",
+      "destination": "edmonton",
+      "min": null,
+      "rates": {
+        "L5C": null,
+        "500": null,
+        "1000": null,
+        "2000": null,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "placeholder"
+    },
+    {
+      "origin": "milton",
+      "destination": "grande_prairie",
+      "min": null,
+      "rates": {
+        "L5C": null,
+        "500": null,
+        "1000": null,
+        "2000": null,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "placeholder"
+    },
+    {
+      "origin": "milton",
+      "destination": "red_deer",
+      "min": null,
+      "rates": {
+        "L5C": null,
+        "500": null,
+        "1000": null,
+        "2000": null,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "placeholder"
+    },
+    {
+      "origin": "milton",
+      "destination": "vancouver",
+      "min": null,
+      "rates": {
+        "L5C": null,
+        "500": null,
+        "1000": null,
+        "2000": null,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "placeholder"
+    },
+    {
+      "origin": "milton",
+      "destination": "winnipeg",
+      "min": null,
+      "rates": {
+        "L5C": null,
+        "500": null,
+        "1000": null,
+        "2000": null,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "placeholder"
+    },
+    {
+      "origin": "milton",
+      "destination": "regina",
+      "min": null,
+      "rates": {
+        "L5C": null,
+        "500": null,
+        "1000": null,
+        "2000": null,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "placeholder"
+    },
+    {
+      "origin": "mississauga",
+      "destination": "calgary",
+      "min": null,
+      "rates": {
+        "L5C": null,
+        "500": null,
+        "1000": null,
+        "2000": null,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "placeholder"
+    },
+    {
+      "origin": "mississauga",
+      "destination": "edmonton",
+      "min": null,
+      "rates": {
+        "L5C": null,
+        "500": null,
+        "1000": null,
+        "2000": null,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "placeholder"
+    },
+    {
+      "origin": "mississauga",
+      "destination": "grande_prairie",
+      "min": null,
+      "rates": {
+        "L5C": null,
+        "500": null,
+        "1000": null,
+        "2000": null,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "placeholder"
+    },
+    {
+      "origin": "mississauga",
+      "destination": "red_deer",
+      "min": null,
+      "rates": {
+        "L5C": null,
+        "500": null,
+        "1000": null,
+        "2000": null,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "placeholder"
+    },
+    {
+      "origin": "mississauga",
+      "destination": "vancouver",
+      "min": null,
+      "rates": {
+        "L5C": null,
+        "500": null,
+        "1000": null,
+        "2000": null,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "placeholder"
+    },
+    {
+      "origin": "mississauga",
+      "destination": "winnipeg",
+      "min": null,
+      "rates": {
+        "L5C": null,
+        "500": null,
+        "1000": null,
+        "2000": null,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "placeholder"
+    },
+    {
+      "origin": "mississauga",
+      "destination": "regina",
+      "min": null,
+      "rates": {
+        "L5C": null,
+        "500": null,
+        "1000": null,
+        "2000": null,
+        "5000": null,
+        "10000": null,
+        "20000": null
+      },
+      "source": "placeholder"
+    }
+  ]
+}

@@ -925,6 +925,13 @@ export const externalKeysApi = {
   rotate: (id) => apiClient.post(`/api/external-keys/${id}/rotate`),
 };
 
+export const freightEstimatorApi = {
+  enabled: () => apiClient.get('/api/freight-estimator/enabled'),
+  settings: () => apiClient.get('/api/freight-estimator/settings'),
+  saveSettings: (body) => apiClient.put('/api/freight-estimator/settings', body),
+  estimate: (body) => apiClient.post('/api/freight-estimator/estimate', body),
+}
+
 export const shopTvApi = {
   enabled: () => apiClient.get('/api/shop-tv/enabled'),
   settings: () => apiClient.get('/api/shop-tv/settings'),

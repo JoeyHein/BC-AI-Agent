@@ -40,7 +40,11 @@ DOOR_MODEL_WEIGHTS = {
     # Commercial models (from BC Items with Weights — PN40/PN50 BULK)
     "TX380": {"18": 3.4991, "21": 3.4992, "24": 3.9331, "28": 4.5, "32": 5.0},
     "TX450": {"18": 3.812, "21": 3.812, "24": 3.978, "28": 5.0, "32": 5.5},
-    "TX450-20": {"18": 5.18, "21": 5.18, "24": 5.6813, "28": 6.2, "32": 6.8},
+    # 21" and 24" match the Mar 13 2026 Thermalex workbook and the BC weight
+    # export (21" 4.5175, 24" 4.7145 lb/ft). 18" follows that 21" figure, the
+    # same way the previous table copied one rate onto both. 28" and 32" are
+    # still the earlier estimates.
+    "TX450-20": {"18": 4.5175, "21": 4.5175, "24": 4.7145, "28": 6.2, "32": 6.8},
     "TX500": {"18": 4.002, "21": 4.002, "24": 4.570, "28": 5.2, "32": 5.7},
     "TX500-20": {"18": 5.2865, "21": 5.2865, "24": 5.63, "28": 6.1, "32": 6.6},
     # TX760 (3"): TX500 +15% interim estimate (matches part_number_service MODEL_WEIGHTS).

@@ -1,0 +1,104 @@
+{
+  "_comment": "Editable ship-weight constants for the freight estimator. Rates are estimates with the source named below. A settings override (app_settings key freight_estimator_config) replaces a number without editing this file. Null is not a zero.",
+  "sources": [
+    {
+      "topic": "hanging_weight",
+      "text": "Door hanging weight is DoorCalculatorService, which uses the Thermalex panel lb/ft table (DOOR_MODEL_WEIGHTS) plus end caps, retainers, astragal, seals, struts, and the hardware kit. TX450-20 21 in and 24 in match the Mar 13 2026 Thermalex workbook and the BC weight export."
+    },
+    {
+      "topic": "shaft",
+      "text": "Carbon steel at 0.283 lb/in^3 (Machinery's Handbook). 1 in solid keyed: pi*(0.5 in)^2 * 12 * 0.283 = 2.670 lb/ft. 1 in tube, 14 gauge 0.083 in wall (ID 0.834 in): pi/4*(1^2-0.834^2)*12*0.283 = 0.813 lb/ft. 1-1/4 in solid keyed, used above 2000 lb hanging weight: pi*(0.625 in)^2*12*0.283 = 4.172 lb/ft."
+    },
+    {
+      "topic": "track",
+      "text": "Rail lb/ft is a developed-blank estimate, not a scale ticket. 2 in track assumes a 16 gauge (0.060 in) blank about 5.5 in wide: 5.5*0.060*12*0.283 = 1.12 lb/ft, entered as 1.20 to allow the hem. 3 in track assumes a 13 gauge (0.090 in) blank about 7.5 in wide: 7.5*0.090*12*0.283 = 2.29 lb/ft. Continuous-angle extra is AISC angle weight on both horizontal runs: 2 in mount uses L2x2x1/8 at 1.65 lb/ft; 3 in mount uses L2-1/2x2-1/2x3/16 at 3.07 lb/ft. Footage is both sides of the vertical and horizontal lengths from DoorCalculatorService. A vertical-lift door uses vertical_lift_header_in instead of the calculator's horizontal length, because that length is the door width and a full-vertical door does not ship a full horizontal track."
+    },
+    {
+      "topic": "springs",
+      "text": "Pounds per inch of spring length come from backend/data/spring-calculator/reference/spring-weights.json (Canimex Cable Drum Catalog Appendix 4). A 2.625 in coil matches the table's 2.63 in column. A wire/coil pair missing from the table falls back to the spring calculator's steel-density formula and is flagged."
+    },
+    {
+      "topic": "drums_bearings_cones",
+      "text": "Shop estimates for one cast drum, a flange bearing, a winding cone, a stationary cone, and a shaft coupler. Two drums ship with the door. Bearings are two end bearings plus one center bearing per coupler. Cones are one winding cone and one stationary cone per spring. Edit after a scale check. These figures are not from the Thermalex workbook."
+    },
+    {
+      "topic": "operators",
+      "text": "Shipping-weight estimates by operator family. Trolley families include one rail. Hoist and jackshaft families are the head only. Chain hoist is the manual chain hoist used when there is no motor. Edit per family. These are not LiftMaster carton labels."
+    },
+    {
+      "topic": "crate",
+      "text": "Length follows the shaft rule: door width plus shaft_overhang_in (18 in). A 16 ft door crates at 210 in. Height is the stacked panel thickness (section count times series thickness) plus dunnage, once per crate. Width is the taller section face (21 or 24 in) plus packing_allowance_in. Doors of the same width share a crate until the panel stack reaches max_stack_height_in. Tare is tare_base_lb plus tare_lb_per_ft times crate length in feet. Panel thickness: TX380 1.5 in, TX450 and TX450-20 1.75 in, TX500 and TX500-20 2 in, TX760 3 in."
+    }
+  ],
+  "shaft": {
+    "lb_per_ft": {
+      "solid": 2.670,
+      "tube": 0.813,
+      "1-1/4": 4.172
+    }
+  },
+  "track": {
+    "rail_lb_per_ft": {
+      "2": 1.20,
+      "3": 2.29
+    },
+    "angle_extra_lb_per_ft": {
+      "2": 1.65,
+      "3": 3.07
+    },
+    "vertical_lift_header_in": 24
+  },
+  "drums": {
+    "per_door": 2,
+    "lb_each": {
+      "D6375": 16,
+      "D800": 18,
+      "D575": 12,
+      "D525": 9.5,
+      "D400": 6.5,
+      "1350": 24,
+      "1100": 18,
+      "850": 14,
+      "default": 10
+    }
+  },
+  "bearing_lb_each": 0.7,
+  "winding_cone_lb_each": 1.1,
+  "stationary_cone_lb_each": 0.6,
+  "coupler_lb_each": 1.4,
+  "operators": {
+    "residential_trolley": {"lb": 55, "label": "Residential trolley, head and rail"},
+    "residential_jackshaft": {"lb": 40, "label": "Residential jackshaft"},
+    "commercial_trolley": {"lb": 150, "label": "Commercial trolley, head and rail"},
+    "commercial_hoist": {"lb": 95, "label": "Commercial hoist"},
+    "commercial_jackshaft": {"lb": 80, "label": "Commercial jackshaft"},
+    "chain_hoist": {"lb": 18, "label": "Manual chain hoist"},
+    "unknown": {"lb": 60, "label": "Operator, family not recognized"}
+  },
+  "crate": {
+    "shaft_overhang_in": 18,
+    "no_shaft_end_allowance_in": 4,
+    "dunnage_in": 4,
+    "packing_allowance_in": 4,
+    "max_stack_height_in": 30,
+    "tare_base_lb": 20,
+    "tare_lb_per_ft": 8,
+    "panel_thickness_in": {
+      "TX380": 1.5,
+      "TX450": 1.75,
+      "TX450-20": 1.75,
+      "TX500": 2,
+      "TX500-20": 2,
+      "TX760": 3,
+      "KANATA": 2,
+      "CRAFT": 2,
+      "AL976": 1.75,
+      "PANORAMA": 1.75,
+      "SOLALITE": 1.75,
+      "SWD": 1.75,
+      "AL976-SWD": 1.75
+    },
+    "default_panel_thickness_in": 1.75,
+    "default_section_face_in": 24
+  }
+}

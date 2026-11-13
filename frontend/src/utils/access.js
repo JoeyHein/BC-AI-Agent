@@ -24,6 +24,7 @@ const NAV = {
   '/analytics/quoting': 'quotes.view',
   '/analytics/order-age': 'sales_orders.view',
   '/business': ['users.manage', 'quotes.edit', 'sales_orders.edit', 'purchase_orders.view', 'sales_orders.view'],
+  '/business/freight': ['users.manage', 'quotes.edit', 'sales_orders.edit', 'purchase_orders.view', 'sales_orders.view', 'configurator.use'],
   '/business/upwardor': ['users.manage', 'quotes.edit', 'sales_orders.edit', 'purchase_orders.view', 'sales_orders.view'],
   '/weekly-email': 'users.manage',
 }

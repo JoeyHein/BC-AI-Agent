@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://portal.opendc.ca/schemas/manitoulin-rates.json",
+  "title": "Manitoulin Preferential Service Agreement rate table",
+  "description": "Outbound contract rates for agreement 19067426. Dollars are CAD per hundredweight (CWT) except min, which is a CAD minimum linehaul. A null rate is not on the loaded sheet. The loader must not treat null as zero.",
+  "type": "object",
+  "required": ["agreement", "carrier", "breaks", "origins", "destinations", "lanes", "placeholder", "status"],
+  "properties": {
+    "agreement": {"const": "19067426"},
+    "carrier": {"type": "string"},
+    "service": {"type": "string"},
+    "currency": {"const": "CAD"},
+    "rate_unit": {"const": "CAD per CWT"},
+    "breaks": {
+      "type": "array",
+      "minItems": 7,
+      "items": {"enum": ["L5C", "500", "1000", "2000", "5000", "10000", "20000"]}
+    },
+    "l5c_applies_below_lb": {"const": 500},
+    "placeholder": {"type": "boolean"},
+    "status": {"enum": ["placeholder", "partial", "imported"]},
+    "notice": {"type": "string"},
+    "origins": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "label"],
+        "properties": {
+          "id": {"enum": ["redcliff", "milton", "mississauga"]},
+          "label": {"type": "string"}
+        }
+      }
+    },
+    "destinations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "label"],
+        "properties": {
+          "id": {"enum": ["calgary", "edmonton", "grande_prairie", "red_deer", "vancouver", "winnipeg", "regina"]},
+          "label": {"type": "string"}
+        }
+      }
+    },
+    "lanes": {
+      "type": "array",
+      "minItems": 21,
+      "items": {
+        "type": "object",
+        "required": ["origin", "destination", "min", "rates"],
+        "properties": {
+          "origin": {"enum": ["redcliff", "milton", "mississauga"]},
+          "destination": {"enum": ["calgary", "edmonton", "grande_prairie", "red_deer", "vancouver", "winnipeg", "regina"]},
+          "min": {"type": ["number", "null"], "minimum": 0},
+          "source": {"type": "string"},
+          "rates": {
+            "type": "object",
+            "required": ["L5C", "500", "1000", "2000", "5000", "10000", "20000"],
+            "properties": {
+              "L5C": {"type": ["number", "null"]},
+              "500": {"type": ["number", "null"]},
+              "1000": {"type": ["number", "null"]},
+              "2000": {"type": ["number", "null"]},
+              "5000": {"type": ["number", "null"]},
+              "10000": {"type": ["number", "null"]},
+              "20000": {"type": ["number", "null"]}
+            }
+          }
+        }
+      }
+    }
+  }
+}

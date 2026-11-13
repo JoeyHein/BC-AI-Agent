@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { navAllowed, showDashboard, showSettings } from '../utils/access'
-import { shopTvApi } from '../api/client'
+import { freightEstimatorApi, shopTvApi } from '../api/client'
 
 const DASHBOARD = { path: '/', label: 'Dashboard', icon: 'home' }
 
@@ -31,6 +31,7 @@ const SECTIONS = [
     label: 'Reports',
     items: [
       { path: '/business', label: 'Business', icon: 'chart' },
+      { path: '/business/freight', label: 'Freight estimate', icon: 'truck' },
       { path: '/business/upwardor', label: 'Upwardor plan', icon: 'flag' },
       { path: '/analytics', label: 'Sales Analytics', icon: 'chart' },
       { path: '/analytics/quoting', label: 'Quoting', icon: 'chart' },
@@ -87,9 +88,10 @@ function Logo({ className = 'h-8' }) {
   return <img src="/assets/opendc-logo.jpg" alt="Open Distribution Company" className={`${className} w-auto`} />
 }
 
-function SideNav({ pathname, onNavigate, user, shopTvOn }) {
+function SideNav({ pathname, onNavigate, user, shopTvOn, freightOn }) {
   const sections = SECTIONS.map((section) => {
     let items = section.items.filter((item) => navAllowed(user, item.path))
+    if (!freightOn) items = items.filter((item) => item.path !== '/business/freight')
     if (section.label === 'Operations' && shopTvOn && navAllowed(user, '/shop-tv')) {
       const shop = { path: '/shop-tv', label: 'Shop TV', icon: 'tv' }
       const at = items.findIndex((item) => item.path === '/production')
@@ -252,6 +254,7 @@ function StaffShell({ children }) {
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [shopTvOn, setShopTvOn] = useState(false)
+  const [freightOn, setFreightOn] = useState(false)
 
   useEffect(() => {
     setMobileOpen(false)
@@ -266,6 +269,18 @@ function StaffShell({ children }) {
     shopTvApi.enabled()
       .then(() => { if (!cancelled) setShopTvOn(true) })
       .catch(() => { if (!cancelled) setShopTvOn(false) })
+    return () => { cancelled = true }
+  }, [isAuthenticated, user])
+
+  useEffect(() => {
+    if (!isAuthenticated || !navAllowed(user, '/business/freight')) {
+      setFreightOn(false)
+      return undefined
+    }
+    let cancelled = false
+    freightEstimatorApi.enabled()
+      .then(() => { if (!cancelled) setFreightOn(true) })
+      .catch(() => { if (!cancelled) setFreightOn(false) })
     return () => { cancelled = true }
   }, [isAuthenticated, user])
 
@@ -304,7 +319,7 @@ function StaffShell({ children }) {
             <Logo />
           </Link>
         </div>
-        <SideNav pathname={location.pathname} user={user} shopTvOn={shopTvOn} />
+        <SideNav pathname={location.pathname} user={user} shopTvOn={shopTvOn} freightOn={freightOn} />
       </aside>
 
       {mobileOpen && (
@@ -331,7 +346,7 @@ function StaffShell({ children }) {
                 </svg>
               </button>
             </div>
-            <SideNav pathname={location.pathname} user={user} shopTvOn={shopTvOn} onNavigate={() => setMobileOpen(false)} />
+            <SideNav pathname={location.pathname} user={user} shopTvOn={shopTvOn} freightOn={freightOn} onNavigate={() => setMobileOpen(false)} />
           </aside>
         </div>
       )}
