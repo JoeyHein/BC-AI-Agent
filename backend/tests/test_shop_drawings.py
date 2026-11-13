@@ -405,8 +405,8 @@ class TestRealProfilesFlagOn:
         assert '1-3/4"' not in text
         assert "POLYURETHANE" in text
         assert "POLYURETHENE" not in text
-        assert '3.5"' in text
-        assert '3.75"' not in text
+        assert "SIDEROOM\\P3.5\"" in text
+        assert "SIDEROOM\\P3.75\"" not in text
         assert "STEEL JAMB WELD APPLICATION" in text
 
     def test_tx500_is_the_tx450_joint_at_50mm(self):
@@ -454,10 +454,60 @@ class TestRealProfilesFlagOn:
         assert real_sideroom_in("") == 3.75
         wood = self._on(door_series="TX450", jamb_type="wood")
         steel = self._on(door_series="TX450", jamb_type="steel")
-        assert '3.75"' in wood
+        assert "SIDEROOM\\P3.75\"" in wood
         assert "MIN. REQ." in wood and "SIDEROOM" in wood
-        assert '3.5"' in steel
-        assert '3.75"' not in steel
+        assert "SIDEROOM\\P3.5\"" in steel
+        assert "SIDEROOM\\P3.75\"" not in steel
+
+    def test_full_sheet_uses_calculator_numbers(self):
+        resi = self._on(
+            door_series="TX450", door_type="residential",
+            door_width_in=192, door_height_in=84, jamb_type="wood",
+            lift_type="standard", section_height_in=24,
+        )
+        assert '0.2437" x 2" ID x 30"' in resi
+        assert "1 LH" in resi and "1 RH" in resi
+        assert "TURNS 7.9" in resi
+        assert "D400-96" in resi
+        assert '1" TUBULAR' in resi
+        assert "16'-10\"" in resi
+        assert "REQ. HEADROOM 1'-3.75\"" in resi
+        assert "BACKROOM 8'-6\"" in resi
+        assert "3.75\"" in resi
+        assert '1-3/4"' in resi
+        assert "POLYURETHANE" in resi
+        assert "BY FACTORY" in resi
+        assert "4 SECTIONS @ 1'-9\"" in resi
+
+        from app.services.shop_drawings.framing import build_dxf
+        on_doc = build_dxf(_profile_context(
+            real_profiles=True, door_series="TX450", door_type="residential",
+            door_width_in=192, door_height_in=84, jamb_type="wood",
+        ))
+        off_doc = build_dxf(_profile_context(door_series="TX450", jamb_type="steel"))
+        assert on_doc.layers.get("FRAMING").color == 250
+        assert on_doc.layers.get("TRACKS").color == 250
+        assert on_doc.layers.get("HARDWARE").color == 250
+        assert off_doc.layers.get("FRAMING").color == 1
+        assert off_doc.layers.get("TRACKS").color == 5
+
+        comm = self._on(
+            door_series="TX450", door_type="commercial",
+            door_width_in=144, door_height_in=144, jamb_type="steel",
+            lift_type="high_lift", high_lift_inches=24, section_height_in=24,
+        )
+        assert "D400-54" in comm
+        assert "0.273" in comm
+        assert "TURNS 13.5" in comm
+        assert '1" SOLID KEYED' in comm
+        assert "REQ. HEADROOM 2'-10\"" in comm
+        assert "BACKROOM 12'-6\"" in comm
+        assert "UNDERSIDE OF TRACK 14'-0\"" in comm
+        assert "HI-LIFT 2'-0\"" in comm
+        assert "3.5\"" in comm
+        assert "12'-0\"" in comm
+        assert "16'-0\"" not in comm
+        assert "6 SECTIONS @ 2'-0\"" in comm
 
     def test_library_is_the_supplier_linework(self):
         from app.services.shop_drawings.real_profiles import load_profile

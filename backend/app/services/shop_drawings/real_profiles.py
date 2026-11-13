@@ -275,8 +275,20 @@ def draw_real_panel_profile(msp: Modelspace, ctx, box) -> bool:
 
 
 def draw_real_plan_view(msp: Modelspace, ctx, box) -> None:
-    """Wood or steel jamb detail from the supplier jamb sheet."""
-    _draw_items(msp, list(_scaled_items(_jamb_name(ctx.jamb_type), 1.0)), box)
+    """Wood or steel jamb detail from the supplier jamb sheet.
+
+    The supplier sheet is drawn on a 16 ft opening. The geometry stays.
+    The 16 ft callout is replaced with this door's width.
+    """
+    from app.services.shop_drawings.framing import fmt_length_imperial
+    width = fmt_length_imperial(ctx.door_width_in or 0)
+    items = []
+    for item in _scaled_items(_jamb_name(ctx.jamb_type), 1.0):
+        if item[0] == "T" and str(item[-1]).strip() in ('16\'-0"', '16\'-0\"'):
+            item = list(item)
+            item[-1] = width
+        items.append(item)
+    _draw_items(msp, items, box)
 
 
 def render_items_png(items, path: str, title: str = "") -> None:
