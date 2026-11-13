@@ -79,6 +79,7 @@ REASON_TEXT = {
     "no_unique_quote": "No single open quote matches this purchase order.",
     "convert_failed": "Business Central did not convert the quote.",
     "lines_unverified": "The email lists lines and the quote has none on file to compare.",
+    "unverified_quote": "This quote has no amount or lines on file to check against the purchase order.",
     "converting": "This quote is already being converted.",
 }
 
@@ -326,6 +327,8 @@ def accept_quote_po(
         return {**intake_to_dict(row), "already": True, "converted": True}
     try:
         saved = _convert_row(db, row, quote, user_email)
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Staff convert failed for purchase order %s", row.id)
         raise HTTPException(status_code=400, detail=f"Could not convert the quote: {exc}")
@@ -389,7 +392,13 @@ def _convert_row(db: Session, row: QuotePoIntake, quote: QuoteRequest, user_emai
     sq_number = quote.bc_quote_id
     blocked = _conversion_block(db, quote, row)
     if blocked:
-        return _hold_for_review(db, row, quote, blocked)
+        logger.info(
+            "Purchase order %s did not convert %s (%s). Business Central was not called.",
+            row.customer_po, sq_number, blocked,
+        )
+        held = _hold_for_review(db, row, quote, blocked)
+        _staff_conflict(user_email, blocked)
+        return held
     row.bc_quote_number = sq_number
     row.quote_request_id = quote_id
     row.status = "review"
@@ -398,12 +407,24 @@ def _convert_row(db: Session, row: QuotePoIntake, quote: QuoteRequest, user_emai
         fresh = db.query(QuotePoIntake).filter(QuotePoIntake.id == intake_id).one()
         quote = db.query(QuoteRequest).filter(QuoteRequest.id == quote_id).one()
         reason = "already_converted" if _sales_order_for(db, quote) or (quote.status or "").lower() in _CONVERTED else "converting"
-        return _hold_for_review(db, fresh, quote, reason)
+        logger.info(
+            "Purchase order %s did not convert %s (%s). Business Central was not called.",
+            fresh.customer_po, sq_number, reason,
+        )
+        held = _hold_for_review(db, fresh, quote, reason)
+        _staff_conflict(user_email, reason)
+        return held
     quote = db.query(QuoteRequest).filter(QuoteRequest.id == quote_id).one()
     row = db.query(QuotePoIntake).filter(QuotePoIntake.id == intake_id).one()
     blocked = _conversion_block(db, quote, row)
     if blocked:
-        return _hold_for_review(db, row, quote, blocked)
+        logger.info(
+            "Purchase order %s did not convert %s (%s). Business Central was not called.",
+            row.customer_po, sq_number, blocked,
+        )
+        held = _hold_for_review(db, row, quote, blocked)
+        _staff_conflict(user_email, blocked)
+        return held
     try:
         result = _write_po_and_convert(db, quote, row.customer_po, user_email)
     except Exception as exc:
@@ -489,26 +510,45 @@ def _hold_for_review(db: Session, row: QuotePoIntake, quote: QuoteRequest, reaso
     return row
 
 
+def _staff_conflict(user_email: str, reason: str) -> None:
+    """Staff who lose the quote get 409. The inbox path only logs and reviews."""
+    if user_email == AUTO_ACTOR:
+        return
+    from fastapi import HTTPException
+    if reason == "already_converted":
+        detail = "This quote is already a sales order."
+    else:
+        detail = "This quote is already being converted."
+    raise HTTPException(status_code=409, detail=detail)
+
+
 def _claim_converting(db: Session, intake_id: int) -> bool:
     """Commit status=converting for this row before makeOrder.
 
     The partial unique index on bc_quote_number lets one row per quote hold
-    converting or converted. The loser rolls back and makes no BC call.
+    converting or converted. The losing update raises IntegrityError before
+    commit on PostgreSQL. Either failure rolls back and makes no BC call.
     """
-    claimed = (
-        db.query(QuotePoIntake)
-        .filter(
-            QuotePoIntake.id == intake_id,
-            QuotePoIntake.status.in_(["review", "shadow"]),
+    try:
+        claimed = (
+            db.query(QuotePoIntake)
+            .filter(
+                QuotePoIntake.id == intake_id,
+                QuotePoIntake.status.in_(["review", "shadow"]),
+            )
+            .update({"status": "converting"}, synchronize_session=False)
         )
-        .update({"status": "converting"}, synchronize_session=False)
-    )
+    except IntegrityError:
+        logger.info("Purchase order row %s lost the convert claim on update", intake_id)
+        db.rollback()
+        return False
     if claimed != 1:
         db.rollback()
         return False
     try:
         db.commit()
     except IntegrityError:
+        logger.info("Purchase order row %s lost the convert claim on commit", intake_id)
         db.rollback()
         return False
     return True
@@ -658,6 +698,8 @@ def _match_exact_number(db, from_address, number, facts, now) -> dict:
     closure = _closure(db, quote, now)
     if closure:
         return _low(closure, "number", [_candidate(quote, "number")])
+    if _quote_amount_cents(quote) is None and not _quote_skus(quote):
+        return _low("unverified_quote", "number", [_candidate(quote, "number")])
     problem = _amount_or_lines(quote, facts)
     if problem:
         return _low(problem, "number", [_candidate(quote, "number")])
@@ -839,11 +881,12 @@ def _quote_skus(quote: QuoteRequest) -> set:
 
 
 def _lines_overlap(hints: List[dict], skus: set) -> bool:
+    """Every PO sku is on the quote. One shared sku is not enough to auto-select."""
     wanted = {_norm_sku(item.get("sku")) for item in hints}
     wanted.discard("")
     if not wanted or not skus:
         return False
-    return any(hint == sku for hint in wanted for sku in skus)
+    return all(hint in skus for hint in wanted)
 
 
 def _read_facts(text: str, po_number: str, po_source: Optional[str], filenames: List[str]) -> dict:

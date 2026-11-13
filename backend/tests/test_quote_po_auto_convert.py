@@ -9,10 +9,12 @@ from __future__ import annotations
 import base64
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
@@ -33,6 +35,7 @@ from app.db.models import (
 from app.services.email_monitor import EmailMonitorService
 from app.services.inbox_settings import set_inbox_mode
 from app.services.quote_po_auto_convert import (
+    _claim_converting,
     accept_quote_po,
     business_hours_between,
     dismiss_quote_po,
@@ -40,6 +43,14 @@ from app.services.quote_po_auto_convert import (
     list_quote_po_intakes,
     missed_purchase_orders,
 )
+
+_SHOP = ZoneInfo("America/Edmonton")
+
+
+def _shop_utc(year, month, day, hour, minute=0):
+    """A shop-local clock time stored the way the mailbox stores UTC."""
+    local = datetime(year, month, day, hour, minute, tzinfo=_SHOP)
+    return local.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _engine():
@@ -125,7 +136,9 @@ def _log(session, message_id="mail-1", sender="buyer@acme.test", subject="PO", b
 
 def _quote(session, number, sender="buyer@acme.test", total="1500.00", status="bc_created", customer="Acme", lines=None):
     log = _log(session, message_id=f"quote-{number}-{sender}", sender=sender)
-    data = {"total": total}
+    data = {}
+    if total is not None:
+        data["total"] = total
     if lines:
         data["lines"] = lines
     row = QuoteRequest(
@@ -396,14 +409,14 @@ def test_go_ahead_without_a_po_is_ignored(session, bc):
 
 def test_missed_po_safety_net(session):
     set_inbox_mode(session, "quote_po_auto_convert", "on")
-    received = datetime(2026, 11, 9, 17, 0)  # Monday 10:00 America/Edmonton
-    almost = datetime(2026, 11, 9, 20, 0)  # 3 business hours
-    due = datetime(2026, 11, 9, 21, 0)  # 4 business hours
+    received = _shop_utc(2026, 11, 9, 10)  # Monday 10:00 shop time
+    almost = _shop_utc(2026, 11, 9, 13)
+    due = _shop_utc(2026, 11, 9, 14)
     assert business_hours_between(received, almost) == pytest.approx(3)
     assert business_hours_between(received, due) == pytest.approx(4)
-    friday = datetime(2026, 11, 13, 23, 0)  # Friday 16:00 America/Edmonton
-    sunday = datetime(2026, 11, 15, 18, 0)
-    monday = datetime(2026, 11, 16, 18, 0)  # Monday 11:00, four hours later
+    friday = _shop_utc(2026, 11, 13, 16)
+    sunday = _shop_utc(2026, 11, 15, 12)
+    monday = _shop_utc(2026, 11, 16, 11)
     assert business_hours_between(friday, sunday) == pytest.approx(1)
     assert business_hours_between(friday, monday) == pytest.approx(4)
 
@@ -545,6 +558,102 @@ def test_second_email_does_not_make_order_while_the_quote_is_converting(session,
     with pytest.raises(IntegrityError):
         session.commit()
     session.rollback()
+
+
+def test_losing_convert_claim_skips_bc_and_staff_get_409(session, bc, monkeypatch):
+    set_inbox_mode(session, "quote_po_auto_convert", "on")
+    quote = _quote(session, "SQ-1001")
+    holder_log = _log(session, message_id="claim-holder")
+    session.add(QuotePoIntake(
+        graph_message_id="claim-holder",
+        email_log_id=holder_log.id,
+        from_address="buyer@acme.test",
+        subject="First PO",
+        received_at=datetime(2026, 11, 13, 16, 0),
+        customer_po="11111",
+        status="converting",
+        bc_quote_number="SQ-1001",
+        quote_request_id=quote.id,
+        confidence="high",
+        overdue=False,
+        created_at=datetime(2026, 11, 13, 16, 0),
+    ))
+    challenger_log = _log(session, message_id="claim-challenger")
+    challenger = QuotePoIntake(
+        graph_message_id="claim-challenger",
+        email_log_id=challenger_log.id,
+        from_address="buyer@acme.test",
+        subject="Second PO",
+        received_at=datetime(2026, 11, 13, 16, 5),
+        customer_po="22222",
+        status="review",
+        bc_quote_number="SQ-1001",
+        quote_request_id=quote.id,
+        confidence="high",
+        overdue=False,
+        created_at=datetime(2026, 11, 13, 16, 5),
+    )
+    session.add(challenger)
+    session.commit()
+    assert _claim_converting(session, challenger.id) is False
+    session.expire_all()
+    assert session.get(QuotePoIntake, challenger.id).status == "review"
+    monkeypatch.setattr(
+        "app.services.quote_po_auto_convert._conversion_block",
+        lambda *args, **kwargs: None,
+    )
+    with pytest.raises(HTTPException) as caught:
+        accept_quote_po(session, challenger.id, bc_quote_number="SQ-1001", user_email="joey@opendc.ca")
+    assert caught.value.status_code == 409
+    assert "already being converted" in caught.value.detail
+    assert bc.writes == []
+    assert bc.reads == []
+
+
+def test_customer_lines_must_all_match_without_a_quote_number(session, bc):
+    set_inbox_mode(session, "quote_po_auto_convert", "on")
+    _quote(session, "SQ-1001", lines=[{"sku": "TX450"}])
+    partial = handle_quote_po_email(
+        session,
+        email_log=_log(session, message_id="po-partial-lines"),
+        subject="PO",
+        body="Purchase order 77881. Total $1,500.00. 2 x TX450. 1 x GK17",
+        from_address="buyer@acme.test",
+        graph_message_id="graph-partial-lines",
+    )
+    assert partial.status == "review"
+    assert partial.review_reason == "mismatched_lines"
+    assert partial.bc_quote_number is None
+    assert bc.writes == []
+    _quote(session, "SQ-1004", lines=[{"sku": "TX450"}, {"sku": "GK17"}])
+    complete = handle_quote_po_email(
+        session,
+        email_log=_log(session, message_id="po-all-lines"),
+        subject="PO",
+        body="Purchase order 77882. Total $1,500.00. 2 x TX450. 1 x GK17",
+        from_address="buyer@acme.test",
+        graph_message_id="graph-all-lines",
+    )
+    assert complete.status == "converted"
+    assert complete.bc_quote_number == "SQ-1004"
+    assert [item[0] for item in bc.writes] == ["PATCH", "POST"]
+
+
+def test_named_quote_with_nothing_to_check_stays_in_review(session, bc):
+    set_inbox_mode(session, "quote_po_auto_convert", "on")
+    _quote(session, "SQ-1001", total=None)
+    row = handle_quote_po_email(
+        session,
+        email_log=_log(session, message_id="po-bare-quote"),
+        subject="PO",
+        body="Purchase order 44521 for quote SQ-1001. Total $1,500.00.",
+        from_address="buyer@acme.test",
+        graph_message_id="graph-bare-quote",
+    )
+    assert row.status == "review"
+    assert row.review_reason == "unverified_quote"
+    assert bc.writes == []
+    assert bc.reads == []
 
 
 def test_line_match_requires_the_same_sku(session, bc):
