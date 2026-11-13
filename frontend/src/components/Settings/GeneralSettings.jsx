@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { customersApi } from '../../api/client'
+import { customersApi, freightEstimatorApi } from '../../api/client'
 
 const INBOX_SWITCHES = [
   ['email_attachment_reading', 'Read email attachments', 'PDFs that already have text, and DXF drawings, are read for door sizes. A scanned page or a picture is listed and not read. Shadow logs the openings and does not change the quote.'],
@@ -56,6 +57,10 @@ function GeneralSettings() {
   const prices = useQuery({
     queryKey: ['quote-price-overrides'],
     queryFn: async () => (await customersApi.getQuotePriceOverrides()).data,
+  })
+  const freight = useQuery({
+    queryKey: ['freight-estimator-settings'],
+    queryFn: async () => (await freightEstimatorApi.settings()).data,
   })
   const mode = data?.mode || 'off'
   const inboxModes = inbox.data?.modes || {}
@@ -283,6 +288,11 @@ function GeneralSettings() {
         </PriceOverrideControl>
       </div>
 
+      <FreightEstimatorSettings
+        settings={freight.data}
+        onSaved={() => queryClient.invalidateQueries({ queryKey: ['freight-estimator-settings'] })}
+      />
+
       {/* Placeholder content */}
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
         <svg
@@ -334,6 +344,127 @@ function GeneralSettings() {
         </ul>
       </div>
     </div>
+  )
+}
+
+function FreightEstimatorSettings({ settings, onSaved }) {
+  const [form, setForm] = useState(null)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    if (!settings) return
+    const config = settings.config || {}
+    const crate = { ...(settings.crate_defaults || {}), ...(config.crate || {}) }
+    const operators = {}
+    Object.entries(settings.operators || {}).forEach(([key, row]) => {
+      operators[key] = row.lb
+    })
+    setForm({
+      mode: settings.mode || 'off',
+      fuel_percent: config.fuel_percent ?? 68.8,
+      long_charge: config.long_charge ?? 75,
+      long_min_length_in: config.long_min_length_in ?? 96,
+      density_lb_per_cuft: config.density_lb_per_cuft ?? 10,
+      gst_percent: config.gst_percent ?? 5,
+      crate: {
+        shaft_overhang_in: crate.shaft_overhang_in,
+        dunnage_in: crate.dunnage_in,
+        packing_allowance_in: crate.packing_allowance_in,
+        max_stack_height_in: crate.max_stack_height_in,
+        tare_base_lb: crate.tare_base_lb,
+        tare_lb_per_ft: crate.tare_lb_per_ft,
+      },
+      operator_lb: operators,
+      shaft_lb_per_ft: { ...(settings.shaft_lb_per_ft || {}), ...(config.shaft_lb_per_ft || {}) },
+    })
+  }, [settings])
+
+  if (!form) return null
+
+  function setCrate(key, value) {
+    setForm((current) => ({ ...current, crate: { ...current.crate, [key]: value } }))
+  }
+
+  async function save(event) {
+    event.preventDefault()
+    if (!window.confirm('Save the freight estimator settings?')) return
+    setMessage('')
+    const number = (value) => Number(value)
+    await freightEstimatorApi.saveSettings({
+      mode: form.mode,
+      fuel_percent: number(form.fuel_percent),
+      long_charge: number(form.long_charge),
+      long_min_length_in: number(form.long_min_length_in),
+      density_lb_per_cuft: number(form.density_lb_per_cuft),
+      gst_percent: number(form.gst_percent),
+      crate: Object.fromEntries(Object.entries(form.crate).map(([key, value]) => [key, number(value)])),
+      operator_lb: Object.fromEntries(Object.entries(form.operator_lb).map(([key, value]) => [key, number(value)])),
+      shaft_lb_per_ft: Object.fromEntries(Object.entries(form.shaft_lb_per_ft).map(([key, value]) => [key, number(value)])),
+    })
+    setMessage('Saved.')
+    onSaved()
+  }
+
+  const crateFields = [
+    ['shaft_overhang_in', 'Shaft overhang, in'],
+    ['dunnage_in', 'Dunnage, in'],
+    ['packing_allowance_in', 'Packing allowance, in'],
+    ['max_stack_height_in', 'Max stack, in'],
+    ['tare_base_lb', 'Crate tare base, lb'],
+    ['tare_lb_per_ft', 'Crate tare, lb/ft'],
+  ]
+
+  return (
+    <form onSubmit={save} className="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
+      <div>
+        <h3 className="text-sm font-medium text-gray-900">Freight estimator</h3>
+        <p className="mt-1 text-sm text-gray-600">
+          Off hides the freight panel and the business page. On estimates ship weight and a Manitoulin contract rate. It does not write to Business Central. Agreement #19067426 must be signed before the rate is used. LONG is charged on each long piece. Whether Manitoulin bills FLT once per shipment is still unconfirmed.
+        </p>
+      </div>
+      <label className="block text-sm text-gray-700">
+        <span className="block text-xs font-medium text-gray-500 mb-1">Freight estimator</span>
+        <select aria-label="Freight estimator" value={form.mode} onChange={(event) => setForm({ ...form, mode: event.target.value })} className="border border-gray-300 rounded-md px-2 py-1 text-sm">
+          <option value="off">Off</option>
+          <option value="on">On</option>
+        </select>
+      </label>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <NumberField label="Fuel % on linehaul" value={form.fuel_percent} onChange={(value) => setForm({ ...form, fuel_percent: value })} />
+        <NumberField label="LONG charge, CAD" value={form.long_charge} onChange={(value) => setForm({ ...form, long_charge: value })} />
+        <NumberField label="LONG from length, in" value={form.long_min_length_in} onChange={(value) => setForm({ ...form, long_min_length_in: value })} />
+        <NumberField label="Density, lb/cu ft" value={form.density_lb_per_cuft} onChange={(value) => setForm({ ...form, density_lb_per_cuft: value })} />
+        <NumberField label="GST %" value={form.gst_percent} onChange={(value) => setForm({ ...form, gst_percent: value })} />
+        <NumberField label="1 in solid shaft, lb/ft" value={form.shaft_lb_per_ft.solid ?? ''} onChange={(value) => setForm({ ...form, shaft_lb_per_ft: { ...form.shaft_lb_per_ft, solid: value } })} />
+        <NumberField label="1 in tube shaft, lb/ft" value={form.shaft_lb_per_ft.tube ?? ''} onChange={(value) => setForm({ ...form, shaft_lb_per_ft: { ...form.shaft_lb_per_ft, tube: value } })} />
+        {crateFields.map(([key, label]) => (
+          <NumberField key={key} label={label} value={form.crate[key]} onChange={(value) => setCrate(key, value)} />
+        ))}
+        {Object.entries(settings?.operators || {}).map(([key, row]) => (
+          <NumberField key={key} label={`${row.label}, lb`} value={form.operator_lb[key]} onChange={(value) => setForm({ ...form, operator_lb: { ...form.operator_lb, [key]: value } })} />
+        ))}
+      </div>
+      <button type="submit" className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-white bg-odc-600 hover:bg-odc-700">
+        Save freight settings
+      </button>
+      {message && <p className="text-sm text-gray-600">{message}</p>}
+    </form>
+  )
+}
+
+function NumberField({ label, value, onChange }) {
+  return (
+    <label className="block text-xs text-gray-500">
+      {label}
+      <input
+        aria-label={label}
+        type="number"
+        step="0.01"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-1 block w-full border border-gray-300 rounded-md px-2 py-1 text-sm text-gray-900"
+      />
+    </label>
   )
 }
 

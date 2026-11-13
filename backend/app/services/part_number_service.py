@@ -55,7 +55,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from app.services.spring_calculator_service import spring_calculator
-from app.services.door_calculator_service import SECTION_HEIGHT_TABLE, door_calculator
+from app.services.door_calculator_service import (
+    DOOR_MODEL_WEIGHTS,
+    SECTION_HEIGHT_TABLE,
+    door_calculator,
+)
 from app.services.bc_part_number_mapper import (
     BCPartNumberMapper,
     get_bc_mapper,
@@ -1528,22 +1532,8 @@ class PartNumberService:
         Weight = panel_weight + end_cap_weight + retainer_weight + astragal_weight
                  + seal_weight + strut_weight + hardware_kit_weight
         """
-        # Panel weight per linear foot by section height (BULK panels, from BC item weights)
-        MODEL_WEIGHTS = {
-            # Commercial models (from BC Items with Weights — PN40/PN50 BULK)
-            "TX380": {"18": 3.4991, "21": 3.4992, "24": 3.9331, "28": 4.5, "32": 5.0},
-            "TX450": {"18": 3.812, "21": 3.812, "24": 3.978, "28": 5.0, "32": 5.5},
-            "TX450-20": {"18": 5.18, "21": 5.18, "24": 5.6813, "28": 6.2, "32": 6.8},
-            "TX500": {"18": 4.002, "21": 4.002, "24": 4.570, "28": 5.2, "32": 5.7},
-            "TX500-20": {"18": 5.2865, "21": 5.2865, "24": 5.63, "28": 6.1, "32": 6.6},
-            # TX760 (3"): TX500 +15% interim estimate — BC API exposes no panel weights.
-            # TODO: replace with exact PN74 BULK lbs/ft when the weights export is available.
-            "TX760": {"18": 4.6023, "21": 4.6023, "24": 5.2555, "28": 5.98, "32": 6.555},
-            # Residential models (Kanata/Craft)
-            "KANATA": {"18": 3.7655, "21": 4.1875, "24": 4.6392, "28": 5.1363, "32": 6.1875},
-            "CRAFT": {"18": 3.7655, "21": 4.1875, "24": 4.6392, "28": 5.1363, "32": 6.1875},
-        }
-
+        # Panel lb/ft lives on DOOR_MODEL_WEIGHTS so the spring balance and the
+        # ship-weight estimator use the same Thermalex / BC export table.
         door_width_ft = config.door_width / 12
         door_height_in = config.door_height
         series = config.door_series.upper()
@@ -1552,7 +1542,7 @@ class PartNumberService:
         if config.door_type == "aluminium":
             return self._calculate_aluminum_door_weight(config)
 
-        model_weights = MODEL_WEIGHTS.get(config.door_series, MODEL_WEIGHTS["KANATA"])
+        model_weights = DOOR_MODEL_WEIGHTS.get(config.door_series, DOOR_MODEL_WEIGHTS["KANATA"])
 
         # Section breakdown (21"/24" mix)
         breakdown = self._get_section_breakdown(door_height_in)

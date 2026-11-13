@@ -18,6 +18,7 @@ import InstallReferralQueue from './components/InstallReferralQueue'
 import WeeklyEmail from './components/WeeklyEmail'
 import BusinessDashboard from './components/BusinessDashboard'
 import UpwardorPlan from './components/UpwardorPlan'
+import FreightEstimatePage from './components/FreightEstimate'
 import CustomerDetail from './components/CustomerDetail'
 import QuoteLeads from './components/QuoteLeads'
 import QuoteSearch from './components/QuoteSearch'
@@ -123,6 +124,11 @@ function AppContent() {
           <Route path="/business" element={
             <ProtectedRoute anyOf={['users.manage', 'quotes.edit', 'sales_orders.edit', 'purchase_orders.view', 'sales_orders.view']}>
               <BusinessDashboard />
+            </ProtectedRoute>
+          } />
+          <Route path="/business/freight" element={
+            <ProtectedRoute anyOf={['users.manage', 'quotes.edit', 'sales_orders.edit', 'purchase_orders.view', 'sales_orders.view', 'configurator.use']}>
+              <FreightEstimatePage />
             </ProtectedRoute>
           } />
           <Route path="/business/upwardor" element={

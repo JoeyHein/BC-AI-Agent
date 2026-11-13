@@ -6,6 +6,7 @@ import apiClient from '../api/client'
 import DoorDrawings from './DoorDrawings'
 import DoorPreview from './DoorPreview'
 import QuoteReviewPanel from './QuoteReviewPanel'
+import { FreightEstimatePanel } from './FreightEstimate'
 import {
   hasGlassPockets,
   pocketConstraints,
@@ -3902,6 +3903,8 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
           </p>
         </div>
       )}
+
+      <FreightEstimatePanel doors={doors} />
 
       {/* Generate Quote Button */}
       {dimensionErrors.length > 0 && (
