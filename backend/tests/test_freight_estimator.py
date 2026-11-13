@@ -12,7 +12,7 @@ from app.services.door_calculator_service import DOOR_MODEL_WEIGHTS
 from app.services.freight_estimator_service import SIGNED_NOTE, estimate_freight
 from app.services.freight_estimator_settings import freight_estimator_enabled
 from app.services.freight_numbers import D
-from app.services.manitoulin_rate_engine import billed_weight, cube_cuft, rate_pieces
+from app.services.manitoulin_rate_engine import billed_weight, cube_cuft, rate_billed_weight, rate_pieces
 from app.services.manitoulin_rate_table import (
     AGREEMENT,
     BREAKS,
@@ -429,3 +429,94 @@ def test_direct_door_line_build_reports_a_solid_shaft_on_a_light_commercial_door
     # 8 ft door, single 1 in solid shaft at door width + 18 in = 9.5 ft * 2.670 lb/ft.
     assert line["components"]["shaft_lb"] == 25.37
     assert line["spring_weight_source"] == "formula"
+
+
+def test_cheapest_higher_break_can_skip_the_one_above():
+    # 400 lb at $100/CWT is $400. The 500 break at its minimum is $450, so the
+    # next column is not the win. The 1000 break at its minimum is $200, and
+    # the 2000 break is $300. The 1000 column is the one to use.
+    lane = {
+        "min": 50,
+        "rates": {
+            "L5C": 100,
+            "500": 90,
+            "1000": 20,
+            "2000": 15,
+            "5000": None,
+            "10000": None,
+            "20000": None,
+        },
+    }
+    result = rate_billed_weight(D(400), lane)
+    assert result["rated"] is True
+    assert result["break"] == "1000"
+    assert result["rated_weight_lb"] == 1000
+    assert result["deficit_used"] is True
+    assert _money(result["linehaul"]) == "200.00"
+    assert result["minimum_applied"] is False
+
+
+def test_estimate_and_settings_reject_bad_numbers():
+    from fastapi import HTTPException
+    from app.api.freight_estimator import (
+        EstimateRequest,
+        _check_non_negative_map,
+        validate_estimate_request,
+    )
+
+    def rejected(call):
+        with pytest.raises(HTTPException) as caught:
+            call()
+        assert caught.value.status_code == 400
+
+    ok = EstimateRequest(
+        destination="calgary",
+        doors=[{"doorWidth": 192, "doorHeight": 96, "doorCount": 2}],
+        skids=[{"length_in": 48, "width_in": 40, "height_in": 24, "weight_lb": 250}],
+    )
+    validate_estimate_request(ok)
+
+    rejected(lambda: validate_estimate_request(EstimateRequest(
+        destination="calgary", fuel_percent=float("nan"), doors=[{"doorWidth": 96, "doorHeight": 84}],
+    )))
+    rejected(lambda: validate_estimate_request(EstimateRequest(
+        destination="calgary", density_lb_per_cuft=float("inf"),
+        skids=[{"length_in": 48, "width_in": 40, "height_in": 24, "weight_lb": 10}],
+    )))
+    rejected(lambda: validate_estimate_request(EstimateRequest(
+        destination="calgary", long_charge=-1,
+        skids=[{"length_in": 48, "width_in": 40, "height_in": 24, "weight_lb": 10}],
+    )))
+    rejected(lambda: validate_estimate_request(EstimateRequest(
+        destination="calgary",
+        doors=[{"doorWidth": float("inf"), "doorHeight": 84}],
+    )))
+    rejected(lambda: validate_estimate_request(EstimateRequest(
+        destination="calgary",
+        doors=[{"doorWidth": 96, "doorHeight": float("nan")}],
+    )))
+    rejected(lambda: validate_estimate_request(EstimateRequest(
+        destination="calgary",
+        doors=[{"doorWidth": 0, "doorHeight": 84}],
+    )))
+    rejected(lambda: validate_estimate_request(EstimateRequest(
+        destination="calgary",
+        doors=[{"doorWidth": 96, "doorHeight": 84, "doorCount": 51}],
+    )))
+    rejected(lambda: validate_estimate_request(EstimateRequest(
+        destination="calgary",
+        doors=[{"doorWidth": 96, "doorHeight": 84} for _ in range(101)],
+    )))
+    rejected(lambda: validate_estimate_request(EstimateRequest(
+        destination="calgary",
+        skids=[{"length_in": 48, "width_in": 40, "height_in": 0, "weight_lb": 10}],
+    )))
+    rejected(lambda: validate_estimate_request(EstimateRequest(
+        destination="calgary",
+        skids=[{"length_in": 48, "width_in": 40, "height_in": 24, "weight_lb": float("nan")}],
+    )))
+    rejected(lambda: _check_non_negative_map("crate", {"dunnage_in": -1}))
+    rejected(lambda: _check_non_negative_map("operator_lb", {"residential_trolley": float("nan")}))
+    rejected(lambda: _check_non_negative_map("shaft_lb_per_ft", {"solid": float("inf")}))
+    rejected(lambda: _check_non_negative_map("drum_lb_each", {"D400": -0.1}))
+    _check_non_negative_map("crate", {"dunnage_in": 0, "tare_lb_per_ft": 8})

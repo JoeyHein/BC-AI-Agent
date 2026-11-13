@@ -3,11 +3,12 @@
 Billed weight is the greater of the actual weight and the cube times the
 density factor (10 lb per cubic foot). The break is the column whose floor
 is still at or under that weight. L5C is only for weights under 500 lb.
-The next break is also priced at its own minimum weight, and the cheaper
-linehaul wins. The lane minimum then floors the linehaul. LONG is a flat
-amount for each piece whose longest side meets the length rule, and fuel
-is a percent of the linehaul only. GST is calculated on linehaul + LONG +
-fuel and kept separate.
+Every higher break is also priced at its own minimum weight, and the
+cheapest linehaul wins. The lane minimum then floors that linehaul. LONG
+is $75 for each piece whose longest side meets the length rule. Manitoulin
+has not confirmed whether FLT is once per shipment instead; until it does,
+each long piece is charged. Fuel is a percent of the linehaul only. GST is
+calculated on linehaul + LONG + fuel and kept separate.
 """
 from __future__ import annotations
 
@@ -51,13 +52,6 @@ def _break_for(weight: Decimal) -> str:
     return chosen
 
 
-def _next_break(name: str) -> Optional[str]:
-    index = BREAKS.index(name)
-    if index + 1 >= len(BREAKS):
-        return None
-    return BREAKS[index + 1]
-
-
 def _rate(lane: dict, break_name: str) -> Optional[Decimal]:
     raw = (lane.get("rates") or {}).get(break_name)
     if raw is None:
@@ -87,20 +81,24 @@ def rate_billed_weight(billed: Decimal, lane: dict, *, minimum_override=None) ->
     linehaul = _charge(billed, rate)
     rated_weight = billed
     chosen_rate = rate
-    next_name = _next_break(break_name)
     deficit_checked = False
     deficit_used = False
-    if next_name is not None:
-        next_rate = _rate(lane, next_name)
-        if next_rate is not None:
-            deficit_checked = True
-            alternative = _charge(BREAK_MINIMUMS[next_name], next_rate)
-            if alternative < linehaul:
-                break_name = next_name
-                chosen_rate = next_rate
-                rated_weight = BREAK_MINIMUMS[next_name]
-                linehaul = alternative
-                deficit_used = True
+    # Price every higher break at that break's minimum weight and keep the
+    # cheapest. A break further up can beat the one immediately above when
+    # its minimum charge is lower. An equal charge stays on the lower break.
+    start = BREAKS.index(break_name)
+    for higher in BREAKS[start + 1:]:
+        higher_rate = _rate(lane, higher)
+        if higher_rate is None:
+            continue
+        deficit_checked = True
+        alternative = _charge(BREAK_MINIMUMS[higher], higher_rate)
+        if alternative < linehaul:
+            break_name = higher
+            chosen_rate = higher_rate
+            rated_weight = BREAK_MINIMUMS[higher]
+            linehaul = alternative
+            deficit_used = True
 
     minimum = lane.get("min") if minimum_override is None else minimum_override
     minimum_applied = False
@@ -164,6 +162,9 @@ def rate_pieces(
     gst_percent = D(config.get("gst_percent", 5))
     long_charge = D(config.get("long_charge", 75))
     long_min = D(config.get("long_min_length_in", 96))
+    # LONG stays $75 (or the saved amount) for every piece at or over the
+    # length. Pending confirmation from Manitoulin on whether FLT is charged
+    # once per shipment instead of once per long piece.
 
     origin_id = normalize_place(origin)
     destination_id = normalize_place(destination)

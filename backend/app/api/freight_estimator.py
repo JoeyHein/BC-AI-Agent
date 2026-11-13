@@ -7,6 +7,7 @@ Business Central.
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -95,12 +96,111 @@ class EstimateRequest(BaseModel):
     skids: List[Dict[str, Any]] = Field(default_factory=list)
 
 
+MAX_DOOR_LINES = 100
+MAX_DOOR_QTY = 50
+MAX_SKIDS = 100
+
+
 def _check_number(name: str, value: Optional[float], *, low: float, high: Optional[float] = None) -> None:
     if value is None:
         return
-    if value < low or (high is not None and value > high):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = None
+    if (
+        isinstance(value, bool)
+        or number is None
+        or not math.isfinite(number)
+        or number < low
+        or (high is not None and number > high)
+    ):
         limit = f"{low} to {high}" if high is not None else f"at least {low}"
         raise HTTPException(status_code=400, detail=f"{name} must be {limit}")
+
+
+def _positive(name: str, raw: Any) -> float:
+    """A finite number greater than zero. NaN and Infinity are a 400."""
+    if isinstance(raw, bool):
+        raise HTTPException(status_code=400, detail=f"{name} must be greater than 0")
+    try:
+        number = float(raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"{name} must be greater than 0")
+    if not math.isfinite(number) or number <= 0:
+        raise HTTPException(status_code=400, detail=f"{name} must be greater than 0")
+    return number
+
+
+def _first_present(row: dict, *names: str):
+    for name in names:
+        if name in row and row[name] not in (None, ""):
+            return row[name]
+    return None
+
+
+def _check_non_negative_map(name: str, values: Optional[dict]) -> None:
+    if values is None:
+        return
+    if not isinstance(values, dict):
+        raise HTTPException(status_code=400, detail=f"{name} must be an object")
+    for key, value in values.items():
+        label = f"{name}.{key}"
+        if isinstance(value, dict):
+            _check_non_negative_map(label, value)
+            continue
+        if isinstance(value, bool):
+            raise HTTPException(status_code=400, detail=f"{label} must be zero or greater")
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"{label} must be zero or greater")
+        if not math.isfinite(number) or number < 0:
+            raise HTTPException(status_code=400, detail=f"{label} must be zero or greater")
+
+
+def validate_estimate_request(body: "EstimateRequest") -> None:
+    """Reject overrides and sizes that would otherwise become a 500."""
+    _check_number("fuel_percent", body.fuel_percent, low=0, high=200)
+    _check_number("long_charge", body.long_charge, low=0)
+    _check_number("long_min_length_in", body.long_min_length_in, low=1)
+    _check_number("density_lb_per_cuft", body.density_lb_per_cuft, low=0.1)
+    if len(body.doors) > MAX_DOOR_LINES:
+        raise HTTPException(status_code=400, detail=f"At most {MAX_DOOR_LINES} door lines")
+    if len(body.skids) > MAX_SKIDS:
+        raise HTTPException(status_code=400, detail=f"At most {MAX_SKIDS} skids")
+    for index, door in enumerate(body.doors, start=1):
+        if not isinstance(door, dict):
+            raise HTTPException(status_code=400, detail=f"Door {index} must be an object")
+        _positive(
+            f"Door {index} width",
+            _first_present(door, "doorWidth", "door_width", "width"),
+        )
+        _positive(
+            f"Door {index} height",
+            _first_present(door, "doorHeight", "door_height", "height"),
+        )
+        qty = _first_present(door, "doorCount", "door_count", "qty")
+        if qty is None:
+            continue
+        if isinstance(qty, bool):
+            raise HTTPException(status_code=400, detail=f"Door {index} quantity must be from 1 to {MAX_DOOR_QTY}")
+        try:
+            count = float(qty)
+        except (TypeError, ValueError):
+            count = None
+        if count is None or not math.isfinite(count) or count < 1 or count > MAX_DOOR_QTY:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Door {index} quantity must be from 1 to {MAX_DOOR_QTY}",
+            )
+    for index, skid in enumerate(body.skids, start=1):
+        if not isinstance(skid, dict):
+            raise HTTPException(status_code=400, detail=f"Skid {index} must be an object")
+        _positive(f"Skid {index} length", _first_present(skid, "length_in", "lengthIn"))
+        _positive(f"Skid {index} width", _first_present(skid, "width_in", "widthIn"))
+        _positive(f"Skid {index} height", _first_present(skid, "height_in", "heightIn"))
+        _positive(f"Skid {index} weight", _first_present(skid, "weight_lb", "weightLb"))
 
 
 def _settings_payload(db: Session) -> dict:
@@ -152,6 +252,10 @@ def update_settings(
     _check_number("long_min_length_in", body.long_min_length_in, low=1)
     _check_number("density_lb_per_cuft", body.density_lb_per_cuft, low=0.1)
     _check_number("gst_percent", body.gst_percent, low=0, high=20)
+    _check_non_negative_map("crate", body.crate)
+    _check_non_negative_map("operator_lb", body.operator_lb)
+    _check_non_negative_map("shaft_lb_per_ft", body.shaft_lb_per_ft)
+    _check_non_negative_map("drum_lb_each", body.drum_lb_each)
     if body.mode is not None:
         try:
             set_freight_estimator_mode(db, body.mode, user_id=user.id)
@@ -198,6 +302,7 @@ def estimate(
     _require_on(db)
     if not body.doors and not body.skids:
         raise HTTPException(status_code=400, detail="Add a door line or a skid.")
+    validate_estimate_request(body)
     saved = freight_estimator_config(db)
     for key in ("fuel_percent", "long_charge", "long_min_length_in", "density_lb_per_cuft"):
         override = getattr(body, key)

@@ -21,6 +21,8 @@ CONFIG_KEY = "freight_estimator_config"
 
 DEFAULT_CONFIG = {
     "fuel_percent": 68.80,
+    # Per long piece. Manitoulin has not confirmed whether FLT is once per
+    # shipment. Do not change this to a single shipment charge until they do.
     "long_charge": 75,
     "long_min_length_in": 96,
     "density_lb_per_cuft": 10,

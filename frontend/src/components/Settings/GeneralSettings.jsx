@@ -418,7 +418,7 @@ function FreightEstimatorSettings({ settings, onSaved }) {
       <div>
         <h3 className="text-sm font-medium text-gray-900">Freight estimator</h3>
         <p className="mt-1 text-sm text-gray-600">
-          Off hides the freight panel and the business page. On estimates ship weight and a Manitoulin contract rate. It does not write to Business Central. Agreement #19067426 must be signed before the rate is used.
+          Off hides the freight panel and the business page. On estimates ship weight and a Manitoulin contract rate. It does not write to Business Central. Agreement #19067426 must be signed before the rate is used. LONG is charged on each long piece. Whether Manitoulin bills FLT once per shipment is still unconfirmed.
         </p>
       </div>
       <label className="block text-sm text-gray-700">
