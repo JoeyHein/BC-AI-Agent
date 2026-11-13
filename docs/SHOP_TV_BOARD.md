@@ -48,7 +48,9 @@ The purchase order is read with GET only. The portal does not POST, PATCH, or DE
 
 A sales order is linked from, in order: a saved supplier-order map, the PO external document or your reference, line text such as `Built from SO-`, the order tracker `linked_po_number`, or `TAG:SO-` on the email. The customer name comes from that open sales order or the tracker. If none of those name a sales order, the row still shows the PO and the customer is blank.
 
-`incoming_email_matching` defaults to off. Off, the mail poll does not call Microsoft Graph. On, it reads the same mailboxes as vendor-ack intake (`joey@opendc.ca` and `Finance@opendc.ca` unless `VENDOR_ACK_INTAKE_MAILBOXES` is set) with the existing Graph inbox read. A packing slip or ship notice from Upwardor, Elton, DEK, Global Overhead Doors, or TEAMS Transport can set the ETA, carrier, tracking, and status Shipped, and stores the supplier order number so the next email matches immediately. A message with no PO number and no saved map goes to Settings → Shop TV for accept or fix. It is not applied.
+The TV reads left to right: Incoming, Production, then Pickups stacked above Deliveries.
+
+`incoming_email_matching` defaults to off. Off, the mail poll does not call Microsoft Graph. On, it reads the same mailboxes as vendor-ack intake (`joey@opendc.ca` and `Finance@opendc.ca` unless `VENDOR_ACK_INTAKE_MAILBOXES` is set) with the existing Graph inbox read. The sender domain has to be Upwardor, Elton, DEK, Global Overhead Doors, or TEAMS Transport. A person's name in the message is not a supplier. The supplier order number has to equal that vendor's order number exactly, and only one open purchase order may match. A saved map is used only when its supplier key matches the sender. Anything else, including an unknown sender that names a PO, waits in Settings → Shop TV for accept, fix, or reject. The same Graph message is not reviewed twice.
 
 ## Outlook
 

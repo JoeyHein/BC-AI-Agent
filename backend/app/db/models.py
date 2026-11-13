@@ -3020,7 +3020,21 @@ class IncomingEmailReview(Base):
     reason = Column(Text, nullable=True)
     confidence = Column(String(20), nullable=False, default="low")
     proposed_po = Column(String(40), nullable=True)
+    message_id = Column(String(400), nullable=True, unique=True, index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
     def __repr__(self):
         return f"<IncomingEmailReview({self.id} {self.status})>"
+
+
+class IncomingMailSeen(Base):
+    """A Graph message the shipping poll has already handled."""
+
+    __tablename__ = "incoming_mail_seen"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(String(400), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<IncomingMailSeen({self.message_id})>"

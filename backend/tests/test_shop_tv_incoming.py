@@ -19,6 +19,7 @@ from app.db.database import get_db as database_get_db
 from app.db.models import (
     AppSettings,
     IncomingEmailReview,
+    IncomingMailSeen,
     IncomingShipmentNotice,
     ShopTvKioskToken,
     SupplierOrderMap,
@@ -27,6 +28,7 @@ from app.db.models import (
 )
 from app.services.auth_service import AuthService
 from app.services.shop_tv_incoming import (
+    EMAIL_FLAG,
     attach_incoming,
     build_incoming_days,
     decide_match,
@@ -35,7 +37,9 @@ from app.services.shop_tv_incoming import (
     incoming_enabled,
     is_shipping_message,
     load_purchase_orders,
+    lookup_sales_order_customers,
     poll_shipping_mail,
+    reject_review,
     route_notice,
     set_flag,
 )
@@ -239,6 +243,7 @@ def session():
         IncomingShipmentNotice.__table__,
         SupplierOrderMap.__table__,
         IncomingEmailReview.__table__,
+        IncomingMailSeen.__table__,
     ):
         table.create(engine, checkfirst=True)
     Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -313,3 +318,147 @@ def test_incoming_route_is_404_when_the_flag_is_off(session):
     set_flag(session, "shop_tv_incoming", "on", user_id=user.id)
     assert incoming_enabled(session) is True
     assert email_matching_enabled(session) is False
+
+
+def _po(number, vendor, vendor_order="", lines=None):
+    return {
+        "number": number,
+        "vendorName": vendor,
+        "status": "Open",
+        "vendorOrderNumber": vendor_order,
+        "requestedReceiptDate": "2026-11-14",
+        "purchaseOrderLines": lines or [
+            {"lineType": "Item", "description": "Goods", "quantity": 1, "receivedQuantity": 0},
+        ],
+    }
+
+
+def test_cross_vendor_and_substring_supplier_orders_do_not_auto_apply():
+    upwardor = _po("PO-000962", "Upwardor", "S-ORD116307")
+    elton = extract_shipping_notice(
+        "Shipped on the truck S-ORD 116307",
+        "Packing slip from Elton. S-ORD 116307 is on the truck.",
+        "shipping@elton.example",
+    )
+    decision = decide_match(elton, [upwardor])
+    assert decision["action"] == "review"
+    short = extract_shipping_notice(
+        "Shipped S-ORD 1163",
+        "Upwardor packing slip S-ORD 1163",
+        "desk@upwardor.com",
+    )
+    assert decide_match(short, [upwardor])["action"] == "review"
+
+
+def test_two_vendor_order_matches_go_to_review():
+    first = _po("PO-000962", "Upwardor", "S-ORD116307")
+    second = _po("PO-000963", "Upwardor", "S-ORD 116307")
+    extracted = extract_shipping_notice(
+        "Shipped S-ORD 116307",
+        "Upwardor packing slip",
+        "desk@upwardor.com",
+    )
+    decision = decide_match(extracted, [first, second])
+    assert decision["action"] == "review"
+    assert decision["po_number"] == ""
+
+
+def test_empty_supplier_key_on_a_map_does_not_match():
+    extracted = extract_shipping_notice(
+        "Shipped Order#116307",
+        "Upwardor packing slip",
+        "desk@upwardor.com",
+    )
+    decision = decide_match(extracted, [PO], maps=[{
+        "supplier_key": "",
+        "supplier_order_no": "S-ORD116307",
+        "our_po_number": "PO-000962",
+        "sales_orders": [],
+    }])
+    assert decision["reason"] != "saved supplier map"
+
+
+def test_unknown_sender_with_a_po_number_goes_to_review():
+    extracted = extract_shipping_notice(
+        "Shipped PO-000962",
+        "On the truck. P.O. No. PO-000962",
+        "someone@gmail.com",
+    )
+    assert extracted["supplier_key"] == ""
+    decision = decide_match(extracted, [PO], sales_orders=SALES)
+    assert decision["action"] == "review"
+    assert "Justin" not in (extracted["supplier_key"] or "")
+
+
+def test_customer_name_comes_from_a_sales_order_get_when_the_board_does_not_have_it():
+    calls = []
+
+    class BC:
+        def get_sales_order_by_number(self, number):
+            calls.append(number)
+            return {"number": number, "customerName": "Prairie Door Co"}
+
+        def update_sales_order(self, *args, **kwargs):
+            raise AssertionError("wrote to Business Central")
+
+    names = lookup_sales_order_customers(["SO-001842"], BC())
+    assert names == {"SO-001842": "Prairie Door Co"}
+    assert calls == ["SO-001842"]
+    days = build_incoming_days(
+        [PO],
+        sales_orders=[],
+        today=TODAY,
+        now=NOW,
+        customer_lookup=lambda numbers: {"SO-001842": "Prairie Door Co"},
+    )
+    item = next(row for day in days["days"] for row in day["items"])
+    assert item["sales_orders"][0]["customer"] == "Prairie Door Co"
+
+
+def test_duplicate_mail_and_reject_do_not_apply_twice(session):
+    set_flag(session, EMAIL_FLAG, "on")
+    message = {
+        "id": "graph-1",
+        "internetMessageId": "<ship-1@upwardor.com>",
+        "subject": "Shipped — on the truck, no numbers",
+        "body": {"content": "Justin wrote from Upwardor that it is on the truck."},
+        "from": {"emailAddress": {"address": "desk@upwardor.com"}},
+    }
+
+    class Graph:
+        def get_inbox_emails(self, mailbox, max_count=40):
+            return [message]
+
+    first = poll_shipping_mail(session, graph=Graph(), purchase_orders=[PO], mailboxes=["joey@opendc.ca"])
+    second = poll_shipping_mail(session, graph=Graph(), purchase_orders=[PO], mailboxes=["joey@opendc.ca"])
+    assert first["processed"] == 1
+    assert second["processed"] == 0
+    assert session.query(IncomingEmailReview).count() == 1
+    review = session.query(IncomingEmailReview).one()
+    assert reject_review(session, review.id)["status"] == "rejected"
+    from app.services.shop_tv_incoming import accept_review
+    again = accept_review(session, review.id, purchase_orders=[PO], sales_orders=SALES)
+    assert again["ok"] is False
+    assert again["reason"] == "already handled"
+    assert session.query(IncomingShipmentNotice).count() == 0
+
+
+def test_kiosk_token_cannot_open_or_reject_reviews(session):
+    from app.services.shop_tv_kiosk import create_token
+
+    def _override():
+        try:
+            yield session
+        finally:
+            pass
+
+    set_flag(session, "shop_tv_incoming", "on")
+    user = session.query(User).one()
+    _row, plaintext = create_token(session, name="Floor", created_by_user_id=user.id)
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[database_get_db] = _override
+    client = TestClient(app)
+    headers = {"X-Shop-Tv-Token": plaintext}
+    assert client.get("/api/shop-tv/incoming/reviews", headers=headers).status_code == 401
+    assert client.post("/api/shop-tv/incoming/reviews/1/reject", headers={"Authorization": f"Bearer {plaintext}"}).status_code == 401

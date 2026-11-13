@@ -183,10 +183,10 @@ function Lane({ lane, days, page, pageCount, budget }) {
   const index = pages.length ? page % pages.length : 0
   const visible = pages[index] || []
   return (
-    <section className={`flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] ${lane.rule}`}>
+    <section className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] ${lane.rule}`}>
       <div className="flex items-baseline justify-between px-5 pt-4">
         <h2 className={`text-4xl font-bold tracking-wide ${lane.accent}`}>{lane.title}</h2>
-        {pageCount > 1 && pages.length > 1 && (
+        {pages.length > 1 && (
           <span className="text-lg font-semibold text-white/50">{index + 1} / {pages.length}</span>
         )}
       </div>
@@ -335,17 +335,58 @@ function ShopTvBoard() {
           Business Central could not be read. Nothing new is on the board.
         </p>
       )}
-      <div className={`grid min-h-0 flex-1 gap-3 px-4 pb-4 ${lanes.length === 4 ? 'grid-cols-4' : 'grid-cols-3'}`}>
-        {lanes.map((lane) => (
+      <div className="grid min-h-0 flex-1 grid-cols-3 gap-3 px-4 pb-4">
+        {board.incoming_enabled && (
           <Lane
-            key={lane.id}
-            lane={lane}
-            days={board.lanes?.[lane.id]?.days || []}
+            lane={lanes.find((lane) => lane.id === 'incoming')}
+            days={board.lanes?.incoming?.days || []}
             page={tick}
             pageCount={maxPages}
             budget={budget}
           />
-        ))}
+        )}
+        <Lane
+          lane={lanes.find((lane) => lane.id === 'production')}
+          days={board.lanes?.production?.days || []}
+          page={tick}
+          pageCount={maxPages}
+          budget={budget}
+        />
+        {board.incoming_enabled ? (
+          <div className="flex min-h-0 flex-col gap-3">
+            <Lane
+              lane={lanes.find((lane) => lane.id === 'pickups')}
+              days={board.lanes?.pickups?.days || []}
+              page={tick}
+              pageCount={maxPages}
+              budget={Math.max(160, Math.floor((budget - 12) / 2))}
+            />
+            <Lane
+              lane={lanes.find((lane) => lane.id === 'deliveries')}
+              days={board.lanes?.deliveries?.days || []}
+              page={tick}
+              pageCount={maxPages}
+              budget={Math.max(160, Math.floor((budget - 12) / 2))}
+            />
+          </div>
+        ) : (
+          <>
+            <Lane
+              lane={lanes.find((lane) => lane.id === 'pickups')}
+              days={board.lanes?.pickups?.days || []}
+              page={tick}
+              pageCount={maxPages}
+              budget={budget}
+            />
+            <Lane
+              lane={lanes.find((lane) => lane.id === 'deliveries')}
+              days={board.lanes?.deliveries?.days || []}
+              page={tick}
+              pageCount={maxPages}
+              budget={budget}
+            />
+          </>
+        )}
       </div>
     </div>
   )

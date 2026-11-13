@@ -123,9 +123,29 @@ def format_po(value) -> str:
     return f"PO-{digits.zfill(6)}"
 
 
-def _supplier_key(text: str) -> str:
-    blob = text or ""
-    if re.search(r"(?i)upwardor|\bjustin\b", blob):
+def supplier_key_from_sender(sender: str) -> str:
+    """Supplier identity comes from the sender domain, not a person's first name."""
+    match = re.search(r"@([a-z0-9.-]+)", (sender or "").lower())
+    domain = match.group(1) if match else ""
+    if not domain:
+        return ""
+    if domain == "upwardor.com" or domain.endswith(".upwardor.com"):
+        return "upwardor"
+    if "elton" in domain:
+        return "elton"
+    if domain == "dek.com" or domain.endswith(".dek.com") or "dekcanada" in domain:
+        return "dek"
+    compact = domain.replace("-", "")
+    if "globaloverhead" in compact:
+        return "global"
+    if "teamstransport" in compact:
+        return "teams"
+    return ""
+
+
+def vendor_supplier_key(po: dict) -> str:
+    blob = f"{po.get('vendorName') or ''} {po.get('vendorNumber') or ''}"
+    if re.search(r"(?i)upwardor|\bUPW\b", blob):
         return "upwardor"
     if re.search(r"(?i)\belton\b", blob):
         return "elton"
@@ -136,6 +156,18 @@ def _supplier_key(text: str) -> str:
     if re.search(r"(?i)teams", blob):
         return "teams"
     return ""
+
+
+def canonical_supplier_order(raw: str, supplier_key: str) -> str:
+    """Exact token for one vendor. Upwardor uses S-ORD. Other vendors keep their own form."""
+    compact = re.sub(r"[^A-Z0-9]", "", (raw or "").upper())
+    if not compact:
+        return ""
+    if supplier_key == "upwardor":
+        digits = re.search(r"(\d{4,})", compact)
+        if digits and (compact.startswith("SORD") or compact.startswith("ORDER")):
+            return f"S-ORD{digits.group(1)}"
+    return compact
 
 
 def is_shipping_message(subject: str = "", body: str = "", sender: str = "") -> bool:
@@ -156,10 +188,14 @@ def extract_shipping_notice(subject: str = "", body: str = "", sender: str = "")
         if match:
             our_po = format_po(match.group(1))
             break
+    supplier_key = supplier_key_from_sender(sender)
     sord = ""
-    sord_match = SORD_RE.search(text) or ORDER_DIGITS_RE.search(text)
+    sord_match = SORD_RE.search(text)
+    order_match = ORDER_DIGITS_RE.search(text)
     if sord_match:
-        sord = f"S-ORD{sord_match.group(1)}"
+        sord = canonical_supplier_order(f"S-ORD {sord_match.group(1)}", supplier_key)
+    elif order_match:
+        sord = canonical_supplier_order(f"ORDER {order_match.group(1)}", supplier_key)
     sales_orders = []
     for match in TAG_SO_RE.finditer(text):
         number = f"SO-{match.group(1)}"
@@ -176,7 +212,7 @@ def extract_shipping_notice(subject: str = "", body: str = "", sender: str = "")
             "quantity": match.group(3),
         })
     return {
-        "supplier_key": _supplier_key(text),
+        "supplier_key": supplier_key,
         "supplier_order_no": sord,
         "our_po_number": our_po,
         "sales_orders": sales_orders,
@@ -232,53 +268,87 @@ def linked_sales_orders(po: dict, tracker_links=None, sales_by_number=None) -> l
     return found
 
 
+def _review(extracted: dict, reason: str) -> dict:
+    return {
+        "action": "review",
+        "confidence": "low",
+        "reason": reason,
+        "po_number": "",
+        "sales_orders": [],
+        "supplier_order_no": extracted.get("supplier_order_no") or "",
+        "supplier_key": extracted.get("supplier_key") or "",
+        "carrier": extracted.get("carrier") or "",
+        "tracking": extracted.get("tracking") or "",
+        "eta": extracted.get("eta") or "",
+    }
+
+
+def _pos_for_vendor(purchase_orders, supplier_key: str) -> list:
+    return [po for po in purchase_orders or [] if vendor_supplier_key(po) == supplier_key]
+
+
 def decide_match(extracted: dict, purchase_orders, maps=None, tracker_links=None, sales_orders=None) -> dict:
-    """High confidence applies. Low confidence is a review, not a guess."""
+    """Apply only an exact vendor-scoped match. Anything else is a review."""
     sales_by_number = {}
     for order in sales_orders or []:
         number = str(order.get("number") or "").upper()
         if number:
             sales_by_number[number] = order
     maps = maps or []
-    supplier_order = extracted.get("supplier_order_no") or ""
+    supplier_order = canonical_supplier_order(
+        extracted.get("supplier_order_no") or "",
+        extracted.get("supplier_key") or "",
+    )
     supplier_key = extracted.get("supplier_key") or ""
+    if not supplier_key:
+        return _review(extracted, "Unknown sender. A staff person has to match this email.")
 
     saved = None
     if supplier_order:
         for row in maps:
-            if row.get("supplier_order_no") == supplier_order and (
-                not supplier_key or row.get("supplier_key") in {supplier_key, ""}
-            ):
+            row_key = row.get("supplier_key") or ""
+            row_order = canonical_supplier_order(row.get("supplier_order_no") or "", row_key)
+            if row_key and row_key == supplier_key and row_order == supplier_order:
                 saved = row
                 break
     po = None
     reason = ""
     if saved:
-        po = _find_po(purchase_orders, saved.get("our_po_number"))
+        candidates = [
+            item for item in _pos_for_vendor(purchase_orders, supplier_key)
+            if po_digits(item.get("number")) == po_digits(saved.get("our_po_number"))
+        ]
+        if len(candidates) != 1:
+            return _review(extracted, "Saved map does not point at one open purchase order for this supplier.")
+        po = candidates[0]
         reason = "saved supplier map"
-    if po is None and extracted.get("our_po_number"):
-        po = _find_po(purchase_orders, extracted["our_po_number"])
-        if po is not None:
-            reason = "PO number on the email"
-    if po is None and supplier_order:
-        for candidate in purchase_orders or []:
-            vendor_order = str(candidate.get("vendorOrderNumber") or candidate.get("vendor_order_no") or "")
-            if supplier_order and supplier_order.replace("-", "") in vendor_order.replace("-", "").replace(" ", ""):
-                po = candidate
-                reason = "supplier order number on the purchase order"
-                break
+    elif extracted.get("our_po_number"):
+        candidates = [
+            item for item in _pos_for_vendor(purchase_orders, supplier_key)
+            if po_digits(item.get("number")) == po_digits(extracted["our_po_number"])
+        ]
+        if len(candidates) != 1:
+            return _review(extracted, "The PO number on the email is not one open purchase order for this supplier.")
+        po = candidates[0]
+        reason = "PO number on the email"
+    elif supplier_order:
+        candidates = []
+        for candidate in _pos_for_vendor(purchase_orders, supplier_key):
+            vendor_order = canonical_supplier_order(
+                candidate.get("vendorOrderNumber") or candidate.get("vendor_order_no") or "",
+                supplier_key,
+            )
+            if vendor_order and vendor_order == supplier_order:
+                candidates.append(candidate)
+        if len(candidates) != 1:
+            return _review(
+                extracted,
+                "Supplier order number did not match exactly one open purchase order for this supplier.",
+            )
+        po = candidates[0]
+        reason = "supplier order number on the purchase order"
     if po is None:
-        return {
-            "action": "review",
-            "confidence": "low",
-            "reason": "No purchase order number, saved map, or vendor order number matched.",
-            "po_number": "",
-            "sales_orders": [],
-            "supplier_order_no": supplier_order,
-            "carrier": extracted.get("carrier") or "",
-            "tracking": extracted.get("tracking") or "",
-            "eta": extracted.get("eta") or "",
-        }
+        return _review(extracted, "No purchase order number, saved map, or vendor order number matched.")
     linked = linked_sales_orders(po, tracker_links, sales_by_number)
     if saved and saved.get("sales_orders"):
         known = {item["number"] for item in linked}
@@ -301,7 +371,7 @@ def decide_match(extracted: dict, purchase_orders, maps=None, tracker_links=None
         "po_number": po.get("number") or format_po(extracted.get("our_po_number")),
         "sales_orders": linked,
         "supplier_order_no": supplier_order,
-        "supplier_key": supplier_key or _supplier_key(po.get("vendorName") or ""),
+        "supplier_key": supplier_key,
         "carrier": extracted.get("carrier") or "",
         "tracking": extracted.get("tracking") or "",
         "eta": extracted.get("eta") or "",
@@ -318,7 +388,36 @@ def _open_po(po: dict) -> bool:
     return True
 
 
-def build_incoming_days(purchase_orders, sales_orders=None, notices=None, tracker_links=None, *, today: date, now=None, horizon_days: int = 7) -> dict:
+def _incoming_detail(linked, supplier_order, carrier, tracking) -> Optional[str]:
+    bits = []
+    if linked:
+        bits.append(", ".join(f"{item['number']} {item['customer']}".strip() for item in linked))
+    if supplier_order:
+        bits.append(str(supplier_order))
+    if carrier or tracking:
+        bits.append(" ".join(part for part in (carrier, tracking) if part))
+    return " · ".join(bits) or None
+
+
+def lookup_sales_order_customers(numbers, bc=None) -> dict:
+    """GET each sales order that is not already on the board. No writes."""
+    if bc is None:
+        from app.integrations.bc.client import bc_client
+        bc = bc_client
+    found = {}
+    for number in numbers or []:
+        try:
+            row = bc.get_sales_order_by_number(number)
+        except Exception:
+            logger.warning("Shop TV could not read sales order %s", number, exc_info=True)
+            continue
+        name = str((row or {}).get("customerName") or "").strip()
+        if name:
+            found[number] = name
+    return found
+
+
+def build_incoming_days(purchase_orders, sales_orders=None, notices=None, tracker_links=None, *, today: date, now=None, horizon_days: int = 7, customer_lookup=None) -> dict:
     """Group open POs. No date means the row stays off. Email ETA wins when saved."""
     sales_by_number = {}
     for order in sales_orders or []:
@@ -351,15 +450,6 @@ def build_incoming_days(purchase_orders, sales_orders=None, notices=None, tracke
         carrier = notice.get("carrier") or ""
         tracking = notice.get("tracking") or ""
         status = notice.get("status") or "expected"
-        bits = []
-        if linked:
-            bits.append(", ".join(
-                f"{item['number']} {item['customer']}".strip() for item in linked
-            ))
-        if supplier_order:
-            bits.append(str(supplier_order))
-        if carrier or tracking:
-            bits.append(" ".join(part for part in (carrier, tracking) if part))
         late = False
         if clock is not None and day == today and now is not None:
             current = now.astimezone(SHOP_TZ) if getattr(now, "tzinfo", None) else now
@@ -369,7 +459,7 @@ def build_incoming_days(purchase_orders, sales_orders=None, notices=None, tracke
             "lane": "incoming",
             "order_number": number,
             "customer": po.get("vendorName") or po.get("vendor_name") or "",
-            "detail": " · ".join(bits) or None,
+            "detail": _incoming_detail(linked, supplier_order, carrier, tracking),
             "destination": None,
             "date": day.isoformat(),
             "time": clock.strftime("%H:%M") if clock else None,
@@ -382,6 +472,31 @@ def build_incoming_days(purchase_orders, sales_orders=None, notices=None, tracke
             "carrier": carrier or None,
             "tracking": tracking or None,
         })
+    missing = sorted({
+        so["number"]
+        for item in items
+        for so in item["sales_orders"]
+        if so.get("number") and not so.get("customer")
+    })
+    if missing and customer_lookup:
+        try:
+            names = customer_lookup(missing) or {}
+        except Exception:
+            logger.warning("Shop TV customer lookup failed", exc_info=True)
+            names = {}
+        for item in items:
+            changed = False
+            for so in item["sales_orders"]:
+                if not so.get("customer") and names.get(so["number"]):
+                    so["customer"] = names[so["number"]]
+                    changed = True
+            if changed:
+                item["detail"] = _incoming_detail(
+                    item["sales_orders"],
+                    item.get("supplier_order_no") or "",
+                    item.get("carrier") or "",
+                    item.get("tracking") or "",
+                )
     return {"days": _group(items, today, horizon_days), "omitted_no_date": omitted}
 
 
@@ -482,32 +597,22 @@ def attach_incoming(db: Optional[Session], board: dict, *, purchase_orders=None,
         logger.warning("Shop TV incoming notices are unavailable", exc_info=True)
         notices = []
     tracker = _tracker_links(db)
-    built = build_incoming_days(
-        purchase_orders,
-        sales_orders=None,
-        notices=notices,
-        tracker_links=tracker,
-        today=today,
-        now=current,
-        horizon_days=int(board.get("horizon_days") or 7),
-    )
-    # Customer names from the sales orders already on the board when the PO names an SO.
     sales = []
     for lane in ("production", "pickups", "deliveries"):
         for day in (lanes.get(lane) or {}).get("days") or []:
             for item in day.get("items") or []:
                 if item.get("order_number"):
                     sales.append({"number": item["order_number"], "customerName": item.get("customer")})
-    if sales:
-        built = build_incoming_days(
-            purchase_orders,
-            sales_orders=sales,
-            notices=notices,
-            tracker_links=tracker,
-            today=today,
-            now=current,
-            horizon_days=int(board.get("horizon_days") or 7),
-        )
+    built = build_incoming_days(
+        purchase_orders,
+        sales_orders=sales,
+        notices=notices,
+        tracker_links=tracker,
+        today=today,
+        now=current,
+        horizon_days=int(board.get("horizon_days") or 7),
+        customer_lookup=lookup_sales_order_customers,
+    )
     board["incoming_enabled"] = True
     lanes["incoming"] = {"days": built["days"]}
     board["lanes"] = lanes
@@ -537,8 +642,8 @@ def _save_apply(db: Session, decision: dict) -> None:
     row.confidence = "high"
     row.updated_at = datetime.utcnow()
     supplier_order = decision.get("supplier_order_no") or ""
-    supplier_key = decision.get("supplier_key") or "supplier"
-    if supplier_order:
+    supplier_key = decision.get("supplier_key") or ""
+    if supplier_order and supplier_key:
         existing = (
             db.query(SupplierOrderMap)
             .filter(SupplierOrderMap.supplier_key == supplier_key)
@@ -560,6 +665,15 @@ def _save_apply(db: Session, decision: dict) -> None:
 
 def _queue_review(db: Session, extracted: dict, decision: dict) -> int:
     from app.db.models import IncomingEmailReview
+    message_id = (extracted.get("message_id") or "").strip()
+    if message_id:
+        existing = (
+            db.query(IncomingEmailReview)
+            .filter(IncomingEmailReview.message_id == message_id)
+            .first()
+        )
+        if existing is not None:
+            return existing.id
     row = IncomingEmailReview(
         status="pending",
         sender=extracted.get("sender"),
@@ -568,11 +682,44 @@ def _queue_review(db: Session, extracted: dict, decision: dict) -> int:
         reason=decision.get("reason"),
         confidence="low",
         proposed_po=extracted.get("our_po_number") or None,
+        message_id=message_id or None,
     )
     db.add(row)
     db.commit()
     db.refresh(row)
     return row.id
+
+
+def _already_seen(db: Session, message_id: str) -> bool:
+    from app.db.models import IncomingMailSeen
+    if not message_id:
+        return False
+    return (
+        db.query(IncomingMailSeen)
+        .filter(IncomingMailSeen.message_id == message_id)
+        .first()
+        is not None
+    )
+
+
+def _mark_seen(db: Session, message_id: str) -> None:
+    from app.db.models import IncomingMailSeen
+    if not message_id or _already_seen(db, message_id):
+        return
+    db.add(IncomingMailSeen(message_id=message_id))
+    db.commit()
+
+
+def message_identity(message: dict, extracted: dict) -> str:
+    mid = str(message.get("internetMessageId") or message.get("id") or "").strip()
+    if mid:
+        return mid[:400]
+    return ("fp:" + "|".join([
+        extracted.get("sender") or "",
+        extracted.get("subject") or "",
+        extracted.get("supplier_order_no") or "",
+        extracted.get("our_po_number") or "",
+    ]))[:400]
 
 
 def route_notice(db: Optional[Session], extracted: dict, purchase_orders, sales_orders=None, tracker_links=None) -> dict:
@@ -609,9 +756,14 @@ def poll_shipping_mail(db: Session, *, graph=None, purchase_orders=None, sales_o
             sender = (((message.get("from") or {}).get("emailAddress") or {}).get("address")) or ""
             if not is_shipping_message(subject, body, sender):
                 continue
-            processed += 1
             extracted = extract_shipping_notice(subject, body, sender)
+            identity = message_identity(message, extracted)
+            if _already_seen(db, identity):
+                continue
+            extracted["message_id"] = identity
+            processed += 1
             decision = route_notice(db, extracted, purchase_orders, sales_orders, tracker)
+            _mark_seen(db, identity)
             if decision["action"] == "apply":
                 applied.append(decision["po_number"])
             else:
@@ -645,6 +797,8 @@ def accept_review(db: Session, review_id: int, po_number: Optional[str] = None, 
     row = db.query(IncomingEmailReview).filter(IncomingEmailReview.id == review_id).first()
     if row is None:
         return {"ok": False}
+    if row.status != "pending":
+        return {"ok": False, "reason": "already handled", "status": row.status}
     extracted = dict(row.extracted_json or {})
     chosen = po_number or row.proposed_po or extracted.get("our_po_number")
     if chosen:
@@ -659,3 +813,15 @@ def accept_review(db: Session, review_id: int, po_number: Optional[str] = None, 
     row.proposed_po = decision["po_number"]
     db.commit()
     return {"ok": True, "po_number": decision["po_number"]}
+
+
+def reject_review(db: Session, review_id: int) -> dict:
+    from app.db.models import IncomingEmailReview
+    row = db.query(IncomingEmailReview).filter(IncomingEmailReview.id == review_id).first()
+    if row is None:
+        return {"ok": False}
+    if row.status != "pending":
+        return {"ok": False, "reason": "already handled", "status": row.status}
+    row.status = "rejected"
+    db.commit()
+    return {"ok": True, "status": "rejected"}

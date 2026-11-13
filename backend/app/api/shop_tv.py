@@ -33,6 +33,7 @@ from app.services.shop_tv_incoming import (
     email_matching_enabled,
     incoming_enabled,
     list_reviews,
+    reject_review,
     set_flag,
 )
 from app.services.shop_tv_kiosk import (
@@ -300,4 +301,18 @@ def shop_tv_fix_review(
     result = accept_review(db, review_id, po_number=body.po_number, purchase_orders=purchase_orders)
     if not result.get("ok"):
         raise HTTPException(status_code=422, detail=result.get("reason") or "Could not match that PO")
+    return result
+
+
+@router.post("/incoming/reviews/{review_id}/reject")
+def shop_tv_reject_review(
+    review_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff),
+):
+    del current_user
+    _require_incoming(db)
+    result = reject_review(db, review_id)
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result.get("reason") or "Review not found")
     return result
