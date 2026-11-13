@@ -26,6 +26,15 @@ from app.services.shop_tv_board import (
     save_lane_config,
     set_board_mode,
 )
+from app.services.shop_tv_incoming import (
+    EMAIL_FLAG,
+    INCOMING_FLAG,
+    accept_review,
+    email_matching_enabled,
+    incoming_enabled,
+    list_reviews,
+    set_flag,
+)
 from app.services.shop_tv_kiosk import (
     authenticate,
     create_token,
@@ -45,10 +54,16 @@ class ShopTvSettingsIn(BaseModel):
     pickup_shipping_agents: list[str] = Field(default_factory=list)
     delivery_shipping_agents: list[str] = Field(default_factory=list)
     shipping_agent_means_delivery: bool = False
+    incoming_mode: Optional[str] = None
+    email_matching_mode: Optional[str] = None
 
 
 class KioskTokenIn(BaseModel):
     name: str
+
+
+class IncomingFixIn(BaseModel):
+    po_number: str
 
 
 def _presented_kiosk_token(request: Request) -> str:
@@ -146,7 +161,8 @@ def shop_tv_board(request: Request, db: Session = Depends(get_db)):
     """The board. Read-only. 404 while the flag is off."""
     _require_flag(db)
     _require_board_reader(request, db)
-    return assemble_board(db)
+    from app.services.shop_tv_incoming import attach_incoming
+    return attach_incoming(db, assemble_board(db))
 
 
 @router.get("/settings")
@@ -163,6 +179,9 @@ def shop_tv_settings(
         "delivery_shipping_agents": config["delivery_shipping_agents"],
         "shipping_agent_means_delivery": config["shipping_agent_means_delivery"],
         "outlook_calendar_enabled": config["outlook_calendar_enabled"],
+        "incoming_mode": "on" if incoming_enabled(db) else "off",
+        "email_matching_mode": "on" if email_matching_enabled(db) else "off",
+        "incoming_reviews": list_reviews(db) if incoming_enabled(db) else [],
         "mapping": MAPPING_NOTES,
         "tokens": [public_row(row) for row in list_tokens(db)],
     }
@@ -179,6 +198,10 @@ def update_shop_tv_settings(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     config = save_lane_config(db, body.model_dump(), user_id=current_user.id)
+    if body.incoming_mode is not None:
+        set_flag(db, INCOMING_FLAG, body.incoming_mode, user_id=current_user.id)
+    if body.email_matching_mode is not None:
+        set_flag(db, EMAIL_FLAG, body.email_matching_mode, user_id=current_user.id)
     return {"mode": mode, **{key: config[key] for key in (
         "pickup_shipment_methods",
         "delivery_shipment_methods",
@@ -215,3 +238,66 @@ def revoke_kiosk_token(
     if row is None:
         raise HTTPException(status_code=404, detail="Kiosk token not found")
     return public_row(row)
+
+
+def _require_incoming(db: Session) -> None:
+    if not incoming_enabled(db):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+
+@router.get("/incoming")
+def shop_tv_incoming(request: Request, db: Session = Depends(get_db)):
+    """Incoming lane only. 404 while shop_tv_incoming is off, with no PO rows."""
+    _require_incoming(db)
+    _require_board_reader(request, db)
+    from app.services.shop_tv_incoming import attach_incoming
+    payload = attach_incoming(db, {"lanes": {}, "horizon_days": 7})
+    return payload["lanes"]["incoming"]
+
+
+@router.get("/incoming/reviews")
+def shop_tv_incoming_reviews(
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(require_staff),
+):
+    _require_incoming(db)
+    return list_reviews(db)
+
+
+@router.post("/incoming/reviews/{review_id}/accept")
+def shop_tv_accept_review(
+    review_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff),
+):
+    del current_user
+    _require_incoming(db)
+    from app.services.shop_tv_incoming import load_purchase_orders
+    try:
+        purchase_orders = load_purchase_orders()
+    except Exception:
+        purchase_orders = []
+    result = accept_review(db, review_id, purchase_orders=purchase_orders)
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result.get("reason") or "Review not found")
+    return result
+
+
+@router.post("/incoming/reviews/{review_id}/fix")
+def shop_tv_fix_review(
+    review_id: int,
+    body: IncomingFixIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff),
+):
+    del current_user
+    _require_incoming(db)
+    from app.services.shop_tv_incoming import load_purchase_orders
+    try:
+        purchase_orders = load_purchase_orders()
+    except Exception:
+        purchase_orders = []
+    result = accept_review(db, review_id, po_number=body.po_number, purchase_orders=purchase_orders)
+    if not result.get("ok"):
+        raise HTTPException(status_code=422, detail=result.get("reason") or "Could not match that PO")
+    return result

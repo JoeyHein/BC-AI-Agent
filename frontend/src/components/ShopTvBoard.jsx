@@ -10,6 +10,7 @@ const LANES = [
   { id: 'production', title: 'Production', accent: 'text-amber-300', rule: 'border-amber-400' },
   { id: 'pickups', title: 'Pickups', accent: 'text-sky-300', rule: 'border-sky-400' },
   { id: 'deliveries', title: 'Deliveries', accent: 'text-emerald-300', rule: 'border-emerald-400' },
+  { id: 'incoming', title: 'Incoming', accent: 'text-violet-300', rule: 'border-violet-400' },
 ]
 
 function kioskToken() {
@@ -305,9 +306,10 @@ function ShopTvBoard() {
 
   const updated = board.generated_at ? formatStamp(new Date(board.generated_at)) : ''
   const bcDown = (board.sources || []).some((source) => source.id === 'business_central' && source.available === false)
+  const lanes = board.incoming_enabled ? LANES : LANES.filter((lane) => lane.id !== 'incoming')
   const maxPages = Math.max(
     1,
-    ...LANES.map((lane) => paginate(board.lanes?.[lane.id]?.days || [], budget).length),
+    ...lanes.map((lane) => paginate(board.lanes?.[lane.id]?.days || [], budget).length),
   )
 
   return (
@@ -333,8 +335,8 @@ function ShopTvBoard() {
           Business Central could not be read. Nothing new is on the board.
         </p>
       )}
-      <div className="grid min-h-0 flex-1 grid-cols-3 gap-4 px-6 pb-4">
-        {LANES.map((lane) => (
+      <div className={`grid min-h-0 flex-1 gap-3 px-4 pb-4 ${lanes.length === 4 ? 'grid-cols-4' : 'grid-cols-3'}`}>
+        {lanes.map((lane) => (
           <Lane
             key={lane.id}
             lane={lane}

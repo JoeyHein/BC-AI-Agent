@@ -931,6 +931,8 @@ export const shopTvApi = {
   saveSettings: (body) => apiClient.put('/api/shop-tv/settings', body),
   createKiosk: (body) => apiClient.post('/api/shop-tv/kiosk-tokens', body),
   revokeKiosk: (id) => apiClient.post(`/api/shop-tv/kiosk-tokens/${id}/revoke`),
+  acceptIncoming: (id) => apiClient.post(`/api/shop-tv/incoming/reviews/${id}/accept`),
+  fixIncoming: (id, poNumber) => apiClient.post(`/api/shop-tv/incoming/reviews/${id}/fix`, { po_number: poNumber }),
 };
 
 export default apiClient;

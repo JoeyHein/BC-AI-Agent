@@ -40,6 +40,16 @@ An order can be in Production and in Pickups or Deliveries. It is never in both 
 
 Earlier than today is overdue (red). A clock time already passed today is late (red). Later than today plus 7 days stays off.
 
+## Incoming
+
+`shop_tv_incoming` defaults to off. Off, the Incoming column is empty and `GET /api/shop-tv/incoming` is 404. On, the column lists open Business Central purchase orders by requested receipt date, today and the next 7 days. Overdue dates are red. Each row shows the vendor, our PO number, the supplier order number, carrier and tracking when a shipping email supplied them, the ETA, and the linked sales order numbers and customer names.
+
+The purchase order is read with GET only. The portal does not POST, PATCH, or DELETE a purchase order.
+
+A sales order is linked from, in order: a saved supplier-order map, the PO external document or your reference, line text such as `Built from SO-`, the order tracker `linked_po_number`, or `TAG:SO-` on the email. The customer name comes from that open sales order or the tracker. If none of those name a sales order, the row still shows the PO and the customer is blank.
+
+`incoming_email_matching` defaults to off. Off, the mail poll does not call Microsoft Graph. On, it reads the same mailboxes as vendor-ack intake (`joey@opendc.ca` and `Finance@opendc.ca` unless `VENDOR_ACK_INTAKE_MAILBOXES` is set) with the existing Graph inbox read. A packing slip or ship notice from Upwardor, Elton, DEK, Global Overhead Doors, or TEAMS Transport can set the ETA, carrier, tracking, and status Shipped, and stores the supplier order number so the next email matches immediately. A message with no PO number and no saved map goes to Settings → Shop TV for accept or fix. It is not applied.
+
 ## Outlook
 
 `OutlookShippingCalendarSource` is the seam for shipping@opendc.ca via Microsoft Graph. It is not connected. Calling it returns no events, so the board does not invent calendar rows.

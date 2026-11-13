@@ -23,6 +23,10 @@ function ShopTvSettings() {
   const [pickupAgents, setPickupAgents] = useState('')
   const [deliveryAgents, setDeliveryAgents] = useState('')
   const [agentMeansDelivery, setAgentMeansDelivery] = useState(false)
+  const [incomingMode, setIncomingMode] = useState('off')
+  const [emailMode, setEmailMode] = useState('off')
+  const [reviews, setReviews] = useState([])
+  const [fixPo, setFixPo] = useState({})
   const [outlook, setOutlook] = useState(false)
   const [mapping, setMapping] = useState([])
   const [tokens, setTokens] = useState([])
@@ -40,6 +44,9 @@ function ShopTvSettings() {
     setPickupAgents(listToText(data.pickup_shipping_agents))
     setDeliveryAgents(listToText(data.delivery_shipping_agents))
     setAgentMeansDelivery(Boolean(data.shipping_agent_means_delivery))
+    setIncomingMode(data.incoming_mode === 'on' ? 'on' : 'off')
+    setEmailMode(data.email_matching_mode === 'on' ? 'on' : 'off')
+    setReviews(data.incoming_reviews || [])
     setOutlook(Boolean(data.outlook_calendar_enabled))
     setMapping(data.mapping || [])
     setTokens(data.tokens || [])
@@ -73,6 +80,8 @@ function ShopTvSettings() {
         pickup_shipping_agents: textToList(pickupAgents),
         delivery_shipping_agents: textToList(deliveryAgents),
         shipping_agent_means_delivery: agentMeansDelivery,
+        incoming_mode: incomingMode,
+        email_matching_mode: emailMode,
       })
       setSaved(mode === 'on' ? 'Shop TV is on.' : 'Shop TV is off. The board route is hidden.')
       await load()
@@ -213,6 +222,58 @@ function ShopTvSettings() {
         </ul>
         {outlook && <p className="mt-3">Outlook calendar reading is marked on, and the stub still returns no events.</p>}
       </details>
+
+      <div className="border-t border-gray-200 pt-6 space-y-3">
+        <h3 className="text-base font-semibold text-gray-900">Incoming</h3>
+        <p className="text-sm text-gray-600">
+          Off, the Incoming column is empty. Email matching stays off until you turn it on. It reads ship notices and does not change Business Central.
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm font-medium text-gray-700">Incoming lane</span>
+          {['off', 'on'].map((value) => (
+            <button key={value} type="button" onClick={() => setIncomingMode(value)} className={`rounded-md px-3 py-1.5 text-sm font-semibold ${incomingMode === value ? 'bg-odc-800 text-white' : 'bg-gray-100 text-gray-700'}`}>
+              {value === 'on' ? 'On' : 'Off'}
+            </button>
+          ))}
+          <span className="ml-4 text-sm font-medium text-gray-700">Email matching</span>
+          {['off', 'on'].map((value) => (
+            <button key={`mail-${value}`} type="button" onClick={() => setEmailMode(value)} className={`rounded-md px-3 py-1.5 text-sm font-semibold ${emailMode === value ? 'bg-odc-800 text-white' : 'bg-gray-100 text-gray-700'}`}>
+              {value === 'on' ? 'On' : 'Off'}
+            </button>
+          ))}
+        </div>
+        <ul className="divide-y divide-gray-100">
+          {reviews.length === 0 && <li className="py-2 text-sm text-gray-500">No shipping emails waiting for review.</li>}
+          {reviews.map((review) => (
+            <li key={review.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
+              <div>
+                <p className="font-medium text-gray-900">{review.subject || 'Shipping email'}</p>
+                <p className="text-gray-500">{review.reason}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  value={fixPo[review.id] || review.proposed_po || ''}
+                  onChange={(event) => setFixPo({ ...fixPo, [review.id]: event.target.value })}
+                  placeholder="PO-000962"
+                  className="w-32 rounded-md border border-gray-300 px-2 py-1"
+                />
+                <button
+                  type="button"
+                  className="rounded-md bg-odc-600 px-3 py-1.5 font-semibold text-white"
+                  onClick={async () => {
+                    const po = (fixPo[review.id] || '').trim()
+                    if (po) await shopTvApi.fixIncoming(review.id, po)
+                    else await shopTvApi.acceptIncoming(review.id)
+                    await load()
+                  }}
+                >
+                  {fixPo[review.id] ? 'Fix' : 'Accept'}
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
 
       <div className="border-t border-gray-200 pt-6">
         <h3 className="text-base font-semibold text-gray-900">Shop TV link</h3>
