@@ -274,6 +274,13 @@ class EmailMonitorService:
             email_log.attachments = pack.as_email_log()
         db.flush()
 
+        # Purchase-order conversion does not use the AI category above.
+        # Customer-approval detection only queues a staff click, so a PO
+        # email never reached makeOrder on its own.
+        self._consider_quote_po(
+            db, email_log, subject, body, from_address, message_id, inbox_email, pack,
+        )
+
         from app.services.inbox_settings import CUSTOMER_APPROVAL, inbox_mode
         from app.services.quote_followup import (
             approval_level,
@@ -422,14 +429,50 @@ class EmailMonitorService:
         logger.info(f"  -> Categorized as '{category}', not processing further")
         return "other"
 
+    def _consider_quote_po(self, db, email_log, subject, body, from_address, graph_message_id, mailbox, pack):
+        """Run the purchase-order trigger. The AI category is not passed in."""
+        from app.services.inbox_settings import QUOTE_PO_AUTO_CONVERT, inbox_mode
+        if inbox_mode(db, QUOTE_PO_AUTO_CONVERT) == "off":
+            return
+        filenames = []
+        attachment_text = ""
+        if pack is not None:
+            filenames = [page.file_name for page in pack.pages]
+            attachment_text = pack.combined_text or ""
+        try:
+            from app.services.quote_po_auto_convert import handle_quote_po_email
+            handle_quote_po_email(
+                db,
+                email_log=email_log,
+                subject=subject,
+                body=body,
+                from_address=from_address,
+                graph_message_id=graph_message_id,
+                mailbox=mailbox,
+                filenames=filenames,
+                attachment_text=attachment_text,
+                received_at=email_log.received_at,
+            )
+        except Exception:
+            logger.exception("Purchase-order check failed. The message continues.")
+            try:
+                db.rollback()
+            except Exception:
+                pass
+
     def _prepare_attachments(self, db, email, inbox_email: str, body: str):
         """Read attachments when a switch is on or in shadow. Off does not call Graph."""
         from app.services.attachment_text import MAX_FILE_BYTES, read_graph_attachments
-        from app.services.inbox_settings import ATTACHMENT_READING, CUSTOMER_APPROVAL, inbox_mode
-
+        from app.services.inbox_settings import (
+            ATTACHMENT_READING,
+            CUSTOMER_APPROVAL,
+            QUOTE_PO_AUTO_CONVERT,
+            inbox_mode,
+        )
         read_mode = inbox_mode(db, ATTACHMENT_READING)
         approval_mode = inbox_mode(db, CUSTOMER_APPROVAL)
-        if read_mode == "off" and approval_mode == "off":
+        po_mode = inbox_mode(db, QUOTE_PO_AUTO_CONVERT)
+        if read_mode == "off" and approval_mode == "off" and po_mode == "off":
             return read_mode, body, None
         graph_id = email.get("id")
         if not graph_id:

@@ -20,6 +20,7 @@ ATTACHMENT_READING = "email_attachment_reading"
 MISSING_INFO_REPLY = "missing_info_reply"
 QUOTE_SEND_DRAFT = "quote_send_draft"
 CUSTOMER_APPROVAL = "customer_approval_detection"
+QUOTE_PO_AUTO_CONVERT = "quote_po_auto_convert"
 WINDOW_PATTERNS = "quote_window_patterns"
 OPENER_MAPPING = "quote_opener_mapping"
 STRUTS_PER_SECTION = "quote_struts_per_section"
@@ -33,6 +34,7 @@ INBOX_SETTING_KEYS = (
     MISSING_INFO_REPLY,
     QUOTE_SEND_DRAFT,
     CUSTOMER_APPROVAL,
+    QUOTE_PO_AUTO_CONVERT,
     WINDOW_PATTERNS,
     OPENER_MAPPING,
     STRUTS_PER_SECTION,
@@ -47,6 +49,7 @@ _DESCRIPTIONS = {
     MISSING_INFO_REPLY: "Draft one reply listing what a quote email still needs. Off, shadow, or on.",
     QUOTE_SEND_DRAFT: "Draft a threaded reply with the SQ PDF. Off, shadow, or on.",
     CUSTOMER_APPROVAL: "Queue a convert-to-SO when a customer approves a quote. Off, shadow, or on.",
+    QUOTE_PO_AUTO_CONVERT: "Convert the matching open quote when a customer emails a purchase order. Off, shadow, or on.",
     WINDOW_PATTERNS: "Turn a window count or staggered pattern into glass kits per section. Off, shadow, or on.",
     OPENER_MAPPING: "Map opener and keypad wording to catalog part numbers. Off, shadow, or on.",
     STRUTS_PER_SECTION: "Put a strut on every section when the email or profile asks. Off, shadow, or on.",

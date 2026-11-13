@@ -7,7 +7,8 @@ from datetime import datetime
 from typing import Optional
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Date, Boolean, Float,
-    ForeignKey, JSON, Enum as SQLEnum, ARRAY, Numeric, UniqueConstraint
+    ForeignKey, JSON, Enum as SQLEnum, ARRAY, Numeric, UniqueConstraint,
+    Index, text,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.mutable import MutableDict, MutableList
@@ -283,6 +284,61 @@ class CustomerOrderApproval(Base):
 
     def __repr__(self):
         return f"<CustomerOrderApproval(id={self.id}, status={self.status}, sq={self.bc_quote_number})>"
+
+
+class QuotePoIntake(Base):
+    """A customer purchase-order email and what we did with the matching quote.
+
+    off stores nothing. shadow stores the decision and does not call
+    Business Central. on converts only a high-confidence match, through
+    OrderLifecycleService.convert_quote_to_order. Anything unsure stays
+    here for staff. ``overdue`` is the safety net: the email is more than
+    four business hours old and still has no sales order.
+    """
+
+    __tablename__ = "quote_po_intakes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    graph_message_id = Column(String(500), nullable=True, unique=True, index=True)
+    email_log_id = Column(Integer, ForeignKey("email_logs.id"), nullable=True, index=True)
+    mailbox = Column(String(255))
+    from_address = Column(String(255))
+    subject = Column(Text)
+    received_at = Column(DateTime, nullable=True, index=True)
+    customer_po = Column(String(80))
+    po_source = Column(String(120))
+    referenced_quotes = Column(JSON)
+    amount_cents = Column(Integer, nullable=True)
+    line_hints = Column(JSON)
+    excerpt = Column(Text)
+    attachment_names = Column(JSON)
+    status = Column(String(30), nullable=False, default="review", index=True)
+    review_reason = Column(String(40))
+    confidence = Column(String(20))
+    match_method = Column(String(40))
+    bc_quote_number = Column(String(50))
+    quote_request_id = Column(Integer, ForeignKey("quote_requests.id"), nullable=True, index=True)
+    candidates = Column(JSON)
+    bc_order_number = Column(String(50))
+    bc_order_id = Column(String(100))
+    planned_action = Column(Text)
+    overdue = Column(Boolean, nullable=False, default=False, index=True)
+    decided_at = Column(DateTime)
+    decided_by = Column(String(255))
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index(
+            "uq_quote_po_intakes_active_sq",
+            "bc_quote_number",
+            unique=True,
+            sqlite_where=text("status IN ('converting', 'converted')"),
+            postgresql_where=text("status IN ('converting', 'converted')"),
+        ),
+    )
+
+    def __repr__(self):
+        return f"<QuotePoIntake(id={self.id}, status={self.status}, sq={self.bc_quote_number})>"
 
 
 class AIDecision(Base):

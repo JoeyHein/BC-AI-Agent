@@ -806,8 +806,16 @@ async def get_daily_summary(
         # Unique production orders
         unique_orders = set(t.get("bcProdOrderNo") for t in tasks if t.get("bcProdOrderNo"))
 
+        missed_purchase_orders = []
+        try:
+            from app.services.quote_po_auto_convert import missed_purchase_orders as missed_pos
+            missed_purchase_orders = missed_pos(db)
+        except Exception:
+            missed_purchase_orders = []
+
         return {
             "date": target_date.isoformat(),
+            "missed_purchase_orders": missed_purchase_orders,
             "tasks": {
                 "total": total,
                 "completed": completed,

@@ -23,6 +23,7 @@ function ReviewQueue() {
 
   return (
     <div className="space-y-6">
+      <PurchaseOrderReviews onChanged={() => queryClient.invalidateQueries({ queryKey: ['quote-po-intakes'] })} />
       <div className="sm:flex sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Review Queue</h1>
@@ -55,6 +56,111 @@ function ReviewQueue() {
         )}
       </div>
       <CustomerApprovals onChanged={() => queryClient.invalidateQueries({ queryKey: ['customer-approvals'] })} />
+    </div>
+  )
+}
+
+function PurchaseOrderReviews({ onChanged }) {
+  const { data, refetch } = useQuery({
+    queryKey: ['quote-po-intakes'],
+    queryFn: async () => (await quotesApi.getQuotePoIntakes()).data,
+  })
+  const rows = data || []
+  const missed = rows.filter((row) => row.overdue)
+  const [choice, setChoice] = useState({})
+  const [note, setNote] = useState('')
+  if (!rows.length) return null
+  async function accept(row) {
+    const picked = choice[row.id] || row.bc_quote_number
+    if (!picked) {
+      setNote('Choose the quote to convert')
+      return
+    }
+    if (!window.confirm(`Convert ${picked} to a sales order for PO ${row.customer_po || ''}?`)) return
+    try {
+      const response = await quotesApi.acceptQuotePo(row.id, picked)
+      const created = response.data.bc_order_number
+      setNote(response.data.detail || (created ? `Created ${created}` : 'Saved'))
+      refetch()
+      onChanged()
+    } catch (err) {
+      setNote(err.response?.data?.detail || 'Could not convert')
+    }
+  }
+  async function dismiss(row) {
+    if (!window.confirm('Dismiss this purchase order email?')) return
+    try {
+      await quotesApi.dismissQuotePo(row.id)
+      setNote('Dismissed')
+      refetch()
+      onChanged()
+    } catch (err) {
+      setNote(err.response?.data?.detail || 'Could not dismiss')
+    }
+  }
+  return (
+    <div className="bg-white shadow rounded-lg p-6 space-y-3" data-testid="quote-po-queue">
+      {missed.length > 0 && (
+        <div className="rounded-md border border-red-300 bg-red-50 p-4" data-testid="missed-po-banner">
+          <p className="text-sm font-medium text-red-900">
+            {missed.length} purchase order email{missed.length === 1 ? '' : 's'} older than 4 business hours with no sales order
+          </p>
+          <ul className="mt-2 space-y-1 text-sm text-red-800">
+            {missed.map((row) => (
+              <li key={row.id}>
+                PO {row.customer_po || '—'} from {row.from_address || 'unknown sender'}
+                {row.bc_quote_number ? ` · ${row.bc_quote_number}` : ''}
+                {row.subject ? ` · ${row.subject}` : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <h2 className="text-lg font-medium text-gray-900">Customer purchase orders</h2>
+      <p className="text-sm text-gray-600">
+        A high-confidence match converts on its own when the switch is on. Everything else waits here. Shadow does not call Business Central.
+      </p>
+      {note && <p className="text-sm text-gray-800">{note}</p>}
+      {rows.map((row) => (
+        <div key={row.id} className={`border rounded-md p-4 space-y-2 ${row.overdue ? 'border-red-300' : 'border-gray-200'}`}>
+          <p className="text-sm font-medium text-gray-900">{row.subject || row.from_address}</p>
+          <p className="text-sm text-gray-600">
+            {row.from_address || 'Unknown sender'}
+            {row.customer_po ? ` · PO ${row.customer_po}` : ''}
+            {row.bc_quote_number ? ` · ${row.bc_quote_number}` : ''}
+            {row.status === 'shadow' ? ' · Shadow' : ''}
+            {row.overdue ? ' · No sales order after 4 business hours' : ''}
+          </p>
+          {row.review_reason_text && <p className="text-sm text-amber-800">{row.review_reason_text}</p>}
+          {row.planned_action && <p className="text-sm text-gray-700">{row.planned_action}</p>}
+          {row.excerpt && (
+            <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm text-gray-800">{row.excerpt}</pre>
+          )}
+          <label className="block text-sm text-gray-700">
+            Quote
+            <input
+              aria-label={`Quote for purchase order ${row.id}`}
+              list={`po-quotes-${row.id}`}
+              value={choice[row.id] ?? row.bc_quote_number ?? ''}
+              onChange={(event) => setChoice({ ...choice, [row.id]: event.target.value })}
+              className="mt-1 block w-full max-w-xs border border-gray-300 rounded-md px-2 py-1 text-sm"
+            />
+            <datalist id={`po-quotes-${row.id}`}>
+              {(row.candidates || []).map((item) => (
+                <option key={item.bc_quote_number} value={item.bc_quote_number}>{item.customer_name || item.bc_quote_number}</option>
+              ))}
+            </datalist>
+          </label>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => accept(row)} className="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium text-white bg-odc-600">
+              Convert to SO
+            </button>
+            <button type="button" onClick={() => dismiss(row)} className="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium text-gray-700 border border-gray-300">
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
