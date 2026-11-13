@@ -2967,3 +2967,74 @@ class ShopTvKioskToken(Base):
             f"<ShopTvKioskToken(id={self.id}, name='{self.name}', "
             f"prefix='{self.key_prefix}', status='{self.status}')>"
         )
+
+
+class IncomingShipmentNotice(Base):
+    """Portal overlay for one open purchase order. Never written back to BC."""
+
+    __tablename__ = "incoming_shipment_notices"
+
+    id = Column(Integer, primary_key=True, index=True)
+    our_po_number = Column(String(40), nullable=False, unique=True, index=True)
+    supplier_order_no = Column(String(40), nullable=True)
+    carrier = Column(String(80), nullable=True)
+    tracking = Column(String(80), nullable=True)
+    eta = Column(Date, nullable=True)
+    status = Column(String(20), nullable=False, default="expected")
+    confidence = Column(String(20), nullable=False, default="high")
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<IncomingShipmentNotice({self.our_po_number} {self.status})>"
+
+
+class SupplierOrderMap(Base):
+    """Supplier order number to our PO and sales orders. Future emails match here."""
+
+    __tablename__ = "supplier_order_maps"
+    __table_args__ = (
+        UniqueConstraint("supplier_key", "supplier_order_no", name="uq_supplier_order_map"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    supplier_key = Column(String(40), nullable=False, index=True)
+    supplier_order_no = Column(String(40), nullable=False, index=True)
+    our_po_number = Column(String(40), nullable=False, index=True)
+    sales_orders_json = Column(JSON, nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<SupplierOrderMap({self.supplier_key} {self.supplier_order_no} {self.our_po_number})>"
+
+
+class IncomingEmailReview(Base):
+    """A shipping email the matcher would not apply on its own."""
+
+    __tablename__ = "incoming_email_reviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    sender = Column(String(255), nullable=True)
+    subject = Column(String(300), nullable=True)
+    extracted_json = Column(JSON, nullable=True)
+    reason = Column(Text, nullable=True)
+    confidence = Column(String(20), nullable=False, default="low")
+    proposed_po = Column(String(40), nullable=True)
+    message_id = Column(String(400), nullable=True, unique=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    def __repr__(self):
+        return f"<IncomingEmailReview({self.id} {self.status})>"
+
+
+class IncomingMailSeen(Base):
+    """A Graph message the shipping poll has already handled."""
+
+    __tablename__ = "incoming_mail_seen"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(String(400), nullable=False, unique=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<IncomingMailSeen({self.message_id})>"

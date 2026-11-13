@@ -10,6 +10,7 @@ const LANES = [
   { id: 'production', title: 'Production', accent: 'text-amber-300', rule: 'border-amber-400' },
   { id: 'pickups', title: 'Pickups', accent: 'text-sky-300', rule: 'border-sky-400' },
   { id: 'deliveries', title: 'Deliveries', accent: 'text-emerald-300', rule: 'border-emerald-400' },
+  { id: 'incoming', title: 'Incoming', accent: 'text-violet-300', rule: 'border-violet-400' },
 ]
 
 function kioskToken() {
@@ -177,15 +178,21 @@ function DayBlock({ day }) {
   )
 }
 
-function Lane({ lane, days, page, pageCount, budget }) {
+function Lane({ lane, days, budget }) {
+  const [page, setPage] = useState(0)
   const pages = useMemo(() => paginate(days, budget), [days, budget])
+  useEffect(() => {
+    if (pages.length < 2) return undefined
+    const timer = setInterval(() => setPage((value) => value + 1), ROTATE_MS)
+    return () => clearInterval(timer)
+  }, [pages.length])
   const index = pages.length ? page % pages.length : 0
   const visible = pages[index] || []
   return (
-    <section className={`flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] ${lane.rule}`}>
+    <section className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] ${lane.rule}`}>
       <div className="flex items-baseline justify-between px-5 pt-4">
         <h2 className={`text-4xl font-bold tracking-wide ${lane.accent}`}>{lane.title}</h2>
-        {pageCount > 1 && pages.length > 1 && (
+        {pages.length > 1 && (
           <span className="text-lg font-semibold text-white/50">{index + 1} / {pages.length}</span>
         )}
       </div>
@@ -203,7 +210,6 @@ function ShopTvBoard() {
   const [phase, setPhase] = useState('loading')
   const [stale, setStale] = useState(false)
   const [now, setNow] = useState(() => new Date())
-  const [tick, setTick] = useState(0)
   const [budget, setBudget] = useState(860)
 
   useEffect(() => {
@@ -220,11 +226,7 @@ function ShopTvBoard() {
 
   useEffect(() => {
     const clock = setInterval(() => setNow(new Date()), 1000)
-    const rotate = setInterval(() => setTick((value) => value + 1), ROTATE_MS)
-    return () => {
-      clearInterval(clock)
-      clearInterval(rotate)
-    }
+    return () => clearInterval(clock)
   }, [])
 
   useEffect(() => {
@@ -305,10 +307,7 @@ function ShopTvBoard() {
 
   const updated = board.generated_at ? formatStamp(new Date(board.generated_at)) : ''
   const bcDown = (board.sources || []).some((source) => source.id === 'business_central' && source.available === false)
-  const maxPages = Math.max(
-    1,
-    ...LANES.map((lane) => paginate(board.lanes?.[lane.id]?.days || [], budget).length),
-  )
+  const lanes = board.incoming_enabled ? LANES : LANES.filter((lane) => lane.id !== 'incoming')
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col overflow-hidden bg-[#071629] text-white">
@@ -333,17 +332,46 @@ function ShopTvBoard() {
           Business Central could not be read. Nothing new is on the board.
         </p>
       )}
-      <div className="grid min-h-0 flex-1 grid-cols-3 gap-4 px-6 pb-4">
-        {LANES.map((lane) => (
+      <div className="grid min-h-0 flex-1 grid-cols-3 gap-3 px-4 pb-4">
+        {board.incoming_enabled && (
           <Lane
-            key={lane.id}
-            lane={lane}
-            days={board.lanes?.[lane.id]?.days || []}
-            page={tick}
-            pageCount={maxPages}
+            lane={lanes.find((lane) => lane.id === 'incoming')}
+            days={board.lanes?.incoming?.days || []}
             budget={budget}
           />
-        ))}
+        )}
+        <Lane
+          lane={lanes.find((lane) => lane.id === 'production')}
+          days={board.lanes?.production?.days || []}
+          budget={budget}
+        />
+        {board.incoming_enabled ? (
+          <div className="flex min-h-0 flex-col gap-3">
+            <Lane
+              lane={lanes.find((lane) => lane.id === 'pickups')}
+              days={board.lanes?.pickups?.days || []}
+              budget={Math.max(160, Math.floor((budget - 12) / 2))}
+            />
+            <Lane
+              lane={lanes.find((lane) => lane.id === 'deliveries')}
+              days={board.lanes?.deliveries?.days || []}
+              budget={Math.max(160, Math.floor((budget - 12) / 2))}
+            />
+          </div>
+        ) : (
+          <>
+            <Lane
+              lane={lanes.find((lane) => lane.id === 'pickups')}
+              days={board.lanes?.pickups?.days || []}
+              budget={budget}
+            />
+            <Lane
+              lane={lanes.find((lane) => lane.id === 'deliveries')}
+              days={board.lanes?.deliveries?.days || []}
+              budget={budget}
+            />
+          </>
+        )}
       </div>
     </div>
   )

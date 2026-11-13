@@ -210,6 +210,17 @@ class SchedulerService:
         )
         logger.info(f"✓ Scheduled: Upwardor order-ack intake every {ack_every} minutes")
 
+        # Shop TV shipping mail. No-op until incoming_email_matching is on.
+        # Reads Graph and purchase orders. Does not write to Business Central.
+        self.scheduler.add_job(
+            func=self._shop_tv_incoming_mail_job,
+            trigger=IntervalTrigger(minutes=20),
+            id="shop_tv_incoming_mail",
+            name="Shop TV incoming — match supplier ship notices, portal only",
+            replace_existing=True,
+        )
+        logger.info("✓ Scheduled: Shop TV incoming mail every 20 minutes [default OFF]")
+
         # KPI dashboard snapshot — 00:10 America/Edmonton, every day. The page
         # reads this row and does not call Business Central itself. 00:10 is
         # just after midnight so the Edmonton date has rolled. A missing
@@ -539,6 +550,23 @@ class SchedulerService:
             logger.info(f"Vendor ack intake complete: {result}")
         except Exception as e:
             logger.error(f"Vendor ack intake job failed: {e}", exc_info=True)
+        finally:
+            if db is not None:
+                try:
+                    db.close()
+                except Exception:
+                    pass
+
+    def _shop_tv_incoming_mail_job(self):
+        """Poll the same mailboxes as vendor-ack intake. Off does not read mail."""
+        db = None
+        try:
+            db = SessionLocal()
+            from app.services.shop_tv_incoming import poll_shipping_mail
+            result = poll_shipping_mail(db)
+            logger.info("Shop TV incoming mail: %s", result)
+        except Exception as exc:
+            logger.error("Shop TV incoming mail failed: %s", exc, exc_info=True)
         finally:
             if db is not None:
                 try:

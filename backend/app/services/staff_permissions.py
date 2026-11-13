@@ -543,7 +543,7 @@ def permission_for(method: str, path: str):
         # rows or approve a queued email. Approval is still an explicit click;
         # the permission only decides who is allowed to make that click.
         return _level(method, "production.view", "production.edit")
-    if path in ("/api/shop-tv/board", "/api/shop-tv/enabled"):
+    if path in ("/api/shop-tv/board", "/api/shop-tv/enabled", "/api/shop-tv/incoming"):
         # The route checks the feature flag first (404 when off), then a
         # staff login or a shop-TV kiosk token. A bearer-token demand here
         # would reject the cast URL before that check.
