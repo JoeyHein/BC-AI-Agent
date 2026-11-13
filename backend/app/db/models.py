@@ -7,7 +7,8 @@ from datetime import datetime
 from typing import Optional
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Date, Boolean, Float,
-    ForeignKey, JSON, Enum as SQLEnum, ARRAY, Numeric, UniqueConstraint
+    ForeignKey, JSON, Enum as SQLEnum, ARRAY, Numeric, UniqueConstraint,
+    Index, text,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.mutable import MutableDict, MutableList
@@ -325,6 +326,16 @@ class QuotePoIntake(Base):
     decided_at = Column(DateTime)
     decided_by = Column(String(255))
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index(
+            "uq_quote_po_intakes_active_sq",
+            "bc_quote_number",
+            unique=True,
+            sqlite_where=text("status IN ('converting', 'converted')"),
+            postgresql_where=text("status IN ('converting', 'converted')"),
+        ),
+    )
 
     def __repr__(self):
         return f"<QuotePoIntake(id={self.id}, status={self.status}, sq={self.bc_quote_number})>"

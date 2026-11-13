@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -122,15 +123,18 @@ def _log(session, message_id="mail-1", sender="buyer@acme.test", subject="PO", b
     return row
 
 
-def _quote(session, number, sender="buyer@acme.test", total="1500.00", status="bc_created", customer="Acme"):
+def _quote(session, number, sender="buyer@acme.test", total="1500.00", status="bc_created", customer="Acme", lines=None):
     log = _log(session, message_id=f"quote-{number}-{sender}", sender=sender)
+    data = {"total": total}
+    if lines:
+        data["lines"] = lines
     row = QuoteRequest(
         email_id=log.id,
         customer_name=customer,
         contact_email=sender,
         status=status,
         bc_quote_id=number,
-        parsed_data={"total": total},
+        parsed_data=data,
         created_at=datetime(2026, 11, 1, 12, 0),
     )
     session.add(row)
@@ -392,14 +396,14 @@ def test_go_ahead_without_a_po_is_ignored(session, bc):
 
 def test_missed_po_safety_net(session):
     set_inbox_mode(session, "quote_po_auto_convert", "on")
-    received = datetime(2026, 11, 9, 15, 0)  # Monday 10:00 America/Toronto
-    almost = datetime(2026, 11, 9, 18, 0)  # 3 business hours
-    due = datetime(2026, 11, 9, 19, 0)  # 4 business hours
+    received = datetime(2026, 11, 9, 17, 0)  # Monday 10:00 America/Edmonton
+    almost = datetime(2026, 11, 9, 20, 0)  # 3 business hours
+    due = datetime(2026, 11, 9, 21, 0)  # 4 business hours
     assert business_hours_between(received, almost) == pytest.approx(3)
     assert business_hours_between(received, due) == pytest.approx(4)
-    friday = datetime(2026, 11, 13, 21, 0)  # Friday 16:00
+    friday = datetime(2026, 11, 13, 23, 0)  # Friday 16:00 America/Edmonton
     sunday = datetime(2026, 11, 15, 18, 0)
-    monday = datetime(2026, 11, 16, 16, 0)  # Monday 11:00, four hours later
+    monday = datetime(2026, 11, 16, 18, 0)  # Monday 11:00, four hours later
     assert business_hours_between(friday, sunday) == pytest.approx(1)
     assert business_hours_between(friday, monday) == pytest.approx(4)
 
@@ -490,6 +494,85 @@ def test_staff_can_fix_the_match_then_convert_or_dismiss(session, bc):
     assert len(bc.writes) == 2
     listed = list_quote_po_intakes(session)
     assert listed == []
+
+
+def test_second_email_does_not_make_order_while_the_quote_is_converting(session, bc):
+    set_inbox_mode(session, "quote_po_auto_convert", "on")
+    quote = _quote(session, "SQ-1001")
+    holder_log = _log(session, message_id="holder-mail")
+    session.add(QuotePoIntake(
+        graph_message_id="holder",
+        email_log_id=holder_log.id,
+        from_address="buyer@acme.test",
+        subject="First PO",
+        received_at=datetime(2026, 11, 13, 16, 0),
+        customer_po="11111",
+        status="converting",
+        bc_quote_number="SQ-1001",
+        quote_request_id=quote.id,
+        confidence="high",
+        overdue=False,
+        created_at=datetime(2026, 11, 13, 16, 0),
+    ))
+    session.commit()
+    subject, body = _po()
+    row = handle_quote_po_email(
+        session,
+        email_log=_log(session, message_id="second-mail"),
+        subject=subject,
+        body=body,
+        from_address="buyer@acme.test",
+        graph_message_id="graph-second",
+    )
+    assert row.status == "review"
+    assert row.review_reason == "converting"
+    assert bc.writes == []
+    assert bc.reads == []
+    duplicate = QuotePoIntake(
+        graph_message_id="holder-2",
+        email_log_id=holder_log.id,
+        from_address="buyer@acme.test",
+        subject="Also converting",
+        received_at=datetime(2026, 11, 13, 16, 1),
+        customer_po="22222",
+        status="converting",
+        bc_quote_number="SQ-1001",
+        confidence="high",
+        overdue=False,
+        created_at=datetime(2026, 11, 13, 16, 1),
+    )
+    session.add(duplicate)
+    with pytest.raises(IntegrityError):
+        session.commit()
+    session.rollback()
+
+
+def test_line_match_requires_the_same_sku(session, bc):
+    set_inbox_mode(session, "quote_po_auto_convert", "on")
+    _quote(session, "SQ-1001", lines=[{"sku": "TX45020"}])
+    prefix = handle_quote_po_email(
+        session,
+        email_log=_log(session, message_id="po-prefix"),
+        subject="PO",
+        body="Purchase order 44521 for quote SQ-1001. Total $1,500.00. 2 x TX450",
+        from_address="buyer@acme.test",
+        graph_message_id="graph-prefix",
+    )
+    assert prefix.status == "review"
+    assert prefix.review_reason == "mismatched_lines"
+    assert bc.writes == []
+    _quote(session, "SQ-1003", lines=[{"sku": "TX450"}])
+    exact = handle_quote_po_email(
+        session,
+        email_log=_log(session, message_id="po-exact-sku"),
+        subject="PO",
+        body="Purchase order 55661 for quote SQ-1003. Total $1,500.00. 2 x TX450",
+        from_address="buyer@acme.test",
+        graph_message_id="graph-exact-sku",
+    )
+    assert exact.status == "converted"
+    assert exact.bc_quote_number == "SQ-1003"
+    assert [item[0] for item in bc.writes] == ["PATCH", "POST"]
 
 
 def _pdf(text: str) -> bytes:

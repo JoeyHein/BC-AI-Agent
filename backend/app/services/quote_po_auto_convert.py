@@ -43,7 +43,7 @@ from app.services.quote_followup import (
 
 logger = logging.getLogger(__name__)
 
-BUSINESS_TZ = ZoneInfo("America/Toronto")
+BUSINESS_TZ = ZoneInfo("America/Edmonton")
 BUSINESS_OPEN = time(8, 0)
 BUSINESS_CLOSE = time(17, 0)
 MISSED_AFTER_HOURS = 4
@@ -79,13 +79,15 @@ REASON_TEXT = {
     "no_unique_quote": "No single open quote matches this purchase order.",
     "convert_failed": "Business Central did not convert the quote.",
     "lines_unverified": "The email lists lines and the quote has none on file to compare.",
+    "converting": "This quote is already being converted.",
 }
 
 
 def business_hours_between(start: Optional[datetime], end: Optional[datetime]) -> float:
-    """Hours between two instants inside Monday–Friday 08:00–17:00 America/Toronto.
+    """Hours between two instants inside Monday–Friday 08:00–17:00 America/Edmonton.
 
-    Naive datetimes are UTC, which is how the mailbox clock is stored.
+    Open Distribution is in Redcliff, Alberta. Naive datetimes are UTC,
+    which is how the mailbox clock is stored.
     """
     if start is None or end is None:
         return 0.0
@@ -177,7 +179,7 @@ def list_quote_po_intakes(db: Session, now: Optional[datetime] = None) -> List[d
         refresh_missed_purchase_orders(db, now)
         rows = (
             db.query(QuotePoIntake)
-            .filter(QuotePoIntake.status.in_(["review", "shadow"]))
+            .filter(QuotePoIntake.status.in_(["review", "shadow", "converting"]))
             .all()
         )
     except Exception:
@@ -207,7 +209,7 @@ def missed_purchase_orders(db: Session, now: Optional[datetime] = None) -> List[
             db.query(QuotePoIntake)
             .filter(
                 QuotePoIntake.overdue.is_(True),
-                QuotePoIntake.status.in_(["review", "shadow"]),
+                QuotePoIntake.status.in_(["review", "shadow", "converting"]),
             )
             .order_by(QuotePoIntake.received_at.asc())
             .all()
@@ -242,7 +244,7 @@ def refresh_missed_purchase_orders(db: Session, now: Optional[datetime] = None) 
     try:
         rows = (
             db.query(QuotePoIntake)
-            .filter(QuotePoIntake.status.in_(["review", "shadow", "converted", "dismissed"]))
+            .filter(QuotePoIntake.status.in_(["review", "shadow", "converting", "converted", "dismissed"]))
             .all()
         )
     except Exception:
@@ -284,6 +286,8 @@ def accept_quote_po(
         raise HTTPException(status_code=404, detail="Purchase order email not found")
     if row.status == "converted" and row.bc_order_number:
         return {**intake_to_dict(row), "already": True, "converted": True}
+    if row.status == "converting":
+        raise HTTPException(status_code=409, detail="This quote is already being converted")
     if row.status not in {"review", "shadow"}:
         raise HTTPException(status_code=400, detail="This purchase order is not waiting for a convert")
     mode = inbox_mode(db, QUOTE_PO_AUTO_CONVERT)
@@ -374,60 +378,140 @@ def intake_to_dict(row: QuotePoIntake) -> dict:
 
 
 def _convert_row(db: Session, row: QuotePoIntake, quote: QuoteRequest, user_email: str) -> QuotePoIntake:
-    """PATCH the quote's external document number, then the existing conversion."""
-    prior = _sales_order_for(db, quote)
-    already_ordered = (
-        (prior is not None and bool(prior.bc_order_number))
-        or (quote.status or "").lower() in _CONVERTED
-    )
-    if already_ordered:
-        row.status = "review"
-        row.confidence = "low"
-        row.review_reason = "already_converted"
-        row.bc_quote_number = quote.bc_quote_id
-        row.quote_request_id = quote.id
-        row.planned_action = "This quote is already a sales order. Business Central was not called."
-        db.commit()
-        return row
+    """Claim the quote, then PATCH its external document number and makeOrder.
+
+    The claim is committed before any Business Central call. A second email
+    for the same quote loses the unique converting slot and does not call
+    makeOrder.
+    """
+    intake_id = row.id
+    quote_id = quote.id
+    sq_number = quote.bc_quote_id
+    blocked = _conversion_block(db, quote, row)
+    if blocked:
+        return _hold_for_review(db, row, quote, blocked)
+    row.bc_quote_number = sq_number
+    row.quote_request_id = quote_id
+    row.status = "review"
+    db.commit()
+    if not _claim_converting(db, intake_id):
+        fresh = db.query(QuotePoIntake).filter(QuotePoIntake.id == intake_id).one()
+        quote = db.query(QuoteRequest).filter(QuoteRequest.id == quote_id).one()
+        reason = "already_converted" if _sales_order_for(db, quote) or (quote.status or "").lower() in _CONVERTED else "converting"
+        return _hold_for_review(db, fresh, quote, reason)
+    quote = db.query(QuoteRequest).filter(QuoteRequest.id == quote_id).one()
+    row = db.query(QuotePoIntake).filter(QuotePoIntake.id == intake_id).one()
+    blocked = _conversion_block(db, quote, row)
+    if blocked:
+        return _hold_for_review(db, row, quote, blocked)
     try:
         result = _write_po_and_convert(db, quote, row.customer_po, user_email)
     except Exception as exc:
         logger.exception("Purchase order convert failed for %s", row.customer_po)
-        row.status = "review"
-        row.confidence = "low"
+        db.rollback()
+        failed = db.query(QuotePoIntake).filter(QuotePoIntake.id == intake_id).one()
+        failed.status = "review"
+        failed.confidence = "low"
         message = str(exc)
         if "not an open" in message:
-            row.review_reason = "quote_not_in_bc"
+            failed.review_reason = "quote_not_in_bc"
         elif "expired" in message.lower() or "closed" in message.lower():
-            row.review_reason = "expired"
+            failed.review_reason = "expired"
         else:
-            row.review_reason = "convert_failed"
-        row.planned_action = message[:500]
+            failed.review_reason = "convert_failed"
+        failed.planned_action = message[:500]
         db.commit()
         if user_email != AUTO_ACTOR:
             raise
-        return row
+        return failed
+    row = db.query(QuotePoIntake).filter(QuotePoIntake.id == intake_id).one()
     row.status = "converted"
     row.review_reason = None
     row.confidence = "high"
-    row.bc_quote_number = quote.bc_quote_id
-    row.quote_request_id = quote.id
+    row.bc_quote_number = sq_number
+    row.quote_request_id = quote_id
     row.bc_order_number = result.get("bc_order_number")
     row.bc_order_id = result.get("bc_order_id")
     row.overdue = False
     row.decided_at = datetime.utcnow()
     row.decided_by = user_email
     row.planned_action = (
-        f"Wrote PO {row.customer_po} on {quote.bc_quote_id} and converted it to {row.bc_order_number}."
+        f"Wrote PO {row.customer_po} on {sq_number} and converted it to {row.bc_order_number}."
     )
     if row.bc_order_number:
         _notify(db, row, row.bc_order_number)
     db.commit()
     logger.info(
         "Converted %s to %s from purchase order %s",
-        quote.bc_quote_id, row.bc_order_number, row.customer_po,
+        sq_number, row.bc_order_number, row.customer_po,
     )
     return row
+
+
+def _conversion_block(db: Session, quote: QuoteRequest, row: QuotePoIntake) -> Optional[str]:
+    """A reason to stop before makeOrder, or None when this row may claim the quote."""
+    prior = _sales_order_for(db, quote)
+    if (prior is not None and prior.bc_order_number) or (quote.status or "").lower() in _CONVERTED:
+        return "already_converted"
+    number = (quote.bc_quote_id or "").strip()
+    if not number:
+        return "quote_not_in_portal"
+    holder = (
+        db.query(QuotePoIntake)
+        .filter(
+            QuotePoIntake.id != row.id,
+            QuotePoIntake.bc_quote_number == number,
+            QuotePoIntake.status.in_(["converting", "converted"]),
+        )
+        .first()
+    )
+    if holder is None:
+        return None
+    if holder.status == "converted" or holder.bc_order_number:
+        return "already_converted"
+    return "converting"
+
+
+def _hold_for_review(db: Session, row: QuotePoIntake, quote: QuoteRequest, reason: str) -> QuotePoIntake:
+    """Leave the email for staff. This does not call Business Central."""
+    row.status = "review"
+    row.confidence = "low"
+    row.review_reason = reason
+    row.bc_quote_number = quote.bc_quote_id
+    row.quote_request_id = quote.id
+    if reason == "already_converted":
+        row.planned_action = "This quote is already a sales order. Business Central was not called."
+    elif reason == "converting":
+        row.planned_action = "Another email is already converting this quote. Business Central was not called."
+    else:
+        row.planned_action = _reason_text(reason)
+    db.commit()
+    return row
+
+
+def _claim_converting(db: Session, intake_id: int) -> bool:
+    """Commit status=converting for this row before makeOrder.
+
+    The partial unique index on bc_quote_number lets one row per quote hold
+    converting or converted. The loser rolls back and makes no BC call.
+    """
+    claimed = (
+        db.query(QuotePoIntake)
+        .filter(
+            QuotePoIntake.id == intake_id,
+            QuotePoIntake.status.in_(["review", "shadow"]),
+        )
+        .update({"status": "converting"}, synchronize_session=False)
+    )
+    if claimed != 1:
+        db.rollback()
+        return False
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return False
+    return True
 
 
 def _write_po_and_convert(db: Session, quote: QuoteRequest, customer_po: Optional[str], user_email: str) -> dict:
@@ -759,11 +843,7 @@ def _lines_overlap(hints: List[dict], skus: set) -> bool:
     wanted.discard("")
     if not wanted or not skus:
         return False
-    for hint in wanted:
-        for sku in skus:
-            if hint == sku or (len(hint) >= 4 and sku.startswith(hint)):
-                return True
-    return False
+    return any(hint == sku for hint in wanted for sku in skus)
 
 
 def _read_facts(text: str, po_number: str, po_source: Optional[str], filenames: List[str]) -> dict:
