@@ -14,9 +14,9 @@
     "20000"
   ],
   "l5c_applies_below_lb": 500,
-  "placeholder": true,
-  "status": "partial",
-  "notice": "PLACEHOLDER. Preferential Service Agreement #19067426 was not in the repo. Cells with source verified_example are the Redcliff to Calgary, Edmonton, and Regina figures from the rating examples. Every other cell is null and returns 'no contract rate - get a spot quote'. Run scripts/import_manitoulin_rates.py against the workbook (the copy named on the box is /workspace/freight/190674sa26 (1).xlsx) to fill the table. A null cell is not $0. The agreement must be signed before these rates are used.",
+  "placeholder": false,
+  "status": "imported",
+  "notice": "Loaded 168 of 168 rate cells from 190674sa26 (1).xlsx. A null cell still returns 'no contract rate - get a spot quote'. Agreement #19067426 must be signed before these rates are used.",
   "workbook": "190674sa26 (1).xlsx",
   "origins": [
     {
@@ -66,317 +66,317 @@
     {
       "origin": "redcliff",
       "destination": "calgary",
-      "min": 66,
+      "min": 66.0,
       "rates": {
-        "L5C": null,
-        "500": null,
+        "L5C": 25.41,
+        "500": 19.31,
         "1000": 14.41,
         "2000": 11.42,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "5000": 7.84,
+        "10000": 5.74,
+        "20000": 4.47
       },
-      "source": "verified_example"
+      "source": "190674sa26 (1).xlsx"
     },
     {
       "origin": "redcliff",
       "destination": "edmonton",
-      "min": 80,
+      "min": 80.0,
       "rates": {
-        "L5C": null,
-        "500": null,
+        "L5C": 33.8,
+        "500": 26.4,
         "1000": 20.5,
         "2000": 16.97,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "5000": 12.95,
+        "10000": 9.99,
+        "20000": 8.32
       },
-      "source": "verified_example"
+      "source": "190674sa26 (1).xlsx"
     },
     {
       "origin": "redcliff",
       "destination": "grande_prairie",
-      "min": null,
+      "min": 89.0,
       "rates": {
-        "L5C": null,
-        "500": null,
-        "1000": null,
-        "2000": null,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "L5C": 44.55,
+        "500": 36.06,
+        "1000": 30.1,
+        "2000": 26.62,
+        "5000": 23.8,
+        "10000": 18.99,
+        "20000": 16.29
       },
-      "source": "placeholder"
+      "source": "190674sa26 (1).xlsx"
     },
     {
       "origin": "redcliff",
       "destination": "red_deer",
-      "min": null,
+      "min": 73.0,
       "rates": {
-        "L5C": null,
-        "500": null,
-        "1000": null,
-        "2000": null,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "L5C": 29.56,
+        "500": 22.71,
+        "1000": 17.3,
+        "2000": 14.04,
+        "5000": 10.4,
+        "10000": 7.9,
+        "20000": 6.35
       },
-      "source": "placeholder"
+      "source": "190674sa26 (1).xlsx"
     },
     {
       "origin": "redcliff",
       "destination": "vancouver",
-      "min": null,
+      "min": 95.0,
       "rates": {
-        "L5C": null,
-        "500": null,
-        "1000": null,
-        "2000": null,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "L5C": 40.57,
+        "500": 31.81,
+        "1000": 24.82,
+        "2000": 20.5,
+        "5000": 15.52,
+        "10000": 11.9,
+        "20000": 9.94
       },
-      "source": "placeholder"
+      "source": "190674sa26 (1).xlsx"
     },
     {
       "origin": "redcliff",
       "destination": "winnipeg",
-      "min": null,
+      "min": 80.0,
       "rates": {
-        "L5C": null,
-        "500": null,
-        "1000": null,
-        "2000": null,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "L5C": 37.12,
+        "500": 28.99,
+        "1000": 22.77,
+        "2000": 19.44,
+        "5000": 16.63,
+        "10000": 13.31,
+        "20000": 11.17
       },
-      "source": "placeholder"
+      "source": "190674sa26 (1).xlsx"
     },
     {
       "origin": "redcliff",
       "destination": "regina",
-      "min": 76,
+      "min": 76.0,
       "rates": {
         "L5C": 32.63,
         "500": 25.59,
         "1000": 20.0,
         "2000": 16.65,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "5000": 12.87,
+        "10000": 9.84,
+        "20000": 8.33
       },
-      "source": "verified_example"
+      "source": "190674sa26 (1).xlsx"
     },
     {
       "origin": "milton",
       "destination": "calgary",
-      "min": null,
+      "min": 160.0,
       "rates": {
-        "L5C": null,
-        "500": null,
-        "1000": null,
-        "2000": null,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "L5C": 87.43,
+        "500": 77.1,
+        "1000": 68.77,
+        "2000": 62.97,
+        "5000": 56.89,
+        "10000": 46.01,
+        "20000": 44.44
       },
-      "source": "placeholder"
+      "source": "190674sa26 (1).xlsx"
     },
     {
       "origin": "milton",
       "destination": "edmonton",
-      "min": null,
+      "min": 159.0,
       "rates": {
-        "L5C": null,
-        "500": null,
-        "1000": null,
-        "2000": null,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "L5C": 87.43,
+        "500": 77.2,
+        "1000": 68.95,
+        "2000": 63.18,
+        "5000": 57.11,
+        "10000": 46.22,
+        "20000": 44.67
       },
-      "source": "placeholder"
+      "source": "190674sa26 (1).xlsx"
     },
     {
       "origin": "milton",
       "destination": "grande_prairie",
-      "min": null,
+      "min": 167.0,
       "rates": {
-        "L5C": null,
-        "500": null,
-        "1000": null,
-        "2000": null,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "L5C": 99.49,
+        "500": 88.5,
+        "1000": 80.41,
+        "2000": 74.77,
+        "5000": 70.04,
+        "10000": 56.97,
+        "20000": 54.52
       },
-      "source": "placeholder"
+      "source": "190674sa26 (1).xlsx"
     },
     {
       "origin": "milton",
       "destination": "red_deer",
-      "min": null,
+      "min": 167.0,
       "rates": {
-        "L5C": null,
-        "500": null,
-        "1000": null,
-        "2000": null,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "L5C": 92.1,
+        "500": 80.94,
+        "1000": 72.02,
+        "2000": 65.92,
+        "5000": 59.76,
+        "10000": 48.44,
+        "20000": 46.54
       },
-      "source": "placeholder"
+      "source": "190674sa26 (1).xlsx"
     },
     {
       "origin": "milton",
       "destination": "vancouver",
-      "min": null,
+      "min": 174.0,
       "rates": {
-        "L5C": null,
-        "500": null,
-        "1000": null,
-        "2000": null,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "L5C": 100.27,
+        "500": 89.71,
+        "1000": 81.17,
+        "2000": 75.1,
+        "5000": 68.63,
+        "10000": 55.89,
+        "20000": 54.28
       },
-      "source": "placeholder"
+      "source": "190674sa26 (1).xlsx"
     },
     {
       "origin": "milton",
       "destination": "winnipeg",
-      "min": null,
+      "min": 142.0,
       "rates": {
-        "L5C": null,
-        "500": null,
-        "1000": null,
-        "2000": null,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "L5C": 74.39,
+        "500": 63.41,
+        "1000": 54.81,
+        "2000": 49.24,
+        "5000": 44.46,
+        "10000": 35.67,
+        "20000": 33.62
       },
-      "source": "placeholder"
+      "source": "190674sa26 (1).xlsx"
     },
     {
       "origin": "milton",
       "destination": "regina",
-      "min": null,
+      "min": 156.0,
       "rates": {
-        "L5C": null,
-        "500": null,
-        "1000": null,
-        "2000": null,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "L5C": 82.57,
+        "500": 71.31,
+        "1000": 62.37,
+        "2000": 56.33,
+        "5000": 50.44,
+        "10000": 40.48,
+        "20000": 38.5
       },
-      "source": "placeholder"
+      "source": "190674sa26 (1).xlsx"
     },
     {
       "origin": "mississauga",
       "destination": "calgary",
-      "min": null,
+      "min": 143.0,
       "rates": {
-        "L5C": null,
-        "500": null,
-        "1000": null,
-        "2000": null,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "L5C": 82.62,
+        "500": 72.37,
+        "1000": 64.47,
+        "2000": 58.93,
+        "5000": 53.03,
+        "10000": 43.86,
+        "20000": 42.53
       },
-      "source": "placeholder"
+      "source": "190674sa26 (1).xlsx"
     },
     {
       "origin": "mississauga",
       "destination": "edmonton",
-      "min": null,
+      "min": 143.0,
       "rates": {
-        "L5C": null,
-        "500": null,
-        "1000": null,
-        "2000": null,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "L5C": 82.61,
+        "500": 72.47,
+        "1000": 64.64,
+        "2000": 59.15,
+        "5000": 53.26,
+        "10000": 44.07,
+        "20000": 42.77
       },
-      "source": "placeholder"
+      "source": "190674sa26 (1).xlsx"
     },
     {
       "origin": "mississauga",
       "destination": "grande_prairie",
-      "min": null,
+      "min": 150.0,
       "rates": {
-        "L5C": null,
-        "500": null,
-        "1000": null,
-        "2000": null,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "L5C": 94.35,
+        "500": 83.44,
+        "1000": 75.82,
+        "2000": 70.47,
+        "5000": 65.93,
+        "10000": 54.67,
+        "20000": 52.48
       },
-      "source": "placeholder"
+      "source": "190674sa26 (1).xlsx"
     },
     {
       "origin": "mississauga",
       "destination": "red_deer",
-      "min": null,
+      "min": 161.0,
       "rates": {
-        "L5C": null,
-        "500": null,
-        "1000": null,
-        "2000": null,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "L5C": 93.1,
+        "500": 81.28,
+        "1000": 72.23,
+        "2000": 66.01,
+        "5000": 59.63,
+        "10000": 49.37,
+        "20000": 47.6
       },
-      "source": "placeholder"
+      "source": "190674sa26 (1).xlsx"
     },
     {
       "origin": "mississauga",
       "destination": "vancouver",
-      "min": null,
+      "min": 157.0,
       "rates": {
-        "L5C": null,
-        "500": null,
-        "1000": null,
-        "2000": null,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "L5C": 95.45,
+        "500": 84.97,
+        "1000": 76.86,
+        "2000": 71.07,
+        "5000": 64.78,
+        "10000": 53.74,
+        "20000": 52.37
       },
-      "source": "placeholder"
+      "source": "190674sa26 (1).xlsx"
     },
     {
       "origin": "mississauga",
       "destination": "winnipeg",
-      "min": null,
+      "min": 127.0,
       "rates": {
-        "L5C": null,
-        "500": null,
-        "1000": null,
-        "2000": null,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "L5C": 69.57,
+        "500": 58.67,
+        "1000": 50.5,
+        "2000": 45.21,
+        "5000": 40.61,
+        "10000": 33.51,
+        "20000": 31.71
       },
-      "source": "placeholder"
+      "source": "190674sa26 (1).xlsx"
     },
     {
       "origin": "mississauga",
       "destination": "regina",
-      "min": null,
+      "min": 140.0,
       "rates": {
-        "L5C": null,
-        "500": null,
-        "1000": null,
-        "2000": null,
-        "5000": null,
-        "10000": null,
-        "20000": null
+        "L5C": 77.75,
+        "500": 66.57,
+        "1000": 58.06,
+        "2000": 52.3,
+        "5000": 46.59,
+        "10000": 38.33,
+        "20000": 36.59
       },
-      "source": "placeholder"
+      "source": "190674sa26 (1).xlsx"
     }
   ]
 }

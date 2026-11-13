@@ -81,7 +81,7 @@ def test_tx450_20_panel_rates_match_the_march_2026_workbook():
     assert '"TX450-20": {"18": 5.18' not in source
 
 
-def test_spring_weight_uses_the_canimex_table():
+def test_spring_weight_uses_the_steel_formula():
     springs = type("Spring", (), {})()
     springs.is_duplex = False
     springs.quantity = 2
@@ -89,9 +89,10 @@ def test_spring_weight_uses_the_canimex_table():
     springs.coil_diameter = 2.0
     springs.length = 30
     weight, source, count = _spring_weight(springs, [])
-    assert source == "spring-weights.json"
+    assert source == "formula"
     assert count == 2
-    assert weight == D("0.055") * D(30) * D(2)
+    # 0.250 x 2.0 x 30 in is about 11.8 lb of steel per spring.
+    assert weight == D("11.81") * D(2)
 
 
 def test_flag_defaults_off_without_a_row():
@@ -201,8 +202,14 @@ def test_minimums_and_published_break_rates():
     assert regina["rates"]["2000"] == 16.65
     assert edmonton["rates"]["1000"] == 20.50
     assert edmonton["rates"]["2000"] == 16.97
+    assert calgary["rates"]["1000"] == 14.41
     assert calgary["rates"]["2000"] == 11.42
-    assert calgary["rates"]["L5C"] is None
+    assert regina["rates"]["L5C"] == 32.63
+    assert regina["rates"]["500"] == 25.59
+    assert edmonton["rates"]["L5C"] == 33.80
+    assert edmonton["rates"]["500"] == 26.40
+    assert edmonton["rates"]["10000"] == 9.99
+    assert edmonton["rates"]["20000"] == 8.32
 
     bumped = _rate([_piece(12, 12, 12, 100)])
     assert bumped["shipment"]["minimum_applied"] is True
@@ -223,12 +230,20 @@ def test_break_floors_and_missing_lanes():
     assert jumped["break"] == "500"
     assert jumped["deficit_used"] is True
 
-    missing = _rate([_piece(48, 40, 40, 500)], origin="milton", destination="vancouver")
+    # A lane with no cells, and a lane with one null cell, return the
+    # spot-quote message instead of $0.
+    table = load_rate_table()
+    setup = {"fuel_percent": "68.80", "long_charge": 75, "long_min_length_in": 96,
+             "density_lb_per_cuft": 10, "gst_percent": 5}
+    lanes = {(lane["origin"], lane["destination"]): lane for lane in table["lanes"]}
+    vancouver = lanes[("milton", "vancouver")]
+    vancouver["min"] = None
+    vancouver["rates"] = {name: None for name in BREAKS}
+    lanes[("redcliff", "calgary")]["rates"]["L5C"] = None
+    missing = rate_pieces([_piece(48, 40, 40, 500)], "milton", "vancouver", table, setup)
     assert missing["shipment"]["rated"] is False
     assert missing["shipment"]["message"] == NO_CONTRACT_RATE
-
-    # Calgary is on the sheet, but the L5C cell was not in the examples.
-    empty_cell = _rate([_piece(48, 40, 40, 200)], destination="calgary")
+    empty_cell = rate_pieces([_piece(48, 40, 40, 200)], "redcliff", "calgary", table, setup)
     assert empty_cell["shipment"]["rated"] is False
     assert empty_cell["shipment"]["message"] == NO_CONTRACT_RATE
 
@@ -239,23 +254,36 @@ def test_billed_weight_uses_exact_cube_before_rounding():
     assert billed_weight(1000, cube_cuft(210, 28, 36), 10) == D("1225.00")
 
 
-def test_rate_table_is_a_marked_partial_placeholder():
+def test_rate_table_is_imported_from_the_agreement_workbook():
     table = load_rate_table()
     assert table["agreement"] == AGREEMENT
-    assert table["placeholder"] is True
-    assert table["status"] == "partial"
-    assert "PLACEHOLDER" in table["notice"]
+    assert table["placeholder"] is False
+    assert table["status"] == "imported"
+    assert "signed" in table["notice"]
     assert len(table["lanes"]) == 21
     assert list(table["breaks"]) == list(BREAKS)
-    filled = [
-        lane for lane in table["lanes"]
-        if any(value is not None for value in lane["rates"].values())
-    ]
-    assert {(lane["origin"], lane["destination"]) for lane in filled} == {
-        ("redcliff", "calgary"),
-        ("redcliff", "edmonton"),
-        ("redcliff", "regina"),
-    }
+    for lane in table["lanes"]:
+        assert lane["min"] is not None
+        assert all(value is not None for value in lane["rates"].values())
+        assert not lane.get("conflicts")
+
+
+def test_workbook_import_reads_the_city_prov_layout(tmp_path):
+    openpyxl = pytest.importorskip("openpyxl")
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.append(["FROM", None, "TO"])
+    sheet.append(["City", "Prov.", "City", "Prov.", "MIN", "L5C", "500", "1000", "2000", "5000", 10000, 20000])
+    sheet.append(["Redcliff", "AB", "Regina", "SK", 76, 32.63, 25.59, 20, 16.65, 12.87, 9.84, 8.33])
+    sheet.append(["Milton", "ON", "Calgary", "AB", 160, 87.43, 77.1, 68.77, 62.97, 56.89, 46.01, 44.44])
+    path = tmp_path / "city_prov.xlsx"
+    workbook.save(path)
+    lanes = {(row["origin"], row["destination"]): row for row in extract_lanes_from_workbook(str(path))}
+    assert lanes[("redcliff", "regina")]["min"] == 76
+    assert lanes[("redcliff", "regina")]["rates"]["L5C"] == 32.63
+    assert lanes[("redcliff", "regina")]["rates"]["20000"] == 8.33
+    assert lanes[("milton", "calgary")]["rates"]["500"] == 77.1
+    assert len(lanes) == 2
 
 
 def test_workbook_import_fills_a_stacked_sheet(tmp_path):
@@ -304,7 +332,7 @@ def test_estimate_matches_the_calgary_fixture_without_touching_bc():
     assert "signed" in result["signed_note"].lower()
     assert _money(result["shipment"]["linehaul"]) == "176.52"
     assert _money(result["shipment"]["gst"]) == "18.65"
-    assert result["rate_table"]["placeholder"] is True
+    assert result["rate_table"]["placeholder"] is False
 
 
 def test_sixteen_foot_door_crates_at_210_inches():
@@ -400,4 +428,4 @@ def test_direct_door_line_build_reports_a_solid_shaft_on_a_light_commercial_door
     assert line["shaft_type"] == "solid"
     # 8 ft door, single 1 in solid shaft at door width + 18 in = 9.5 ft * 2.670 lb/ft.
     assert line["components"]["shaft_lb"] == 25.37
-    assert line["spring_weight_source"] == "spring-weights.json"
+    assert line["spring_weight_source"] == "formula"

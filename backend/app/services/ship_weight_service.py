@@ -69,7 +69,7 @@ def _spring_weight(springs, warnings: List[str]) -> Tuple[Decimal, str, int]:
     if springs is None:
         warnings.append("No spring was selected, so spring weight is zero.")
         return D(0), "none", 0
-    from app.services.spring_calculator_service import SPRING_WEIGHTS, calculate_spring_weight
+    from app.services.spring_calculator_service import calculate_spring_weight
 
     if getattr(springs, "is_duplex", False):
         pairs = int(springs.duplex_pairs or 0) or int(springs.quantity or 0)
@@ -87,23 +87,18 @@ def _spring_weight(springs, warnings: List[str]) -> Tuple[Decimal, str, int]:
         specs = [(springs.wire_diameter, springs.coil_diameter, springs.length, int(springs.quantity or 0))]
 
     total = D(0)
-    source = "spring-weights.json"
+    source = "formula"
     count = 0
     for wire, coil, length, qty in specs:
         if not qty or not length:
             continue
         count += int(qty)
-        per_inch = _lookup_spring_lb_per_in(SPRING_WEIGHTS, wire, coil)
-        if per_inch is None:
-            each = calculate_spring_weight(float(wire), float(coil), float(length))
-            total += D(str(each)) * D(qty)
-            source = "formula"
-            warnings.append(
-                f"Spring {wire} x {coil} is not in spring-weights.json. "
-                "Weight uses the steel-density formula."
-            )
-        else:
-            total += D(str(per_inch)) * D(str(length)) * D(qty)
+        # spring-weights.json (Canimex Appendix 4) is not lb per inch of spring
+        # body: 0.250 x 2.0 reads 0.055, about a seventh of the steel in one
+        # inch of close-wound coil. Use the steel-density formula the spring
+        # calculator already uses (it matches SSC Spring Engineering).
+        each = calculate_spring_weight(float(wire), float(coil), float(length))
+        total += D(str(each)) * D(qty)
     return total, source, count
 
 

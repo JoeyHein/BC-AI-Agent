@@ -484,7 +484,7 @@ def inspect_workbook(path: str) -> str:
     lines = []
     try:
         for sheet in workbook.worksheets:
-            lines.append(f"# {sheet.title} dims={sheet.dimensions}")
+            lines.append(f"# {sheet.title}")
             shown = 0
             for row in sheet.iter_rows(values_only=True):
                 if shown >= 25:
