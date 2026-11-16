@@ -1,16 +1,19 @@
-"""Read-only Business Central lookups for staff and the service key.
+"""Business Central lookups for staff and the service key.
 
-Every route is GET. Creating, converting, posting, and emailing stay on
-the existing write routes, which the service key cannot call.
+Reads are GET. The one write is ``POST /purchase-orders/{po}/receive``,
+which posts a receipt and does not invoice or email. Other creates,
+converts, and emails stay on the existing write routes.
 """
 from __future__ import annotations
 
 import logging
 import re
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 import requests
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -19,6 +22,10 @@ from app.api.staff_principal import require_staff
 from app.db.database import get_db
 from app.db.models import BCCustomer, User
 from app.integrations.bc.client import bc_client
+from app.services.po_receive_service import (
+    PurchaseOrderReceiveError,
+    po_receive_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -439,3 +446,64 @@ def purchase_price_lines(
         "error": result.get("error"),
         "lines": result.get("entries") or [],
     }
+
+
+class ReceiveLineIn(BaseModel):
+    """One purchase line to receive. ``line_no`` is the BC line sequence."""
+
+    model_config = ConfigDict(populate_by_name=True)
+    line_no: int = Field(alias="lineNo")
+    qty: Decimal
+
+
+class ReceivePurchaseOrderRequest(BaseModel):
+    """Receive selected lines. Nothing is posted unless confirm is true.
+
+    ``dry_run`` checks outstanding quantity and does not post.
+    ``vendor_shipment_no`` is the packing slip. The same value on the same
+    purchase order returns the posted receipt instead of posting again.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    lines: List[ReceiveLineIn] = Field(default_factory=list)
+    vendor_shipment_no: str = Field(default="", alias="vendorShipmentNo")
+    dry_run: bool = Field(default=False, alias="dryRun")
+    confirm: bool = False
+
+
+@router.post("/purchase-orders/{po_number}/receive")
+def receive_purchase_order(
+    po_number: str,
+    body: ReceivePurchaseOrderRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_staff),
+):
+    """Receive specific lines and quantities. Does not invoice or email.
+
+    Draft (Business Central status Open) is released first when a real
+    receipt is posted, because posting requires Released. ``dry_run`` does
+    not release and does not post. A repeat ``vendor_shipment_no`` returns
+    the posted receipt number.
+    """
+    kind, value = _prefixed(po_number, "PO-")
+    actor = getattr(user, "email", None) or "staff"
+    key_name = getattr(request.state, "staff_service_key_name", None)
+    logger.info(
+        "Staff %s receive request for %s (dry_run=%s confirm=%s)",
+        actor, value, body.dry_run, body.confirm,
+    )
+    try:
+        return po_receive_service.receive(
+            kind,
+            value,
+            lines=[{"line_no": line.line_no, "qty": line.qty} for line in body.lines],
+            vendor_shipment_no=body.vendor_shipment_no,
+            confirm=body.confirm,
+            dry_run=body.dry_run,
+            actor=actor,
+            service_key_name=key_name,
+            db=db,
+        )
+    except PurchaseOrderReceiveError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc

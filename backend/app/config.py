@@ -129,6 +129,11 @@ class Settings(BaseSettings):
     # BC_BASE_URL. The standard api/v2.0 purchaseOrders entity has no release
     # action. See docs/STAFF_PO_RELEASE.md.
     PO_RELEASE_BC_API_URL: Optional[str] = None
+    # Same shape as PO_RELEASE_BC_API_URL, for page 70152 "OPENDC API PO
+    # Receive". Leave empty to use the purchasing API prefix (v1.0). The
+    # standard purchaseOrders action receiveAndInvoice also invoices.
+    # See docs/STAFF_PO_RECEIVE.md.
+    PO_RECEIVE_BC_API_URL: Optional[str] = None
 
     # Outlook review-draft To addresses, by BC vendor number, used instead of
     # the vendor card email. Format: VENDOR=addr1|addr2;VENDOR2=addr

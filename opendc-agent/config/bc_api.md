@@ -63,6 +63,20 @@ Content-Type: application/json
 
 `{"dry_run": true}` runs the checks and does not release. A service key needs scope `purchasing:release_po` (not on the default automation key). Full notes: `docs/STAFF_PO_RELEASE.md`.
 
+## Receive lines on one purchase order
+
+This posts a receipt only. It does not invoice and it does not email the vendor. Do not call the standard `receiveAndInvoice` action. `line_no` is the purchase line sequence from `GET /api/bc/purchase-orders/PO-001058`.
+
+```
+POST https://portal.opendc.ca/api/bc/purchase-orders/PO-001058/receive
+Authorization: Bearer <staff access_token or OPENDC_PORTAL_SERVICE_KEY>
+Content-Type: application/json
+
+{"confirm": true, "vendor_shipment_no": "PACK-1058", "lines": [{"line_no": 10000, "qty": 30}]}
+```
+
+`{"dry_run": true, "lines": [{"line_no": 10000, "qty": 30}]}` checks that 30 does not exceed the outstanding quantity and does not post. The same `vendor_shipment_no` returns the posted receipt number instead of posting again. A service key needs scope `purchasing:receive_po` (not on the default automation key). Staff need Purchase orders → Create and send. Full notes: `docs/STAFF_PO_RECEIVE.md`.
+
 ## API Endpoints
 
 ### Base URLs

@@ -647,6 +647,15 @@ def _purchasing(method: str, path: str):
 
 
 def _bc(method: str, path: str):
+    if (
+        method == "POST"
+        and path.startswith("/api/bc/purchase-orders/")
+        and path.endswith("/receive")
+    ):
+        # Posting a receipt is separate from viewing a PO and from editing a
+        # draft. The purchasing preset has purchase_orders.send. A login that
+        # can only view, and the warehouse preset, cannot receive here.
+        return ("perm", "purchase_orders.send")
     if method not in _SAFE:
         return ("perm", "users.manage")
     if "/sales-quotes" in path:

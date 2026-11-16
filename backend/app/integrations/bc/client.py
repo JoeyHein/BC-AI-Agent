@@ -46,9 +46,24 @@ def _prefer_order_row(rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 # The standard api/v2.0 purchaseOrders page only publishes ReceiveAndInvoice.
 PURCHASE_ORDER_RELEASE_ACTION = "Microsoft.NAV.Release"
 
+# Bound actions on bc-extension/purchase-order-receive (page "OPENDC API PO Receive").
+# ReceiveAndInvoice invoices the quantity it receives, so receipt posting does
+# not go through api/v2.0 purchaseOrders.
+PURCHASE_ORDER_RECEIVE_ENTITY = "purchaseOrderReceiptPosts"
+PURCHASE_ORDER_RECEIVE_ACTION = "Microsoft.NAV.Receive"
+PURCHASE_ORDER_RECEIPT_LOOKUP_ACTION = "Microsoft.NAV.FindReceipt"
+
 
 class PurchaseOrderReleaseNotPublished(RuntimeError):
     """The OPENDC purchase-order release page is not callable in this company."""
+
+    def __init__(self, message: str, *, status_code: Optional[int] = None):
+        self.status_code = status_code
+        super().__init__(message)
+
+
+class PurchaseOrderReceiveNotPublished(RuntimeError):
+    """The OPENDC purchase-order receive page is not callable in this company."""
 
     def __init__(self, message: str, *, status_code: Optional[int] = None):
         self.status_code = status_code
@@ -1507,6 +1522,107 @@ class BusinessCentralClient:
         except ValueError:
             return {}
         return body if isinstance(body, dict) else {}
+
+    def _purchasing_receive_base(self) -> str:
+        base = (settings.PO_RECEIVE_BC_API_URL or "").strip().rstrip("/")
+        if not base:
+            base = (settings.bc_purchasing_api_url or "").rstrip("/")
+        if not base:
+            raise RuntimeError("BC purchasing API URL is not configured")
+        return base
+
+    def _post_purchase_receive_action(
+        self,
+        po_id: str,
+        action: str,
+        payload: Dict[str, Any],
+        company_id: Optional[str] = None,
+        timeout: int = 120,
+    ) -> Dict[str, Any]:
+        """POST one bound action on page OPENDC API PO Receive.
+
+        Raises ``PurchaseOrderReceiveNotPublished`` when that page or action
+        is missing, and ``requests.HTTPError`` when Business Central rejects
+        the call. Does not call api/v2.0 ``receiveAndInvoice``.
+        """
+        if not (po_id or "").strip():
+            raise ValueError("po_id is required")
+        cid = company_id or self.company_id
+        if not cid:
+            raise RuntimeError("BC company id is not configured")
+        url = (
+            f"{self._purchasing_receive_base()}/companies({cid})/"
+            f"{PURCHASE_ORDER_RECEIVE_ENTITY}({po_id})/{action}"
+        )
+        token = self._get_access_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        logger.info("Purchase order %s action %s", po_id, action)
+        response = requests.post(url, headers=headers, json=payload, timeout=timeout)
+        if response.status_code >= 400:
+            message = _bc_error_message(response)
+            if response.status_code == 404 or _release_action_missing(message):
+                raise PurchaseOrderReceiveNotPublished(
+                    message or f"HTTP {response.status_code}",
+                    status_code=response.status_code,
+                )
+            raise requests.HTTPError(
+                f"{response.status_code} {action} on purchase order {po_id}: {message}",
+                response=response,
+            )
+        if not response.content:
+            return {}
+        try:
+            body = response.json()
+        except ValueError:
+            return {}
+        return body if isinstance(body, dict) else {}
+
+    def find_posted_purchase_receipt(
+        self,
+        po_id: str,
+        vendor_shipment_no: str,
+        company_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Look up a posted receipt by vendor shipment number. Does not post.
+
+        The body is the receive page. ``postedReceiptNo`` is blank when this
+        order has no receipt with that packing slip.
+        """
+        return self._post_purchase_receive_action(
+            po_id,
+            PURCHASE_ORDER_RECEIPT_LOOKUP_ACTION,
+            {"vendorShipmentNo": vendor_shipment_no or ""},
+            company_id=company_id,
+            timeout=60,
+        )
+
+    def receive_purchase_order(
+        self,
+        po_id: str,
+        vendor_shipment_no: str,
+        lines_json: str,
+        company_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Receive the lines in ``lines_json``. Does not invoice or email.
+
+        ``lines_json`` is a JSON array of ``{"lineNo", "qty"}``. The page
+        posts with Receive true and Invoice false. A repeat vendor shipment
+        number returns the existing receipt (``idempotent`` true).
+        """
+        return self._post_purchase_receive_action(
+            po_id,
+            PURCHASE_ORDER_RECEIVE_ACTION,
+            {
+                "vendorShipmentNo": vendor_shipment_no or "",
+                "linesJson": lines_json,
+            },
+            company_id=company_id,
+            timeout=120,
+        )
 
     def get_purchase_order_pdf(self, po_id: str, company_id: Optional[str] = None
                                 ) -> bytes:
