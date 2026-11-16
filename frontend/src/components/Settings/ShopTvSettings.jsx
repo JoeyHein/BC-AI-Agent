@@ -226,7 +226,7 @@ function ShopTvSettings() {
       <div className="border-t border-gray-200 pt-6 space-y-3">
         <h3 className="text-base font-semibold text-gray-900">Incoming</h3>
         <p className="text-sm text-gray-600">
-          Off, the Incoming column is empty. Email matching stays off until you turn it on. It reads ship notices and does not change Business Central.
+          Off, Incoming and Arriving from Upwardor are hidden. On, open Upwardor purchase orders get their own block. Other vendors stay in Incoming. Email matching stays off until you turn it on. It reads ship notices and does not change Business Central.
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm font-medium text-gray-700">Incoming lane</span>
