@@ -32,6 +32,7 @@ from app.services.shop_tv_incoming import (
     accept_review,
     attach_incoming,
     build_incoming_days,
+    build_upwardor_days,
     decide_match,
     email_matching_enabled,
     extract_shipping_notice,
@@ -43,6 +44,8 @@ from app.services.shop_tv_incoming import (
     reject_review,
     route_notice,
     set_flag,
+    so_completion_text,
+    summarize_po_lines,
 )
 
 TODAY = date(2026, 11, 12)
@@ -227,6 +230,7 @@ def test_flags_off_return_nothing(monkeypatch):
     board = attach_incoming(DB(), {"lanes": {"production": {"days": []}}, "horizon_days": 7})
     assert board["incoming_enabled"] is False
     assert board["lanes"]["incoming"]["days"] == []
+    assert board["lanes"]["upwardor"]["days"] == []
 
 
 @pytest.fixture
@@ -526,3 +530,305 @@ def test_staff_fix_applies_a_teams_notice_to_the_upwardor_po(session):
     assert missing["ok"] is False
     assert "missing or matches more than one" in missing["reason"]
     assert session.query(IncomingEmailReview).filter_by(id=other["review_id"]).one().status == "pending"
+
+
+def _up_po(number, lines, **extra):
+    po = {
+        "number": number,
+        "vendorName": "Upwardor",
+        "vendorNumber": "UPW",
+        "status": "Open",
+        "vendorOrderNumber": extra.pop("vendorOrderNumber", ""),
+        "requestedReceiptDate": extra.pop("requestedReceiptDate", "2026-11-14"),
+        "purchaseOrderLines": lines,
+    }
+    po.update(extra)
+    return po
+
+
+def _section(item, qty=1, received=0, description="section"):
+    return {
+        "lineType": "Item",
+        "lineObjectNumber": item,
+        "description": description,
+        "quantity": qty,
+        "receivedQuantity": received,
+    }
+
+
+def _hardware(qty=1):
+    return {
+        "lineType": "Item",
+        "lineObjectNumber": "HK10-00704-0809",
+        "description": "HARDWARE KIT",
+        "quantity": qty,
+        "receivedQuantity": 0,
+    }
+
+
+def _rows(days):
+    return [row for day in days["days"] for row in day["items"]]
+
+
+def test_summary_uses_the_door_comment_and_collapses_hardware():
+    lines = [
+        {"lineType": "Comment", "description": "Built from SO-001842"},
+        {"lineType": "Comment", "description": "(2) 10'0\" x 7'0\" KANATA, WHITE, FLUSH, 2\" HW"},
+        _section("PN65-21000-1000", qty=8),
+        _hardware(2),
+    ]
+    assert summarize_po_lines(lines) == "2× 10x7 Kanata white sections + hardware"
+    compact = [
+        {"lineType": "Comment", "description": "(1) 16x7 TX450, WHITE, UDC"},
+        _section("PN45-24400-1600", qty=4, description="TX450 SECTION"),
+    ]
+    assert summarize_po_lines(compact) == "1× 16x7 TX450 white sections"
+
+
+def test_summary_falls_back_to_section_skus_and_skips_received_lines():
+    lines = [
+        _section("PN65-21000-1000", qty=2, description="KANATA SECTION, WHITE"),
+        _section("PN65-21000-1200", qty=4, received=4, description="already here"),
+        _hardware(),
+    ]
+    assert summarize_po_lines(lines) == "2× 10' Kanata white sections + hardware"
+    received_sections = [
+        {"lineType": "Comment", "description": "(2) 10x7 KANATA, WHITE"},
+        _section("PN65-21000-1000", qty=8, received=8),
+        _hardware(),
+    ]
+    assert summarize_po_lines(received_sections) == "Hardware"
+
+
+def test_completes_so_when_this_is_the_only_open_po():
+    po = _up_po("PO-000962", [
+        {"lineType": "Comment", "description": "Built from SO-001842"},
+        {"lineType": "Comment", "description": "(2) 10'0\" x 7'0\" KANATA, WHITE"},
+        _section("PN65-21000-1000", qty=8),
+        _hardware(),
+    ], vendorOrderNumber="S-ORD116307")
+    days = build_upwardor_days([po], SALES, today=TODAY, now=NOW)
+    item = _rows(days)[0]
+    assert item["completion"] == "Completes SO-001842"
+    assert item["sales_label"] == "SO-001842 Prairie Door Co"
+    assert item["summary"] == "2× 10x7 Kanata white sections + hardware"
+    assert item["supplier_order_label"] == "S-ORD 116307"
+    assert so_completion_text("SO-001842", []) == "Completes SO-001842"
+
+
+def test_waiting_names_the_other_open_po_and_stock():
+    upwardor = _up_po("PO-000962", [
+        {"lineType": "Comment", "description": "Built from SO-001842"},
+        _section("PN65-21000-1000", qty=4),
+    ])
+    elton = {
+        "number": "PO-000881",
+        "vendorName": "Elton",
+        "status": "Open",
+        "requestedReceiptDate": "2026-11-20",
+        "purchaseOrderLines": [
+            {"lineType": "Comment", "description": "Built from SO-001842"},
+            {"lineType": "Item", "description": "Track", "quantity": 1, "receivedQuantity": 0},
+        ],
+    }
+    received = {
+        "number": "PO-000100",
+        "vendorName": "Elton",
+        "status": "Open",
+        "purchaseOrderLines": [
+            {"lineType": "Comment", "description": "Built from SO-001842"},
+            {"lineType": "Item", "description": "Track", "quantity": 1, "receivedQuantity": 1},
+        ],
+    }
+    days = build_upwardor_days([upwardor, elton, received], SALES, today=TODAY, now=NOW)
+    item = _rows(days)[0]
+    assert item["completion"] == "SO-001842 also waiting on PO-000881"
+    assert so_completion_text("SO-001842", ["PO-000881"], needs_stock=True) == (
+        "SO-001842 also waiting on PO-000881 and stock"
+    )
+    stocked = build_upwardor_days(
+        [upwardor],
+        SALES,
+        stock_waiting={"SO-001842"},
+        today=TODAY,
+        now=NOW,
+    )
+    assert _rows(stocked)[0]["completion"] == "SO-001842 also waiting on stock"
+    both = build_upwardor_days(
+        [upwardor, elton],
+        SALES,
+        stock_waiting={"SO-001842"},
+        today=TODAY,
+        now=NOW,
+    )
+    assert _rows(both)[0]["completion"] == "SO-001842 also waiting on PO-000881 and stock"
+
+
+def test_saved_map_links_the_sales_order_when_the_po_text_does_not():
+    po = _up_po("PO-000962", [_section("PN65-21000-1000", qty=2), _hardware()], vendorOrderNumber="S-ORD116307")
+    days = build_upwardor_days(
+        [po],
+        SALES,
+        maps=[{
+            "supplier_key": "upwardor",
+            "supplier_order_no": "S-ORD116307",
+            "our_po_number": "PO-000962",
+            "sales_orders": [{"number": "SO-001842", "customer": "Prairie Door Co"}],
+        }],
+        today=TODAY,
+        now=NOW,
+    )
+    item = _rows(days)[0]
+    assert item["sales_orders"] == [{"number": "SO-001842", "customer": "Prairie Door Co"}]
+    assert item["completion"] == "Completes SO-001842"
+    assert item["customer"] == "Prairie Door Co"
+
+
+def test_tag_on_the_po_links_the_sales_order():
+    po = _up_po("PO-000700", [
+        {"lineType": "Comment", "description": "TAG:SO-001842"},
+        _section("PN65-21000-1000"),
+    ])
+    days = build_upwardor_days([po], SALES, today=TODAY, now=NOW)
+    assert _rows(days)[0]["sales_label"] == "SO-001842 Prairie Door Co"
+
+
+def test_unlinked_upwardor_po_reads_stock():
+    po = _up_po("PO-000990", [_section("PN65-21000-1200", qty=4), _hardware()], vendorOrderNumber="")
+    po["requestedReceiptDate"] = "0001-01-01"
+    days = build_upwardor_days([po], today=TODAY, now=NOW)
+    item = _rows(days)[0]
+    assert item["sales_label"] == "STOCK"
+    assert item["customer"] == "STOCK"
+    assert item["completion"] == ""
+    assert item["summary"] == "4× 12' Kanata white sections + hardware"
+    assert days["days"][-1]["label"] == "Later"
+    assert days["days"][-1]["sublabel"] == "No date"
+    assert item["overdue"] is False
+
+
+def test_later_and_overdue_upwardor_rows_stay_on_the_board():
+    overdue = _up_po(
+        "PO-000948",
+        [{"lineType": "Comment", "description": "Built from SO-001842"}, _section("PN45-24400-1600")],
+        requestedReceiptDate="2026-11-10",
+        vendorOrderNumber="S-ORD116280",
+    )
+    later = _up_po(
+        "PO-000995",
+        [_section("PN65-21000-1000")],
+        requestedReceiptDate="2026-11-28",
+        vendorOrderNumber="S-ORD116400",
+    )
+    undated = _up_po("PO-000996", [_hardware()], requestedReceiptDate="", vendorOrderNumber="S-ORD116401")
+    days = build_upwardor_days([overdue, later, undated], SALES, today=TODAY, now=NOW)
+    by_number = {row["order_number"]: row for row in _rows(days)}
+    assert by_number["PO-000948"]["overdue"] is True
+    assert by_number["PO-000948"]["date"] == "2026-11-10"
+    assert days["days"][0]["label"] == "Overdue"
+    assert by_number["PO-000995"]["date"] == "2026-11-28"
+    assert by_number["PO-000995"]["overdue"] is False
+    assert by_number["PO-000996"]["date"] is None
+    later_day = days["days"][-1]
+    assert later_day["label"] == "Later"
+    assert {row["order_number"] for row in later_day["items"]} == {"PO-000995", "PO-000996"}
+    assert "PO-000948" not in {row["order_number"] for row in later_day["items"]}
+
+
+def test_ship_notice_eta_beats_expected_receipt_and_ack_sets_status():
+    po = _up_po("PO-000962", [
+        {"lineType": "Comment", "description": "Built from SO-001842"},
+        {
+            **_section("PN65-21000-1000", qty=2),
+            "expectedReceiptDate": "2026-11-18",
+        },
+    ], requestedReceiptDate="2026-11-20")
+    noticed = build_upwardor_days(
+        [po],
+        SALES,
+        notices=[{
+            "our_po_number": "PO-000962",
+            "supplier_order_no": "S-ORD116307",
+            "eta": "2026-11-14",
+            "status": "shipped",
+        }],
+        today=TODAY,
+        now=NOW,
+    )
+    item = _rows(noticed)[0]
+    assert item["date"] == "2026-11-14"
+    assert item["eta_source"] == "notice"
+    assert item["status_label"] == "Shipped"
+    assert item["supplier_order_label"] == "S-ORD 116307"
+    expected = build_upwardor_days([po], SALES, today=TODAY, now=NOW)
+    assert _rows(expected)[0]["date"] == "2026-11-18"
+    assert _rows(expected)[0]["eta_source"] == "expected"
+    bare = _up_po("PO-000962", [_section("PN65-21000-1000")], requestedReceiptDate="2026-11-15")
+    requested = build_upwardor_days(
+        [bare],
+        SALES,
+        acks=[{
+            "vendor_order_no": "S-ORD116307",
+            "our_po_number": "PO-000962",
+            "status": "confirmed",
+            "received_at": datetime(2026, 11, 1),
+        }],
+        today=TODAY,
+        now=NOW,
+    )
+    row = _rows(requested)[0]
+    assert row["date"] == "2026-11-15"
+    assert row["eta_source"] == "requested"
+    assert row["status_label"] == "Acknowledged"
+    assert row["supplier_order_label"] == "S-ORD 116307"
+
+
+def test_other_vendors_stay_on_incoming(monkeypatch):
+    upwardor = _up_po("PO-000962", [
+        {"lineType": "Comment", "description": "Built from SO-001842"},
+        _section("PN65-21000-1000"),
+    ], vendorOrderNumber="S-ORD116307", requestedReceiptDate="2026-11-14")
+    elton = {
+        "number": "PO-000100",
+        "vendorName": "Elton",
+        "status": "Open",
+        "requestedReceiptDate": "2026-11-14",
+        "purchaseOrderLines": [
+            {"lineType": "Item", "description": "Track", "quantity": 1, "receivedQuantity": 0},
+        ],
+    }
+    far = _up_po("PO-000995", [_section("PN65-21000-1000")], requestedReceiptDate="2026-12-01")
+
+    class Writer:
+        def get_open_purchase_orders_with_lines(self):
+            raise AssertionError("board build should use the purchase orders it was given")
+
+        def update_purchase_order(self, *args, **kwargs):
+            raise AssertionError("wrote to Business Central")
+
+    monkeypatch.setattr("app.services.shop_tv_incoming.incoming_enabled", lambda db: True)
+    monkeypatch.setattr("app.services.shop_tv_incoming._notices", lambda db: [])
+    monkeypatch.setattr("app.services.shop_tv_incoming._maps", lambda db: [])
+    monkeypatch.setattr("app.services.shop_tv_incoming._tracker_links", lambda db: [])
+    monkeypatch.setattr("app.services.shop_tv_incoming._acks", lambda db: [])
+    monkeypatch.setattr("app.services.shop_tv_incoming._stock_waiting", lambda db: set())
+    monkeypatch.setattr(
+        "app.services.shop_tv_incoming.lookup_sales_order_customers",
+        lambda numbers, bc=None: (_ for _ in ()).throw(AssertionError("extra sales-order read")),
+    )
+    monkeypatch.setattr("app.services.shop_tv_incoming.load_purchase_orders", lambda bc=None: Writer())
+    board = attach_incoming(
+        object(),
+        {"lanes": {"production": {"days": [{
+            "items": [{"order_number": "SO-001842", "customer": "Prairie Door Co"}],
+        }]}}, "horizon_days": 7},
+        purchase_orders=[upwardor, elton, far],
+        now=NOW,
+    )
+    incoming = [row["order_number"] for day in board["lanes"]["incoming"]["days"] for row in day["items"]]
+    upwardor_rows = [row["order_number"] for day in board["lanes"]["upwardor"]["days"] for row in day["items"]]
+    assert incoming == ["PO-000100"]
+    assert "PO-000962" in upwardor_rows
+    assert "PO-000995" in upwardor_rows
+    assert "PO-000100" not in upwardor_rows
+    assert board["incoming_enabled"] is True
