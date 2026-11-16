@@ -21,6 +21,8 @@ from app.api.auth import get_db, require_admin
 from app.db.models import StaffServiceKey, StaffServiceKeyAudit, User
 from app.services.staff_service_keys_service import (
     AUTOMATION_SCOPES,
+    RECEIVE_PO,
+    RELEASE_PO,
     create_key,
     revoke_key,
 )
@@ -144,5 +146,9 @@ def revoke_staff_service_key(
 def list_staff_service_key_scopes(
     _admin: User = Depends(require_admin),
 ) -> dict:
-    """Scope names an admin can assign. ``automation`` grants all of them."""
-    return {"automation": AUTOMATION_SCOPES, "scopes": AUTOMATION_SCOPES}
+    """Scope names an admin can assign. ``automation`` does not grant the extra scopes."""
+    return {
+        "automation": AUTOMATION_SCOPES,
+        "scopes": AUTOMATION_SCOPES,
+        "additional_scopes": [RELEASE_PO, RECEIVE_PO],
+    }

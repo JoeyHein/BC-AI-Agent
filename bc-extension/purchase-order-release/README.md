@@ -48,7 +48,8 @@ The page does not allow insert, modify, or delete through the API. Release
 goes through the codeunit, which writes the purchase header itself. If a
 compile or a call complains that the page is not editable, set
 `ModifyAllowed = true` and publish again. Do not add a receive or invoice
-action to this page.
+action to this page. Receive-only posting is page 70152 in
+`bc-extension/purchase-order-receive/`, compiled into this same extension.
 
 Until the page is published, the portal returns HTTP 502 and names this
 page. It does not fall through to receive or invoice.

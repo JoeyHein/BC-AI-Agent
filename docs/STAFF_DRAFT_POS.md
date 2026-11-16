@@ -29,6 +29,12 @@ only when the body sets `confirm` to true. List, validate, line edits,
 requested receipt, and review-draft do not release. See
 [STAFF_PO_RELEASE.md](STAFF_PO_RELEASE.md).
 
+Receiving a purchase order is also a separate call,
+`POST /api/bc/purchase-orders/{po_number}/receive`. It posts a receipt for
+the lines you name and does not invoice. List, validate, line edits,
+requested receipt, review-draft, and release do not receive. See
+[STAFF_PO_RECEIVE.md](STAFF_PO_RECEIVE.md).
+
 Customer-portal routes are unchanged.
 
 ## Auth

@@ -21,7 +21,9 @@ A successful release leaves the order **Released** in Business Central. The
 API then reports that as **Open**. The response says both, so an Open status
 after this call is the released order, not a failure.
 
-The call does not receive the order, invoice it, or send email.
+The call does not receive the order, invoice it, or send email. Receiving
+is `POST /api/bc/purchase-orders/{po}/receive`. See
+[STAFF_PO_RECEIVE.md](STAFF_PO_RECEIVE.md).
 
 ## Auth
 

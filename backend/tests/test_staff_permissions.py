@@ -291,6 +291,16 @@ class TestPermissionMap:
         assert permission_for("POST", "/api/admin/purchasing/draft-pos/PO-000962/release") == (
             "perm", "purchase_orders.send",
         )
+        assert permission_for("POST", "/api/bc/purchase-orders/PO-001058/receive") == (
+            "perm", "purchase_orders.send",
+        )
+        assert permission_for("GET", "/api/bc/purchase-orders/PO-001058") == (
+            "perm", "purchase_orders.view",
+        )
+        assert PRESETS["purchasing"]["purchase_orders.send"] is True
+        assert PRESETS["sales"]["purchase_orders.send"] is False
+        assert PRESETS["warehouse"]["purchase_orders.send"] is False
+        assert PRESETS["viewer"]["purchase_orders.send"] is False
         assert permission_for("GET", "/api/admin/purchasing/vendors") == ("perm", "purchase_orders.view")
 
     def test_backfill_promotes_joey_and_keeps_other_staff_equivalent(self):
