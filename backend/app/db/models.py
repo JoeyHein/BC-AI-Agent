@@ -6,9 +6,9 @@ SQLAlchemy models for PostgreSQL database
 from datetime import datetime
 from typing import Optional
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, Date, Boolean, Float,
+    Column, Integer, String, Text, DateTime, Date, Time, Boolean, Float,
     ForeignKey, JSON, Enum as SQLEnum, ARRAY, Numeric, UniqueConstraint,
-    Index, text,
+    Index, CheckConstraint, text,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.mutable import MutableDict, MutableList
@@ -3094,3 +3094,38 @@ class IncomingMailSeen(Base):
 
     def __repr__(self):
         return f"<IncomingMailSeen({self.message_id})>"
+
+
+class ShopScheduleEntry(Base):
+    """A schedule row typed by staff for the shop TV board.
+
+    Business Central is not updated. ``lane`` is pickup, delivery,
+    receiving, or production. ``date`` is the shop calendar day
+    (America/Regina). ``time`` is optional. Done rows stay off the board.
+    """
+
+    __tablename__ = "shop_schedule_entries"
+    __table_args__ = (
+        CheckConstraint(
+            "lane IN ('pickup', 'delivery', 'receiving', 'production')",
+            name="shop_schedule_entries_lane_chk",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    so_number = Column(String(40), nullable=True, index=True)
+    customer_name = Column(String(200), nullable=True)
+    lane = Column(String(20), nullable=False, index=True)
+    entry_date = Column("date", Date, nullable=False, index=True)
+    entry_time = Column("time", Time, nullable=True)
+    note = Column(String(200), nullable=True)
+    done = Column(Boolean, nullable=False, default=False, index=True)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self):
+        return (
+            f"<ShopScheduleEntry(id={self.id}, so='{self.so_number}', "
+            f"lane='{self.lane}', date='{self.entry_date}', done={self.done})>"
+        )

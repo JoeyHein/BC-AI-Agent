@@ -558,10 +558,16 @@ def permission_for(method: str, path: str):
             "purchase_orders.view",
             "users.manage",
         )
-    if path in ("/api/shop-tv/board", "/api/shop-tv/enabled", "/api/shop-tv/incoming"):
+    if (
+        path in ("/api/shop-tv/board", "/api/shop-tv/enabled", "/api/shop-tv/incoming")
+        or path == "/api/shop-tv/entries"
+        or path.startswith("/api/shop-tv/entries/")
+    ):
         # The route checks the feature flag first (404 when off), then a
-        # staff login or a shop-TV kiosk token. A bearer-token demand here
-        # would reject the cast URL before that check.
+        # staff login or a shop-TV kiosk token. Schedule entries use the
+        # same flag, then production or sales-order access. A kiosk token
+        # cannot change entries. A bearer-token demand here would reject
+        # the cast URL, and a flag-off board, before that check.
         return None
     if path.startswith("/api/shop-tv"):
         return ("perm", "users.manage")
