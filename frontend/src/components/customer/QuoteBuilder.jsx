@@ -21,6 +21,7 @@ import {
   formatLimitFt,
 } from '../../utils/doorDimensions'
 import { isAluminumDoor } from '../../utils/trackDefaults'
+import { quoteTagName } from '../../utils/quoteTitle'
 
 const STEPS = [
   { id: 'type', title: 'Door Type', description: 'Select door category' },
@@ -75,7 +76,7 @@ function QuoteBuilder() {
   // Load existing quote data
   useEffect(() => {
     if (existingQuote) {
-      setQuoteName(existingQuote.name || '')
+      setQuoteName(quoteTagName(existingQuote))
       setQuoteDescription(existingQuote.description || '')
       setDeliveryType(existingQuote.config_data?.deliveryType || '')
       setPoNumber(existingQuote.config_data?.poNumber || '')
