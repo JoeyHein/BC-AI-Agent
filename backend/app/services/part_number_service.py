@@ -26,7 +26,8 @@ PANELS (PN):
 PLASTICS/WEATHER STRIPPING (PL):
 - PL10-{length}203-{color}: Commercial weather stripping
   - Example: PL10-07203-00 = 7' white weather strip
-- PL10-00005-01/02/03: Astragal 3"/4"/6.5"
+- PL10-00005-01/02/03: Astragal 3"/4"/6.5". 3" (PL10-00005-01) is the
+  standard on every door. 4" and 6.5" are used only when explicitly requested.
 - PL10-00141-00: Retainer 1-3/4"
 
 TRACKS (TR):
@@ -68,6 +69,7 @@ from app.services.bc_part_number_mapper import (
     EndCapType,
     LiftType,
     TrackMount,
+    coerce_astragal_inches,
 )
 
 logger = logging.getLogger(__name__)
@@ -163,6 +165,9 @@ class DoorConfiguration:
     glass_pockets_per_section: int = 1  # Number of glass pockets per V130G/V230G section
     spring_inventory: Optional[Dict[str, list]] = None  # stocked coil/wire combos from settings
     include_top_seal: Optional[bool] = None  # None=auto (apply rules), True=force include, False=exclude
+    # Bottom rubber. None or 3 is the 3" standard on every door and width.
+    # 4 or 6.5 only when a user or customer explicitly asked.
+    astragal_size: Optional[float] = None
 
     def __post_init__(self):
         # Enforce minimum 10,000 cycle standard on all springs
@@ -3285,7 +3290,12 @@ class PartNumberService:
         mapper = get_bc_mapper()
         door_width_feet = config.door_width / 12
 
-        astragal = mapper.get_astragal(door_width_feet, door_height_inches=config.door_height, door_type=config.door_type)
+        astragal = mapper.get_astragal(
+            door_width_feet,
+            door_height_inches=config.door_height,
+            door_type=config.door_type,
+            size_inches=config.astragal_size,
+        )
         return [PartSelection(
             part_number=astragal.part_number,
             description=astragal.description,
@@ -4854,6 +4864,17 @@ def format_aluminum_section_comment(
     return f"** {num_sections} SECTIONS, {per} **"
 
 
+def _astragal_size_from_config(config_dict: Dict[str, Any]) -> Optional[float]:
+    """Explicit bottom-rubber size, or None so the mapper uses the 3\" standard."""
+    if "astragalSize" in config_dict:
+        raw = config_dict.get("astragalSize")
+    elif "astragal_size" in config_dict:
+        raw = config_dict.get("astragal_size")
+    else:
+        return None
+    return coerce_astragal_inches(raw)
+
+
 def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Optional[Dict[str, list]] = None) -> Dict[str, Any]:
     """
     Convenience function to get parts from a dictionary configuration.
@@ -4916,6 +4937,7 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         window_positions=config_dict.get("windowPositions") if config_dict.get("hasWindows", True) else None,
         spring_inventory=spring_inventory,
         include_top_seal=config_dict.get("includeTopSeal"),
+        astragal_size=_astragal_size_from_config(config_dict),
         include_pusher_springs=bool(config_dict.get("includePusherSprings", False)
                                     or config_dict.get("pusherSpring", False)),
         include_man_door=bool(config_dict.get("manDoor", False)),

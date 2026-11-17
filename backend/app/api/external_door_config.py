@@ -323,6 +323,16 @@ def _map_widget_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "glassPaneType": _first(cfg, "glassPaneType"),
         "glazingType": _first(cfg, "glazingType"),
     }
+    from app.services.bc_part_number_mapper import (
+        coerce_astragal_inches,
+        explicit_bottom_rubber_inches,
+    )
+    asked_rubber = explicit_bottom_rubber_inches(str(_first(cfg, "notes", "specialRequests") or ""))
+    chosen_rubber = coerce_astragal_inches(_first(cfg, "astragalSize", "bottomRubber", "bottom_rubber"))
+    if asked_rubber in (4.0, 6.5):
+        mapped["astragalSize"] = "6.5" if asked_rubber == 6.5 else "4"
+    elif chosen_rubber in (4.0, 6.5):
+        mapped["astragalSize"] = "6.5" if chosen_rubber == 6.5 else "4"
     mapped.update(_lift_fields(cfg))
     return {k: v for k, v in mapped.items() if v is not None}
 

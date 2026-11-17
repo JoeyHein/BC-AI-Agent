@@ -160,6 +160,23 @@ class QuoteGenerationService:
         quoted_radius = quoted_track_radius(
             track_thickness, door_spec.get("track_radius"), series=door_series,
         )
+        from app.services.bc_part_number_mapper import (
+            coerce_astragal_inches,
+            explicit_bottom_rubber_inches,
+        )
+        asked_rubber = explicit_bottom_rubber_inches(" ".join(
+            str(door_spec.get(key) or "")
+            for key in ("special_features", "notes", "bottom_rubber", "astragal_size")
+        ))
+        chosen_rubber = coerce_astragal_inches(
+            door_spec.get("bottom_rubber") or door_spec.get("astragal_size")
+        )
+        if asked_rubber in (4.0, 6.5):
+            astragal_size = asked_rubber
+        elif chosen_rubber in (4.0, 6.5):
+            astragal_size = chosen_rubber
+        else:
+            astragal_size = None
 
         # Create DoorConfiguration for the part number service
         try:
@@ -192,6 +209,7 @@ class QuoteGenerationService:
                 operator=None,
                 target_cycles=10000,
                 spring_quantity=2,
+                astragal_size=astragal_size,
             )
 
             # Get parts from the part number service

@@ -174,16 +174,19 @@ def test_astragal():
 
     mapper = get_bc_mapper()
 
-    # Test 3" astragal for doors <=16'
+    # 3" is the standard at every width. 4" only when size_inches=4.
     result1 = mapper.get_astragal(9)
     print(f"9' wide door -> {result1.part_number} (3\" expected)")
     print(f"    Description: {result1.description}")
 
-    result2 = mapper.get_astragal(16)
-    print(f"16' wide door -> {result2.part_number} (3\" expected)")
+    result2 = mapper.get_astragal(16, door_type="commercial")
+    print(f"16' commercial door -> {result2.part_number} (3\" expected)")
 
-    result3 = mapper.get_astragal(18)
-    print(f"18' wide door -> {result3.part_number} (4\" expected)")
+    result3 = mapper.get_astragal(18, door_type="commercial")
+    print(f"18' commercial door -> {result3.part_number} (3\" expected)")
+
+    result4 = mapper.get_astragal(9, size_inches=4)
+    print(f"explicit 4\" -> {result4.part_number} (PL10-00005-02 expected)")
 
     return True
 

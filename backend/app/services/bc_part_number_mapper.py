@@ -63,12 +63,137 @@ HARDWARE (FH, HK):
 
 import json
 import logging
+import re
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# 3" bottom rubber is the standard on every door. 4" and 6.5" are used
+# only when a person or a customer asks for that size. Door width does not
+# choose the size.
+DEFAULT_BOTTOM_RUBBER_INCHES = 3.0
+
+_ASTRAGAL_SKU_INCHES = {
+    "PL10-00005-01": 3.0,
+    "PL10-00005-02": 4.0,
+    "PL10-00005-03": 6.5,
+    "PL10-00004-00": 3.0,
+}
+_SIZE_TOKEN = r"(6(?:\s*\.\s*5|\s*1\s*/\s*2|\s*-\s*1\s*/\s*2|\s*½)|4|3)"
+_UNIT_TOKEN = r"(?:\s*(?:inches|inch|in\.?|\"|”|″|''))"
+_SEAL_TOKEN = r"(?:bottom\s+rubber|bottom\s+seal|bottom\s+retainer|rubber\s+astragal|astragals?)"
+_NEGATION = (
+    r"(?:not|no|without|instead\s+of|rather\s+than|don'?t|do\s+not)"
+    r"(?:\s+\w+){0,3}\s+$"
+)
+_NOT_RUBBER_AFTER = r"(?!\s*(?:track|section|sections|high|lift|radius|wide|opening|header))"
+
+
+def coerce_astragal_inches(value) -> Optional[float]:
+    """Map an explicit size field to 3, 4, or 6.5. Anything else is None."""
+    if value is None or value is False:
+        return None
+    text = str(value).strip().lower()
+    text = text.replace("”", "").replace("“", "").replace('"', "").replace("″", "")
+    text = text.replace("inches", " ").replace("inch", " ").replace("'", " ")
+    text = re.sub(r"\s+", "", text)
+    if text in {"", "standard", "default", "none", "null"}:
+        return None
+    if text in {"6.5", "61/2", "6-1/2", "6½"}:
+        return 6.5
+    if text in {"4", "4.0"}:
+        return 4.0
+    if text in {"3", "3.0"}:
+        return 3.0
+    try:
+        number = float(text)
+    except ValueError:
+        return None
+    if abs(number - 6.5) < 0.05:
+        return 6.5
+    if abs(number - 4) < 0.05:
+        return 4.0
+    if abs(number - 3) < 0.05:
+        return 3.0
+    return None
+
+
+def _rubber_size_token(raw: str) -> Optional[float]:
+    compact = re.sub(r"\s+", "", (raw or "").lower())
+    if compact.startswith("6"):
+        return 6.5
+    if compact.startswith("4"):
+        return 4.0
+    if compact.startswith("3"):
+        return 3.0
+    return None
+
+
+def _negated(text: str, start: int) -> bool:
+    window = text[max(0, start - 40):start]
+    return re.search(_NEGATION, window, re.IGNORECASE) is not None
+
+
+def explicit_bottom_rubber_inches(text: Optional[str]) -> Optional[float]:
+    """Size a customer or user actually asked for, or None when they didn't.
+
+    A bare 4 (track, sections, high lift) is not a bottom-rubber request.
+    The size has to sit next to bottom rubber, bottom seal, bottom retainer,
+    or astragal, or the text has to name the astragal SKU. A negated phrase
+    ("not 4 inch astragal") does not count. When the text asks for both 4"
+    and 6.5", this returns None so the 3" standard stays in place.
+    """
+    if not text:
+        return None
+    found = set()
+    forward = re.compile(
+        rf"(?<!\d){_SIZE_TOKEN}{_UNIT_TOKEN}{_NOT_RUBBER_AFTER}\s*{_SEAL_TOKEN}",
+        re.IGNORECASE,
+    )
+    reverse = re.compile(
+        rf"{_SEAL_TOKEN}[^0-9\n]{{0,30}}(?<!\d){_SIZE_TOKEN}{_UNIT_TOKEN}{_NOT_RUBBER_AFTER}",
+        re.IGNORECASE,
+    )
+    for pattern in (forward, reverse):
+        for match in pattern.finditer(text):
+            if _negated(text, match.start()):
+                continue
+            size = _rubber_size_token(match.group(1))
+            if size is not None:
+                found.add(size)
+    for sku, inches in _ASTRAGAL_SKU_INCHES.items():
+        for match in re.finditer(re.escape(sku), text, re.IGNORECASE):
+            if _negated(text, match.start()):
+                continue
+            found.add(inches)
+    non_default = found - {DEFAULT_BOTTOM_RUBBER_INCHES}
+    if non_default == {4.0}:
+        return 4.0
+    if non_default == {6.5}:
+        return 6.5
+    if not non_default and DEFAULT_BOTTOM_RUBBER_INCHES in found:
+        return DEFAULT_BOTTOM_RUBBER_INCHES
+    return None
+
+
+def apply_explicit_bottom_rubber(doors: List[dict], email_text: Optional[str]) -> List[dict]:
+    """Set or clear astragalSize from the customer's own words.
+
+    A model guess of 4" is dropped when the email never asked for it.
+    An explicit 4" or 6.5" request is written onto every door in the email.
+    """
+    asked = explicit_bottom_rubber_inches(email_text)
+    for door in doors or []:
+        if not isinstance(door, dict):
+            continue
+        if asked in (4.0, 6.5):
+            door["astragalSize"] = "6.5" if asked == 6.5 else "4"
+        else:
+            door.pop("astragalSize", None)
+    return doors
 
 
 class SpringType(Enum):
@@ -331,17 +456,21 @@ class BCPartNumberMapper:
     # Colors that use PL11 (dual fin) instead of PL10
     PL11_COLOR_CODES = {"25", "30", "40", "55"}  # Iron Ore, New Almond, Hazelwood, English Chestnut
 
-    # Astragal sizes by door width (width in feet -> astragal inches)
-    ASTRAGAL_BY_WIDTH = {
-        # Doors up to 16' use 3" astragal
-        # Doors over 16' use 4" astragal
-        # Special cases use 6.5"
-    }
+    # Bottom rubber is 3" on every door (Joey, 2026-11, matching Upwardor).
+    # Width used to step commercial doors 12' and wider, and any door over
+    # 16', up to 4". That step is gone. 4" and 6.5" are selected only when
+    # size_inches is an explicit request.
     ASTRAGAL_PARTS = {
-        3: "PL10-00005-01",    # 3" RESI/COMM bottom rubber
-        4: "PL10-00005-02",    # 4" RESI/COMM bottom rubber
-        6.5: "PL10-00005-03",  # 6.5" COMM bottom rubber
+        3: "PL10-00005-01",    # 3" RESI/COMM bottom rubber (standard)
+        4: "PL10-00005-02",    # 4" RESI/COMM bottom rubber (explicit request)
+        6.5: "PL10-00005-03",  # 6.5" COMM bottom rubber (explicit request)
     }
+    ASTRAGAL_DESCRIPTIONS = {
+        3: 'ASTRAGAL, 3" RESI/COMM BOTTOM RUBBER',
+        4: 'ASTRAGAL, 4" RESI/COMM BOTTOM RUBBER',
+        6.5: 'ASTRAGAL, 6.5" COMM BOTTOM RUBBER',
+    }
+    ALUMINUM_ASTRAGAL_3 = "PL10-00004-00"
 
     # Commercial retainer part numbers by panel series.
     # Sold by the inch (BC base unit IN): one TOP line and one BOTTOM line,
@@ -792,42 +921,47 @@ class BCPartNumberMapper:
             resolved_length_ft=resolved,
         )
 
-    def get_astragal(self, door_width_feet: float, door_height_inches: int = 0, door_type: str = "residential") -> BCPartNumber:
+    def get_astragal(
+        self,
+        door_width_feet: float,
+        door_height_inches: int = 0,
+        door_type: str = "residential",
+        size_inches: Optional[float] = None,
+    ) -> BCPartNumber:
         """
-        Get astragal (bottom rubber) part number based on door width and type.
+        Bottom rubber (astragal) part number.
 
-        Args:
-            door_width_feet: Door width in feet
-            door_height_inches: Door height in inches (unused, kept for compat)
-            door_type: "residential", "commercial", or "aluminium"
+        The standard is 3" on every door, residential and commercial, at
+        every width. ``door_width_feet`` is unused and kept so existing
+        callers do not change. Aluminum doors use their own 3" astragal
+        (PL10-00004-00) unless an explicit 4" or 6.5" size is passed.
 
-        Returns:
-            BCPartNumber for astragal
+        ``size_inches`` of 4 or 6.5 is an explicit request and is honoured.
+        Anything else, including a missing value, is the 3" standard.
         """
-        # Aluminum doors use a dedicated aluminum astragal.
-        # Accept both British ("aluminium") and American ("aluminum") spellings
-        # to tolerate drift in upstream door_type normalization.
-        if door_type and door_type.lower() in ("aluminium", "aluminum"):
+        size = coerce_astragal_inches(size_inches)
+        if size not in (3.0, 4.0, 6.5):
+            size = 3.0
+
+        # Aluminum doors use a dedicated aluminum astragal at the standard
+        # 3" size. Accept both British and American spellings.
+        if (
+            size == 3.0
+            and door_type
+            and door_type.lower() in ("aluminium", "aluminum")
+        ):
             return BCPartNumber(
-                part_number="PL10-00004-00",
+                part_number=self.ALUMINUM_ASTRAGAL_3,
                 description='ASTRAGAL, 3" ALUMINIUM DOOR BOTTOM RUBBER',
-                category="ASTRAGAL"
+                category="ASTRAGAL",
             )
 
-        # Commercial doors 12' or wider get 4" astragal
-        if door_type == "commercial" and door_width_feet >= 12:
-            size = 4
-        elif door_width_feet > 16:
-            size = 4
-        else:
-            size = 3
-
         part_number = self.ASTRAGAL_PARTS.get(size, self.ASTRAGAL_PARTS[3])
-
+        description = self.ASTRAGAL_DESCRIPTIONS.get(size, self.ASTRAGAL_DESCRIPTIONS[3])
         return BCPartNumber(
             part_number=part_number,
-            description=f"ASTRAGAL, {size}\" RESI/COMM BOTTOM RUBBER",
-            category="ASTRAGAL"
+            description=description,
+            category="ASTRAGAL",
         )
 
     def get_retainer(self, thickness: float = 1.75, residential: bool = False, door_width_feet: int = 0) -> BCPartNumber:

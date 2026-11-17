@@ -2125,6 +2125,7 @@ def _build_door_config_dict(door: dict, is_home_builder: bool = False) -> dict:
         "chainHoist": door.get("chainHoist"),
         "targetCycles": door.get("targetCycles", 10000),
         "shaftType": door.get("shaftType", "auto"),
+        "astragalSize": door.get("astragalSize", door.get("astragal_size")),
     }
 
 

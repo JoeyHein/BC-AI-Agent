@@ -815,6 +815,9 @@ class DoorConfigRequest(BaseModel):
     adjustablePrep: bool = False
     includeCrating: bool = False
     dedupeOperatorRails: bool = False
+    # Bottom rubber. Omitted or "3" is the 3" standard on every door.
+    # "4" and "6.5" are used only when a user or customer asks for them.
+    astragalSize: Optional[str] = None
 
     @model_validator(mode="after")
     def _default_aluminum_track(self):
@@ -1827,6 +1830,7 @@ def build_bc_quote_from_doors(
                 "adjustablePrep": getattr(door, "adjustablePrep", False),
                 "includeCrating": getattr(door, "includeCrating", False),
                 "dedupeOperatorRails": getattr(door, "dedupeOperatorRails", False),
+                "astragalSize": getattr(door, "astragalSize", None),
             }
 
             try:
@@ -2708,6 +2712,7 @@ async def get_part_numbers(config: DoorConfigRequest, db: Session = Depends(get_
             "includeTopSeal": getattr(config, 'includeTopSeal', False),
             "includePusherSprings": getattr(config, 'includePusherSprings', False),
             "bumperSpring": getattr(config, 'bumperSpring', False),
+            "astragalSize": getattr(config, "astragalSize", None),
         }
 
         # Get parts from service (with BC spring inventory for consistency with specs tab)
@@ -2789,6 +2794,7 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
                 "adjustablePrep": getattr(door, "adjustablePrep", False),
                 "includeCrating": getattr(door, "includeCrating", False),
                 "dedupeOperatorRails": getattr(door, "dedupeOperatorRails", False),
+                "astragalSize": getattr(door, "astragalSize", None),
             }
 
             spring_inv = get_bc_spring_inventory()
