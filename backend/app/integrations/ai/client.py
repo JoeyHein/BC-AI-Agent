@@ -89,6 +89,7 @@ Analyze the following email and extract structured quote request information.
    - Glazing type (if applicable: thermopane, single glass, polycarbonate, etc.)
    - Panel configuration (18", 21", 24" sections)
    - Track type (2" or 3"). Leave null when the email does not say. Aluminium / full-view doors (AL976, SWD, Panorama, Solalite) standard to 3" when null; steel stays null so the quote service keeps its own default.
+   - Bottom rubber / astragal size. Leave null unless the email explicitly asks for 4" or 6.5" bottom rubber, astragal, or bottom seal. Wide doors stay null: the standard is 3" on every door.
    - Any special features or notes
 
 3. **Project Information:**
@@ -126,6 +127,7 @@ Analyze the following email and extract structured quote request information.
       "glazing": "Glazing type or null",
       "panel_config": "Panel configuration or null",
       "track_type": "2 or 3 or null",
+      "bottom_rubber": "4 or 6.5 or null. null unless the email explicitly asks for that bottom rubber / astragal / bottom seal size. Do not set 4 because the door is wide.",
       "special_features": "Any notes or null",
       "confidence": 0.0-1.0
     }}
@@ -464,6 +466,7 @@ EVERY field, using the defaults shown when the email is silent:
   "liftType": "standard",          // "standard" (default), "low_headroom", "high_lift", "vertical"
   "highLiftInches": null,           // integer if liftType is high_lift
   "hardware": {{"tracks": true, "springs": true, "shafts": true, "struts": true, "hardwareKits": true, "weatherStripping": true, "bottomRetainer": true}},
+  "astragalSize": null,             // bottom rubber. null is the 3" standard (PL10-00005-01) on every residential and commercial door, at every width. Aluminum uses its own 3" astragal when this is null. Set "4" only when the email explicitly asks for 4" bottom rubber / astragal / bottom seal. Set "6.5" only for an explicit 6.5" request. Never choose 4" because the door is 12' or wider.
   "operator": null,                 // operator/opener model if explicitly requested
   "targetCycles": 10000,
   "notes": ""                       // anything the configurator should know (special requests, ambiguities)
@@ -476,6 +479,7 @@ RULES:
 - Keep doorSeries consistent with doorType (don't put TX450 on a residential door).
 - TX760 is the 3" thick commercial door. When the email names TX760 or a 3" thick commercial door, keep doorSeries "TX760" and panelDesign "MICROGROOVE". A 3" track on another series is not TX760.
 - Do NOT invent windows, operators, or high-lift unless the email mentions them.
+- Bottom rubber is 3" unless the email explicitly asks for 4" or 6.5". Do not put 4" in astragalSize or in notes just because the door is wide.
 - Be conservative: if unsure about a value, use the default and mention it in notes.
 
 OUTPUT FORMAT — JSON only, no prose:
@@ -506,6 +510,11 @@ OUTPUT FORMAT — JSON only, no prose:
 
             mapped = json.loads(content)
             doors = self._normalize_configurator_doors(mapped.get("doors", []))
+            from app.services.bc_part_number_mapper import apply_explicit_bottom_rubber
+            # The customer's words decide 4" or 6.5". A model guess does not.
+            doors = apply_explicit_bottom_rubber(
+                doors, f"{email_subject or ''}\n{email_body or ''}",
+            )
 
             return {
                 "success": True,
@@ -617,7 +626,9 @@ OUTPUT FORMAT — JSON only, no prose:
                     "weatherStripping": True, "bottomRetainer": True,
                 }
 
-            normalized.append({
+            from app.services.bc_part_number_mapper import coerce_astragal_inches
+            rubber = coerce_astragal_inches(d.get("astragalSize"))
+            door_out = {
                 "doorType": door_type,
                 "doorSeries": series,
                 "doorWidth": _to_int(d.get("doorWidth")),
@@ -637,7 +648,10 @@ OUTPUT FORMAT — JSON only, no prose:
                 "operator": d.get("operator") or None,
                 "targetCycles": _to_int(d.get("targetCycles")) or 10000,
                 "notes": str(d.get("notes", "") or ""),
-            })
+            }
+            if rubber in (4.0, 6.5):
+                door_out["astragalSize"] = "6.5" if rubber == 6.5 else "4"
+            normalized.append(door_out)
         return normalized
 
     def analyze_email_category(self, email_subject: str, email_body: str) -> Dict[str, Any]:

@@ -902,6 +902,16 @@ class EmailMonitorService:
                             "Round 3 enrichment failed. The quote keeps the doors it already had."
                         )
 
+                from app.services.bc_part_number_mapper import apply_explicit_bottom_rubber
+                # Attachments are in this text and were not in the first mapping
+                # pass. The customer's words still override a guessed 4".
+                live_doors = apply_explicit_bottom_rubber(
+                    live_doors,
+                    quote_email_text(
+                        subject, body, getattr(email_log, "attachments", None),
+                    ),
+                )
+
                 cfg_request = QuoteGenerationRequest(
                     doors=[DoorConfigRequest(**{k: v for k, v in d.items() if k != "_touched"}) for d in live_doors],
                     customerId=customer_id,

@@ -149,6 +149,7 @@ function QuoteBuilder() {
       operator: 'NONE',
       operatorAccessories: [],
       chainHoist: 'none',  // 'none' | 'shaft' (SP12-00084-00) | 'wall' (FH12-00190-00)
+      astragalSize: '3', // 3" bottom rubber is the standard. 4 and 6.5 only when requested.
       // Spring and shaft options
       targetCycles: 10000,
       shaftType: 'auto', // 'auto', 'single', 'split'
@@ -2733,6 +2734,25 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         </div>
       </div>
 
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Bottom rubber (astragal)
+        </label>
+        <select
+          value={door.astragalSize || '3'}
+          onChange={(e) => onChange({ astragalSize: e.target.value })}
+          className="w-full md:w-80 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-odc-500 focus:border-odc-500"
+        >
+          <option value="3">3&quot; standard</option>
+          <option value="4">4&quot; (only when requested)</option>
+          <option value="6.5">6.5&quot; commercial (only when requested)</option>
+        </select>
+        <p className="mt-1 text-xs text-gray-500">
+          3&quot; is the standard on every door, including wide commercial doors.
+          Aluminum doors use the 3&quot; aluminum astragal unless 4&quot; or 6.5&quot; is selected.
+        </p>
+      </div>
+
       {/* Hardware Options */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -3238,6 +3258,13 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
                       )}
                     </>
                   )}
+                  <div>
+                    <span className="text-gray-500">Bottom rubber:</span>
+                    <span className="ml-2 text-gray-900">
+                      {(door.astragalSize || '3') === '6.5' ? '6.5"' : `${door.astragalSize || '3'}"`}
+                      {(door.astragalSize || '3') === '3' ? ' standard' : ''}
+                    </span>
+                  </div>
                   <div>
                     <span className="text-gray-500">Track:</span>
                     <span className="ml-2 text-gray-900">
