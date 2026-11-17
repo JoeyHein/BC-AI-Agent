@@ -4,6 +4,7 @@ import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
 import { savedQuotesApi, ordersApi, historyApi } from '../../api/customerClient'
 import { InstallReferralList } from './InstallReferralStatus'
 import { formatDate } from '../../utils/datetime'
+import { quoteCardTitle } from '../../utils/quoteTitle'
 
 function CustomerDashboard() {
   const { user, isBCLinked, isDealer, isHomeBuilder } = useCustomerAuth()
@@ -184,9 +185,9 @@ function CustomerDashboard() {
                   to={`saved-quotes/${quote.id}`}
                   className="block px-6 py-4 hover:bg-gray-50"
                 >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{quote.name || 'Unnamed Quote'}</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900 break-words">{quoteCardTitle(quote)}</p>
                       <p className="text-sm text-gray-500">
                         Last updated: {formatDate(quote.updated_at || quote.created_at)}
                       </p>
@@ -196,7 +197,7 @@ function CustomerDashboard() {
                         </p>
                       )}
                     </div>
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                    <span className={`inline-flex flex-shrink-0 items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                       quote.bc_quote_number
                         ? 'bg-blue-100 text-blue-800'
                         : 'bg-yellow-100 text-yellow-800'

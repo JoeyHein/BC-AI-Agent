@@ -10,7 +10,6 @@ import re
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Any, Dict, Tuple
@@ -35,6 +34,7 @@ from app.services.freight_service import (
 )
 from app.services.quote_line_layout import apply_quote_line_layout, line_needs_output
 from app.services.install_pricing_service import install_pricing_service
+from app.services.saved_quote_title import quote_display_title, quote_matches_search
 from app.services.track_defaults import resolve_track_thickness
 
 
@@ -135,6 +135,9 @@ class SavedQuoteConfigResponse(BaseModel):
     # is shared across). Lets staff at the same dealership see each other's work.
     created_by_name: Optional[str] = None
     created_by_email: Optional[str] = None
+    # What My Quotes shows as the card title: job name / tag, then description,
+    # then PO / reference, then the SQ number. Never "No description".
+    display_title: str = "Quote"
 
     class Config:
         from_attributes = True
@@ -340,6 +343,15 @@ def _company_user_ids(current_user: User, db: Session) -> List[int]:
     return ids
 
 
+def _display_title(config: SavedQuoteConfig) -> str:
+    return quote_display_title(
+        config.name,
+        config.description,
+        config.bc_quote_number,
+        config.config_data,
+    )
+
+
 def _config_to_response(config: SavedQuoteConfig, db: Session) -> dict:
     """Serialize one SavedQuoteConfig to the response shape, hydrating order_placed."""
     creator = db.query(User).filter(User.id == config.user_id).first() if config.user_id else None
@@ -357,6 +369,7 @@ def _config_to_response(config: SavedQuoteConfig, db: Session) -> dict:
         "order_placed": _has_sales_order_for_quote(config, db),
         "created_by_name": creator.name if creator else None,
         "created_by_email": creator.email if creator else None,
+        "display_title": _display_title(config),
     }
 
 
@@ -394,6 +407,7 @@ def _hydrate_order_placed(configs: List[SavedQuoteConfig], db: Session) -> List[
             "order_placed": bool(c.bc_quote_number and c.bc_quote_number in ordered_nums),
             "created_by_name": creator.name if creator else None,
             "created_by_email": creator.email if creator else None,
+            "display_title": _display_title(c),
         })
     return result
 
@@ -406,21 +420,29 @@ def list_saved_quotes(
 ):
     """List all saved quote configurations for current customer.
 
-    Optional ?search= filters by name (tag) or BC quote number, case-insensitive
-    substring match. Useful for the customer "look up by quote # or tag" box.
+    Optional ?search= matches the job name / tag (including a tag saved only
+    in config_data), the description, a PO / reference, or the BC quote
+    number. Case-insensitive substring. This is the customer
+    "look up by quote # or tag" box.
     """
     # Company-scoped: any user sharing this BC customer link sees all the
-    # quotes built by anyone on the account.
-    q = db.query(SavedQuoteConfig).filter(
+    # quotes built by anyone on the account. Filtering happens in Python so
+    # the tag stored inside config_data matches on both Postgres and SQLite.
+    configs = db.query(SavedQuoteConfig).filter(
         SavedQuoteConfig.user_id.in_(_company_user_ids(current_user, db))
-    )
+    ).order_by(SavedQuoteConfig.created_at.desc()).all()
     if search and search.strip():
-        like = f"%{search.strip()}%"
-        q = q.filter(or_(
-            SavedQuoteConfig.name.ilike(like),
-            SavedQuoteConfig.bc_quote_number.ilike(like),
-        ))
-    configs = q.order_by(SavedQuoteConfig.created_at.desc()).all()
+        term = search.strip()
+        configs = [
+            config for config in configs
+            if quote_matches_search(
+                config.name,
+                term,
+                config.description,
+                config.bc_quote_number,
+                config.config_data,
+            )
+        ]
     return _hydrate_order_placed(configs, db)
 
 

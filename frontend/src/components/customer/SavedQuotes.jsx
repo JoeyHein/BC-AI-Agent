@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { savedQuotesApi, bcQuotesApi } from '../../api/customerClient'
 import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
 import QuotePricingDisplay from './QuotePricingDisplay'
 import { formatDate } from '../../utils/datetime'
+import { quoteCardSubtitle, quoteCardTitle } from '../../utils/quoteTitle'
 
 function SavedQuotes() {
+  const navigate = useNavigate()
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('') // debounced
   const [pricingState, setPricingState] = useState({}) // { [quoteId]: { loading, data, error } }
@@ -211,11 +213,11 @@ function SavedQuotes() {
           <DocumentIcon className="mx-auto h-12 w-12 text-gray-400" />
           <h3 className="mt-2 text-sm font-medium text-gray-900">No quotes</h3>
           <p className="mt-1 text-sm text-gray-500">
-            {filter === 'all'
-              ? 'Get started by creating a new quote.'
-              : `No ${filter} quotes found.`}
+            {search
+              ? 'No quotes match that quote number or tag name.'
+              : 'Get started by creating a new quote.'}
           </p>
-          {filter === 'all' && (
+          {!search && (
             <div className="mt-6">
               <Link
                 to="new"
@@ -230,40 +232,40 @@ function SavedQuotes() {
       ) : (
         <div className="bg-white shadow overflow-hidden sm:rounded-md">
           <ul className="divide-y divide-gray-200">
-            {filteredQuotes.map((quote) => (
+            {filteredQuotes.map((quote) => {
+              const title = quoteCardTitle(quote)
+              const subtitle = quoteCardSubtitle(quote)
+              return (
               <li key={quote.id}>
                 <div className="px-4 py-4 sm:px-6 hover:bg-gray-50">
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1 min-w-0">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0 flex-1">
                       <Link to={`${quote.id}`} className="block">
-                        <p className="text-sm font-medium text-odc-600 truncate hover:text-blue-800">
-                          {quote.name || 'Unnamed Quote'}
+                        <p className="text-sm font-medium text-odc-600 break-words hover:text-blue-800">
+                          {title}
                         </p>
-                        <p className="mt-1 text-sm text-gray-500">
-                          {quote.description || 'No description'}
-                        </p>
-                        {quote.created_by_name && (
-                          <p className="mt-1 text-xs text-gray-400">
-                            Built by <span className="font-medium text-gray-600">{quote.created_by_name}</span>
+                        {subtitle && (
+                          <p className="mt-1 text-sm text-gray-500 break-words">
+                            {subtitle}
                           </p>
                         )}
                       </Link>
-                    </div>
-                    <div className="ml-4 flex-shrink-0 flex items-center space-x-4">
-                      <div className="text-right">
-                        <p className="text-sm text-gray-500">
-                          Created: {formatDate(quote.created_at)}
-                        </p>
+                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500">
+                        <span className="whitespace-nowrap">Created {formatDate(quote.created_at)}</span>
                         {quote.updated_at && (
-                          <p className="text-xs text-gray-400">
-                            Updated: {formatDate(quote.updated_at)}
-                          </p>
+                          <span className="whitespace-nowrap">Updated {formatDate(quote.updated_at)}</span>
+                        )}
+                        {quote.created_by_name && (
+                          <span>
+                            Built by <span className="font-medium text-gray-700">{quote.created_by_name}</span>
+                          </span>
                         )}
                       </div>
-
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 lg:max-w-xl lg:justify-end">
                       {quote.order_placed ? (
                         /* Ordered — quote is locked */
-                        <div className="flex items-center space-x-2">
+                        <div className="flex flex-wrap items-center gap-2 [&_a]:whitespace-nowrap [&_button]:whitespace-nowrap [&_span]:whitespace-nowrap">
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-200 text-gray-800">
                             Ordered
                             {quote.bc_quote_number && ` - ${quote.bc_quote_number}`}
@@ -293,7 +295,7 @@ function SavedQuotes() {
                            workflow. The old "Confirm & Submit" flag-flip
                            and the separate Submitted state were removed
                            because they did not change anything in BC. */
-                        <div className="flex items-center space-x-2">
+                        <div className="flex flex-wrap items-center gap-2 [&_a]:whitespace-nowrap [&_button]:whitespace-nowrap [&_span]:whitespace-nowrap">
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                             Priced
                             {quote.bc_quote_number && ` - ${quote.bc_quote_number}`}
@@ -305,7 +307,7 @@ function SavedQuotes() {
                             Edit
                           </Link>
                           <button
-                            onClick={() => handlePlaceOrder(quote.id, quote.name)}
+                            onClick={() => handlePlaceOrder(quote.id, title)}
                             disabled={placeOrderMutation.isPending}
                             className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded-md text-white bg-odc-600 hover:bg-odc-700 disabled:opacity-50"
                           >
@@ -334,7 +336,7 @@ function SavedQuotes() {
                             {duplicateMutation.isPending ? 'Copying...' : 'Save as New'}
                           </button>
                           <button
-                            onClick={() => handleDelete(quote.id, quote.name)}
+                            onClick={() => handleDelete(quote.id, title)}
                             disabled={deleteMutation.isPending}
                             className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
                           >
@@ -343,7 +345,7 @@ function SavedQuotes() {
                         </div>
                       ) : (
                         /* Draft - no pricing yet */
-                        <div className="flex items-center space-x-2">
+                        <div className="flex flex-wrap items-center gap-2 [&_a]:whitespace-nowrap [&_button]:whitespace-nowrap [&_span]:whitespace-nowrap">
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
                             Draft
                           </span>
@@ -371,7 +373,7 @@ function SavedQuotes() {
                             {duplicateMutation.isPending ? 'Copying...' : 'Save as New'}
                           </button>
                           <button
-                            onClick={() => handleDelete(quote.id, quote.name)}
+                            onClick={() => handleDelete(quote.id, title)}
                             disabled={deleteMutation.isPending}
                             className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
                           >
@@ -467,7 +469,8 @@ function SavedQuotes() {
                   )}
                 </div>
               </li>
-            ))}
+              )
+            })}
           </ul>
         </div>
       )}
