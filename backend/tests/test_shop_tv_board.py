@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.api.shop_tv import router
 from app.db.database import get_db as database_get_db
-from app.db.models import AppSettings, ShopTvKioskToken, User, UserRole
+from app.db.models import AppSettings, ShopScheduleEntry, ShopTvKioskToken, User, UserRole
 from app.services.auth_service import AuthService
 from app.services.shop_tv_board import (
     OutlookShippingCalendarSource,
@@ -323,7 +323,7 @@ def client():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    for table in (User.__table__, AppSettings.__table__, ShopTvKioskToken.__table__):
+    for table in (User.__table__, AppSettings.__table__, ShopTvKioskToken.__table__, ShopScheduleEntry.__table__):
         table.create(engine, checkfirst=True)
     Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     db = Session()
@@ -408,6 +408,10 @@ class TestShopTvAuthAndFlag:
         assert permission_for("GET", "/api/shop-tv/board") is None
         assert permission_for("GET", "/api/shop-tv/enabled") is None
         assert permission_for("GET", "/api/shop-tv/board?kiosk=stv_secret") is None
+        assert permission_for("GET", "/api/shop-tv/entries") is None
+        assert permission_for("POST", "/api/shop-tv/entries") is None
+        assert permission_for("PATCH", "/api/shop-tv/entries/4") is None
+        assert permission_for("DELETE", "/api/shop-tv/entries/4") is None
         assert permission_for("PUT", "/api/shop-tv/settings") == ("perm", "users.manage")
         assert permission_for("POST", "/api/shop-tv/kiosk-tokens") == ("perm", "users.manage")
         assert permission_for("POST", "/api/shop-tv/kiosk-tokens/4/revoke") == ("perm", "users.manage")

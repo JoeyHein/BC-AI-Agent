@@ -112,6 +112,7 @@ MAPPING_NOTES = [
     "Midnight is a date with no appointment time. The board does not invent a time.",
     "Destination is the ship-to address. It is blank when Business Central has no ship-to. The customer name is not copied in as an address.",
     "Today and the next 7 days are shown, in America/Regina. Open items before today are overdue. A time earlier today is late. Later than the window stays off.",
+    "A typed schedule entry shows on that lane. Receiving shows in Incoming. The note is on the row. Done entries stay off. The same sales order and lane from Business Central is hidden while the typed entry is open.",
     "Outlook calendar for shipping@opendc.ca is stubbed and not read.",
 ]
 

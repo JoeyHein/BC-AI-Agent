@@ -23,6 +23,7 @@ from app.services.staff_service_keys_service import (
     AUTOMATION_SCOPES,
     RECEIVE_PO,
     RELEASE_PO,
+    SHOP_TV_SCHEDULE,
     create_key,
     revoke_key,
 )
@@ -150,5 +151,5 @@ def list_staff_service_key_scopes(
     return {
         "automation": AUTOMATION_SCOPES,
         "scopes": AUTOMATION_SCOPES,
-        "additional_scopes": [RELEASE_PO, RECEIVE_PO],
+        "additional_scopes": [RELEASE_PO, RECEIVE_PO, SHOP_TV_SCHEDULE],
     }

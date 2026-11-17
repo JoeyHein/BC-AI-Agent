@@ -16,7 +16,7 @@ A staff JWT on a TV is the wrong secret. That login can change quotes, orders, a
 
 A staff login with production or sales-order access can still open the board in the portal. No token is 401. A revoked token is 403. The flag off is 404 even when a token is present.
 
-Migration `d1e2f3a4b5c7` adds `shop_tv_kiosk_tokens`. The on/off switch and the lane lists live in `app_settings` (`shop_tv_board`, `shop_tv_board_lanes`) and do not add a table.
+Migration `d1e2f3a4b5c7` adds `shop_tv_kiosk_tokens`. Migration `c8d9e0f1a2b3` adds `shop_schedule_entries`. The on/off switch and the lane lists live in `app_settings` (`shop_tv_board`, `shop_tv_board_lanes`).
 
 ## Lane mapping
 
@@ -39,6 +39,25 @@ The production date is the portal scheduled date because that column is already 
 An order can be in Production and in Pickups or Deliveries. It is never in both Pickups and Deliveries.
 
 Earlier than today is overdue (red). A clock time already passed today is late (red). Later than today plus 7 days stays off.
+
+## Manual schedule
+
+Staff type rows because sales orders stay in Draft and `fullyShipped` does not mean the order has left. The table is `shop_schedule_entries` (migration `c8d9e0f1a2b3`). The same `shop_tv_board` flag gates it. Off, `GET/POST/PATCH/DELETE /api/shop-tv/entries` are 404.
+
+A row has an optional sales order number, an optional customer, a lane (`pickup`, `delivery`, `receiving`, `production`), a shop date (America/Regina), an optional time, a short note, and done. On create, a blank customer is filled from that Business Central sales order. The read is a GET. The portal does not POST, PATCH, or DELETE a sales order for this.
+
+The board merges open rows into the matching lane. Receiving rows go in Incoming, including when `shop_tv_incoming` is off. Done rows stay off. A date after today plus 7 days stays off. Earlier than today is overdue, and a clock time already passed today is late, the same as the other rows. The note is on the row, and the row is marked Manual. When a typed row and a Business Central row are the same sales order on the same lane, only the typed row shows. A purchase order in Incoming is the same lane as a receiving row when that purchase order is linked to the sales order.
+
+Settings → Shop TV lists the rows and can add, edit, delete, and mark done. A staff login with production or sales-order access can call the entries API. The kiosk token cannot. It only reads the board.
+
+A service key needs `shop_tv:schedule_write` to list or change rows. That scope is not part of the automation preset. Re-minting an automation key does not add it. Existing automation keys keep working and cannot call these routes. Mint a key that lists the scope when the automation should write the schedule:
+
+```bash
+curl -sS -X POST "$BASE/api/admin/service-keys" \
+  -H "Authorization: Bearer $ADMIN_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Shop schedule","scopes":["automation","shop_tv:schedule_write"]}'
+```
 
 ## Incoming
 

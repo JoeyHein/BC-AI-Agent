@@ -33,6 +33,7 @@ from app.services.staff_service_keys_service import (
     CONE_MIGRATION_APPLY_DENIED,
     RECEIVE_PO,
     RELEASE_PO,
+    SHOP_TV_SCHEDULE,
     SERVICE_USER_EMAIL,
     create_key,
     evaluate,
@@ -149,6 +150,10 @@ class TestCreateAndVerify:
         assert normalize_scopes(None) == AUTOMATION_SCOPES
         assert RELEASE_PO not in AUTOMATION_SCOPES
         assert RECEIVE_PO not in AUTOMATION_SCOPES
+        assert SHOP_TV_SCHEDULE not in AUTOMATION_SCOPES
+        with_schedule = normalize_scopes(["automation", SHOP_TV_SCHEDULE])
+        assert SHOP_TV_SCHEDULE in with_schedule
+        assert SHOP_TV_SCHEDULE not in normalize_scopes(["automation"])
         both = normalize_scopes(["automation", RELEASE_PO, RECEIVE_PO])
         assert RELEASE_PO in both
         assert RECEIVE_PO in both
@@ -244,6 +249,14 @@ class TestScopeRules:
         assert route_allowed("POST", receive, receive_body, granted)[0] is False
         assert route_allowed("POST", receive, receive_body, {RECEIVE_PO})[0] is True
         assert route_allowed("GET", receive, b"", {RECEIVE_PO})[0] is False
+        schedule = "/api/shop-tv/entries"
+        assert route_allowed("GET", schedule, b"", granted)[0] is False
+        assert route_allowed("POST", schedule, b"{}", granted)[0] is False
+        assert route_allowed("GET", schedule, b"", {SHOP_TV_SCHEDULE})[0] is True
+        assert route_allowed("POST", schedule, b"{}", {SHOP_TV_SCHEDULE})[0] is True
+        assert route_allowed("PATCH", schedule + "/4", b"{}", {SHOP_TV_SCHEDULE})[0] is True
+        assert route_allowed("DELETE", schedule + "/4", b"", {SHOP_TV_SCHEDULE})[0] is True
+        assert route_allowed("GET", "/api/shop-tv/board", b"", {SHOP_TV_SCHEDULE})[0] is False
 
     def test_generate_po_requires_send_email_false(self):
         granted = set(AUTOMATION_SCOPES)
@@ -358,6 +371,8 @@ class TestBcReadAllowlist:
                 scopes.add(RELEASE_PO)
             if path.rstrip("/").endswith("/receive"):
                 scopes.add(RECEIVE_PO)
+            if "/api/shop-tv/entries" in path:
+                scopes.add(SHOP_TV_SCHEDULE)
             ok, reason = route_allowed(method, path, body, scopes)
             assert ok, (method, path, reason)
         for method, path in denied:

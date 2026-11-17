@@ -51,6 +51,9 @@ RELEASE_PO = "purchasing:release_po"
 # Not part of the automation preset. A key receives a purchase order only
 # when an admin puts this name on that key. The hourly job must not get it.
 RECEIVE_PO = "purchasing:receive_po"
+# Not part of the automation preset. A key reads and writes shop schedule
+# entries only when an admin puts this name on that key.
+SHOP_TV_SCHEDULE = "shop_tv:schedule_write"
 
 # The KPI dashboard reads orders, purchasing, quotes, and inventory.
 # A key needs every one of these. Existing automation keys already have them.
@@ -67,7 +70,7 @@ AUTOMATION_SCOPES = [
     QUOTES_READ,
 ]
 
-_KNOWN_SCOPES = set(AUTOMATION_SCOPES) | {RELEASE_PO, RECEIVE_PO}
+_KNOWN_SCOPES = set(AUTOMATION_SCOPES) | {RELEASE_PO, RECEIVE_PO, SHOP_TV_SCHEDULE}
 _PRESETS = {"automation": list(AUTOMATION_SCOPES)}
 
 # (method, path regex, scope, extra check)
@@ -155,6 +158,12 @@ _RULES: list[tuple[str, re.Pattern[str], str, Optional[str]]] = [
     # Receive selected lines. Not granted by the automation preset.
     # Does not match the GET above: that pattern stops at the PO number.
     ("POST", re.compile(r"^/api/bc/purchase-orders/[^/]+/receive$"), RECEIVE_PO, None),
+    # Shop schedule entries. Read and write. Not on the automation preset.
+    # The kiosk token cannot call these. Business Central is not written.
+    ("GET", re.compile(r"^/api/shop-tv/entries$"), SHOP_TV_SCHEDULE, None),
+    ("POST", re.compile(r"^/api/shop-tv/entries$"), SHOP_TV_SCHEDULE, None),
+    ("PATCH", re.compile(r"^/api/shop-tv/entries/[^/]+$"), SHOP_TV_SCHEDULE, None),
+    ("DELETE", re.compile(r"^/api/shop-tv/entries/[^/]+$"), SHOP_TV_SCHEDULE, None),
     ("GET", re.compile(r"^/api/bc/customers$"), QUOTES_READ, None),
     ("GET", re.compile(r"^/api/bc/customers/[^/]+$"), QUOTES_READ, None),
     ("GET", re.compile(r"^/api/admin/customers/bc-customers$"), QUOTES_READ, None),
@@ -252,7 +261,7 @@ def normalize_scopes(scopes: Optional[list[str]]) -> list[str]:
         elif name in _KNOWN_SCOPES:
             expanded.append(name)
         else:
-            known = ", ".join(["automation", *AUTOMATION_SCOPES, RELEASE_PO, RECEIVE_PO])
+            known = ", ".join(["automation", *AUTOMATION_SCOPES, RELEASE_PO, RECEIVE_PO, SHOP_TV_SCHEDULE])
             raise ValueError(f"Unknown scope '{name}'. Use one of: {known}")
     seen: set[str] = set()
     out: list[str] = []
