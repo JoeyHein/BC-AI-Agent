@@ -32,6 +32,7 @@ function DoorDrawings({
   savedQuoteId = null,    // when set, "Produce Drawing" uses the saved-quote endpoint
   customerName = null,    // populates the title block in the preview-endpoint flow
   jobNumber = null,
+  doorIndex = 0,
   // Caller side: customer portal sends customer auth, admin tool sends admin
   // auth. Pass "admin" to use the admin axios client; default is customer.
   apiContext = 'customer',
@@ -113,6 +114,7 @@ function DoorDrawings({
   // The drawing service expects { doors: [{ ... }] }.
   const buildPreviewConfigData = () => ({
     doors: [{
+      ...doorConfig,
       doorSeries,
       doorType,
       doorWidth: widthInches,
@@ -141,7 +143,7 @@ function DoorDrawings({
   // endpoint when a savedQuoteId is set, else the preview endpoint.
   const fetchShopDrawing = async (fmt) => {
     if (savedQuoteId) {
-      return savedQuotesApi.framingDrawing(savedQuoteId, { fmt })
+      return savedQuotesApi.framingDrawing(savedQuoteId, { fmt, doorIndex })
     }
     const previewApi = apiContext === 'admin'
       ? doorConfigApi.previewFramingDrawing
@@ -153,6 +155,41 @@ function DoorDrawings({
       doorIndex: 0,
       fmt,
     })
+  }
+
+  const fetchFramingDetail = async (fmt) => {
+    if (savedQuoteId) {
+      return savedQuotesApi.framingDetail(savedQuoteId, { fmt, doorIndex })
+    }
+    const previewApi = apiContext === 'admin'
+      ? doorConfigApi.previewFramingDetail
+      : customerDoorConfigApi.previewFramingDetail
+    return previewApi({
+      configData: buildPreviewConfigData(),
+      customerName,
+      jobNumber,
+      doorIndex: 0,
+      fmt,
+    })
+  }
+
+  const downloadFramingDetail = async (fmt) => {
+    try {
+      const resp = await fetchFramingDetail(fmt)
+      const blob = new Blob([resp.data], {
+        type: fmt === 'dxf' ? 'application/dxf' : 'application/pdf',
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `framing-detail-${doorSeries}-${widthInches}x${heightInches}.${fmt}`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      alert(err?.response?.data?.detail || err.message || 'Failed to download framing detail')
+    }
   }
 
   const produceShopDrawing = async () => {
@@ -373,8 +410,22 @@ function DoorDrawings({
                 </button>
               </>
             )}
+            <button
+              onClick={() => downloadFramingDetail('pdf')}
+              className="px-3 py-2 text-sm font-medium bg-white text-odc-700 border border-odc-300 rounded hover:bg-odc-50"
+              title="Pads, jamb and extension for this door"
+            >
+              Download framing detail
+            </button>
+            <button
+              onClick={() => downloadFramingDetail('dxf')}
+              className="px-3 py-2 text-sm font-medium bg-white text-gray-700 border border-gray-300 rounded hover:bg-gray-50"
+              title="DXF of the framing detail"
+            >
+              Framing detail DXF
+            </button>
             <span className="text-xs text-gray-500">
-              Includes front + side elevations, plan view, panel profile, optional extras checklist, and title block.
+              Framing detail is the pad, jamb and extension layout. TX doors use the spring setup on the quote. Other series get the standard framing sheet.
             </span>
           </div>
 

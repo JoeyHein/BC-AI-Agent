@@ -115,11 +115,32 @@ export const savedQuotesApi = {
       { params: { fmt, door_index: doorIndex }, responseType: "blob" }
     ),
 
+  // Pad, jamb and extension sheet for this customer's own quote.
+  framingDetail: (id, { fmt = "pdf", doorIndex = 0 } = {}) =>
+    customerApiClient.post(
+      `/api/customer/portal/saved-quotes/${id}/framing-detail`,
+      null,
+      { params: { fmt, door_index: doorIndex }, responseType: "blob" }
+    ),
+
   // Preview framing drawing without a saved quote — sends config_data inline.
   // Used by the "Produce Drawing" button in the configurator (pre-save flow).
   previewFramingDrawing: ({ configData, customerName, jobNumber, doorIndex = 0, fmt = "pdf" }) =>
     customerApiClient.post(
       `/api/door-config/preview-framing-drawing`,
+      {
+        config_data: configData,
+        customer_name: customerName || null,
+        job_number: jobNumber || null,
+        door_index: doorIndex,
+        fmt,
+      },
+      { responseType: "blob" }
+    ),
+
+  previewFramingDetail: ({ configData, customerName, jobNumber, doorIndex = 0, fmt = "pdf" }) =>
+    customerApiClient.post(
+      `/api/door-config/preview-framing-detail`,
       {
         config_data: configData,
         customer_name: customerName || null,
@@ -222,6 +243,9 @@ export const customerDoorConfigApi = {
   // Get drum models
   getDrumModels: () =>
     customerApiClient.get('/api/door-config/drum-models'),
+
+  previewFramingDrawing: (args) => savedQuotesApi.previewFramingDrawing(args),
+  previewFramingDetail: (args) => savedQuotesApi.previewFramingDetail(args),
 };
 
 // Parts Catalog API (Customer browse)
