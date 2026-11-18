@@ -11,7 +11,15 @@ import { useState } from 'react'
  *   doorResults: [{ door_index, door_description, parts_count, success, error }]
  *   compact: boolean - if true, show condensed version (for list pages)
  */
-function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber, doorResults, compact = false }) {
+function isFreightItem(line) {
+  return (line?.part_number || '').toUpperCase() === 'FREIGHT'
+}
+
+function isFreightNote(line) {
+  return (line?.description || '').toLowerCase().startsWith('freight is an estimate')
+}
+
+function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber, doorResults, priceWarnings, compact = false }) {
   const [expanded, setExpanded] = useState(!compact)
   // Doors start open so the package order (lines, then wrapping, then freight)
   // is visible without an extra click.
@@ -33,9 +41,17 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
   // Group line items by door (comments act as delimiters)
   const doorSections = []
   let currentDoor = null
+  const freightLines = []
 
   if (linePricing) {
     for (const line of linePricing) {
+      if (isFreightNote(line)) {
+        continue
+      }
+      if (isFreightItem(line)) {
+        freightLines.push(line)
+        continue
+      }
       if (line.line_type === 'Comment') {
         // Only door description comments start a new group;
         // "Note" lines (e.g. window placement) stay in the current group.
@@ -187,7 +203,27 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
         </div>
       )}
 
-      {/* Pricing warnings are logged server-side for admin visibility only */}
+      {freightLines.length > 0 && (
+        <div className="px-4 py-3 border-t border-gray-200">
+          {freightLines.map((line, index) => (
+            <div key={index} className="flex justify-between text-sm text-gray-800">
+              <span>Freight (estimate)</span>
+              <span>{formatCurrency(line.line_total || line.unit_price)}</span>
+            </div>
+          ))}
+          <p className="mt-1 text-xs text-gray-400 italic">
+            Freight is an estimate. If the actual shipping cost comes in higher, the difference will be added to the invoice.
+          </p>
+        </div>
+      )}
+
+      {(priceWarnings || []).length > 0 && (
+        <div className="px-4 py-2 bg-amber-50 border-t border-amber-200">
+          {priceWarnings.map((warning, index) => (
+            <p key={index} className="text-xs text-amber-800">{warning.message}</p>
+          ))}
+        </div>
+      )}
 
       {/* Totals */}
       <div className="px-4 py-3 bg-gray-50 border-t border-gray-200">
@@ -205,9 +241,11 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
             <span>{formatCurrency(pricing.total)}</span>
           </div>
         </div>
-        <p className="mt-2 text-xs text-gray-400 italic">
-          Freight is estimated. Actual shipping costs may vary based on order volume and destination.
-        </p>
+        {freightLines.length === 0 && (
+          <p className="mt-2 text-xs text-gray-400 italic">
+            Freight is an estimate. If the actual shipping cost comes in higher, the difference will be added to the invoice.
+          </p>
+        )}
       </div>
 
       {/* Door generation results (if any had errors) */}

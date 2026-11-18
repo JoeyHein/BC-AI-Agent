@@ -1,8 +1,8 @@
 """Quote line layout v2.
 
-Off (the default) keeps one FREIGHT line under every door, right after that
-door's WRAP, and every operator line — including the chain rail — gets its
-own Output check mark.
+Off (the default) keeps operators inside each door and posts one FREIGHT
+line after every door. Every operator line — including the chain rail —
+gets its own Output check mark.
 
 On (AppSettings ``quote_line_layout_v2``):
 
@@ -20,11 +20,10 @@ panels-only ``(2) 12'2" x 14'0"`` package::
       photo eye                   [Output]
       8' chain rail               [Output]
       WRAP
-      FREIGHT                     [Output]
     (2) 12'2" x 14'0" ... PANELS ONLY   [Output]
       panels
       WRAP                        combined qty, one line
-      FREIGHT                     [Output]
+    FREIGHT                       [Output]  one line, after every door
 
 After (flag on)::
 
@@ -148,7 +147,7 @@ class TestFlagDefaultsOff:
 
 
 class TestArrangeRules:
-    def test_flag_off_keeps_freight_under_each_door_and_checks_the_rail(self):
+    def test_flag_off_keeps_operators_in_the_door_and_one_freight_at_the_end(self):
         ordered = arrange_quote_lines(
             _sample_lines(), layout_v2=False, include_freight=True,
         )
@@ -159,12 +158,13 @@ class TestArrangeRules:
             PHOTO,
             RAIL_8,
             "WRAP",
-            "FREIGHT",
             '(2) 12\'2" x 14\'0" TX450, WHITE, UDC, PANELS ONLY',
             "PN45-21000-1202",
             "WRAP",
             "FREIGHT",
         ]
+        assert sum(1 for line in ordered if line.get("part_number") == "FREIGHT") == 1
+        assert ordered[-1]["description"] == "Freight (estimate)"
         checked = [
             line.get("part_number") or "DOOR"
             for line, mark in zip(ordered, _marks(ordered, layout_v2=False))
@@ -227,7 +227,7 @@ class TestArrangeRules:
         ]
         assert sum(1 for line in ordered if line.get("part_number") == "FREIGHT") == 1
         assert ordered[-1]["part_number"] == "FREIGHT"
-        assert ordered[-1]["description"] == "Freight"
+        assert ordered[-1]["description"] == "Freight (estimate)"
         # One wrap per package, including the panels-only package. The
         # operator group has none.
         assert [line["quantity"] for line in ordered if line.get("part_number") == "WRAP"] == [80, 340]
@@ -484,7 +484,6 @@ class TestBuildersPostV2:
             f"{PHOTO} [Output]",
             f"{RAIL_8} [Output]",
             "WRAP",
-            "FREIGHT [Output]",
             'DOOR (2) 12\'2" x 14\'0" TX450, WHITE, UDC, PANELS ONLY [Output]',
             "WRAP",
             "FREIGHT [Output]",
@@ -525,7 +524,7 @@ class TestBuildersPostV2:
             for update in after.updates
             if "description" in update["data"]
         }
-        assert descriptions[freight["id"]] == "Freight (10%)"
+        assert descriptions[freight["id"]] == "Freight (estimate)"
 
     def test_portal_single_door_posts_one_trailing_freight(self, monkeypatch):
         import app.api.customer_portal as portal
@@ -598,7 +597,7 @@ class TestBuildersPostV2:
             "DOOR", "WRAP", "DOOR", "WRAP", HEAD, RAIL_8, PHOTO, "FREIGHT",
         ]
         freight = rows[-1]
-        assert freight[1] == "Freight (7.0% - AB)"
+        assert freight[1] == "Freight (estimate)"
         assert freight[3] == 40.0
         wraps = [row for row in rows if row[0] == "WRAP"]
         assert len(wraps) == 2

@@ -48,6 +48,7 @@ function DoorConfigurator() {
   const [loadQuoteLoading, setLoadQuoteLoading] = useState(false)
   const [loadQuoteError, setLoadQuoteError] = useState(null)
   const [loadedQuoteWarnings, setLoadedQuoteWarnings] = useState([]) // [{ doorLabel, warnings }]
+  const [loadedAdjustments, setLoadedAdjustments] = useState(null)
 
   // Clear the held BC quote id when the customer changes so a fresh quote
   // is created for the new customer instead of editing the previous one's.
@@ -98,6 +99,7 @@ function DoorConfigurator() {
     }
     setQuoteResult(null)
     setGenerateError(null)
+    setLoadedAdjustments(null)
     setDoors([createEmptyDoor()])
     setCurrentDoorIndex(0)
     setPoNumber('')
@@ -143,6 +145,11 @@ function DoorConfigurator() {
       // Hold the BC quote id/number so the next "Generate Quote" press
       // reuses this quote instead of creating a new one.
       setQuoteResult({ data: { bc_quote_id: data.bcQuoteId, bc_quote_number: data.bcQuoteNumber } })
+      setLoadedAdjustments({
+        linePrices: data.linePrices || [],
+        freightAmount: data.freightAmount,
+        quoteNumber: data.bcQuoteNumber,
+      })
       setGenerateError(null)
 
       const warnings = [
@@ -314,7 +321,7 @@ function DoorConfigurator() {
     }
   }
 
-  async function handleGenerateQuote(force = false) {
+  async function handleGenerateQuote(force = false, extras = null) {
     const dimErrors = collectDoorsDimensionErrors(doors, config)
     if (dimErrors.length) {
       setGenerateError(dimErrors.join(' '))
@@ -383,6 +390,8 @@ function DoorConfigurator() {
       // Reuse the existing BC quote on subsequent generations (e.g. after
       // adding another door) so the BC quote number stays the same.
       bcQuoteId: quoteResult?.data?.bc_quote_id || undefined,
+      linePriceOverrides: extras?.linePriceOverrides?.length ? extras.linePriceOverrides : undefined,
+      freightAmount: extras?.freightAmount,
     }
     generateQuoteMutation.mutate(request)
   }
@@ -706,8 +715,9 @@ function DoorConfigurator() {
           <ReviewStep
             doors={doors}
             config={config}
-            onGenerateQuote={() => handleGenerateQuote(false)}
-            onForceGenerate={() => handleGenerateQuote(true)}
+            onGenerateQuote={(extras) => handleGenerateQuote(false, extras)}
+            onForceGenerate={(extras) => handleGenerateQuote(true, extras)}
+            loadedAdjustments={loadedAdjustments}
             generateError={generateError}
             isGenerating={generateQuoteMutation.isPending}
             quoteResult={quoteResult}
@@ -3180,7 +3190,176 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
   )
 }
 
-function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateError, isGenerating, quoteResult, selectedCustomer, poNumber, onPoNumberChange, onAddDoor, deliveryType, onDeliveryTypeChange, installTown, onInstallTownChange, onStartNewQuote }) {
+function collectQuoteExtras(partsData, priceEdits, freightAmountInput, loadedAdjustments) {
+  const overrides = []
+  for (const door of partsData?.parts_by_door || []) {
+    for (const part of door.parts?.parts_list || []) {
+      if (!part.part_number || part.part_number === 'FREIGHT') continue
+      const typed = priceEdits?.[`${door.door_index}:${part.part_number}`]
+      if (typed == null || typed === '') continue
+      const price = Number(typed)
+      if (!Number.isFinite(price)) continue
+      if (part.unit_price != null && Math.abs(price - Number(part.unit_price)) <= 0.009) continue
+      overrides.push({
+        partNumber: part.part_number,
+        unitPrice: price,
+        doorIndex: door.door_index,
+      })
+    }
+  }
+  let freightAmount
+  if (freightAmountInput !== '' && freightAmountInput != null) {
+    const amount = Number(freightAmountInput)
+    if (Number.isFinite(amount)) freightAmount = amount
+  }
+  return { linePriceOverrides: overrides, freightAmount, loadedAdjustments }
+}
+
+function money(amount) {
+  if (amount == null || Number.isNaN(Number(amount))) return '—'
+  return `$${Number(amount).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+function QuotePriceEditor({
+  partsData, loadingParts, priceEdits, onPriceEdit, freightAmountInput, onFreightAmount,
+  deliveryType, isHomeBuilder, seeCost, loadedAdjustments,
+}) {
+  const missingLoaded = []
+  const loaded = loadedAdjustments?.linePrices || []
+  for (const row of loaded) {
+    if (!row.part_number) continue
+    const stillThere = (partsData?.parts_by_door || []).some((door) =>
+      (door.parts?.parts_list || []).some((part) => part.part_number === row.part_number)
+    )
+    if (!stillThere) missingLoaded.push(row)
+  }
+  const showFreight = deliveryType === 'delivery' && !isHomeBuilder
+  const preview = partsData?.freight_preview
+  const belowCost = []
+  for (const door of partsData?.parts_by_door || []) {
+    for (const part of door.parts?.parts_list || []) {
+      const key = `${door.door_index}:${part.part_number}`
+      const typed = priceEdits?.[key]
+      const price = typed !== '' && typed != null ? Number(typed) : part.unit_price
+      const cost = part.unit_cost
+      if (price != null && cost != null && Number(price) + 0.001 < Number(cost)) {
+        belowCost.push({ ...part, door_index: door.door_index, shown_price: price })
+      } else if (part.below_cost && (typed === '' || typed == null)) {
+        belowCost.push({ ...part, door_index: door.door_index, shown_price: part.unit_price })
+      }
+    }
+  }
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+      <div>
+        <h3 className="text-sm font-medium text-gray-900">Line prices</h3>
+        <p className="text-xs text-gray-500 mt-1">
+          Change a unit price before Generate Quote. Blank keeps the automatic Business Central price.
+          Overrides are sent again when this quote is regenerated.
+        </p>
+      </div>
+      {loadingParts && <p className="text-sm text-gray-500">Loading parts and prices…</p>}
+      {!loadingParts && (partsData?.parts_by_door || []).map((door) => (
+        <div key={door.door_index}>
+          <h4 className="text-xs font-medium text-odc-700 mb-1">
+            Door {door.door_index}: {door.door_description}
+          </h4>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-gray-500">
+                  <th className="py-1 pr-3">Part</th>
+                  <th className="py-1 pr-3">Description</th>
+                  <th className="py-1 pr-3 text-right">Qty</th>
+                  <th className="py-1 pr-3 text-right">Unit price</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(door.parts?.parts_list || []).filter((part) => part.part_number && part.category !== 'comment').map((part) => {
+                  const key = `${door.door_index}:${part.part_number}`
+                  const typed = priceEdits?.[key] ?? ''
+                  const price = typed !== '' ? Number(typed) : part.unit_price
+                  const under = price != null && part.unit_cost != null && Number(price) + 0.001 < Number(part.unit_cost)
+                  return (
+                    <tr key={key} className={under ? 'bg-amber-50' : ''}>
+                      <td className="py-1 pr-3 font-mono text-xs">{part.part_number}</td>
+                      <td className="py-1 pr-3 text-gray-700">{part.description}</td>
+                      <td className="py-1 pr-3 text-right">{part.quantity}</td>
+                      <td className="py-1 text-right">
+                        <input
+                          aria-label={`Unit price for ${part.part_number}`}
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={typed}
+                          placeholder={part.unit_price != null ? Number(part.unit_price).toFixed(2) : 'Auto'}
+                          onChange={(event) => onPriceEdit(key, event.target.value)}
+                          className="w-24 border border-gray-300 rounded px-2 py-1 text-right text-sm"
+                        />
+                        {under && (
+                          <div className="text-xs text-amber-700 mt-0.5">
+                            Below BC unit cost{seeCost && part.unit_cost != null ? ` (${money(part.unit_cost)})` : ''}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+      {belowCost.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-800">
+          {belowCost.length} line{belowCost.length === 1 ? '' : 's'} priced below BC unit cost.
+        </div>
+      )}
+      {missingLoaded.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-800">
+          <p className="font-medium">These prices from {loadedAdjustments?.quoteNumber || 'the loaded quote'} are not on this configuration and will not be applied:</p>
+          <ul className="mt-1 list-disc list-inside">
+            {missingLoaded.map((row) => (
+              <li key={`${row.door_index}-${row.part_number}`}>{row.part_number} was {money(row.unit_price)}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {showFreight && (
+        <div className="border-t border-gray-200 pt-3">
+          <label className="block text-sm font-medium text-gray-900" htmlFor="freight-amount">
+            Freight (estimate)
+          </label>
+          <p className="text-xs text-gray-500 mt-1">
+            One freight line for the whole order, at the bottom of the quote.
+            {preview?.amount != null ? ` Calculated amount ${money(preview.amount)}.` : ' Leave blank to calculate it when the quote is generated.'}
+            {seeCost && preview?.rate != null ? ` Rate ${preview.rate}%.` : ''}
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <span className="text-sm text-gray-500">$</span>
+            <input
+              id="freight-amount"
+              aria-label="Freight amount"
+              type="number"
+              min="0"
+              step="0.01"
+              value={freightAmountInput}
+              placeholder={preview?.amount != null ? Number(preview.amount).toFixed(2) : 'Calculate'}
+              onChange={(event) => onFreightAmount(event.target.value)}
+              className="w-32 border border-gray-300 rounded px-2 py-1 text-sm"
+            />
+          </div>
+          <p className="mt-2 text-xs text-gray-500 italic">
+            Freight is an estimate. If the actual shipping cost comes in higher, the difference will be added to the invoice.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateError, isGenerating, quoteResult, selectedCustomer, poNumber, onPoNumberChange, onAddDoor, deliveryType, onDeliveryTypeChange, installTown, onInstallTownChange, onStartNewQuote, loadedAdjustments }) {
   const { can } = useAuth()
   const seeSellingPrices = can('pricing.view')
   const seeCost = can('pricing.edit')
@@ -3194,6 +3373,8 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
   const [showReviewPanel, setShowReviewPanel] = useState(false)
   const [freightConfig, setFreightConfig] = useState(null)
   const [downloadingPdf, setDownloadingPdf] = useState(false)
+  const [priceEdits, setPriceEdits] = useState({})
+  const [freightAmountInput, setFreightAmountInput] = useState('')
   const dimensionErrors = collectDoorsDimensionErrors(doors, config)
 
   const handleDownloadPdf = async () => {
@@ -3275,7 +3456,9 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
             includeTopSeal: door.includeTopSeal || false,
             astragalSize: door.astragalSize || '3',
         includePusherSprings: door.includePusherSprings || false,
-          }))
+          })),
+          customerId: selectedCustomer?.bc_customer_id || null,
+          deliveryType,
         }
         const response = await doorConfigApi.getPartsForQuote(request)
         if (response.data.success) {
@@ -3331,7 +3514,32 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
       }
     }
     fetchData()
-  }, [doors])
+  }, [doors, selectedCustomer?.bc_customer_id, deliveryType])
+
+  useEffect(() => {
+    const next = {}
+    const loaded = loadedAdjustments?.linePrices || []
+    for (const door of partsData?.parts_by_door || []) {
+      for (const part of door.parts?.parts_list || []) {
+        if (!part.part_number || part.part_number === 'FREIGHT') continue
+        const match = loaded.find((row) =>
+          row.part_number === part.part_number
+          && (row.door_index == null || row.door_index === door.door_index)
+        )
+        if (!match || match.unit_price == null) continue
+        const auto = part.unit_price
+        if (auto == null || Math.abs(Number(match.unit_price) - Number(auto)) > 0.009) {
+          next[`${door.door_index}:${part.part_number}`] = Number(match.unit_price).toFixed(2)
+        }
+      }
+    }
+    setPriceEdits(next)
+    if (loadedAdjustments?.freightAmount != null) {
+      setFreightAmountInput(Number(loadedAdjustments.freightAmount).toFixed(2))
+    } else {
+      setFreightAmountInput('')
+    }
+  }, [partsData, loadedAdjustments])
 
   function getSeriesName(doorType, seriesId) {
     const series = config?.doorSeries[doorType]?.find(s => s.id === seriesId)
@@ -3935,6 +4143,21 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
 
       <FreightEstimatePanel doors={doors} />
 
+      {seeSellingPrices && (
+        <QuotePriceEditor
+          partsData={partsData}
+          loadingParts={loadingParts}
+          priceEdits={priceEdits}
+          onPriceEdit={(key, value) => setPriceEdits((prev) => ({ ...prev, [key]: value }))}
+          freightAmountInput={freightAmountInput}
+          onFreightAmount={setFreightAmountInput}
+          deliveryType={deliveryType}
+          isHomeBuilder={!!selectedCustomer?.is_home_builder}
+          seeCost={seeCost}
+          loadedAdjustments={loadedAdjustments}
+        />
+      )}
+
       {/* Generate Quote Button */}
       {dimensionErrors.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3">
@@ -3944,7 +4167,7 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
         </div>
       )}
       <button
-        onClick={onGenerateQuote}
+        onClick={() => onGenerateQuote(collectQuoteExtras(partsData, priceEdits, freightAmountInput, loadedAdjustments))}
         disabled={isGenerating || !selectedCustomer || dimensionErrors.length > 0}
         className="w-full inline-flex justify-center items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-odc-600 hover:bg-odc-700 disabled:opacity-50 disabled:cursor-not-allowed"
       >
@@ -3973,7 +4196,7 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
             <p className="text-sm text-red-800">{generateError}</p>
           </div>
           <button
-            onClick={onForceGenerate}
+            onClick={() => onForceGenerate(collectQuoteExtras(partsData, priceEdits, freightAmountInput, loadedAdjustments))}
             className="w-full inline-flex justify-center items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-800 bg-white hover:bg-red-100"
           >
             Generate anyway — flag unresolved parts as comments in BC
@@ -4020,7 +4243,7 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
                       <>
                         <span className="text-green-600">{quoteResult.data.freight.description}:</span>
                         <span className="text-right font-medium">${quoteResult.data.freight.amount?.toLocaleString('en-CA', { minimumFractionDigits: 2 })}</span>
-                        <span className="col-span-2 text-xs text-gray-400 italic">Freight is estimated. Actual shipping costs may vary based on order volume and destination.</span>
+                        <span className="col-span-2 text-xs text-gray-400 italic">Freight is an estimate. If the actual shipping cost comes in higher, the difference will be added to the invoice.</span>
                       </>
                     )}
                     {quoteResult.data.freight?.skip && (
@@ -4031,6 +4254,27 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
                     )}
                     <span className="text-green-600">Tax (GST):</span>
                     <span className="text-right font-medium">${quoteResult.data.pricing.tax?.toLocaleString('en-CA', { minimumFractionDigits: 2 })}</span>
+                    {(quoteResult.data.below_cost_warnings || []).length > 0 && (
+                      <div className="col-span-2 bg-amber-50 border border-amber-200 rounded p-2 text-xs text-amber-800">
+                        {(quoteResult.data.below_cost_warnings || []).map((warning) => (
+                          <p key={`${warning.part_number}-${warning.unit_price}`}>{warning.message}</p>
+                        ))}
+                      </div>
+                    )}
+                    {(quoteResult.data.dropped_price_overrides || []).length > 0 && (
+                      <div className="col-span-2 bg-amber-50 border border-amber-200 rounded p-2 text-xs text-amber-800">
+                        {(quoteResult.data.dropped_price_overrides || []).map((warning) => (
+                          <p key={`${warning.part_number}-${warning.unit_price}`}>{warning.message}</p>
+                        ))}
+                      </div>
+                    )}
+                    {(quoteResult.data.price_override_warnings || []).length > 0 && (
+                      <div className="col-span-2 bg-amber-50 border border-amber-200 rounded p-2 text-xs text-amber-800">
+                        {(quoteResult.data.price_override_warnings || []).map((warning) => (
+                          <p key={`${warning.part_number}-${warning.previous_unit_price}`}>{warning.message}</p>
+                        ))}
+                      </div>
+                    )}
                     <span className="text-green-700 font-semibold">Total:</span>
                     <span className="text-right font-bold text-lg text-green-800">${quoteResult.data.pricing.total?.toLocaleString('en-CA', { minimumFractionDigits: 2 })}</span>
                   </div>

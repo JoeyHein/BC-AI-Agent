@@ -397,7 +397,7 @@ class TestConfiguratorOnly:
         assert priced["data"]["line_pricing"][0]["unit_price"] == 10
         assert "unit_cost" not in priced["data"]["line_pricing"][0]
         assert "margin" not in priced["data"]["line_pricing"][0]
-        assert priced["data"]["freight"] == {"amount": 5, "description": "Freight", "skip": False}
+        assert priced["data"]["freight"] == {"amount": 5, "description": "Freight (estimate)", "skip": False}
         assert "escalating_margin" not in priced["data"]
         assert "Volume pricing" not in priced["message"]
         assert priced["data"]["bc_quote_number"] == "SQ-1"

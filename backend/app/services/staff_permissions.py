@@ -296,15 +296,17 @@ def redact_configurator_quote(user, payload: dict) -> dict:
         freight = data.get("freight")
         if isinstance(freight, dict):
             cleaned = {k: v for k, v in freight.items() if k != "rate"}
-            cleaned["description"] = "Pickup - No Freight" if freight.get("skip") else "Freight"
+            cleaned["description"] = "Pickup - No Freight" if freight.get("skip") else "Freight (estimate)"
             data["freight"] = cleaned
         data["line_pricing"] = _strip_keys(data.get("line_pricing"), _COST_KEYS)
         data["parts_summary"] = _strip_keys(data.get("parts_summary"), _COST_KEYS)
+        data["below_cost_warnings"] = _strip_keys(data.get("below_cost_warnings"), _COST_KEYS)
     if not see_prices:
         data.pop("pricing", None)
         data.pop("line_pricing", None)
         data.pop("freight", None)
         data.pop("escalating_margin", None)
+        data.pop("below_cost_warnings", None)
         data["parts_summary"] = _strip_keys(data.get("parts_summary"), _SELLING_KEYS)
     out["data"] = data
     return out
