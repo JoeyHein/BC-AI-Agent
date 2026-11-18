@@ -6,7 +6,7 @@ Based on Upwardor brochure specifications (Residential 2025 & Commercial 2023)
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, List, Dict, Any, Tuple
 import logging
 import re
@@ -31,6 +31,23 @@ from app.services.freight_service import (
     sum_line_amounts,
 )
 from app.services.quote_line_layout import apply_quote_line_layout, line_needs_output
+from app.services.quote_adjustments import (
+    StaffAdjustmentError,
+    add_freight_estimate_note,
+    apply_freight_override,
+    below_cost_warnings,
+    dropped_price_overrides,
+    freight_total_from_lines,
+    line_price_override,
+    mark_overridden_prices,
+    parse_freight_amount,
+    parse_staff_price_overrides,
+    preview_part_prices,
+    price_change_warnings,
+    redact_preview_prices,
+    snapshot_priced_items,
+)
+from app.services.staff_permissions import has_permission
 from app.services.operator_service import find_operator_by_part_number
 from app.integrations.bc.client import bc_client
 from app.api.staff_principal import require_staff
@@ -831,6 +848,12 @@ class DoorConfigRequest(BaseModel):
         return self
 
 
+class LinePriceOverride(BaseModel):
+    partNumber: str
+    unitPrice: float = Field(ge=0)
+    doorIndex: Optional[int] = None
+
+
 class QuoteGenerationRequest(BaseModel):
     doors: List[DoorConfigRequest]
     poNumber: Optional[str] = None
@@ -856,6 +879,11 @@ class QuoteGenerationRequest(BaseModel):
     # instead of aborting the whole quote. Does NOT bypass validate_panel_combo
     # (unstocked color/stamp/series stays a hard block).
     forceGenerate: bool = False
+    # Staff unit-price overrides. doorIndex omitted applies to every line
+    # with that part number. Sent again on regenerate so they are not dropped.
+    linePriceOverrides: Optional[List[LinePriceOverride]] = None
+    # None uses the province freight rule. Zero waives freight. Negative is rejected.
+    freightAmount: Optional[float] = Field(default=None, ge=0)
 
 
 class DoorCalculationRequest(BaseModel):
@@ -1586,6 +1614,8 @@ async def load_existing_quote(quote_number: str, _user: User = Depends(require_s
             "warnings": [] if customer_number else [
                 "No BC customer on this quote — select a customer manually before generating."
             ],
+            "linePrices": snapshot_priced_items(lines),
+            "freightAmount": freight_total_from_lines(lines),
         },
     }
 
@@ -1642,6 +1672,69 @@ def _get_home_builder_user(customer_id: Optional[str], db: Session):
     ).first()
 
 
+def _authorize_staff_adjustments(request: QuoteGenerationRequest, user: Optional[User]) -> tuple:
+    """Validate staff overrides and require pricing.edit when any are present.
+
+    Zero is allowed. Negative and non-numeric values are 422. A caller who
+    cannot edit pricing gets 403 rather than a silently ignored override.
+    """
+    try:
+        overrides = parse_staff_price_overrides(request.linePriceOverrides)
+        freight_amount = parse_freight_amount(request.freightAmount)
+    except StaffAdjustmentError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if overrides or freight_amount is not None:
+        if user is None or not has_permission(user, "pricing.edit"):
+            raise HTTPException(
+                status_code=403,
+                detail="Pricing edit permission is required to override a quote price or freight amount",
+            )
+    return overrides, freight_amount
+
+
+def _store_staff_adjustments(db, bc_quote_id: Optional[str], overrides, freight_amount, requested: bool) -> None:
+    """Write overrides onto the saved-quote row customers cannot update.
+
+    No matching portal draft is fine: the configurator quote still carries
+    the prices on the Business Central lines from this request.
+    """
+    if not requested or db is None or not bc_quote_id:
+        return
+    payload = None
+    if overrides or freight_amount is not None:
+        payload = {
+            "linePriceOverrides": [
+                {
+                    "partNumber": row["part_number"],
+                    "unitPrice": row["unit_price"],
+                    "doorIndex": row["door_index"],
+                }
+                for row in overrides
+            ],
+            "freightAmount": freight_amount,
+        }
+    try:
+        from app.db.models import SavedQuoteConfig
+        rows = db.query(SavedQuoteConfig).filter(
+            SavedQuoteConfig.bc_quote_id == bc_quote_id
+        ).all()
+        for row in rows:
+            row.staff_price_adjustments = payload
+        # get_db() does not commit. Without this the assignment is rolled
+        # back when the request session closes.
+        db.commit()
+    except Exception:
+        logger.warning("Could not store staff price adjustments for %s", bc_quote_id, exc_info=True)
+        try:
+            db.rollback()
+        except Exception:
+            logger.warning(
+                "Could not roll back staff price adjustments for %s",
+                bc_quote_id,
+                exc_info=True,
+            )
+
+
 def build_bc_quote_from_doors(
     request: QuoteGenerationRequest,
     db: Session,
@@ -1661,6 +1754,7 @@ def build_bc_quote_from_doors(
     BC, etc.) and on unexpected errors; non-HTTP callers (e.g. the email
     monitor) must catch these and route to manual review.
     """
+    staff_line_overrides, freight_override = _authorize_staff_adjustments(request, user)
     try:
         # Customer profile fills fields the request left at the system
         # default. Off does nothing. Shadow records the result on the
@@ -1964,6 +2058,7 @@ def build_bc_quote_from_doors(
         # Either reuse an existing BC quote (clearing its lines first) or
         # create a fresh one. Reuse keeps the BC quote number stable across
         # successive "Generate Quote" presses on the configurator.
+        previous_item_prices = []
         if request.bcQuoteId:
             try:
                 existing = bc_client.get_sales_quote(request.bcQuoteId)
@@ -1987,6 +2082,7 @@ def build_bc_quote_from_doors(
                         f"on quote {bc_quote_number}: {header_err}"
                     )
                 existing_lines = bc_client.get_quote_lines(bc_quote_id)
+                previous_item_prices = snapshot_priced_items(existing_lines)
                 for ql in existing_lines:
                     line_id = ql.get("id")
                     if not line_id:
@@ -2040,9 +2136,8 @@ def build_bc_quote_from_doors(
             allow_unresolved_parts=allow_unresolved_parts,
         )
 
-        # Delivery quotes charge freight. Home-builder quotes do not.
-        # Off: one FREIGHT line under each door, immediately after WRAP.
-        # quote_line_layout_v2: one FREIGHT line at the very end.
+        # Delivery quotes charge one freight line for the whole order, after
+        # every door. Home-builder quotes do not. WRAP stays with its door.
         include_freight = (request.deliveryType or "").lower() != "pickup" and not is_home_builder
         freight_item = "FREIGHT"
         if include_freight and db:
@@ -2137,6 +2232,25 @@ def build_bc_quote_from_doors(
                         f"PRICING [{part_num}]: trust BC SalesPriceLists "
                         f"(no portal-side override)"
                     )
+                staff_price = line_price_override(staff_line_overrides, line)
+                if staff_price is not None and added_line.get("id"):
+                    try:
+                        bc_client.update_quote_line(
+                            bc_quote_id,
+                            added_line["id"],
+                            added_line.get("@odata.etag", "*"),
+                            {"unitPrice": staff_price},
+                        )
+                        tier_prices_by_line_id.pop(added_line["id"], None)
+                        logger.info(
+                            "PRICE OVERRIDE [%s]: $%.2f",
+                            line.get("part_number"), staff_price,
+                        )
+                    except Exception as override_err:
+                        logger.error(
+                            "PRICE OVERRIDE FAILED [%s]: %s",
+                            line.get("part_number"), override_err,
+                        )
                 logger.debug(f"Added line: {line.get('part_number', line.get('description', ''))[:30]}")
 
             except Exception as line_error:
@@ -2330,18 +2444,29 @@ def build_bc_quote_from_doors(
                     if bc_cust and bc_cust.address:
                         customer_province = bc_cust.address.get("province")
 
-                freight = calculate_freight(
-                    product_subtotal=pricing["subtotal"],
-                    province=customer_province,
-                    delivery_type=request.deliveryType,
-                    db=db,
+                freight = apply_freight_override(
+                    calculate_freight(
+                        product_subtotal=pricing["subtotal"],
+                        province=customer_province,
+                        delivery_type=request.deliveryType,
+                        db=db,
+                    ),
+                    freight_override,
                 )
                 freight_info = freight
+                freight_added = False
+                if freight.get("skip") and door_freight_slots:
+                    for slot in door_freight_slots:
+                        try:
+                            bc_client.delete_quote_line(bc_quote_id, slot["id"])
+                        except Exception as del_err:
+                            logger.warning(f"Could not drop waived freight line: {del_err}")
+                    door_freight_slots = []
 
                 if not freight["skip"] and freight["amount"] > 0 and door_freight_slots:
-                    # Placeholders were posted under each door, right after WRAP.
-                    # Split the same quote-level freight total across those lines.
-                    freight_added = False
+                    # One placeholder at the bottom of the quote. It receives
+                    # the full freight amount (the same total the per-door
+                    # shares used to add up to).
                     try:
                         priced_lines = bc_client.get_quote_lines(bc_quote_id)
                     except Exception:
@@ -2365,9 +2490,7 @@ def build_bc_quote_from_doors(
                                 },
                             )
                             freight_added = True
-                            logger.info(
-                                f"Door freight ${amount:.2f} under door {slot.get('door_index')}"
-                            )
+                            logger.info(f"Quote freight ${amount:.2f}")
                             if slot.get("sequence"):
                                 try:
                                     bc_client.set_quote_line_output(
@@ -2380,6 +2503,19 @@ def build_bc_quote_from_doors(
                     line_pricing = apply_freight_to_line_pricing(
                         line_pricing, amounts, freight["description"],
                     )
+                    if freight_added:
+                        try:
+                            updated_quote = bc_client.get_sales_quote(bc_quote_id)
+                            subtotal = updated_quote.get("totalAmountExcludingTax", 0)
+                            total_with_tax = updated_quote.get("totalAmountIncludingTax", 0)
+                            pricing = {
+                                "subtotal": round(subtotal, 2),
+                                "tax": round(total_with_tax - subtotal, 2),
+                                "total": round(total_with_tax, 2),
+                                "currency": "CAD",
+                            }
+                        except Exception as refetch_err:
+                            logger.warning(f"Could not re-fetch totals after freight: {refetch_err}")
                 elif not freight["skip"] and freight["amount"] > 0:
                     freight_config = get_freight_config(db)
                     freight_item = freight_config.get("freight_item_number", "FREIGHT")
@@ -2444,6 +2580,11 @@ def build_bc_quote_from_doors(
                             }
                         except Exception as refetch_err:
                             logger.warning(f"Could not re-fetch totals after freight: {refetch_err}")
+
+                if freight_added:
+                    note = add_freight_estimate_note(bc_client, bc_quote_id)
+                    if note:
+                        lines_added += 1
 
             except Exception as freight_err:
                 logger.warning(f"Could not calculate/add freight: {freight_err}")
@@ -2543,6 +2684,12 @@ def build_bc_quote_from_doors(
         manual_entry_required = [
             w for w in part_warnings if w.get("manual_entry_required")
         ]
+        mark_overridden_prices(line_pricing, staff_line_overrides)
+        cost_warnings = below_cost_warnings(line_pricing)
+        dropped_overrides = dropped_price_overrides(staff_line_overrides, all_lines)
+        regenerate_warnings = price_change_warnings(
+            previous_item_prices, line_pricing, staff_line_overrides,
+        )
         payload = {
             "success": True,
             "data": {
@@ -2562,6 +2709,9 @@ def build_bc_quote_from_doors(
                 "pricing": pricing,
                 "line_pricing": line_pricing if line_pricing else None,
                 "freight": freight_info,
+                "below_cost_warnings": cost_warnings or None,
+                "dropped_price_overrides": dropped_overrides or None,
+                "price_override_warnings": regenerate_warnings or None,
                 "part_warnings": part_warnings if part_warnings else None,
                 "manual_entry_required": manual_entry_required if manual_entry_required else None,
                 "escalating_margin": escalating_result,
@@ -2580,10 +2730,21 @@ def build_bc_quote_from_doors(
         if profile_mode != "off":
             payload["data"]["field_sources"] = profile_sources
             payload["data"]["deviations"] = profile_deviations or None
+        _store_staff_adjustments(
+            db,
+            bc_quote_id,
+            staff_line_overrides,
+            freight_override,
+            # A regenerate with no overrides clears a previously stored value.
+            # A brand-new quote id still writes when a saved row already points at it.
+            requested=bool(bc_quote_id),
+        )
         if user is not None:
             return redact_configurator_quote(user, payload)
         return payload
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error generating BC quote: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -2731,7 +2892,11 @@ async def get_part_numbers(config: DoorConfigRequest, db: Session = Depends(get_
 
 
 @router.post("/get-parts-for-quote")
-async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Depends(get_db)):
+async def get_parts_for_quote(
+    request: QuoteGenerationRequest,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_staff),
+):
     """
     Get BC part numbers for an entire quote (multiple doors).
 
@@ -2838,13 +3003,76 @@ async def get_parts_for_quote(request: QuoteGenerationRequest, db: Session = Dep
         # Sort consolidated parts by standard line ordering
         sorted_consolidated = _sort_parts_by_category(list(consolidated.values()))
 
+        # Prices for the review step. A BC miss leaves unit_price unset;
+        # staff can still type an override before Generate Quote.
+        preview_parts = []
+        for door_parts in parts_by_door:
+            for part in (door_parts.get("parts") or {}).get("parts_list") or []:
+                if isinstance(part, dict):
+                    part["door_index"] = door_parts.get("door_index")
+                    preview_parts.append(part)
+        preview_part_prices(preview_parts, request.customerId, db)
+        see_prices = has_permission(_user, "pricing.view")
+        see_cost = has_permission(_user, "pricing.edit")
+        redact_preview_prices(preview_parts, see_prices=see_prices, see_cost=see_cost)
+
+        freight_preview = None
+        if see_prices and (request.deliveryType or "").lower() != "pickup" and not is_home_builder:
+            province = None
+            if request.customerId:
+                try:
+                    bc_cust = db.query(BCCustomer).filter(
+                        BCCustomer.bc_customer_id == request.customerId
+                    ).first()
+                    if bc_cust and bc_cust.address:
+                        province = bc_cust.address.get("province")
+                except Exception:
+                    province = None
+            subtotal = 0.0
+            prices_complete = True
+            for part in preview_parts:
+                if part.get("unit_price") is None:
+                    prices_complete = False
+                    continue
+                subtotal += float(part["unit_price"]) * float(part.get("quantity") or 0)
+            try:
+                freight_preview = apply_freight_override(
+                    calculate_freight(round(subtotal, 2), province, request.deliveryType or "delivery", db),
+                    None,
+                )
+            except Exception:
+                freight_preview = {"skip": False, "amount": None, "description": "Freight (estimate)"}
+            freight_preview["prices_complete"] = prices_complete
+            if not prices_complete:
+                freight_preview["amount"] = None
+            if not see_cost and isinstance(freight_preview, dict):
+                freight_preview.pop("rate", None)
+        elif see_prices:
+            freight_preview = {"skip": True, "amount": 0, "description": "Pickup - No Freight"}
+
         return {
             "success": True,
             "data": {
                 "total_doors": len(request.doors),
                 "total_unique_parts": len(consolidated),
                 "parts_by_door": parts_by_door,
-                "consolidated_parts": sorted_consolidated
+                "consolidated_parts": sorted_consolidated,
+                "freight_preview": freight_preview,
+                "below_cost_warnings": [
+                    {
+                        "part_number": part.get("part_number"),
+                        "description": part.get("description"),
+                        "door_index": part.get("door_index"),
+                        "unit_price": part.get("unit_price"),
+                        "unit_cost": part.get("unit_cost"),
+                        "message": (
+                            f"{part.get('part_number')} is priced at ${float(part.get('unit_price') or 0):.2f}, "
+                            "below its BC unit cost."
+                        ),
+                    }
+                    for part in preview_parts
+                    if part.get("below_cost") and see_prices
+                ] or None,
             },
             "message": f"Generated part list for {len(request.doors)} door(s)"
         }

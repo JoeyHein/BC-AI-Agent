@@ -554,9 +554,9 @@ class TestFreightFollowsWrap:
         priced = [row for row in result["data"]["line_pricing"] if row["part_number"] in ("WRAP", "FREIGHT")]
         assert [row["part_number"] for row in priced][-2:] == ["WRAP", "FREIGHT"]
         assert priced[-1]["unit_price"] == 10.0
-        assert priced[-1]["description"] == "Freight (10%)"
+        assert priced[-1]["description"] == "Freight (estimate)"
 
-    def test_multi_door_quote_puts_freight_under_each_wrap(self, monkeypatch):
+    def test_multi_door_quote_puts_one_freight_line_at_the_end(self, monkeypatch):
         import app.api.customer_portal as portal
 
         monkeypatch.setattr(portal, "get_bc_spring_inventory", lambda: {})
@@ -577,19 +577,19 @@ class TestFreightFollowsWrap:
         numbers = _item_numbers(bc)
         wrap_at = [i for i, pn in enumerate(numbers) if pn == "WRAP"]
         assert len(wrap_at) == 2
-        for index in wrap_at:
-            assert numbers[index + 1] == "FREIGHT"
-        # Nothing after the second freight. Each door ended wrap -> freight.
+        # The first door's wrap is not followed by its own freight line.
+        assert numbers[wrap_at[0] + 1] != "FREIGHT"
+        assert numbers.count("FREIGHT") == 1
         assert numbers[-1] == "FREIGHT"
+        # The estimate comment follows the freight item. It is not an item line.
+        assert bc.added[-1]["lineType"] == "Comment"
+        assert bc.added[-1]["description"].startswith("Freight is an estimate.")
         prices = _final_unit_prices(bc)
-        freight_prices = [
-            prices[row["id"]]
-            for row in bc.added
-            if row.get("lineObjectNumber") == "FREIGHT"
+        freight_rows = [
+            row for row in bc.added if row.get("lineObjectNumber") == "FREIGHT"
         ]
-        assert freight_prices[0] > 0 and freight_prices[1] > 0
-        assert round(sum(freight_prices), 2) == 10.0
-        assert freight_prices[0] != freight_prices[1]
+        assert len(freight_rows) == 1
+        assert prices[freight_rows[0]["id"]] == 10.0
         view = [
             (row["part_number"], row["description"])
             for row in result["line_pricing"]
@@ -597,9 +597,8 @@ class TestFreightFollowsWrap:
         ]
         assert view == [
             ("WRAP", "Wrapping"),
-            ("FREIGHT", "Freight (10%)"),
             ("WRAP", "Wrapping"),
-            ("FREIGHT", "Freight (10%)"),
+            ("FREIGHT", "Freight (estimate)"),
         ]
         wrap_rows = [row for row in result["line_pricing"] if row["part_number"] == "WRAP"]
         assert wrap_rows[0]["quantity"] == 198
@@ -759,7 +758,9 @@ class TestPortalEditKeepsPerDoorFreight:
 
         created = self._edit(portal, bc, [], [door_a, door_b], None, "delivery")
         packages = _packages(bc)
-        assert [group[-2:] for group in packages] == [["WRAP", "FREIGHT"], ["WRAP", "FREIGHT"]]
+        assert packages[0][-1] == "WRAP"
+        assert sum(n == "FREIGHT" for group in packages for n in group) == 1
+        assert packages[-1][-1] == "FREIGHT"
         assert _live_freight_total(bc) == round(_live_product_total(bc) * 0.10, 2)
         wrap_qty = [
             row.get("quantity")
@@ -771,7 +772,8 @@ class TestPortalEditKeepsPerDoorFreight:
         resized = self._edit(portal, bc, [door_a, door_b], [door_a, door_b_small], created["line_map"], "delivery")
         packages = _packages(bc)
         assert len(packages) == 2
-        assert [group[-2:] for group in packages] == [["WRAP", "FREIGHT"], ["WRAP", "FREIGHT"]]
+        assert packages[0][-1] == "WRAP"
+        assert sum(n == "FREIGHT" for group in packages for n in group) == 1
         assert _live_freight_total(bc) == round(_live_product_total(bc) * 0.10, 2)
         resized_wrap = [
             row.get("quantity")
@@ -780,9 +782,8 @@ class TestPortalEditKeepsPerDoorFreight:
         ]
         assert resized_wrap[0] == 198
         assert resized_wrap[1] != 452
-        # One freight share per door, not a single line for the whole quote.
-        assert sum(1 for n in packages[0] if n == "FREIGHT") == 1
-        assert sum(1 for n in packages[1] if n == "FREIGHT") == 1
+        assert sum(1 for n in packages[0] if n == "FREIGHT") == 0
+        assert packages[-1][-1] == "FREIGHT"
         assert resized["line_map"]["shared"]["freight"]
 
         removed = self._edit(portal, bc, [door_a, door_b_small], [door_b_small], resized["line_map"], "delivery")
@@ -794,7 +795,8 @@ class TestPortalEditKeepsPerDoorFreight:
         added = self._edit(portal, bc, [door_b_small], [door_b_small, door_c], removed["line_map"], "delivery")
         packages = _packages(bc)
         assert len(packages) == 2
-        assert [group[-2:] for group in packages] == [["WRAP", "FREIGHT"], ["WRAP", "FREIGHT"]]
+        assert packages[0][-1] == "WRAP"
+        assert sum(n == "FREIGHT" for group in packages for n in group) == 1
         assert _live_freight_total(bc) == round(_live_product_total(bc) * 0.10, 2)
         assert "WRAPALU" not in [n for group in packages for n in group]
         assert added["freight"]["amount"] == _live_freight_total(bc)
@@ -813,7 +815,7 @@ class TestPortalEditKeepsPerDoorFreight:
             "door_uid": "b",
         }
         created = self._edit(portal, bc, [], [door_a, door_b], None, "delivery")
-        assert [group[-1] for group in _packages(bc)] == ["FREIGHT", "FREIGHT"]
+        assert sum(n == "FREIGHT" for group in _packages(bc) for n in group) == 1
 
         self._edit(portal, bc, [door_a, door_b], [door_a, door_b], created["line_map"], "pickup")
         packages = _packages(bc)

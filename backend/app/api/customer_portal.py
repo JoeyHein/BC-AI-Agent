@@ -33,6 +33,19 @@ from app.services.freight_service import (
     sum_line_amounts,
 )
 from app.services.quote_line_layout import apply_quote_line_layout, line_needs_output
+from app.services.quote_adjustments import (
+    StaffAdjustmentError,
+    add_freight_estimate_note,
+    apply_freight_override,
+    freight_note_pricing_row,
+    is_freight_note_text,
+    line_price_override,
+    normalize_line_price_overrides,
+    parse_freight_amount,
+    parse_staff_price_overrides,
+    price_change_warnings,
+    snapshot_priced_items,
+)
 from app.services.install_pricing_service import install_pricing_service
 from app.services.saved_quote_title import quote_display_title, quote_matches_search
 from app.services.track_defaults import resolve_track_thickness
@@ -649,7 +662,7 @@ def duplicate_saved_quote(
         clone = dict(d)
         clone["door_uid"] = str(_uuid.uuid4())
         new_doors.append(clone)
-    new_data = {**src_data, "doors": new_doors}
+    new_data = _strip_customer_price_controls({**src_data, "doors": new_doors})
 
     new_name = source.name or "Untitled Quote"
     if not new_name.lower().startswith("copy of "):
@@ -778,6 +791,38 @@ def _format_door_description(door: dict) -> str:
 
 _EPHEMERAL_DOOR_KEYS = ("_touched", "explicitFields")
 
+# Customers can put anything in config_data. These names change what Business
+# Central is charged, so they are never stored and never read back from a
+# customer payload. Staff overrides live on SavedQuoteConfig.staff_price_adjustments.
+_CUSTOMER_PRICE_CONTROL_KEYS = frozenset({
+    "linePriceOverrides",
+    "freightAmount",
+    "line_price_overrides",
+    "freight_amount",
+})
+
+
+def _strip_customer_price_controls(config_data):
+    """Drop price and freight overrides from a customer-saved quote payload."""
+    if not isinstance(config_data, dict):
+        return config_data
+    data = {
+        key: value for key, value in config_data.items()
+        if key not in _CUSTOMER_PRICE_CONTROL_KEYS
+    }
+    doors = data.get("doors")
+    if isinstance(doors, list):
+        cleaned_doors = []
+        for door in doors:
+            if isinstance(door, dict):
+                door = {
+                    key: value for key, value in door.items()
+                    if key not in _CUSTOMER_PRICE_CONTROL_KEYS
+                }
+            cleaned_doors.append(door)
+        data["doors"] = cleaned_doors
+    return data
+
 
 def _strip_ephemeral_door_keys(config_data):
     """Drop configurator UI state before a door config is stored."""
@@ -792,7 +837,31 @@ def _strip_ephemeral_door_keys(config_data):
                 door = {key: value for key, value in door.items() if key not in _EPHEMERAL_DOOR_KEYS}
             cleaned.append(door)
         data["doors"] = cleaned
-    return data
+    return _strip_customer_price_controls(data)
+
+
+def customer_quote_adjustments(config) -> tuple:
+    """Price and freight overrides for a customer pricing run.
+
+    Only the staff-written column is read. Keys on config_data are ignored,
+    including a payload a customer just submitted.
+    """
+    raw = getattr(config, "staff_price_adjustments", None)
+    if not isinstance(raw, dict):
+        return [], None
+    try:
+        overrides = parse_staff_price_overrides(raw.get("linePriceOverrides"))
+        if "freightAmount" in raw:
+            freight_amount = parse_freight_amount(raw.get("freightAmount"))
+        else:
+            freight_amount = None
+    except StaffAdjustmentError:
+        logger.warning(
+            "Ignoring invalid staff price adjustments on saved quote %s",
+            getattr(config, "id", None),
+        )
+        return [], None
+    return overrides, freight_amount
 
 
 def _apply_portal_profile(db, bc_customer_id, doors, delivery_type, config_id):
@@ -984,6 +1053,8 @@ def _generate_bc_quote_with_items(
     po_number: Optional[str] = None,
     delivery_type: str = "delivery",
     customer_user_id: Optional[int] = None,
+    line_price_overrides=None,
+    freight_amount=None,
 ) -> Dict[str, Any]:
     """
     Create a BC sales quote with real item lines for all doors.
@@ -1231,11 +1302,11 @@ def _generate_bc_quote_with_items(
     logger.info(
         f"PRICING MODE: trust_bc=True, enable_volume_curve={enable_volume_curve}"
     )
+    staff_overrides = normalize_line_price_overrides(line_price_overrides)
 
-    # Delivery quotes charge freight. Home-builder (install) quotes do not.
-    # Off: one FREIGHT line under each door, immediately after WRAP.
-    # quote_line_layout_v2: one FREIGHT line at the very end, operators
-    # lifted out of the door packages, wrapping left inside each package.
+    # Delivery quotes charge one freight line for the whole order, after
+    # every door. Home-builder quotes do not. WRAP stays with its door.
+    # quote_line_layout_v2 still lifts operators out of the door packages.
     include_freight = (delivery_type or "").lower() != "pickup" and not provides_install
     freight_item = "FREIGHT"
     if include_freight and db:
@@ -1347,6 +1418,14 @@ def _generate_bc_quote_with_items(
                     logger.info(
                         f"PRICING [{part_num}]: trust BC SalesPriceLists "
                         f"(no portal-side override)"
+                    )
+                staff_price = line_price_override(staff_overrides, line)
+                if staff_price is not None:
+                    patch_data["unitPrice"] = staff_price
+                    tier_prices_by_line_id.pop(added_line.get("id"), None)
+                    logger.info(
+                        "PRICE OVERRIDE [%s]: $%.2f",
+                        line.get("part_number"), staff_price,
                     )
 
                 if patch_data:
@@ -1699,16 +1778,26 @@ def _generate_bc_quote_with_items(
                 if bc_cust and bc_cust.address:
                     customer_province = bc_cust.address.get("province")
 
-            freight = calculate_freight(
-                product_subtotal=pricing["subtotal"],
-                province=customer_province,
-                delivery_type=delivery_type,
-                db=db,
+            freight = apply_freight_override(
+                calculate_freight(
+                    product_subtotal=pricing["subtotal"],
+                    province=customer_province,
+                    delivery_type=delivery_type,
+                    db=db,
+                ),
+                freight_amount,
             )
             freight_info = freight
+            freight_added = False
+            if freight.get("skip") and door_freight_slots:
+                for slot in door_freight_slots:
+                    try:
+                        bc_client.delete_quote_line(bc_quote_id, slot["id"])
+                    except Exception as del_err:
+                        logger.warning(f"Could not drop waived freight line: {del_err}")
+                door_freight_slots = []
 
             if not freight["skip"] and freight["amount"] > 0 and door_freight_slots:
-                freight_added = False
                 try:
                     priced_lines = bc_client.get_quote_lines(bc_quote_id)
                 except Exception:
@@ -1802,6 +1891,24 @@ def _generate_bc_quote_with_items(
                         }
                     except Exception as refetch_err:
                         logger.warning(f"Could not re-fetch totals after freight: {refetch_err}")
+
+            if freight_added:
+                note = add_freight_estimate_note(bc_client, bc_quote_id)
+                if note:
+                    lines_added += 1
+                    _track_shared_line("freight", note)
+                try:
+                    updated_quote = bc_client.get_sales_quote(bc_quote_id)
+                    subtotal = updated_quote.get("totalAmountExcludingTax", 0)
+                    total_with_tax = updated_quote.get("totalAmountIncludingTax", 0)
+                    pricing = {
+                        "subtotal": round(subtotal, 2),
+                        "tax": round(total_with_tax - subtotal, 2),
+                        "total": round(total_with_tax, 2),
+                        "currency": "CAD",
+                    }
+                except Exception as refetch_err:
+                    logger.warning(f"Could not re-fetch totals after freight: {refetch_err}")
 
         except Exception as freight_err:
             logger.warning(f"Could not calculate/add freight: {freight_err}")
@@ -2094,7 +2201,9 @@ def _sweep_freight_lines(bc_quote_id: str, freight_item: str = "FREIGHT") -> int
         # Catch the comment-fallback variant too: descriptions added by the
         # fallback path begin with "Freight (".
         desc = (ln.get("description") or "").strip()
-        if ln.get("lineType") == "Comment" and desc.lower().startswith("freight ("):
+        if ln.get("lineType") == "Comment" and (
+            desc.lower().startswith("freight (") or is_freight_note_text(desc)
+        ):
             stale_ids.append(ln["id"])
     if stale_ids:
         deleted = _delete_bc_lines(bc_quote_id, stale_ids)
@@ -2163,13 +2272,9 @@ def _edit_bc_quote_lines(
     """
     Edit an existing BC sales quote, keeping the same quote id and number.
 
-    Any add, remove, resize, or reorder rebuilds every remaining door.
-    With the layout flag off the posted order stays
-    ``[door lines, WRAP, that door's FREIGHT]``. Business Central only
-    appends lines, so leaving unchanged doors in place and tacking one
-    freight line on the end would collapse the per-door split.
-    ``quote_line_layout_v2`` rebuilds the same way but posts
-    ``[every door package with its WRAP, then operators, then one FREIGHT]``.
+    Any add, remove, resize, or reorder rebuilds every remaining door and
+    posts one freight line after the last door. WRAP stays with its door.
+    ``quote_line_layout_v2`` also lifts operators out of the door packages.
     Pickup quotes are rebuilt without freight lines. A PO-only edit does not
     touch lines.
 
@@ -2184,6 +2289,11 @@ def _edit_bc_quote_lines(
                 "Please contact OPENDC support to finish setting up your account."
             ),
         )
+
+    if isinstance(new_config_data, dict):
+        new_config_data = _strip_customer_price_controls(new_config_data)
+    staff_overrides, freight_amount = customer_quote_adjustments(config)
+    previous_item_prices = []
 
     bc_quote_id = config.bc_quote_id
     bc_quote_number = config.bc_quote_number
@@ -2369,8 +2479,13 @@ def _edit_bc_quote_lines(
 
     if rebuild_all:
         # Delete every door's lines, then shared freight/install, then any
-        # freight the line map missed. Re-posting in door order is what keeps
-        # WRAP directly above that door's freight share.
+        # freight the line map missed. The rebuild posts one freight line
+        # after the last door. WRAP stays at the end of each door package.
+        try:
+            previous_item_prices = snapshot_priced_items(bc_client.get_quote_lines(bc_quote_id))
+        except Exception as snap_err:
+            logger.warning(f"Could not read prices before edit: {snap_err}")
+            previous_item_prices = []
         stale_ids: List[str] = []
         for ids in line_map["doors"].values():
             stale_ids.extend(ids)
@@ -2437,6 +2552,9 @@ def _edit_bc_quote_lines(
                 fixed_price = line.get("fixed_unit_price")
                 if fixed_price is not None:
                     patch_data["unitPrice"] = float(fixed_price)
+                staff_price = line_price_override(staff_overrides, line)
+                if staff_price is not None:
+                    patch_data["unitPrice"] = staff_price
                 if patch_data:
                     etag = added_line.get("@odata.etag", "*")
                     try:
@@ -2487,9 +2605,9 @@ def _edit_bc_quote_lines(
     except Exception as e:
         logger.warning(f"Could not fetch pricing after edit: {e}")
 
-    # ── Step 6: Price the per-door freight placeholders ─────────────────────
+    # ── Step 6: Price the single freight line at the bottom of the quote ──
     # Home-builder accounts get an installation line instead. Pickup quotes
-    # have no placeholders. A PO-only edit leaves the existing lines alone.
+    # have no placeholder. A PO-only edit leaves the existing lines alone.
     freight_info = None
     if rebuild_all and pricing and not provides_install:
         try:
@@ -2498,12 +2616,22 @@ def _edit_bc_quote_lines(
                 bc_cust = db.query(BCCustomer).filter(BCCustomer.bc_customer_id == bc_customer_id).first()
                 if bc_cust and bc_cust.address:
                     customer_province = bc_cust.address.get("province")
-            freight = calculate_freight(
-                product_subtotal=pricing["subtotal"],
-                province=customer_province,
-                delivery_type=delivery_type, db=db,
+            freight = apply_freight_override(
+                calculate_freight(
+                    product_subtotal=pricing["subtotal"],
+                    province=customer_province,
+                    delivery_type=delivery_type, db=db,
+                ),
+                freight_amount,
             )
             freight_info = freight
+            if freight.get("skip") and door_freight_slots:
+                for slot in door_freight_slots:
+                    try:
+                        bc_client.delete_quote_line(bc_quote_id, slot["id"])
+                    except Exception as del_err:
+                        logger.warning(f"Could not drop waived freight line: {del_err}")
+                door_freight_slots = []
             if door_freight_slots and not freight["skip"] and freight["amount"] > 0:
                 try:
                     priced_lines = bc_client.get_quote_lines(bc_quote_id)
@@ -2538,9 +2666,14 @@ def _edit_bc_quote_lines(
                     except Exception as patch_err:
                         logger.warning(f"Could not price door freight on edit: {patch_err}")
                         kept_ids.append(slot["id"])
+                if kept_ids:
+                    note = add_freight_estimate_note(bc_client, bc_quote_id)
+                    if note and note.get("id"):
+                        kept_ids.append(note["id"])
+                        lines_added += 1
                 line_map["shared"]["freight"] = kept_ids
         except Exception as freight_err:
-            logger.warning(f"Could not price per-door freight during edit: {freight_err}")
+            logger.warning(f"Could not price freight during edit: {freight_err}")
 
     # ── Step 7: Re-add install block for home builder customers ─────────────
     if customer_user_id:
@@ -2594,6 +2727,25 @@ def _edit_bc_quote_lines(
         f"lines_added={lines_added}"
     )
 
+    price_warnings = []
+    if rebuild_all and previous_item_prices:
+        try:
+            final_lines = bc_client.get_quote_lines(bc_quote_id)
+        except Exception:
+            final_lines = []
+        price_warnings = price_change_warnings(
+            previous_item_prices,
+            [
+                {
+                    "part_number": ln.get("lineObjectNumber"),
+                    "unit_price": ln.get("unitPrice"),
+                }
+                for ln in final_lines
+                if (ln.get("lineType") or "") == "Item"
+            ],
+            staff_overrides,
+        )
+
     return {
         "bc_quote_id": bc_quote_id,
         "bc_quote_number": bc_quote_number,
@@ -2604,6 +2756,7 @@ def _edit_bc_quote_lines(
         "door_results": door_results,
         "freight": freight_info,
         "diff": diff,
+        "price_override_warnings": price_warnings or None,
     }
 
 
@@ -2625,6 +2778,8 @@ def _estimate_pricing_locally(
     config_id: int,
     db: Session,
     delivery_type: str = "delivery",
+    line_price_overrides=None,
+    freight_amount=None,
 ) -> Dict[str, Any]:
     """
     Calculate pricing locally without creating a BC quote.
@@ -2636,6 +2791,7 @@ def _estimate_pricing_locally(
     door_results = []
     spring_inventory = get_bc_spring_inventory()
     price_overrides = _portal_price_overrides(db)
+    staff_overrides = normalize_line_price_overrides(line_price_overrides)
 
     for i, door in enumerate(doors):
         door_index = i + 1
@@ -2785,7 +2941,7 @@ def _estimate_pricing_locally(
         # WRAP stays inside the door. Freight placement follows the layout flag.
 
     # Warm the BC cost cache so pricing uses live production costs
-    all_lines, layout_v2 = apply_quote_line_layout(
+    all_lines, _layout_v2 = apply_quote_line_layout(
         all_lines,
         db=db,
         include_freight=(delivery_type or "").lower() != "pickup",
@@ -2816,7 +2972,10 @@ def _estimate_pricing_locally(
             # Same portal-fixed rate the BC quote paths PATCH onto the line.
             # Margin math on the WRAP card ($2.50 sell / ~$0.66 cost) is not
             # the wrapping price.
-            if line.get("fixed_unit_price") is not None:
+            staff_price = line_price_override(staff_overrides, line)
+            if staff_price is not None:
+                unit_price = staff_price
+            elif line.get("fixed_unit_price") is not None:
                 unit_price = float(line["fixed_unit_price"])
             else:
                 unit_price = calculate_selling_price(
@@ -2843,32 +3002,23 @@ def _estimate_pricing_locally(
     # Calculate freight for local estimate
     freight_info = None
     try:
-        freight = calculate_freight(
-            product_subtotal=subtotal,
-            province=None,  # No province for unlinked customers
-            delivery_type=delivery_type,
-            db=db,
+        freight = apply_freight_override(
+            calculate_freight(
+                product_subtotal=subtotal,
+                province=None,  # No province for unlinked customers
+                delivery_type=delivery_type,
+                db=db,
+            ),
+            freight_amount,
         )
         freight_info = freight
 
         if not freight["skip"] and freight["amount"] > 0:
-            if layout_v2:
-                # The single trailing freight line takes the whole charge.
-                # Per-door shares would price that one line as only the first door.
-                amounts = [freight["amount"]]
-            else:
-                door_subs = []
-                seen_door = False
-                for row in line_pricing:
-                    if row.get("line_type") == "Comment":
-                        door_subs.append(0.0)
-                        seen_door = True
-                    elif seen_door and row.get("part_number") != "FREIGHT":
-                        door_subs[-1] += row.get("line_total") or 0
-                amounts = allocate_freight_across_doors(door_subs, freight["amount"])
+            # One trailing freight line carries the whole charge.
             line_pricing = apply_freight_to_line_pricing(
-                line_pricing, amounts, freight["description"],
+                line_pricing, [freight["amount"]], freight["description"],
             )
+            line_pricing.append(freight_note_pricing_row())
             subtotal_with_freight = round(subtotal + freight["amount"], 2)
         else:
             line_pricing = [row for row in line_pricing if row.get("part_number") != "FREIGHT"]
@@ -2967,6 +3117,8 @@ def get_pricing_for_saved_quote(
                     po_number=(config.config_data or {}).get("poNumber"),
                     delivery_type=delivery_type,
                     customer_user_id=current_user.id,
+                    line_price_overrides=customer_quote_adjustments(config)[0],
+                    freight_amount=customer_quote_adjustments(config)[1],
                 )
 
             # Store BC quote reference (but NOT submitted)
@@ -2983,6 +3135,8 @@ def get_pricing_for_saved_quote(
                 config_id=config.id,
                 db=db,
                 delivery_type=delivery_type,
+                line_price_overrides=customer_quote_adjustments(config)[0],
+                freight_amount=customer_quote_adjustments(config)[1],
             )
 
         config.updated_at = datetime.utcnow()
@@ -3006,6 +3160,7 @@ def get_pricing_for_saved_quote(
             "line_pricing": result.get("line_pricing"),
             "door_results": result.get("door_results"),
             "freight": result.get("freight"),
+            "price_override_warnings": result.get("price_override_warnings"),
         }
 
     except HTTPException:
@@ -3130,6 +3285,8 @@ def refresh_pricing_for_saved_quote(
                     po_number=(config.config_data or {}).get("poNumber"),
                     delivery_type=delivery_type,
                     customer_user_id=current_user.id,
+                    line_price_overrides=customer_quote_adjustments(config)[0],
+                    freight_amount=customer_quote_adjustments(config)[1],
                 )
 
             config.bc_quote_id = result["bc_quote_id"]
@@ -3145,6 +3302,8 @@ def refresh_pricing_for_saved_quote(
                 config_id=config.id,
                 db=db,
                 delivery_type=delivery_type,
+                line_price_overrides=customer_quote_adjustments(config)[0],
+                freight_amount=customer_quote_adjustments(config)[1],
             )
 
         config.updated_at = datetime.utcnow()
@@ -3164,6 +3323,7 @@ def refresh_pricing_for_saved_quote(
             "line_pricing": result.get("line_pricing"),
             "door_results": result.get("door_results"),
             "freight": result.get("freight"),
+            "price_override_warnings": result.get("price_override_warnings"),
         }
 
     except HTTPException:
@@ -3228,6 +3388,9 @@ def submit_saved_quote(
                 db=db,
                 po_number=(config.config_data or {}).get("poNumber"),
                 customer_user_id=current_user.id,
+                delivery_type=(config.config_data or {}).get("deliveryType", "delivery"),
+                line_price_overrides=customer_quote_adjustments(config)[0],
+                freight_amount=customer_quote_adjustments(config)[1],
             )
 
             config.bc_quote_id = result["bc_quote_id"]

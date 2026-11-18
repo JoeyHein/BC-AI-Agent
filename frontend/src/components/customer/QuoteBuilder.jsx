@@ -3166,7 +3166,7 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
               </label>
             </div>
             {deliveryType === 'delivery' && (
-              <p className="mt-1 text-xs text-gray-400 italic">Freight is estimated. Actual shipping costs may vary based on order volume and destination.</p>
+              <p className="mt-1 text-xs text-gray-400 italic">Freight is an estimate. If the actual shipping cost comes in higher, the difference will be added to the invoice.</p>
             )}
             {errors.delivery && <p className="mt-1 text-sm text-red-600">{errors.delivery}</p>}
           </div>
@@ -3372,6 +3372,7 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
           linesFailed={pricingData.lines_failed}
           bcQuoteNumber={pricingData.bc_quote_number}
           doorResults={pricingData.door_results}
+          priceWarnings={pricingData.price_override_warnings}
         />
       )}
 

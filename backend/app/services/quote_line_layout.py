@@ -1,21 +1,21 @@
 """Quote line order and subtotal check marks.
 
-Off (the default) keeps today's quote: a FREIGHT line under each door,
-immediately after that door's WRAP, and every operator-category line —
-including the chain or belt rail — gets BC's Output check mark, which
-starts a new subtotal group.
+Every delivery quote gets exactly one FREIGHT line, after every door
+package. WRAP stays with its door. The freight line is labeled
+``Freight (estimate)``; the quote builder adds the estimate comment
+after it is priced.
 
-``quote_line_layout_v2`` (AppSettings, missing row is off) posts:
+Off (the default) leaves operators inside the door they were built for.
+Every operator-category line — including the chain or belt rail — gets
+BC's Output check mark, which starts a new subtotal group.
 
-* one WRAP line inside each door package, after that package's parts, so
-  the package subtotal includes wrapping (subtotal / door quantity is the
-  per-door price);
-* operators and their add-ons after every door package, outside those
-  subtotals, with no wrapping of their own;
-* a chain or belt rail (7', 8', 10', and the same shape at other lengths)
-  directly under its operator head, without its own check mark, so the
-  two share one operator subtotal;
-* exactly one FREIGHT line, and it is the last line on the quote.
+``quote_line_layout_v2`` (AppSettings, missing row is off) also:
+
+* keeps one WRAP line inside each door package, after that package's
+  parts, so the package subtotal includes wrapping;
+* lifts operators and their add-ons out to after every door package;
+* puts a chain or belt rail directly under its operator head, without
+  its own check mark, so the two share one operator subtotal.
 """
 from __future__ import annotations
 
@@ -115,9 +115,9 @@ def set_quote_line_layout_v2(db: Session, enabled: bool, user_id: Optional[int] 
             setting_key=QUOTE_LINE_LAYOUT_V2,
             setting_value=mode,
             description=(
-                "Quote line layout v2. Off keeps per-door freight. "
-                "On posts one trailing freight line, keeps wrapping inside "
-                "each door subtotal, and groups a chain rail with its operator."
+                "Quote line layout v2. Freight is one trailing line either way. "
+                "On also keeps wrapping inside each door subtotal and groups "
+                "a chain rail with its operator."
             ),
             updated_by=user_id,
         )
@@ -231,10 +231,11 @@ def group_operator_with_rails(lines: list) -> list:
 
 
 def _quote_freight_line(freight_item: str) -> dict:
+    from app.services.quote_adjustments import FREIGHT_ESTIMATE_LABEL
     return {
         "lineType": "Item",
         "part_number": freight_item or "FREIGHT",
-        "description": "Freight",
+        "description": FREIGHT_ESTIMATE_LABEL,
         "quantity": 1,
         "category": "freight",
         # Not a door line. One slot still receives the full quote freight
@@ -243,6 +244,13 @@ def _quote_freight_line(freight_item: str) -> dict:
         "is_door_freight": True,
         "fixed_unit_price": 0,
     }
+
+
+def _without_freight(lines: list, freight_item: str) -> list:
+    return [
+        line for line in lines
+        if not _is_freight_placeholder(line, freight_item) and not line.get("is_freight_note")
+    ]
 
 
 def arrange_quote_lines(
@@ -254,17 +262,17 @@ def arrange_quote_lines(
 ) -> list:
     """Return the lines in post order.
 
-    Flag off delegates to the per-door freight interleave. Flag on lifts
-    operator add-ons out of each package, leaves one WRAP at the end of the
-    package, and appends a single freight line when this quote charges freight.
+    Both flags post one freight line after every door. Flag on also lifts
+    operator add-ons out of each package and leaves one WRAP at the end of
+    the package. Flag off keeps the door order it was given, including WRAP.
     """
     if not lines:
         return []
     if not layout_v2:
-        if not include_freight:
-            return list(lines)
-        from app.services.freight_service import interleave_door_freight
-        return interleave_door_freight(lines, freight_item)
+        ordered = _without_freight(lines, freight_item)
+        if include_freight:
+            ordered.append(_quote_freight_line(freight_item))
+        return ordered
 
     preamble = []
     packages = []
@@ -313,7 +321,7 @@ def apply_quote_line_layout(
     """Arrange ``lines`` for the current flag. Returns ``(lines, layout_v2)``."""
     enabled = quote_line_layout_v2_enabled(db)
     if enabled:
-        logger.info("Quote line layout v2: one trailing freight line, wrap inside each door")
+        logger.info("Quote line layout v2: operators follow the doors, wrap inside each door")
     return (
         arrange_quote_lines(
             lines,
