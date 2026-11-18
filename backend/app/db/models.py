@@ -1108,6 +1108,12 @@ class SavedQuoteConfig(Base):
     # keeping the BC quote number stable.
     bc_line_map = Column(MutableDict.as_mutable(JSON), nullable=True)
 
+    # Staff-only price and freight overrides. Customer save/update payloads
+    # cannot write this column. Shape:
+    #   {"linePriceOverrides": [{"partNumber", "unitPrice", "doorIndex"}],
+    #    "freightAmount": 12.50 or null}
+    staff_price_adjustments = Column(MutableDict.as_mutable(JSON), nullable=True)
+
     # Who generated the BC quote from the door configurator. Distinct from
     # user_id, which is the customer-portal account that owns the draft.
     # Populated even when External Document No. is a customer PO.

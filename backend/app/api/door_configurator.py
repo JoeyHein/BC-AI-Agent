@@ -6,7 +6,7 @@ Based on Upwardor brochure specifications (Residential 2025 & Commercial 2023)
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, List, Dict, Any, Tuple
 import logging
 import re
@@ -32,6 +32,7 @@ from app.services.freight_service import (
 )
 from app.services.quote_line_layout import apply_quote_line_layout, line_needs_output
 from app.services.quote_adjustments import (
+    StaffAdjustmentError,
     add_freight_estimate_note,
     apply_freight_override,
     below_cost_warnings,
@@ -39,7 +40,8 @@ from app.services.quote_adjustments import (
     freight_total_from_lines,
     line_price_override,
     mark_overridden_prices,
-    normalize_line_price_overrides,
+    parse_freight_amount,
+    parse_staff_price_overrides,
     preview_part_prices,
     price_change_warnings,
     redact_preview_prices,
@@ -848,7 +850,7 @@ class DoorConfigRequest(BaseModel):
 
 class LinePriceOverride(BaseModel):
     partNumber: str
-    unitPrice: float
+    unitPrice: float = Field(ge=0)
     doorIndex: Optional[int] = None
 
 
@@ -880,8 +882,8 @@ class QuoteGenerationRequest(BaseModel):
     # Staff unit-price overrides. doorIndex omitted applies to every line
     # with that part number. Sent again on regenerate so they are not dropped.
     linePriceOverrides: Optional[List[LinePriceOverride]] = None
-    # None uses the province freight rule. A number replaces that amount.
-    freightAmount: Optional[float] = None
+    # None uses the province freight rule. Zero waives freight. Negative is rejected.
+    freightAmount: Optional[float] = Field(default=None, ge=0)
 
 
 class DoorCalculationRequest(BaseModel):
@@ -1670,6 +1672,59 @@ def _get_home_builder_user(customer_id: Optional[str], db: Session):
     ).first()
 
 
+def _authorize_staff_adjustments(request: QuoteGenerationRequest, user: Optional[User]) -> tuple:
+    """Validate staff overrides and require pricing.edit when any are present.
+
+    Zero is allowed. Negative and non-numeric values are 422. A caller who
+    cannot edit pricing gets 403 rather than a silently ignored override.
+    """
+    try:
+        overrides = parse_staff_price_overrides(request.linePriceOverrides)
+        freight_amount = parse_freight_amount(request.freightAmount)
+    except StaffAdjustmentError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if overrides or freight_amount is not None:
+        if user is None or not has_permission(user, "pricing.edit"):
+            raise HTTPException(
+                status_code=403,
+                detail="Pricing edit permission is required to override a quote price or freight amount",
+            )
+    return overrides, freight_amount
+
+
+def _store_staff_adjustments(db, bc_quote_id: Optional[str], overrides, freight_amount, requested: bool) -> None:
+    """Write overrides onto the saved-quote row customers cannot update.
+
+    No matching portal draft is fine: the configurator quote still carries
+    the prices on the Business Central lines from this request.
+    """
+    if not requested or db is None or not bc_quote_id:
+        return
+    payload = None
+    if overrides or freight_amount is not None:
+        payload = {
+            "linePriceOverrides": [
+                {
+                    "partNumber": row["part_number"],
+                    "unitPrice": row["unit_price"],
+                    "doorIndex": row["door_index"],
+                }
+                for row in overrides
+            ],
+            "freightAmount": freight_amount,
+        }
+    try:
+        from app.db.models import SavedQuoteConfig
+        rows = db.query(SavedQuoteConfig).filter(
+            SavedQuoteConfig.bc_quote_id == bc_quote_id
+        ).all()
+    except Exception:
+        logger.warning("Could not store staff price adjustments for %s", bc_quote_id, exc_info=True)
+        return
+    for row in rows:
+        row.staff_price_adjustments = payload
+
+
 def build_bc_quote_from_doors(
     request: QuoteGenerationRequest,
     db: Session,
@@ -1689,6 +1744,7 @@ def build_bc_quote_from_doors(
     BC, etc.) and on unexpected errors; non-HTTP callers (e.g. the email
     monitor) must catch these and route to manual review.
     """
+    staff_line_overrides, freight_override = _authorize_staff_adjustments(request, user)
     try:
         # Customer profile fills fields the request left at the system
         # default. Off does nothing. Shadow records the result on the
@@ -1993,7 +2049,6 @@ def build_bc_quote_from_doors(
         # create a fresh one. Reuse keeps the BC quote number stable across
         # successive "Generate Quote" presses on the configurator.
         previous_item_prices = []
-        price_overrides = normalize_line_price_overrides(request.linePriceOverrides)
         if request.bcQuoteId:
             try:
                 existing = bc_client.get_sales_quote(request.bcQuoteId)
@@ -2167,7 +2222,7 @@ def build_bc_quote_from_doors(
                         f"PRICING [{part_num}]: trust BC SalesPriceLists "
                         f"(no portal-side override)"
                     )
-                staff_price = line_price_override(price_overrides, line)
+                staff_price = line_price_override(staff_line_overrides, line)
                 if staff_price is not None and added_line.get("id"):
                     try:
                         bc_client.update_quote_line(
@@ -2386,10 +2441,17 @@ def build_bc_quote_from_doors(
                         delivery_type=request.deliveryType,
                         db=db,
                     ),
-                    request.freightAmount,
+                    freight_override,
                 )
                 freight_info = freight
                 freight_added = False
+                if freight.get("skip") and door_freight_slots:
+                    for slot in door_freight_slots:
+                        try:
+                            bc_client.delete_quote_line(bc_quote_id, slot["id"])
+                        except Exception as del_err:
+                            logger.warning(f"Could not drop waived freight line: {del_err}")
+                    door_freight_slots = []
 
                 if not freight["skip"] and freight["amount"] > 0 and door_freight_slots:
                     # One placeholder at the bottom of the quote. It receives
@@ -2612,11 +2674,11 @@ def build_bc_quote_from_doors(
         manual_entry_required = [
             w for w in part_warnings if w.get("manual_entry_required")
         ]
-        mark_overridden_prices(line_pricing, price_overrides)
+        mark_overridden_prices(line_pricing, staff_line_overrides)
         cost_warnings = below_cost_warnings(line_pricing)
-        dropped_overrides = dropped_price_overrides(price_overrides, all_lines)
+        dropped_overrides = dropped_price_overrides(staff_line_overrides, all_lines)
         regenerate_warnings = price_change_warnings(
-            previous_item_prices, line_pricing, price_overrides,
+            previous_item_prices, line_pricing, staff_line_overrides,
         )
         payload = {
             "success": True,
@@ -2658,10 +2720,19 @@ def build_bc_quote_from_doors(
         if profile_mode != "off":
             payload["data"]["field_sources"] = profile_sources
             payload["data"]["deviations"] = profile_deviations or None
+        _store_staff_adjustments(
+            db,
+            bc_quote_id,
+            staff_line_overrides,
+            freight_override,
+            requested=bool(staff_line_overrides) or freight_override is not None,
+        )
         if user is not None:
             return redact_configurator_quote(user, payload)
         return payload
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error generating BC quote: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

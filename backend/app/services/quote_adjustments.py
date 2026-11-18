@@ -22,6 +22,70 @@ def is_freight_note_text(description: Optional[str]) -> bool:
     return (description or "").strip().lower().startswith("freight is an estimate")
 
 
+class StaffAdjustmentError(ValueError):
+    """A staff price or freight override that cannot be applied."""
+
+
+def _non_negative_money(value, field_name: str) -> float:
+    """Zero is allowed. Negative, blank, and non-numeric values are not."""
+    if isinstance(value, bool) or value is None:
+        raise StaffAdjustmentError(f"{field_name} must be a number zero or greater")
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            raise StaffAdjustmentError(f"{field_name} must be a number zero or greater")
+        value = text
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise StaffAdjustmentError(f"{field_name} must be a number zero or greater")
+    if number != number or number in (float("inf"), float("-inf")) or number < 0:
+        raise StaffAdjustmentError(f"{field_name} must be a number zero or greater")
+    return round(number, 2)
+
+
+def parse_staff_price_overrides(raw) -> list:
+    """Strict parse for a staff request. None means no overrides."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise StaffAdjustmentError("linePriceOverrides must be a list")
+    rows = []
+    for item in raw:
+        if hasattr(item, "model_dump"):
+            item = item.model_dump()
+        if not isinstance(item, dict):
+            raise StaffAdjustmentError("each price override must be an object")
+        part = item.get("part_number") or item.get("partNumber")
+        if not str(part or "").strip():
+            raise StaffAdjustmentError("each price override needs a part number")
+        price = item.get("unit_price")
+        if price is None:
+            price = item.get("unitPrice")
+        price = _non_negative_money(price, "unitPrice")
+        door = item.get("door_index")
+        if door is None:
+            door = item.get("doorIndex")
+        if door is not None:
+            try:
+                door = int(door)
+            except (TypeError, ValueError):
+                raise StaffAdjustmentError("doorIndex must be a whole number")
+        rows.append({
+            "part_number": str(part).strip(),
+            "unit_price": price,
+            "door_index": door,
+        })
+    return rows
+
+
+def parse_freight_amount(value):
+    """None means use the province rule. Zero waives freight. Negatives are rejected."""
+    if value is None:
+        return None
+    return _non_negative_money(value, "freightAmount")
+
+
 def normalize_line_price_overrides(raw) -> list:
     """Accept pydantic models or dicts. ``door_index`` None applies to every door."""
     if not raw:

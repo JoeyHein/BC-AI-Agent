@@ -6,6 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
+from pydantic import ValidationError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -157,7 +159,15 @@ def _install(monkeypatch):
     return door_config
 
 
-def _build(monkeypatch, bc, db=None, **request):
+def _pricing_editor():
+    return SimpleNamespace(role="admin", user_type="INTERNAL")
+
+
+def _configurator_user():
+    return SimpleNamespace(role="configurator", user_type="INTERNAL")
+
+
+def _build(monkeypatch, bc, db=None, user=None, **request):
     door_config = _install(monkeypatch)
     monkeypatch.setattr(door_config, "bc_client", bc)
     doors = request.pop("doors", [_tx450()])
@@ -169,6 +179,7 @@ def _build(monkeypatch, bc, db=None, **request):
         ),
         db=db,
         source="admin",
+        user=user if user is not None else _pricing_editor(),
     )
     assert result["success"] is True, result
     return result
@@ -185,6 +196,7 @@ def _build_with_db(monkeypatch, bc, db, **request):
         ),
         db=db,
         source="admin",
+        user=_pricing_editor(),
     )
     assert result["success"] is True, result
     return result
@@ -362,6 +374,152 @@ def test_price_change_warning_stays_quiet_when_the_override_is_sent():
         [{"part_number": "SP12-00231-00", "unit_price": 28.30, "door_index": None}],
     )
     assert warnings == []
+
+
+class TestCustomerCannotSetPrices:
+    def test_saved_payload_drops_price_and_freight_keys(self):
+        from app.api.customer_portal import _strip_ephemeral_door_keys
+
+        cleaned = _strip_ephemeral_door_keys({
+            "deliveryType": "delivery",
+            "linePriceOverrides": [{"partNumber": "WRAP", "unitPrice": 0.01}],
+            "freightAmount": 0,
+            "line_price_overrides": [{"part_number": "WRAP", "unit_price": 0.01}],
+            "freight_amount": 0,
+            "doors": [{
+                "doorType": "commercial",
+                "freightAmount": 0,
+                "linePriceOverrides": [{"partNumber": "WRAP", "unitPrice": 0.01}],
+            }],
+        })
+        assert cleaned["deliveryType"] == "delivery"
+        for key in ("linePriceOverrides", "freightAmount", "line_price_overrides", "freight_amount"):
+            assert key not in cleaned
+            assert key not in cleaned["doors"][0]
+
+    def test_config_data_overrides_are_ignored(self):
+        from app.api.customer_portal import customer_quote_adjustments
+
+        config = SimpleNamespace(
+            id=9,
+            config_data={
+                "linePriceOverrides": [{"partNumber": "WRAP", "unitPrice": 0.01}],
+                "freightAmount": 0,
+            },
+            staff_price_adjustments=None,
+        )
+        assert customer_quote_adjustments(config) == ([], None)
+
+    def test_staff_column_is_applied(self):
+        from app.api.customer_portal import customer_quote_adjustments
+
+        config = SimpleNamespace(
+            id=9,
+            config_data={"freightAmount": 0, "linePriceOverrides": [{"partNumber": "WRAP", "unitPrice": 0.01}]},
+            staff_price_adjustments={
+                "linePriceOverrides": [{"partNumber": "WRAP", "unitPrice": 28.30}],
+                "freightAmount": 12,
+            },
+        )
+        overrides, freight_amount = customer_quote_adjustments(config)
+        assert freight_amount == 12.0
+        assert overrides == [{
+            "part_number": "WRAP",
+            "unit_price": 28.30,
+            "door_index": None,
+        }]
+
+    def test_edit_ignores_customer_payload_prices(self, monkeypatch):
+        import app.api.customer_portal as portal
+
+        monkeypatch.setattr(portal, "get_bc_spring_inventory", lambda: {})
+        monkeypatch.setattr(
+            portal, "calculate_freight",
+            lambda *args, **kwargs: {
+                "skip": False, "amount": 40.0, "rate": 9.0, "description": "Freight (9.0%)",
+            },
+        )
+        bc = _RecordingBC()
+        monkeypatch.setattr(portal, "bc_client", bc)
+        config = SimpleNamespace(
+            id=None,
+            bc_quote_id="quote-1",
+            bc_quote_number="SQ-000001",
+            config_data={"doors": []},
+            bc_line_map=None,
+            staff_price_adjustments=None,
+        )
+        portal._edit_bc_quote_lines(
+            config,
+            {
+                "doors": [_tx450()],
+                "deliveryType": "delivery",
+                "linePriceOverrides": [{"partNumber": "WRAP", "unitPrice": 0.01}],
+                "freightAmount": 0,
+            },
+            bc_customer_id="C-1",
+            pricing_tier="retail",
+            db=_CustomerDB(None),
+            customer_user_id=None,
+            delivery_type="delivery",
+        )
+        wrap = next(row for row in bc.added if row.get("lineObjectNumber") == "WRAP")
+        freight = _freight_item(bc)
+        assert _prices(bc)[wrap["id"]] == 0.95
+        assert _prices(bc)[freight["id"]] == 40.0
+
+
+class TestStaffOverrideGate:
+    def test_negative_amounts_are_rejected(self):
+        with pytest.raises(ValidationError):
+            QuoteGenerationRequest(
+                doors=[DoorConfigRequest(**_tx450())],
+                freightAmount=-1,
+            )
+        with pytest.raises(ValidationError):
+            LinePriceOverride(partNumber="WRAP", unitPrice=-0.01)
+
+    def test_non_numeric_freight_is_rejected_on_the_request(self):
+        with pytest.raises(ValidationError):
+            QuoteGenerationRequest(
+                doors=[DoorConfigRequest(**_tx450())],
+                freightAmount="nope",
+            )
+
+    def test_constructed_negative_freight_is_422(self, monkeypatch):
+        door_config = _install(monkeypatch)
+        monkeypatch.setattr(door_config, "bc_client", _RecordingBC())
+        request = QuoteGenerationRequest.model_construct(
+            doors=[DoorConfigRequest(**_tx450())],
+            deliveryType="delivery",
+            freightAmount=-4,
+            linePriceOverrides=None,
+        )
+        with pytest.raises(HTTPException) as caught:
+            build_bc_quote_from_doors(request, db=None, user=_pricing_editor())
+        assert caught.value.status_code == 422
+
+    def test_configurator_without_pricing_edit_cannot_override(self, monkeypatch):
+        door_config = _install(monkeypatch)
+        monkeypatch.setattr(door_config, "bc_client", _RecordingBC())
+        with pytest.raises(HTTPException) as caught:
+            build_bc_quote_from_doors(
+                QuoteGenerationRequest(
+                    doors=[DoorConfigRequest(**_tx450())],
+                    freightAmount=0,
+                    linePriceOverrides=[LinePriceOverride(partNumber="WRAP", unitPrice=0.01)],
+                ),
+                db=None,
+                user=_configurator_user(),
+            )
+        assert caught.value.status_code == 403
+
+    def test_pricing_edit_can_waive_freight_with_zero(self, monkeypatch):
+        bc = _RecordingBC()
+        result = _build(monkeypatch, bc, db=_CustomerDB(None), freightAmount=0)
+        assert result["data"]["freight"]["amount"] == 0
+        assert result["data"]["freight"]["skip"] is True
+        assert not any(row.get("lineObjectNumber") == "FREIGHT" and _prices(bc).get(row["id"], 0) > 0 for row in bc.added)
 
 
 def test_price_change_warning_when_the_part_disappears():

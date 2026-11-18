@@ -4143,7 +4143,7 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
 
       <FreightEstimatePanel doors={doors} />
 
-      {seeSellingPrices && (
+      {seeCost && (
         <QuotePriceEditor
           partsData={partsData}
           loadingParts={loadingParts}
@@ -4167,7 +4167,7 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
         </div>
       )}
       <button
-        onClick={() => onGenerateQuote(collectQuoteExtras(partsData, priceEdits, freightAmountInput, loadedAdjustments))}
+        onClick={() => onGenerateQuote(seeCost ? collectQuoteExtras(partsData, priceEdits, freightAmountInput, loadedAdjustments) : undefined)}
         disabled={isGenerating || !selectedCustomer || dimensionErrors.length > 0}
         className="w-full inline-flex justify-center items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-odc-600 hover:bg-odc-700 disabled:opacity-50 disabled:cursor-not-allowed"
       >
@@ -4196,7 +4196,7 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
             <p className="text-sm text-red-800">{generateError}</p>
           </div>
           <button
-            onClick={() => onForceGenerate(collectQuoteExtras(partsData, priceEdits, freightAmountInput, loadedAdjustments))}
+            onClick={() => onForceGenerate(seeCost ? collectQuoteExtras(partsData, priceEdits, freightAmountInput, loadedAdjustments) : undefined)}
             className="w-full inline-flex justify-center items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-800 bg-white hover:bg-red-100"
           >
             Generate anyway — flag unresolved parts as comments in BC

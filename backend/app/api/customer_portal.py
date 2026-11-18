@@ -34,12 +34,15 @@ from app.services.freight_service import (
 )
 from app.services.quote_line_layout import apply_quote_line_layout, line_needs_output
 from app.services.quote_adjustments import (
+    StaffAdjustmentError,
     add_freight_estimate_note,
     apply_freight_override,
     freight_note_pricing_row,
     is_freight_note_text,
     line_price_override,
     normalize_line_price_overrides,
+    parse_freight_amount,
+    parse_staff_price_overrides,
     price_change_warnings,
     snapshot_priced_items,
 )
@@ -659,7 +662,7 @@ def duplicate_saved_quote(
         clone = dict(d)
         clone["door_uid"] = str(_uuid.uuid4())
         new_doors.append(clone)
-    new_data = {**src_data, "doors": new_doors}
+    new_data = _strip_customer_price_controls({**src_data, "doors": new_doors})
 
     new_name = source.name or "Untitled Quote"
     if not new_name.lower().startswith("copy of "):
@@ -788,6 +791,38 @@ def _format_door_description(door: dict) -> str:
 
 _EPHEMERAL_DOOR_KEYS = ("_touched", "explicitFields")
 
+# Customers can put anything in config_data. These names change what Business
+# Central is charged, so they are never stored and never read back from a
+# customer payload. Staff overrides live on SavedQuoteConfig.staff_price_adjustments.
+_CUSTOMER_PRICE_CONTROL_KEYS = frozenset({
+    "linePriceOverrides",
+    "freightAmount",
+    "line_price_overrides",
+    "freight_amount",
+})
+
+
+def _strip_customer_price_controls(config_data):
+    """Drop price and freight overrides from a customer-saved quote payload."""
+    if not isinstance(config_data, dict):
+        return config_data
+    data = {
+        key: value for key, value in config_data.items()
+        if key not in _CUSTOMER_PRICE_CONTROL_KEYS
+    }
+    doors = data.get("doors")
+    if isinstance(doors, list):
+        cleaned_doors = []
+        for door in doors:
+            if isinstance(door, dict):
+                door = {
+                    key: value for key, value in door.items()
+                    if key not in _CUSTOMER_PRICE_CONTROL_KEYS
+                }
+            cleaned_doors.append(door)
+        data["doors"] = cleaned_doors
+    return data
+
 
 def _strip_ephemeral_door_keys(config_data):
     """Drop configurator UI state before a door config is stored."""
@@ -802,7 +837,31 @@ def _strip_ephemeral_door_keys(config_data):
                 door = {key: value for key, value in door.items() if key not in _EPHEMERAL_DOOR_KEYS}
             cleaned.append(door)
         data["doors"] = cleaned
-    return data
+    return _strip_customer_price_controls(data)
+
+
+def customer_quote_adjustments(config) -> tuple:
+    """Price and freight overrides for a customer pricing run.
+
+    Only the staff-written column is read. Keys on config_data are ignored,
+    including a payload a customer just submitted.
+    """
+    raw = getattr(config, "staff_price_adjustments", None)
+    if not isinstance(raw, dict):
+        return [], None
+    try:
+        overrides = parse_staff_price_overrides(raw.get("linePriceOverrides"))
+        if "freightAmount" in raw:
+            freight_amount = parse_freight_amount(raw.get("freightAmount"))
+        else:
+            freight_amount = None
+    except StaffAdjustmentError:
+        logger.warning(
+            "Ignoring invalid staff price adjustments on saved quote %s",
+            getattr(config, "id", None),
+        )
+        return [], None
+    return overrides, freight_amount
 
 
 def _apply_portal_profile(db, bc_customer_id, doors, delivery_type, config_id):
@@ -983,14 +1042,6 @@ def _equalize_cone_prices(bc_quote_id: str) -> None:
                     logger.warning(
                         f"Failed to equalize cone price for {line.get('lineObjectNumber')}: {e}"
                     )
-
-
-def _staff_quote_adjustments(config_data) -> tuple:
-    """Line-price overrides and a manual freight amount stored on a saved quote."""
-    if not isinstance(config_data, dict):
-        return [], None
-    freight_amount = config_data.get("freightAmount") if "freightAmount" in config_data else None
-    return normalize_line_price_overrides(config_data.get("linePriceOverrides")), freight_amount
 
 
 def _generate_bc_quote_with_items(
@@ -1738,6 +1789,13 @@ def _generate_bc_quote_with_items(
             )
             freight_info = freight
             freight_added = False
+            if freight.get("skip") and door_freight_slots:
+                for slot in door_freight_slots:
+                    try:
+                        bc_client.delete_quote_line(bc_quote_id, slot["id"])
+                    except Exception as del_err:
+                        logger.warning(f"Could not drop waived freight line: {del_err}")
+                door_freight_slots = []
 
             if not freight["skip"] and freight["amount"] > 0 and door_freight_slots:
                 try:
@@ -2232,7 +2290,9 @@ def _edit_bc_quote_lines(
             ),
         )
 
-    staff_overrides, freight_amount = _staff_quote_adjustments(new_config_data)
+    if isinstance(new_config_data, dict):
+        new_config_data = _strip_customer_price_controls(new_config_data)
+    staff_overrides, freight_amount = customer_quote_adjustments(config)
     previous_item_prices = []
 
     bc_quote_id = config.bc_quote_id
@@ -2565,6 +2625,13 @@ def _edit_bc_quote_lines(
                 freight_amount,
             )
             freight_info = freight
+            if freight.get("skip") and door_freight_slots:
+                for slot in door_freight_slots:
+                    try:
+                        bc_client.delete_quote_line(bc_quote_id, slot["id"])
+                    except Exception as del_err:
+                        logger.warning(f"Could not drop waived freight line: {del_err}")
+                door_freight_slots = []
             if door_freight_slots and not freight["skip"] and freight["amount"] > 0:
                 try:
                     priced_lines = bc_client.get_quote_lines(bc_quote_id)
@@ -3050,8 +3117,8 @@ def get_pricing_for_saved_quote(
                     po_number=(config.config_data or {}).get("poNumber"),
                     delivery_type=delivery_type,
                     customer_user_id=current_user.id,
-                    line_price_overrides=(config.config_data or {}).get("linePriceOverrides"),
-                    freight_amount=(config.config_data or {}).get("freightAmount"),
+                    line_price_overrides=customer_quote_adjustments(config)[0],
+                    freight_amount=customer_quote_adjustments(config)[1],
                 )
 
             # Store BC quote reference (but NOT submitted)
@@ -3068,8 +3135,8 @@ def get_pricing_for_saved_quote(
                 config_id=config.id,
                 db=db,
                 delivery_type=delivery_type,
-                line_price_overrides=(config.config_data or {}).get("linePriceOverrides"),
-                freight_amount=(config.config_data or {}).get("freightAmount"),
+                line_price_overrides=customer_quote_adjustments(config)[0],
+                freight_amount=customer_quote_adjustments(config)[1],
             )
 
         config.updated_at = datetime.utcnow()
@@ -3218,8 +3285,8 @@ def refresh_pricing_for_saved_quote(
                     po_number=(config.config_data or {}).get("poNumber"),
                     delivery_type=delivery_type,
                     customer_user_id=current_user.id,
-                    line_price_overrides=(config.config_data or {}).get("linePriceOverrides"),
-                    freight_amount=(config.config_data or {}).get("freightAmount"),
+                    line_price_overrides=customer_quote_adjustments(config)[0],
+                    freight_amount=customer_quote_adjustments(config)[1],
                 )
 
             config.bc_quote_id = result["bc_quote_id"]
@@ -3235,8 +3302,8 @@ def refresh_pricing_for_saved_quote(
                 config_id=config.id,
                 db=db,
                 delivery_type=delivery_type,
-                line_price_overrides=(config.config_data or {}).get("linePriceOverrides"),
-                freight_amount=(config.config_data or {}).get("freightAmount"),
+                line_price_overrides=customer_quote_adjustments(config)[0],
+                freight_amount=customer_quote_adjustments(config)[1],
             )
 
         config.updated_at = datetime.utcnow()
@@ -3322,8 +3389,8 @@ def submit_saved_quote(
                 po_number=(config.config_data or {}).get("poNumber"),
                 customer_user_id=current_user.id,
                 delivery_type=(config.config_data or {}).get("deliveryType", "delivery"),
-                line_price_overrides=(config.config_data or {}).get("linePriceOverrides"),
-                freight_amount=(config.config_data or {}).get("freightAmount"),
+                line_price_overrides=customer_quote_adjustments(config)[0],
+                freight_amount=customer_quote_adjustments(config)[1],
             )
 
             config.bc_quote_id = result["bc_quote_id"]
