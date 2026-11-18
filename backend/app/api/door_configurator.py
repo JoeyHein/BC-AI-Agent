@@ -1718,11 +1718,21 @@ def _store_staff_adjustments(db, bc_quote_id: Optional[str], overrides, freight_
         rows = db.query(SavedQuoteConfig).filter(
             SavedQuoteConfig.bc_quote_id == bc_quote_id
         ).all()
+        for row in rows:
+            row.staff_price_adjustments = payload
+        # get_db() does not commit. Without this the assignment is rolled
+        # back when the request session closes.
+        db.commit()
     except Exception:
         logger.warning("Could not store staff price adjustments for %s", bc_quote_id, exc_info=True)
-        return
-    for row in rows:
-        row.staff_price_adjustments = payload
+        try:
+            db.rollback()
+        except Exception:
+            logger.warning(
+                "Could not roll back staff price adjustments for %s",
+                bc_quote_id,
+                exc_info=True,
+            )
 
 
 def build_bc_quote_from_doors(
@@ -2725,7 +2735,9 @@ def build_bc_quote_from_doors(
             bc_quote_id,
             staff_line_overrides,
             freight_override,
-            requested=bool(staff_line_overrides) or freight_override is not None,
+            # A regenerate with no overrides clears a previously stored value.
+            # A brand-new quote id still writes when a saved row already points at it.
+            requested=bool(bc_quote_id),
         )
         if user is not None:
             return redact_configurator_quote(user, payload)

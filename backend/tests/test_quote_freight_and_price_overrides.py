@@ -522,6 +522,153 @@ class TestStaffOverrideGate:
         assert not any(row.get("lineObjectNumber") == "FREIGHT" and _prices(bc).get(row["id"], 0) > 0 for row in bc.added)
 
 
+def _sqlite_sessions():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from app.db.models import AppSettings, BCCustomer, SavedQuoteConfig, User
+
+    engine = create_engine(
+        "sqlite://",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    for table in (
+        BCCustomer.__table__,
+        User.__table__,
+        SavedQuoteConfig.__table__,
+        AppSettings.__table__,
+    ):
+        table.create(engine)
+    return sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+def _saved_quote(db):
+    from app.db.models import BCCustomer, SavedQuoteConfig, User, UserRole
+
+    db.add(BCCustomer(bc_customer_id="C-1", company_name="Elevated Doors"))
+    user = User(
+        email="dealer@example.com",
+        password_hash="x",
+        name="Dealer",
+        role=UserRole.VIEWER,
+        user_type="CUSTOMER",
+        bc_customer_id="C-1",
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    config = SavedQuoteConfig(
+        user_id=user.id,
+        name="Elevated",
+        config_data={"doors": [_tx450()], "deliveryType": "delivery"},
+        bc_quote_id="quote-1",
+        bc_quote_number="SQ-000001",
+    )
+    db.add(config)
+    db.commit()
+    db.refresh(config)
+    return user, config
+
+
+class TestStaffAdjustmentsAreCommitted:
+    def test_generate_persists_overrides_for_a_later_customer_refresh(self, monkeypatch):
+        import app.api.customer_portal as portal
+
+        Session = _sqlite_sessions()
+        db = Session()
+        user, config = _saved_quote(db)
+        config_id = config.id
+        user_id = user.id
+        bc = _RecordingBC()
+        _install(monkeypatch)
+        import app.api.door_configurator as door_config
+        monkeypatch.setattr(door_config, "bc_client", bc)
+        monkeypatch.setattr(door_config, "save_quote_snapshot", lambda *args, **kwargs: None)
+
+        result = build_bc_quote_from_doors(
+            QuoteGenerationRequest(
+                doors=[DoorConfigRequest(**_tx450())],
+                deliveryType="delivery",
+                bcQuoteId="quote-1",
+                linePriceOverrides=[LinePriceOverride(partNumber="WRAP", unitPrice=28.30)],
+                freightAmount=12,
+            ),
+            db=db,
+            source="admin",
+            user=_pricing_editor(),
+        )
+        assert result["success"] is True, result
+        db.close()
+
+        fresh = Session()
+        from app.db.models import SavedQuoteConfig
+        stored = fresh.query(SavedQuoteConfig).filter(SavedQuoteConfig.id == config_id).one()
+        assert stored.staff_price_adjustments["freightAmount"] == 12
+        assert stored.staff_price_adjustments["linePriceOverrides"][0]["partNumber"] == "WRAP"
+        assert stored.staff_price_adjustments["linePriceOverrides"][0]["unitPrice"] == 28.30
+
+        refresh_bc = _RecordingBC()
+        monkeypatch.setattr(portal, "bc_client", refresh_bc)
+        monkeypatch.setattr(portal, "get_bc_spring_inventory", lambda: {})
+        monkeypatch.setattr(portal, "_has_sales_order_for_quote", lambda *args, **kwargs: False)
+        # Unchanged doors are a no-op. Force the refresh to rebuild so the
+        # stored staff column is what gets priced onto the new lines.
+        monkeypatch.setattr(
+            portal, "_diff_doors",
+            lambda old, new: {"changed": [1], "added": [], "removed": [], "moved": []},
+        )
+        customer = fresh.query(type(user)).filter_by(id=user_id).one()
+        refreshed = portal.refresh_pricing_for_saved_quote(config_id, customer, fresh)
+        assert refreshed["success"] is True, refreshed
+        prices = _prices(refresh_bc)
+        wrap = next(row for row in refresh_bc.added if row.get("lineObjectNumber") == "WRAP")
+        freight = next(row for row in refresh_bc.added if row.get("lineObjectNumber") == "FREIGHT")
+        assert prices[wrap["id"]] == 28.30
+        assert prices[freight["id"]] == 12.0
+        fresh.close()
+
+    def test_regenerate_with_no_overrides_clears_the_stored_column(self, monkeypatch):
+        Session = _sqlite_sessions()
+        db = Session()
+        _user, config = _saved_quote(db)
+        config_id = config.id
+        bc = _RecordingBC()
+        import app.api.door_configurator as door_config
+        _install(monkeypatch)
+        monkeypatch.setattr(door_config, "bc_client", bc)
+        monkeypatch.setattr(door_config, "save_quote_snapshot", lambda *args, **kwargs: None)
+        request = dict(
+            doors=[DoorConfigRequest(**_tx450())],
+            deliveryType="delivery",
+            bcQuoteId="quote-1",
+        )
+        build_bc_quote_from_doors(
+            QuoteGenerationRequest(
+                **request,
+                linePriceOverrides=[LinePriceOverride(partNumber="WRAP", unitPrice=28.30)],
+                freightAmount=12,
+            ),
+            db=db,
+            source="admin",
+            user=_pricing_editor(),
+        )
+        build_bc_quote_from_doors(
+            QuoteGenerationRequest(**request),
+            db=db,
+            source="admin",
+            user=_pricing_editor(),
+        )
+        db.close()
+
+        fresh = Session()
+        from app.db.models import SavedQuoteConfig
+        stored = fresh.query(SavedQuoteConfig).filter(SavedQuoteConfig.id == config_id).one()
+        assert stored.staff_price_adjustments is None
+        fresh.close()
+
+
 def test_price_change_warning_when_the_part_disappears():
     warnings = price_change_warnings(
         [{"part_number": "SP12-00231-00", "unit_price": 28.30, "door_index": 2}],
