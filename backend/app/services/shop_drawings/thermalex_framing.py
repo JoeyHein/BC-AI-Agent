@@ -694,6 +694,7 @@ class FramingDetail:
     operator_plate: bool
     workbook_sheet: str
     assembly_length_in: float
+    door_number: str = "1"
     notes: list[str] = field(default_factory=list)
     differences: tuple[str, ...] = DIFFERENCES_FOR_JOEY
 
@@ -989,5 +990,6 @@ def build_framing_detail(
         operator_plate=operator_plate_required(operator),
         workbook_sheet=sheet,
         assembly_length_in=assembly_length_of(springs, drum_width, pickups),
+        door_number=str(door.get("doorNumber") or door.get("doorNo") or "1"),
         notes=notes,
     )

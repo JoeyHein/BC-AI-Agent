@@ -21,8 +21,11 @@ from app.services.shop_drawings.thermalex_framing import (
     workbook_pad_positions,
 )
 from app.services.shop_drawings.framing_detail import (
+    detail_to_dxf,
     framing_detail_kind,
     generate_framing_detail,
+    layout_labels,
+    required_components,
     sheet_lines,
 )
 
@@ -470,3 +473,55 @@ class TestFramingDetailSheet:
         assert "tandem" in blob
         assert "ola" in blob
         assert "3.62" in blob
+
+
+class TestEverySheetDrawsItsComponents:
+    """Each of the nine Thermalex layouts draws the components on that sheet."""
+
+    def _door(self, **overrides):
+        door = {
+            "doorSeries": "TX450",
+            "doorType": "commercial",
+            "doorWidth": 240,
+            "doorHeight": 168,
+            "liftType": "standard",
+            "trackThickness": "3",
+            "trackRadius": "15",
+            "operator": "OP19-01048-00",
+        }
+        door.update(overrides)
+        return door
+
+    def _detail(self, hands, tandem=False, couplers=1, jamb="steel"):
+        return build_framing_detail(
+            self._door(jambType=jamb),
+            springs=[_spring(hand) for hand in hands],
+            drum_model="D525-216",
+            coupler_qty=couplers,
+            is_tandem=tandem,
+            door_weight_lb=900,
+        )
+
+    def test_nine_layouts_include_every_component(self):
+        cases = [
+            ("center", ["LH", "RH"], False, 1),
+            ("center tandem", ["LH", "RH"], True, 1),
+            ("2 pads, 2 couplers", ["LH", "LH"], False, 2),
+            ("2 pads, 1 coupler", ["LH", "LH"], False, 1),
+            ("2 pads tandem", ["LH", "LH"], True, 1),
+            ("3 pads", ["LH", "LH", "RH", "RH"], False, 1),
+            ("3 pads tandem", ["LH", "LH", "RH", "RH"], True, 1),
+            ("4 pads", ["LH", "LH", "LH", "RH"], False, 2),
+            ("5 pads", ["LH", "LH", "LH", "RH", "RH"], False, 3),
+        ]
+        seen = set()
+        for name, hands, tandem, couplers in cases:
+            detail = self._detail(hands, tandem=tandem, couplers=couplers)
+            seen.add(detail.workbook_sheet)
+            text = "\n".join(layout_labels(detail))
+            missing = [item for item in required_components(detail) if item not in text]
+            assert not missing, f"{name} / {detail.workbook_sheet} missing {missing}"
+            dxf = detail_to_dxf(detail).decode("utf-8")
+            for item in required_components(detail):
+                assert item in dxf, f"{name} DXF missing {item}"
+        assert len(seen) == 9
