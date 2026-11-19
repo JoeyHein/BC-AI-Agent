@@ -896,6 +896,87 @@ class TestGK17Glazing:
         pn, _desc, note = resolve_gk17_alum_glass("CLEAR", "INSULATED", "ANNEALED")
         assert pn == "GK17-10000-00" and note is None and self._active(pn)
 
+    def test_tempered_insulated_stays_temp_clear(self):
+        # Aluminum Tempered + Insulated is one tempered lite, not temp/temp.
+        from app.services.part_number_service import resolve_gk17_alum_glass
+        pn, _desc, note = resolve_gk17_alum_glass("CLEAR", "INSULATED", "TEMPERED")
+        assert pn == "GK17-11000-00" and note is None and self._active(pn)
+
+    def test_thermal_tempered_clear_is_temp_temp_without_note(self):
+        from app.services.part_number_service import resolve_gk17_alum_glass
+        pn, desc, note = resolve_gk17_alum_glass("CLEAR", "INSULATED", "TEMP_TEMP")
+        assert pn == "GK17-13000-00" and note is None and self._active(pn)
+        assert "TEMP/ TEMP" in desc
+
+    def test_colour_treatment_matrix(self):
+        """Every stocked colour x treatment, and the nearest kit when none exists."""
+        from app.services.part_number_service import resolve_gk17_alum_glass
+        exact = {
+            ("CLEAR", "SINGLE", "ANNEALED"): "GK17-03000-00",
+            ("ETCHED", "SINGLE", "ANNEALED"): "GK17-03010-00",
+            ("CLEAR", "INSULATED", "ANNEALED"): "GK17-10000-00",
+            ("ETCHED", "INSULATED", "ANNEALED"): "GK17-10100-00",
+            ("SUPER_GREY", "INSULATED", "ANNEALED"): "GK17-10500-00",
+            ("TINTED_GREY", "INSULATED", "ANNEALED"): "GK17-10400-00",
+            ("CLEAR", "SINGLE", "TEMPERED"): "GK17-03100-00",
+            ("CLEAR", "INSULATED", "TEMPERED"): "GK17-11000-00",
+            ("ETCHED", "INSULATED", "TEMPERED"): "GK17-11010-00",
+            ("CLEAR", "INSULATED", "TEMP_TEMP"): "GK17-13000-00",
+        }
+        substitute = {
+            ("SUPER_GREY", "SINGLE", "ANNEALED"): "GK17-10500-00",
+            ("SUPER_GREY", "SINGLE", "TEMPERED"): "GK17-10500-00",
+            ("SUPER_GREY", "INSULATED", "TEMPERED"): "GK17-10500-00",
+            ("SUPER_GREY", "INSULATED", "TEMP_TEMP"): "GK17-13000-00",
+            ("ETCHED", "SINGLE", "TEMPERED"): "GK17-03010-00",
+            ("ETCHED", "INSULATED", "TEMP_TEMP"): "GK17-13000-00",
+            ("TINTED_GREY", "SINGLE", "ANNEALED"): "GK17-10400-00",
+            ("TINTED_GREY", "SINGLE", "TEMPERED"): "GK17-10400-00",
+            ("TINTED_GREY", "INSULATED", "TEMPERED"): "GK17-10400-00",
+            ("TINTED_GREY", "INSULATED", "TEMP_TEMP"): "GK17-13000-00",
+        }
+        for key, sku in exact.items():
+            pn, _desc, note = resolve_gk17_alum_glass(*key)
+            assert pn == sku and note is None and self._active(pn), key
+        for key, sku in substitute.items():
+            pn, _desc, note = resolve_gk17_alum_glass(*key)
+            assert pn == sku and note and "SUBSTITUTION" in note and self._active(pn), key
+
+    def test_v130g_emits_thermal_tempered_kit(self):
+        parts = get_parts_for_door_config({
+            "doorType": "commercial", "doorSeries": "TX450-20",
+            "doorWidth": 194, "doorHeight": 168, "doorCount": 1,
+            "panelColor": "WHITE", "panelDesign": "FLUSH",
+            "hasWindows": True, "windowInsert": "V130G", "windowQty": 1,
+            "glassColor": "CLEAR", "glassPaneType": "INSULATED",
+            "glassType": "TEMP_TEMP", "trackThickness": "3",
+        }).get("parts_list", [])
+        glass = [p for p in parts if p["category"] == "v130g_glass"]
+        notes = [p for p in parts if p["category"] == "glazing_comment"]
+        assert glass and glass[0]["part_number"] == "GK17-13000-00"
+        assert notes == []
+
+    def test_v130g_glass_area_matches_sturgeon_lake_quantities(self):
+        # 16'2" x 14' with one V130G section is 25.45 sq ft. Four doors
+        # are 101.8. 11'8" x 12' is 18.29. 15'2" x 12' is 23.64.
+        cases = (
+            (194, 168, 4, 101.8),
+            (140, 144, 1, 18.29),
+            (182, 144, 1, 23.64),
+        )
+        for width, height, count, expected in cases:
+            parts = get_parts_for_door_config({
+                "doorType": "commercial", "doorSeries": "TX450-20",
+                "doorWidth": width, "doorHeight": height, "doorCount": count,
+                "panelColor": "WHITE", "panelDesign": "FLUSH",
+                "hasWindows": True, "windowInsert": "V130G", "windowQty": 1,
+                "glassColor": "CLEAR", "glassPaneType": "INSULATED",
+                "glassType": "TEMP_TEMP", "trackThickness": "3",
+            }).get("parts_list", [])
+            glass = [p for p in parts if p["category"] == "v130g_glass"]
+            assert glass, f"{width}x{height} produced no glass line"
+            assert glass[0]["quantity"] == pytest.approx(expected, abs=0.001)
+
     def test_v130g_glass_resolves_to_active_priced_sku(self):
         # V130G full-view section glass must be a real BC item, never a dead
         # SKU that lands as an unpriced comment line (SQ-003035).

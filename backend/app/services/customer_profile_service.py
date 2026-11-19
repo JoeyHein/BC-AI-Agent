@@ -1301,12 +1301,12 @@ def analyse_email(email_text: str, parsed_door: Optional[dict] = None) -> Dict[s
                 "confidence": TEXT_EXPLICIT_CONFIDENCE, "phrase": None,
             }
             break
-    if re.search(r"\bno\s+windows\b|\bwithout\s+windows\b", text, re.I):
+    if re.search(r"\bno\s+windows\b|\bwithout\s+windows\b|\bno\s+full\s*view\b", text, re.I):
         readings["hasWindows"] = {
             "basis": "explicit", "value": False,
             "confidence": TEXT_EXPLICIT_CONFIDENCE, "phrase": None,
         }
-    elif re.search(r"\bwith\s+windows\b|\bwindows\b", text, re.I):
+    elif re.search(r"\bwith\s+windows\b|\bwindows\b|\bfull\s*view\b|\bv130g?\b|\bv230g?\b", text, re.I):
         readings["hasWindows"] = {
             "basis": "explicit", "value": True,
             "confidence": TEXT_EXPLICIT_CONFIDENCE, "phrase": None,

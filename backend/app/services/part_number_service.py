@@ -137,8 +137,10 @@ class DoorConfiguration:
     window_frame_color: str = "BLACK"  # Commercial window frame color
     glazing_type: Optional[str] = None
     glass_pane_type: Optional[str] = None  # 'INSULATED' or 'SINGLE'
-    glass_type: Optional[str] = "ANNEALED"  # 'ANNEALED' or 'TEMPERED' (safety)
-    glass_color: Optional[str] = None      # 'CLEAR', 'ETCHED', 'SUPER_GREY'
+    # ANNEALED, TEMPERED (insulated = temp/clear GK17-11000), or TEMP_TEMP
+    # (insulated temp/temp GK17-13000). TEMPERED + INSULATED stays temp/clear.
+    glass_type: Optional[str] = "ANNEALED"
+    glass_color: Optional[str] = None      # 'CLEAR', 'ETCHED', 'SUPER_GREY', 'TINTED_GREY'
     track_radius: str = "15"
     # None means "not chosen". Aluminum doors then standard to 3"; steel stays 2".
     # An explicit "2" or "3" is kept — 2" is still a valid aluminum option.
@@ -535,12 +537,17 @@ GK17_POLYCARBONATE_DEFAULT = GK17_POLYCARBONATE["CLEAR"]
 
 # Aluminum glass — keyed (color, pane, treatment). EXACT = BC stocks that
 # precise combo.
+# Treatment TEMPERED on insulated glass is temp/clear (one lite tempered),
+# GK17-11000-00. TEMP_TEMP is both lites tempered, GK17-13000-00. Do not
+# point the existing Tempered + Insulated choice at GK17-13000-00.
 GK17_ALUM_GLASS_EXACT = {
     ("CLEAR",      "INSULATED", "ANNEALED"): ("GK17-10000-00", "GLAZING KIT, ALUM, THERM, CLEAR/ CLEAR"),
     ("ETCHED",     "INSULATED", "ANNEALED"): ("GK17-10100-00", "GLAZING KIT, ALUM, THERM, ETCHED/ CLEAR"),
     ("SUPER_GREY", "INSULATED", "ANNEALED"): ("GK17-10500-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR"),
+    ("TINTED_GREY", "INSULATED", "ANNEALED"): ("GK17-10400-00", "GLAZING KIT, ALUM, THERM, TINTED GR/ CLEAR"),
     ("CLEAR",      "INSULATED", "TEMPERED"): ("GK17-11000-00", "GLAZING KIT, ALUM, THERM, TEMP/ CLEAR"),
     ("ETCHED",     "INSULATED", "TEMPERED"): ("GK17-11010-00", "GLAZING KIT, ALUM, THERM, TEMPERED/ ETCHED"),
+    ("CLEAR",      "INSULATED", "TEMP_TEMP"): ("GK17-13000-00", "GLAZING KIT, ALUM, THERM, TEMP/ TEMP"),
     ("CLEAR",      "SINGLE",    "ANNEALED"): ("GK17-03000-00", "GLAZING KIT, ALUM, SINGLE (3MM), CLEAR"),
     ("ETCHED",     "SINGLE",    "ANNEALED"): ("GK17-03010-00", "GLAZING KIT, ALUM, SINGLE (3MM), ETCHED"),
     ("CLEAR",      "SINGLE",    "TEMPERED"): ("GK17-03100-00", "GLAZING KIT, ALUM, SINGLE (3MM), TEMP"),
@@ -552,9 +559,37 @@ GK17_ALUM_GLASS_SUBSTITUTE = {
     ("SUPER_GREY", "INSULATED", "TEMPERED"): ("GK17-10500-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR", "annealed instead of tempered"),
     ("SUPER_GREY", "SINGLE",    "ANNEALED"): ("GK17-10500-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR", "insulated thermopane instead of single pane"),
     ("SUPER_GREY", "SINGLE",    "TEMPERED"): ("GK17-10500-00", "GLAZING KIT, ALUM, THERM, SUPER GREY/ CLEAR", "insulated thermopane, annealed instead of single-pane tempered"),
+    ("SUPER_GREY", "INSULATED", "TEMP_TEMP"): ("GK17-13000-00", "GLAZING KIT, ALUM, THERM, TEMP/ TEMP", "clear instead of super grey"),
     ("ETCHED",     "SINGLE",    "TEMPERED"): ("GK17-03010-00", "GLAZING KIT, ALUM, SINGLE (3MM), ETCHED", "annealed instead of tempered"),
+    ("ETCHED",     "INSULATED", "TEMP_TEMP"): ("GK17-13000-00", "GLAZING KIT, ALUM, THERM, TEMP/ TEMP", "clear instead of etched"),
+    ("TINTED_GREY", "INSULATED", "TEMPERED"): ("GK17-10400-00", "GLAZING KIT, ALUM, THERM, TINTED GR/ CLEAR", "annealed instead of temp/clear"),
+    ("TINTED_GREY", "INSULATED", "TEMP_TEMP"): ("GK17-13000-00", "GLAZING KIT, ALUM, THERM, TEMP/ TEMP", "clear instead of tinted grey"),
+    ("TINTED_GREY", "SINGLE",    "ANNEALED"): ("GK17-10400-00", "GLAZING KIT, ALUM, THERM, TINTED GR/ CLEAR", "insulated thermopane instead of single pane"),
+    ("TINTED_GREY", "SINGLE",    "TEMPERED"): ("GK17-10400-00", "GLAZING KIT, ALUM, THERM, TINTED GR/ CLEAR", "insulated thermopane, annealed instead of single-pane tempered"),
 }
 GK17_ALUM_GLASS_DEFAULT = GK17_ALUM_GLASS_EXACT[("CLEAR", "INSULATED", "ANNEALED")]
+
+_GK17_COLOR_ALIASES = {
+    "SUPER_GRAY": "SUPER_GREY",
+    "SUPERGREY": "SUPER_GREY",
+    "SUPERGRAY": "SUPER_GREY",
+    "TINTED": "TINTED_GREY",
+    "TINTED_GRAY": "TINTED_GREY",
+    "TINT": "TINTED_GREY",
+    "FROSTED": "ETCHED",
+    "FROST": "ETCHED",
+}
+_GK17_PANE_ALIASES = {
+    "THERMAL": "INSULATED",
+    "THERM": "INSULATED",
+    "THERMOPANE": "INSULATED",
+    "DOUBLE": "INSULATED",
+}
+_GK17_TREATMENT_ALIASES = {
+    "THERMAL_TEMPERED": "TEMP_TEMP",
+    "TEMPERED_BOTH": "TEMP_TEMP",
+    "STANDARD": "ANNEALED",
+}
 
 
 def resolve_gk17_polycarbonate(glass_color: Optional[str]) -> tuple:
@@ -572,8 +607,14 @@ def resolve_gk17_alum_glass(color: Optional[str], pane: Optional[str], treatment
     and a nearest-match kit was quoted instead — callers surface it as a
     glazing_comment line so the office can confirm with the customer.
     """
-    key = ((color or "CLEAR").upper(), (pane or "INSULATED").upper(),
-           (treatment or "ANNEALED").upper())
+    color_key = (color or "CLEAR").upper().replace(" ", "_").replace("-", "_").replace("/", "_")
+    pane_key = (pane or "INSULATED").upper().replace(" ", "_").replace("-", "_")
+    treatment_key = (treatment or "ANNEALED").upper().replace(" ", "_").replace("-", "_").replace("/", "_")
+    key = (
+        _GK17_COLOR_ALIASES.get(color_key, color_key),
+        _GK17_PANE_ALIASES.get(pane_key, pane_key),
+        _GK17_TREATMENT_ALIASES.get(treatment_key, treatment_key),
+    )
     if key in GK17_ALUM_GLASS_EXACT:
         pn, desc = GK17_ALUM_GLASS_EXACT[key]
         return pn, desc, None
