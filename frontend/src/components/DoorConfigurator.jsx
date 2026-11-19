@@ -21,6 +21,8 @@ import {
   formatLimitFt,
 } from '../utils/doorDimensions'
 import { isAluminumDoor } from '../utils/trackDefaults'
+import FullViewGlassPicker from './FullViewGlassPicker'
+import { fullViewGlassLabel } from '../utils/fullViewGlass'
 
 const STEPS = [
   { id: 'type', title: 'Door Type', description: 'Select door category' },
@@ -2155,7 +2157,7 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
                         onClick={() => {
                           if (wt.id === 'V130G' || wt.id === 'V230G' || wt.id === 'PANORAMA') {
                             const isPano = wt.id === 'PANORAMA'
-                            onChange({ windowInsert: wt.id, windowQty: 1, windowSection: 1, windowPanels: { 1: { qty: 1 } }, glassPaneType: isPano ? null : 'INSULATED', glassColor: 'CLEAR', glazingType: isPano ? 'polycarbonate' : 'glass' })
+                            onChange({ windowInsert: wt.id, windowQty: 1, windowSection: 1, windowPanels: { 1: { qty: 1 } }, glassPaneType: isPano ? null : 'INSULATED', glassType: isPano ? door.glassType : 'ANNEALED', glassColor: 'CLEAR', glazingType: isPano ? 'polycarbonate' : 'glass' })
                           } else {
                             const windowSize = config?.commercialWindowSizes?.[wt.id]
                             if (windowSize) {
@@ -2189,36 +2191,20 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
           {/* V130G/V230G/PANORAMA full view options */}
           {(door.windowInsert === 'V130G' || door.windowInsert === 'V230G' || door.windowInsert === 'PANORAMA') && (() => {
             const isPanorama = door.windowInsert === 'PANORAMA'
-            const colorOptions = isPanorama
-              ? [{ id: 'CLEAR', name: 'Clear' }, { id: 'LIGHT_BRONZE', name: 'Light Bronze' }, { id: 'DARK_BRONZE', name: 'Dark Bronze' }, { id: 'WHITE_OPAL', name: 'White Opal' }]
-              : [{ id: 'CLEAR', name: 'Clear' }, { id: 'ETCHED', name: 'Etched' }, { id: 'SUPER_GREY', name: 'Super Grey' }]
+            const colorOptions = [
+              { id: 'CLEAR', name: 'Clear' },
+              { id: 'LIGHT_BRONZE', name: 'Light Bronze' },
+              { id: 'DARK_BRONZE', name: 'Dark Bronze' },
+              { id: 'WHITE_OPAL', name: 'White Opal' },
+            ]
             return (
             <div className="bg-odc-50 rounded-lg p-4">
               <p className="text-sm text-odc-700">
                 <strong>{isPanorama ? 'Panorama' : door.windowInsert} Full View</strong> — replaces an insulated section with a full aluminum/{isPanorama ? 'polycarbonate' : 'glass'} panel.
               </p>
-              {!isPanorama && (
+              {isPanorama ? (
               <div className="mt-3">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Glass Type</label>
-                <div className="flex space-x-3">
-                  {['thermal', 'single'].map(gt => (
-                    <button
-                      key={gt}
-                      onClick={() => onChange({ glassPaneType: gt === 'thermal' ? 'INSULATED' : 'SINGLE' })}
-                      className={`px-4 py-2 text-sm rounded-md border ${
-                        (gt === 'thermal' && door.glassPaneType === 'INSULATED') || (gt === 'single' && door.glassPaneType === 'SINGLE')
-                          ? 'border-odc-500 bg-odc-100 text-odc-700'
-                          : 'border-gray-300 hover:border-gray-400'
-                      }`}
-                    >
-                      {gt === 'thermal' ? 'Thermal Glass' : 'Single Glass'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              )}
-              <div className="mt-3">
-                <label className="block text-sm font-medium text-gray-700 mb-1">{isPanorama ? 'Polycarbonate Color' : 'Glass Color'}</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Polycarbonate Color</label>
                 <div className="flex space-x-3">
                   {colorOptions.map(gc => (
                     <button
@@ -2235,6 +2221,9 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, glazingOptions, 
                   ))}
                 </div>
               </div>
+              ) : (
+                <FullViewGlassPicker door={door} onChange={onChange} />
+              )}
               <div className="mt-3">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Number of {isPanorama ? 'Panorama' : door.windowInsert} sections
@@ -3430,6 +3419,7 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
             windowPositions: door.windowPositions || [],
             windowSize: door.windowSize || 'long',
             glassPaneType: door.glassPaneType,
+            glassType: door.glassType || 'ANNEALED',
             glassColor: door.glassColor,
             hasInserts: door.hasInserts || false,
             windowInsert: door.doorType === 'commercial'
@@ -3618,7 +3608,9 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
                 <span className="ml-2 text-gray-900">
                   {door.hasWindows && door.windowPositions?.length > 0
                     ? `${door.windowPositions.length} window${door.windowPositions.length > 1 ? 's' : ''}`
-                    : 'No'}
+                    : door.doorType === 'commercial' && door.windowInsert !== 'NONE'
+                      ? `${door.windowQty || 0} windows (${door.windowFrameColor || 'BLACK'} frame)`
+                      : 'No'}
                 </span>
               </div>
               {door.hasWindows && (
@@ -3626,7 +3618,9 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
                   <div>
                     <span className="text-gray-500">Glass:</span>
                     <span className="ml-2 text-gray-900">
-                      {door.glassPaneType === 'INSULATED' ? 'Insulated' : 'Single'}, {door.glassColor || 'Clear'}
+                      {(door.windowInsert === 'V130G' || door.windowInsert === 'V230G')
+                        ? fullViewGlassLabel(door)
+                        : `${door.glassPaneType === 'INSULATED' ? 'Insulated' : 'Single'}, ${door.glassColor || 'Clear'}`}
                     </span>
                   </div>
                   {door.hasInserts && (

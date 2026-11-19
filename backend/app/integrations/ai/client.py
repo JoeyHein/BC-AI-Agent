@@ -458,8 +458,13 @@ EVERY field, using the defaults shown when the email is silent:
   "panelColor": "WHITE",           // WHITE (default), BLACK, NEW_BROWN, SANDTONE, BRONZE, STEEL_GREY, IRON_ORE, NEW_ALMOND, WALNUT, HAZELWOOD, ENGLISH_CHESTNUT
   "panelDesign": "FLUSH",          // commercial DEFAULT "FLUSH", except TX760 which is MICROGROOVE; residential DEFAULT "SHXL"; others: UDC, BCXL, TRAFALGAR. Use what the email implies.
   "hasWindows": false,
-  "windowQty": 0,                   // commercial window/section count if windows requested
-  "glazingType": null,              // e.g. "THERMOPANE", "SINGLE", "POLYCARBONATE" if mentioned
+  "windowInsert": null,             // null, or "V130G" (TX450 / TX450-20 full view), "V230G" (TX500 / TX500-20 full view), "PANORAMA", "24X12_THERMOPANE", "34X16_THERMOPANE", "18X8_THERMOPANE". "full view" on TX450 is V130G. "full view" on TX500 is V230G. Never leave a full-view request as flush panels with windowInsert null.
+  "windowQty": 0,                   // commercial window count, or the number of full-view sections. At least 1 when windowInsert is V130G or V230G.
+  "windowPanels": null,             // {{"1": {{"qty": 1, "type": "V130G"}}}} when a section is named. Panel 1 is the top. null if not specified.
+  "glassPaneType": null,            // "INSULATED" for insulated / thermal / thermopane, "SINGLE" for single pane. null if the email does not mention the pane.
+  "glassType": null,                // "ANNEALED", "TEMPERED", or "TEMP_TEMP". "insulated tempered" and "thermal tempered" are TEMP_TEMP (both lites, GK17-13000). Tempered without insulated is TEMPERED and glassPaneType SINGLE. Insulated temp/clear ("temp/clear") is TEMPERED and glassPaneType INSULATED. Do not use TEMPERED for temp/temp.
+  "glassColor": null,               // "CLEAR", "ETCHED", "SUPER_GREY", or "TINTED_GREY". null if not mentioned.
+  "glazingType": null,              // "glass" when the full-view section is glass, "polycarbonate" for Panorama. This does not replace windowInsert.
   "trackThickness": "2",           // Steel default "2" when the email is silent. Aluminium full-view (AL976, SWD, Panorama, Solalite) default "3" when the email is silent. Use "2" on an aluminium door only when the email asks for 2\" track.
   "trackRadius": "15",             // "15" (default) or "12" (2\" track only)
   "trackMount": "bracket",
@@ -479,6 +484,7 @@ RULES:
 - Keep doorSeries consistent with doorType (don't put TX450 on a residential door).
 - TX760 is the 3" thick commercial door. When the email names TX760 or a 3" thick commercial door, keep doorSeries "TX760" and panelDesign "MICROGROOVE". A 3" track on another series is not TX760.
 - Do NOT invent windows, operators, or high-lift unless the email mentions them.
+- When the email says full view, set hasWindows true. TX450 and TX450-20 use windowInsert "V130G". TX500 and TX500-20 use "V230G". "clear insulated tempered" is glassColor "CLEAR", glassPaneType "INSULATED", glassType "TEMP_TEMP".
 - Bottom rubber is 3" unless the email explicitly asks for 4" or 6.5". Do not put 4" in astragalSize or in notes just because the door is wide.
 - Be conservative: if unsure about a value, use the default and mention it in notes.
 
@@ -511,10 +517,13 @@ OUTPUT FORMAT — JSON only, no prose:
             mapped = json.loads(content)
             doors = self._normalize_configurator_doors(mapped.get("doors", []))
             from app.services.bc_part_number_mapper import apply_explicit_bottom_rubber
+            from app.services.email_glass import apply_email_glass_request
+            email_text = f"{email_subject or ''}\n{email_body or ''}"
             # The customer's words decide 4" or 6.5". A model guess does not.
-            doors = apply_explicit_bottom_rubber(
-                doors, f"{email_subject or ''}\n{email_body or ''}",
-            )
+            doors = apply_explicit_bottom_rubber(doors, email_text)
+            # Full view and tempered/insulated/colour survive even when the
+            # model leaves windowInsert off the door and the design stays flush.
+            doors = apply_email_glass_request(doors, email_text)
 
             return {
                 "success": True,
@@ -627,7 +636,9 @@ OUTPUT FORMAT — JSON only, no prose:
                 }
 
             from app.services.bc_part_number_mapper import coerce_astragal_inches
+            from app.services.email_glass import normalize_glass_fields
             rubber = coerce_astragal_inches(d.get("astragalSize"))
+            glass_fields = normalize_glass_fields(d, series, _to_int(d.get("windowQty")))
             door_out = {
                 "doorType": door_type,
                 "doorSeries": series,
@@ -636,8 +647,13 @@ OUTPUT FORMAT — JSON only, no prose:
                 "doorCount": max(1, _to_int(d.get("doorCount")) or 1),
                 "panelColor": panel_color,
                 "panelDesign": design,
-                "hasWindows": bool(d.get("hasWindows", False)),
-                "windowQty": _to_int(d.get("windowQty")),
+                "hasWindows": glass_fields["hasWindows"],
+                "windowInsert": glass_fields["windowInsert"],
+                "windowQty": glass_fields["windowQty"],
+                "windowPanels": glass_fields["windowPanels"],
+                "glassPaneType": glass_fields["glassPaneType"],
+                "glassType": glass_fields["glassType"],
+                "glassColor": glass_fields["glassColor"],
                 "glazingType": d.get("glazingType") or None,
                 "trackThickness": track_thickness,
                 "trackRadius": track_radius,

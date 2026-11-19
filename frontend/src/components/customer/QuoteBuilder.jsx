@@ -22,6 +22,8 @@ import {
 } from '../../utils/doorDimensions'
 import { isAluminumDoor } from '../../utils/trackDefaults'
 import { quoteTagName } from '../../utils/quoteTitle'
+import FullViewGlassPicker from '../FullViewGlassPicker'
+import { fullViewGlassLabel } from '../../utils/fullViewGlass'
 
 const STEPS = [
   { id: 'type', title: 'Door Type', description: 'Select door category' },
@@ -1623,8 +1625,18 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, commercialWindow
 
   const handleCommercialWindowChange = (windowType) => {
     if (windowType === 'V130G' || windowType === 'V230G') {
-      // Full view section replaces entire section — no quantity needed
-      onChange({ windowInsert: windowType, windowQty: 1, windowSection: 1 })
+      // Full view section replaces entire section — no quantity needed.
+      // Thermal clear is the starting glass; the picker can change it.
+      onChange({
+        windowInsert: windowType,
+        windowQty: 1,
+        windowSection: 1,
+        windowPanels: { 1: { qty: 1 } },
+        glassPaneType: 'INSULATED',
+        glassType: 'ANNEALED',
+        glassColor: 'CLEAR',
+        glazingType: 'glass',
+      })
       return
     }
     const windowSize = config?.commercialWindowSizes?.[windowType]
@@ -2087,27 +2099,10 @@ function WindowsStep({ door, windowInserts, windowInsertsShort, commercialWindow
               <p className="text-sm text-odc-700">
                 <strong>{door.windowInsert} Full View</strong> — replaces an insulated section with a full aluminum/glass panel (AL976 material).
               </p>
-              <div className="mt-3">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Glass Type</label>
-                <div className="flex space-x-3">
-                  {['thermal', 'single'].map(gt => (
-                    <button
-                      key={gt}
-                      onClick={() => onChange({ glassPaneType: gt === 'thermal' ? 'INSULATED' : 'SINGLE' })}
-                      className={`px-4 py-2 text-sm rounded-md border ${
-                        (gt === 'thermal' && door.glassPaneType === 'INSULATED') || (gt === 'single' && door.glassPaneType === 'SINGLE')
-                          ? 'border-odc-500 bg-blue-100 text-odc-700'
-                          : 'border-gray-300 hover:border-gray-400'
-                      }`}
-                    >
-                      {gt === 'thermal' ? 'Thermal Glass' : 'Single Glass'}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <FullViewGlassPicker door={door} onChange={onChange} />
               <div className="mt-3">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Number of V130G sections
+                  Number of {door.windowInsert} sections
                 </label>
                 <div className="flex items-center space-x-4">
                   <button
@@ -3248,7 +3243,9 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
                       <div>
                         <span className="text-gray-500">Glass:</span>
                         <span className="ml-2 text-gray-900">
-                          {door.glassPaneType === 'INSULATED' ? 'Insulated' : door.glassPaneType === 'SINGLE' ? 'Single' : '-'}, {door.glassColor || 'Clear'}
+                          {(door.windowInsert === 'V130G' || door.windowInsert === 'V230G')
+                            ? fullViewGlassLabel(door)
+                            : `${door.glassPaneType === 'INSULATED' ? 'Insulated' : door.glassPaneType === 'SINGLE' ? 'Single' : '-'}, ${door.glassColor || 'Clear'}`}
                         </span>
                       </div>
                       {door.hasInserts && (

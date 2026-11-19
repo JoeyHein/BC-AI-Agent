@@ -688,9 +688,9 @@ COMMERCIAL_WINDOW_TYPES = {
         {"id": "18X8_THERMOPANE", "name": "18\" x 8\" Thermopane", "width": 18, "height": 8, "sectionType": "21\" or 24\" section", "glassOptions": ["thermal"]},
     ],
     "FULL VIEW": [
-        {"id": "V130G", "name": "V130G Full View (Glass)", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glassOptions": ["single", "thermal"], "glassColors": ["CLEAR", "ETCHED", "SUPER_GREY"], "material": "AL976", "note": "Full aluminum/glass section", "series": ["TX450", "TX450-20"]},
+        {"id": "V130G", "name": "V130G Full View (Glass)", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glassOptions": ["standard", "thermal", "tempered", "thermal_tempered"], "glassColors": ["CLEAR", "ETCHED", "SUPER_GREY"], "material": "AL976", "note": "Full aluminum/glass section", "series": ["TX450", "TX450-20"]},
         {"id": "PANORAMA", "name": "Panorama Full View (Polycarbonate)", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glazingType": "polycarbonate", "glassColors": ["CLEAR", "LIGHT_BRONZE", "DARK_BRONZE", "WHITE_OPAL"], "material": "PANORAMA", "note": "Full aluminum/polycarbonate section", "series": ["TX450", "TX450-20"]},
-        {"id": "V230G", "name": "V230G Full View (Glass)", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glassOptions": ["single", "thermal"], "glassColors": ["CLEAR", "ETCHED", "SUPER_GREY"], "material": "AL976", "note": "Full aluminum/glass section (TX500)", "series": ["TX500", "TX500-20"]},
+        {"id": "V230G", "name": "V230G Full View (Glass)", "width": "full", "height": "full", "sectionType": "Replaces insulated section", "glassOptions": ["standard", "thermal", "tempered", "thermal_tempered"], "glassColors": ["CLEAR", "ETCHED", "SUPER_GREY"], "material": "AL976", "note": "Full aluminum/glass section (TX500)", "series": ["TX500", "TX500-20"]},
     ],
 }
 
@@ -798,8 +798,10 @@ class DoorConfigRequest(BaseModel):
     windowFrameColor: str = "BLACK"  # Commercial window frame color
     glazingType: Optional[str] = None
     glassPaneType: Optional[str] = None  # 'INSULATED' or 'SINGLE'
-    glassType: Optional[str] = "ANNEALED"  # 'ANNEALED' or 'TEMPERED' (safety)
-    glassColor: Optional[str] = None     # 'CLEAR', 'ETCHED', 'SUPER_GREY'
+    # ANNEALED, TEMPERED (insulated stays temp/clear GK17-11000), or TEMP_TEMP
+    # (insulated temp/temp GK17-13000).
+    glassType: Optional[str] = "ANNEALED"
+    glassColor: Optional[str] = None     # 'CLEAR', 'ETCHED', 'SUPER_GREY', 'TINTED_GREY'
     glassPocketsPerSection: Optional[Dict[str, int]] = None  # Per-section pocket overrides: {"0": 4, "1": 3, ...}
     trackRadius: str = "15"
     # Omitted track size: aluminum doors standard to 3" (see validator).
@@ -904,7 +906,7 @@ class DoorCalculationRequest(BaseModel):
     doorType: str = "commercial"  # 'residential' or 'commercial'
     glazingType: Optional[str] = None  # 'glass' or 'polycarbonate' (aluminum doors)
     glassPaneType: Optional[str] = None  # 'INSULATED' or 'SINGLE' (aluminum doors)
-    glassType: Optional[str] = "ANNEALED"  # 'ANNEALED' or 'TEMPERED' (aluminum doors)
+    glassType: Optional[str] = "ANNEALED"  # ANNEALED, TEMPERED, or TEMP_TEMP (aluminum doors)
     includeTopSeal: Optional[bool] = None  # True forces top seal; None follows the width rule
 
 

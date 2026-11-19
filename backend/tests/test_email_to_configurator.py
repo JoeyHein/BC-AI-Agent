@@ -99,6 +99,102 @@ def test_omitted_3_inch_track_radius_is_15_and_2_inch_keeps_12():
     assert forced[0]["trackRadius"] == "15"
 
 
+def test_full_view_tempered_survives_normalization():
+    """A full-view tempered door must still be a configurator request.
+
+    The email path used to drop windowInsert and glassType, so the quote
+    was flush steel even when the model had parsed the glass.
+    """
+    out = normalize([{
+        "doorType": "commercial",
+        "doorSeries": "TX450",
+        "doorWidth": 194,
+        "doorHeight": 168,
+        "hasWindows": True,
+        "windowInsert": "V130G",
+        "windowQty": 1,
+        "windowPanels": {"1": {"qty": 1, "type": "V130G"}},
+        "glassPaneType": "INSULATED",
+        "glassType": "TEMP_TEMP",
+        "glassColor": "CLEAR",
+    }])
+    door = out[0]
+    assert door["hasWindows"] is True
+    assert door["windowInsert"] == "V130G"
+    assert door["windowQty"] == 1
+    assert door["windowPanels"]["1"]["type"] == "V130G"
+    assert door["glassPaneType"] == "INSULATED"
+    assert door["glassType"] == "TEMP_TEMP"
+    assert door["glassColor"] == "CLEAR"
+    assert door["panelDesign"] == "FLUSH"
+    req = DoorConfigRequest(**door)
+    assert req.windowInsert == "V130G"
+    assert req.glassType == "TEMP_TEMP"
+
+
+def test_keyword_pass_sets_v130g_thermal_tempered_on_tx450():
+    from app.services.email_glass import apply_email_glass_request
+    doors = normalize([{
+        "doorType": "commercial",
+        "doorSeries": "TX450",
+        "doorWidth": 194,
+        "doorHeight": 168,
+        "panelDesign": "FLUSH",
+    }])
+    door = apply_email_glass_request(
+        doors, "full view #6 clear insulated tempered",
+    )[0]
+    assert door["hasWindows"] is True
+    assert door["windowInsert"] == "V130G"
+    assert door["glassPaneType"] == "INSULATED"
+    assert door["glassType"] == "TEMP_TEMP"
+    assert door["glassColor"] == "CLEAR"
+    assert door["panelDesign"] == "FLUSH"
+    assert door["windowPanels"]["1"]["type"] == "V130G"
+
+
+def test_keyword_pass_full_view_on_tx500_is_v230g():
+    from app.services.email_glass import apply_email_glass_request
+    doors = normalize([{
+        "doorType": "commercial",
+        "doorSeries": "TX500",
+        "doorWidth": 192,
+        "doorHeight": 144,
+    }])
+    door = apply_email_glass_request(doors, "full view clear")[0]
+    assert door["windowInsert"] == "V230G"
+    assert door["glassColor"] == "CLEAR"
+    assert door["glassPaneType"] is None
+
+
+def test_keyword_pass_sets_etched_and_super_grey():
+    from app.services.email_glass import apply_email_glass_request
+    etched = apply_email_glass_request(
+        normalize([{"doorType": "commercial", "doorSeries": "TX450", "doorWidth": 144, "doorHeight": 96}]),
+        "full view etched",
+    )[0]
+    assert etched["glassColor"] == "ETCHED"
+    grey = apply_email_glass_request(
+        normalize([{"doorType": "commercial", "doorSeries": "TX450-20", "doorWidth": 144, "doorHeight": 96}]),
+        "full view super grey insulated",
+    )[0]
+    assert grey["windowInsert"] == "V130G"
+    assert grey["glassColor"] == "SUPER_GREY"
+    assert grey["glassPaneType"] == "INSULATED"
+    assert grey["glassType"] == "ANNEALED"
+
+
+def test_keyword_pass_ignores_oil_tempered_springs():
+    from app.services.email_glass import apply_email_glass_request
+    door = apply_email_glass_request(
+        normalize([{"doorType": "commercial", "doorSeries": "TX450", "doorWidth": 120, "doorHeight": 96}]),
+        "oil tempered springs, flush door",
+    )[0]
+    assert door["hasWindows"] is False
+    assert door["windowInsert"] is None
+    assert door["glassType"] is None
+
+
 def test_normalized_door_is_valid_configurator_request():
     """The whole point: mapper output must construct a DoorConfigRequest."""
     out = normalize([{"doorWidth": 144, "doorHeight": 120, "panelColor": "white"}])
