@@ -33,13 +33,14 @@ export default function ColorStep({ options, family, config, onSelect, onPockets
               title={colorInfo.name}
             >
               <div className="odc-color-circle-wrap">
-                {isWoodgrain ? (
-                  <div className="odc-color-circle odc-woodgrain" style={{
-                    background: `linear-gradient(135deg, ${colorInfo.light || colorInfo.hex} 0%, ${colorInfo.hex} 40%, ${colorInfo.dark || colorInfo.hex} 100%)`
-                  }} />
-                ) : (
-                  <div className="odc-color-circle" style={{ backgroundColor: colorInfo.hex }} />
-                )}
+                <div
+                  className={`odc-color-circle${isWoodgrain ? ' odc-woodgrain' : ''}`}
+                  style={colorInfo.textureUrl ? {
+                    backgroundImage: `url("${colorInfo.textureUrl}")`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                  } : { backgroundColor: colorInfo.hex }}
+                />
               </div>
               <span className="odc-color-name">{colorInfo.name}</span>
               {isWoodgrain && <span className="odc-color-type">Woodgrain</span>}

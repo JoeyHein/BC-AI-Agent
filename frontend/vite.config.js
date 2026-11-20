@@ -5,6 +5,11 @@ import { resolve } from 'path'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      'door-renderer': resolve(__dirname, '../packages/door-renderer/src/index.js'),
+    },
+  },
   build: {
     rollupOptions: {
       input: {

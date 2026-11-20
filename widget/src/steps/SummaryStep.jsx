@@ -225,7 +225,10 @@ export default function SummaryStep({ options, family, config, quoteWebhook, dea
           <div className="odc-detail-row">
             <span className="odc-detail-label">Color</span>
             <span className="odc-detail-value">
-              <span className="odc-detail-color-dot" style={{ backgroundColor: colorInfo?.hex }} />
+              <span className="odc-detail-color-dot" style={colorInfo?.textureUrl ? {
+                backgroundImage: `url("${colorInfo.textureUrl}")`,
+                backgroundSize: 'cover',
+              } : { backgroundColor: colorInfo?.hex }} />
               {colorInfo?.name}
             </span>
           </div>
