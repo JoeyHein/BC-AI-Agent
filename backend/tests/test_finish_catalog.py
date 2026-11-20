@@ -39,7 +39,7 @@ def test_english_chestnut_is_a_real_texture():
     assert finish["textureStatus"] == "catalogue"
     assert finish["grainAxis"] == "horizontal"
     assert finish["textureRotate"] == 90
-    assert finish["hex"] == "#80583A"
+    assert finish["hex"] == "#825B3F"
     assert finish["warmth"] > 0
     assert finish["grainContrast"] > 1
     assert (finishes_path().parent / "textures" / finish["texture"]).is_file()

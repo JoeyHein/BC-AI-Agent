@@ -35,8 +35,8 @@ REPO = Path(__file__).resolve().parents[3]
 MANIFEST = ROOT / "finishes.json"
 TEXTURES = ROOT / "textures"
 SOURCES = ROOT / "sources"
-# Cap only. Never enlarge a crop: upscaling is what turns grain lines into soft bands.
-MAX_TILE = 1024
+# Never enlarge a crop. Cap only if a side is extreme; tiles should stay >=1024 on the long side.
+MAX_TILE = 1600
 
 
 def load_manifest():
@@ -64,14 +64,38 @@ def source_path(finish) -> Path | None:
     return None
 
 
-def make_seamless(image: Image.Image) -> Image.Image:
-    """Leave the crop intact.
+def _smooth(t: np.ndarray) -> np.ndarray:
+    return t * t * (3.0 - 2.0 * t)
 
-    Edge fades and half-offsets both left a visible vertical smear. The SVG
-    pattern mirrors the tile in both directions, so opposite edges are the
-    same pixels and the repeat has no seam.
+
+def flatten_lighting(image: Image.Image) -> Image.Image:
+    """Remove the slow vignette so opposite edges are the same brightness."""
+    arr = np.asarray(image.convert("RGB")).astype(np.float32)
+    radius = max(12, int(min(image.size) * 0.1))
+    blur = np.asarray(image.filter(ImageFilter.GaussianBlur(radius=radius))).astype(np.float32)
+    mean = arr.mean(axis=(0, 1), keepdims=True)
+    out = arr - blur + mean
+    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGB")
+
+
+def make_seamless(image: Image.Image) -> Image.Image:
+    """Offset so the borders already tile, then restore the continuous centre.
+
+    The blend is a wide ring, not a hard line. A narrow fade or a mirror
+    leaves a visible seam; this keeps one uninterrupted patch of grain in
+    the middle and only mixes similar wood near the edges.
     """
-    return image.convert("RGB")
+    arr = np.asarray(image.convert("RGB")).astype(np.float32)
+    height, width, _ = arr.shape
+    rolled = np.roll(np.roll(arr, width // 2, axis=1), height // 2, axis=0)
+    yy, xx = np.mgrid[0:height, 0:width]
+    dx = np.minimum(xx, width - 1 - xx).astype(np.float32)
+    dy = np.minimum(yy, height - 1 - yy).astype(np.float32)
+    ax = _smooth(np.clip(dx / (width * 0.28), 0.0, 1.0))
+    ay = _smooth(np.clip(dy / (height * 0.28), 0.0, 1.0))
+    alpha = (ax * ay)[..., None]
+    out = arr * alpha + rolled * (1.0 - alpha)
+    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGB")
 
 
 def _cap(image: Image.Image) -> Image.Image:
@@ -94,12 +118,17 @@ def to_tile(image: Image.Image, preserve_aspect: bool) -> Image.Image:
 
 
 def recolor(tile: Image.Image, target_rgb: np.ndarray, contrast: float) -> Image.Image:
+    """Map grain onto target so the median pixel, not the highlights, is that colour."""
     arr = np.asarray(tile).astype(np.float32)
     lum = 0.2126 * arr[:, :, 0] + 0.7152 * arr[:, :, 1] + 0.0722 * arr[:, :, 2]
-    mean = float(lum.mean()) + 1e-6
-    rel = (lum / mean - 1.0) * contrast
+    anchor = float(np.median(lum)) + 1e-6
+    rel = (lum / anchor - 1.0) * contrast
     out = target_rgb.reshape(1, 1, 3) * (1.0 + rel[..., None])
-    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGB")
+    out = np.clip(out, 0, 255)
+    for _ in range(4):
+        med = np.median(out.reshape(-1, 3), axis=0)
+        out = np.clip(out + (target_rgb - med).reshape(1, 1, 3), 0, 255)
+    return Image.fromarray(out.astype(np.uint8), "RGB")
 
 
 def grade(tile: Image.Image, contrast: float = 1.0, warmth: float = 0.0) -> Image.Image:
@@ -131,16 +160,39 @@ def along_grain(tile: Image.Image, radius: float) -> Image.Image:
     return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGB")
 
 
-def sharpen_lines(tile: Image.Image, amount: float = 0.9, radius: float = 0.8) -> Image.Image:
-    """Light unsharp mask. Strong values turn pores into sand and scan lines."""
+def denoise(tile: Image.Image) -> Image.Image:
+    """Small bilateral pass. It drops JPEG grit and leaves the grain lines."""
+    arr = np.asarray(tile).astype(np.float32)
+    out = np.zeros_like(arr)
+    norm = np.zeros(arr.shape[:2] + (1,), dtype=np.float32)
+    sigma_r = 18.0
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            shifted = np.roll(np.roll(arr, dy, axis=0), dx, axis=1)
+            dist2 = ((arr - shifted) ** 2).mean(axis=2, keepdims=True)
+            spatial = np.exp(-0.5 * (dx * dx + dy * dy) / 1.4)
+            weight = np.exp(-0.5 * dist2 / (sigma_r ** 2)) * spatial
+            out += shifted * weight
+            norm += weight
+    return Image.fromarray(np.clip(out / norm, 0, 255).astype(np.uint8), "RGB")
+
+
+def smooth_along_grain(tile: Image.Image, radius: int = 2) -> Image.Image:
+    """Average along the grain so JPEG speckle goes, and the lines stay."""
+    arr = np.asarray(tile).astype(np.float32)
+    total = np.zeros_like(arr)
+    for dx in range(-radius, radius + 1):
+        total += np.roll(arr, dx, axis=1)
+    return Image.fromarray(np.clip(total / (radius * 2 + 1), 0, 255).astype(np.uint8), "RGB")
+
+
+def sharpen_along_grain(tile: Image.Image, amount: float = 0.18) -> Image.Image:
+    """Very light contrast across the grain, after denoise. Not an isotropic unsharp."""
     if amount <= 0:
         return tile
-    blur = tile.filter(ImageFilter.GaussianBlur(radius=radius))
-    original = np.asarray(tile).astype(np.float32)
-    detail = original - np.asarray(blur).astype(np.float32)
-    magnitude = np.abs(detail).mean(axis=2, keepdims=True)
-    weight = np.clip((magnitude - 4.0) / 10.0, 0.0, 1.0)
-    out = original + detail * amount * weight
+    arr = np.asarray(tile).astype(np.float32)
+    blur = (np.roll(arr, 1, axis=0) + arr + np.roll(arr, -1, axis=0)) / 3.0
+    out = arr + (arr - blur) * amount
     return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGB")
 
 
@@ -166,7 +218,7 @@ def build_from_photo(finish) -> Image.Image:
     rotate = int(finish.get("textureRotate") or 0)
     if rotate:
         image = image.rotate(rotate, expand=True)
-    tile = make_seamless(to_tile(image, bool(finish.get("preserveAspect"))))
+    tile = make_seamless(flatten_lighting(to_tile(image, bool(finish.get("preserveAspect")))))
     if finish.get("recolorToHex"):
         tile = recolor(tile, hex_to_rgb(finish["hex"]), float(finish.get("grainContrast", 1.0)))
     else:
@@ -174,18 +226,13 @@ def build_from_photo(finish) -> Image.Image:
         warmth = float(finish.get("warmth", 0.0))
         if contrast != 1.0 or warmth:
             tile = grade(tile, contrast, warmth)
-    emboss = finish.get("poreEmboss")
-    if emboss:
-        tile = pore_emboss(tile, float(emboss))
-    # Sharpen last so colour grading and any pore shade cannot soften the lines again.
-    radius = float(finish.get("alongGrain") or 0)
-    if radius:
-        tile = along_grain(tile, radius)
-    amount = finish.get("sharpen")
-    if amount is None:
-        amount = 0.4
+    tile = denoise(tile)
+    tile = smooth_along_grain(tile, radius=int(finish.get("alongGrainSmooth") or 2))
+    amount = float(finish.get("alongGrainSharpen") or 0)
     if amount:
-        tile = sharpen_lines(tile, float(amount))
+        tile = sharpen_along_grain(tile, amount)
+    if max(tile.size) < 1024:
+        print(f"WARNING  {finish['id']} is {tile.size[0]}x{tile.size[1]} (long side under 1024)")
     return tile
 
 

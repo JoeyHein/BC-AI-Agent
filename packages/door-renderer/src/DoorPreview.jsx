@@ -1069,12 +1069,14 @@ function DoorPreview({
               const sy = cellY + outerInset
               const sw = cellW - outerInset * 2
               const sh = cellH - outerInset * 2
-              const bx = sw * (wood ? 0.10 : 0.13)
-              const by = sh * (wood ? 0.12 : 0.17)
+              // 2–3px at a 16'×7' preview (~400px wide). Opacity stays low so the grain reads through.
+              const bevelPx = 2.5
+              const bx = wood ? Math.min(sw * 0.06, bevelPx) : sw * 0.13
+              const by = wood ? Math.min(sh * 0.08, bevelPx) : sh * 0.17
               const px = sx + bx, py = sy + by
               const pw = sw - bx * 2, ph = sh - by * 2
-              const highlight = wood ? 'rgba(255,255,255,0.28)' : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.18)')
-              const shadow = wood ? 'rgba(20,10,4,0.32)' : 'rgba(0,0,0,0.14)'
+              const highlight = wood ? 'rgba(255,255,255,0.10)' : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.18)')
+              const shadow = wood ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.14)'
               return (
                 <>
                   {!wood && (
@@ -1781,34 +1783,25 @@ function DoorPreview({
 
           {wood && textureUrl && sections.map((section) => {
             const shift = GRAIN_SHIFTS[section.index % GRAIN_SHIFTS.length]
-            const tileW = grainTile
-            const tileH = grainTileHeight
-            // Mirror in both directions so the repeat boundary is the same pixels, not a blend smear.
-            const cell = (transform) => (
-              <image
-                href={textureUrl}
-                x="0"
-                y="0"
-                width={tileW}
-                height={tileH}
-                preserveAspectRatio="none"
-                transform={transform}
-              />
-            )
             return (
               <pattern
                 key={`wood-${section.index}`}
                 id={`wood-${gid}-${section.index}`}
                 patternUnits="userSpaceOnUse"
-                width={tileW * 2}
-                height={tileH * 2}
+                width={grainTile}
+                height={grainTileHeight}
                 x={shift[0]}
                 y={section.y + shift[1]}
               >
-                {cell(undefined)}
-                {cell(`translate(${tileW * 2} 0) scale(-1 1)`)}
-                {cell(`translate(0 ${tileH * 2}) scale(1 -1)`)}
-                {cell(`translate(${tileW * 2} ${tileH * 2}) scale(-1 -1)`)}
+                <image
+                  href={textureUrl}
+                  x="0"
+                  y="0"
+                  width={grainTile}
+                  height={grainTileHeight}
+                  preserveAspectRatio="none"
+                  style={{ imageRendering: 'auto' }}
+                />
               </pattern>
             )
           })}
