@@ -18,7 +18,7 @@ Another repo can copy this folder (or depend on it) and do the same. Keep brand 
 
 ## Add or replace a finish texture
 
-1. Put a flat photo at `sources/<id-with-hyphens>.jpg` (English Chestnut is `sources/english-chestnut.jpg`). Avoid frames, glare, and anything that is not the finish.
+1. Put a flat photo at `sources/<id-with-hyphens>.jpg`. English Chestnut is `sources/english-chestnut.jpg` (a section stood on end; `textureRotate` is 90). French Oak grain is `sources/french-oak.jpg` (a close-up of the panel face). When that photo's light is wrong, set `recolorToHex` and put the real base in `hex`. The French Oak hex comes from an overcast daylight install, warmed slightly, not from the close-up's grey pixels.
 2. In `finishes.json`, set `texture`, `textureSource`, `textureCrop` (`[x, y, width, height]`), and `textureRotate` if the photo’s grain is not already the way the door is installed. Kanata and Craft woodgrain both run **horizontally** across the section. A section stood on end needs `"textureRotate": 90`.
 3. Set `textureStatus` to `"catalogue"`, `grainAxis` to `"horizontal"` or `"vertical"`, `grainTile` (SVG units; smaller reads as tighter grain), and `hex` to the crop’s midtone.
 4. Run:

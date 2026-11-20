@@ -39,5 +39,17 @@ def test_english_chestnut_is_a_real_texture():
     assert finish["textureStatus"] == "catalogue"
     assert finish["grainAxis"] == "horizontal"
     assert finish["textureRotate"] == 90
-    assert finish["hex"] == "#735444"
+    assert finish["hex"] == "#805534"
+    assert finish["warmth"] > 0
+    assert finish["grainContrast"] > 1
     assert (finishes_path().parent / "textures" / finish["texture"]).is_file()
+
+
+def test_french_oak_uses_daylight_colour_and_closeup_grain():
+    finish = load_finishes()["FRENCH_OAK"]
+    assert finish["textureStatus"] == "catalogue"
+    assert finish["recolorToHex"] is True
+    assert finish["hex"] == "#C8AD7E"
+    assert finish["textureSource"].endswith("sources/french-oak.jpg")
+    assert "colorStatus" not in finish
+    assert (finishes_path().parent / "sources" / "french-oak.jpg").is_file()

@@ -282,6 +282,7 @@ function DoorPreview({
   const textureUrl = finish?.textureUrl || null
   const wood = Boolean(textureUrl)
   const grainTile = finish?.grainTile || 140
+  const grainTileHeight = finish?.grainTileHeight || grainTile
   const sectionFill = (sectionIndex) => (wood ? `url(#wood-${gid}-${sectionIndex})` : doorColor)
   const isDark = Boolean(finish?.darkSurface)
   const lineColor = isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.2)'
@@ -1068,19 +1069,20 @@ function DoorPreview({
               const sy = cellY + outerInset
               const sw = cellW - outerInset * 2
               const sh = cellH - outerInset * 2
-              const bx = sw * 0.13
-              const by = sh * 0.17
+              const bx = sw * (wood ? 0.04 : 0.13)
+              const by = sh * (wood ? 0.05 : 0.17)
               const px = sx + bx, py = sy + by
               const pw = sw - bx * 2, ph = sh - by * 2
-              const highlight = wood ? 'rgba(255,244,230,0.9)' : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.18)')
-              const shadow = wood ? 'rgba(48,26,14,0.85)' : 'rgba(0,0,0,0.14)'
-              const highlightStyle = wood ? { mixBlendMode: 'soft-light' } : undefined
-              const shadowStyle = wood ? { mixBlendMode: 'multiply' } : undefined
+              // Normal alpha, not soft-light: soft-light flattens the grain lines under the bevel.
+              const highlight = wood ? 'rgba(255,255,255,0.14)' : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.18)')
+              const shadow = wood ? 'rgba(30,16,8,0.16)' : 'rgba(0,0,0,0.14)'
+              const highlightStyle = undefined
+              const shadowStyle = undefined
               return (
                 <>
                   {/* Perimeter shadow ring — subtle darkening just outside the stamp */}
                   <rect x={sx - 1.5} y={sy - 1.5} width={sw + 3} height={sh + 3}
-                    fill="none" stroke="rgba(0,0,0,0.18)" strokeWidth="1.5" />
+                    fill="none" stroke={wood ? 'rgba(0,0,0,0.06)' : 'rgba(0,0,0,0.18)'} strokeWidth={wood ? 0.6 : 1.5} />
                   {/* Stamp outer edge */}
                   <rect x={sx} y={sy} width={sw} height={sh}
                     fill="none" stroke={lineColor} strokeWidth="1" />
@@ -1091,7 +1093,7 @@ function DoorPreview({
                   <polygon points={`${sx},${sy + sh} ${px},${py + ph} ${px + pw},${py + ph} ${sx + sw},${sy + sh}`} fill={shadow} style={shadowStyle} />
                   {/* Inner plateau edge */}
                   <rect x={px} y={py} width={pw} height={ph}
-                    fill="none" stroke={lineColor} strokeWidth="0.6" opacity="0.5" />
+                    fill="none" stroke={lineColor} strokeWidth="0.6" opacity={wood ? 0.28 : 0.5} />
                 </>
               )
             })()}
@@ -1785,7 +1787,7 @@ function DoorPreview({
                 id={`wood-${gid}-${section.index}`}
                 patternUnits="userSpaceOnUse"
                 width={grainTile}
-                height={grainTile}
+                height={grainTileHeight}
                 x={shift[0]}
                 y={section.y + shift[1]}
               >
@@ -1794,8 +1796,9 @@ function DoorPreview({
                   x="0"
                   y="0"
                   width={grainTile}
-                  height={grainTile}
-                  preserveAspectRatio="xMidYMid slice"
+                  height={grainTileHeight}
+                  preserveAspectRatio="none"
+                  style={{ imageRendering: 'crisp-edges' }}
                 />
               </pattern>
             )

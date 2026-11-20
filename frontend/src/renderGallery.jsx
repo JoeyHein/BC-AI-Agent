@@ -36,7 +36,26 @@ const door = (extra) => (
 )
 
 function Gallery() {
-  const detail = new URLSearchParams(window.location.search).has('detail')
+  const params = new URLSearchParams(window.location.search)
+  const detail = params.has('detail')
+  const zoom = params.has('zoom')
+  if (zoom) {
+    return (
+      <div style={{ padding: 16, background: '#e5e7eb' }}>
+        <h1 style={{ fontSize: 16, margin: '0 0 12px' }}>Grain sharpness — zoomed SHXL crop</h1>
+        {WOOD.map((color) => (
+          <div key={color} style={{ marginBottom: 18 }}>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>{finishLabel('SHXL', color)}</div>
+            <div style={{ width: 640, height: 240, overflow: 'hidden', background: '#fff' }}>
+              <div style={{ transform: 'scale(2.6)', transformOrigin: '18% 42%' }}>
+                <DoorPreview width={192} height={84} color={color} panelDesign="SHXL" showDimensions={false} scale={1} />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
   if (detail) {
     return (
       <div style={{ padding: 16, background: '#fff' }}>
