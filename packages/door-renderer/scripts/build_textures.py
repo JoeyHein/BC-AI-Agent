@@ -65,25 +65,13 @@ def source_path(finish) -> Path | None:
 
 
 def make_seamless(image: Image.Image) -> Image.Image:
-    """Blend a thin border so the tile repeats. The middle stays the sharp photo.
+    """Leave the crop intact.
 
-    Offsetting the whole image parks a seam through the grain. A short edge
-    fade leaves the lines in the crop untouched.
+    Edge fades and half-offsets both left a visible vertical smear. The SVG
+    pattern mirrors the tile in both directions, so opposite edges are the
+    same pixels and the repeat has no seam.
     """
-    arr = np.asarray(image.convert("RGB")).astype(np.float32)
-    height, width, _ = arr.shape
-    out = arr.copy()
-    band_x = max(8, int(width * 0.04))
-    band_y = max(4, int(height * 0.04))
-    ramp_x = np.linspace(0.0, 1.0, band_x, dtype=np.float32)
-    ramp_x = ramp_x * ramp_x * (3.0 - 2.0 * ramp_x)
-    right = arr[:, -band_x:, :][:, ::-1, :]
-    out[:, :band_x, :] = right * (1.0 - ramp_x.reshape(1, -1, 1)) + arr[:, :band_x, :] * ramp_x.reshape(1, -1, 1)
-    ramp_y = np.linspace(0.0, 1.0, band_y, dtype=np.float32)
-    ramp_y = ramp_y * ramp_y * (3.0 - 2.0 * ramp_y)
-    bottom = arr[-band_y:, :, :][::-1, :, :]
-    out[:band_y, :, :] = bottom * (1.0 - ramp_y.reshape(-1, 1, 1)) + arr[:band_y, :, :] * ramp_y.reshape(-1, 1, 1)
-    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGB")
+    return image.convert("RGB")
 
 
 def _cap(image: Image.Image) -> Image.Image:
@@ -128,24 +116,31 @@ def grade(tile: Image.Image, contrast: float = 1.0, warmth: float = 0.0) -> Imag
     return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGB")
 
 
-def sharpen_lines(tile: Image.Image, amount: float = 0.9, radius: float = 0.8) -> Image.Image:
-    """Unsharp-mask the grain lines without amplifying photo noise into sand.
+def along_grain(tile: Image.Image, radius: float) -> Image.Image:
+    """Blur along the grain (horizontal) so pebble noise fades and long lines stay."""
+    if radius <= 0:
+        return tile
+    arr = np.asarray(tile).astype(np.float32)
+    span = max(1, int(round(radius * 2)))
+    offsets = np.arange(-span, span + 1)
+    kernel = np.exp(-0.5 * (offsets / radius) ** 2)
+    kernel /= kernel.sum()
+    out = np.zeros_like(arr)
+    for weight, offset in zip(kernel, offsets):
+        out += weight * np.roll(arr, int(offset), axis=1)
+    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGB")
 
-    Only edges stronger than a small threshold are boosted, so flat wood stays
-    flat and the dark streaks stay thin.
-    """
+
+def sharpen_lines(tile: Image.Image, amount: float = 0.9, radius: float = 0.8) -> Image.Image:
+    """Light unsharp mask. Strong values turn pores into sand and scan lines."""
+    if amount <= 0:
+        return tile
     blur = tile.filter(ImageFilter.GaussianBlur(radius=radius))
     original = np.asarray(tile).astype(np.float32)
     detail = original - np.asarray(blur).astype(np.float32)
     magnitude = np.abs(detail).mean(axis=2, keepdims=True)
-    weight = np.clip((magnitude - 2.5) / 6.0, 0.0, 1.0)
+    weight = np.clip((magnitude - 4.0) / 10.0, 0.0, 1.0)
     out = original + detail * amount * weight
-    # Darken rows that are already darker than their neighbours (the grain lines).
-    lum = 0.2126 * out[:, :, 0] + 0.7152 * out[:, :, 1] + 0.0722 * out[:, :, 2]
-    padded = np.pad(lum, ((1, 1), (0, 0)), mode="wrap")
-    neighbours = 0.5 * (padded[:-2] + padded[2:])
-    line = np.clip(neighbours - lum, 0.0, 18.0)
-    out -= (line * 0.55)[..., None]
     return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGB")
 
 
@@ -183,9 +178,12 @@ def build_from_photo(finish) -> Image.Image:
     if emboss:
         tile = pore_emboss(tile, float(emboss))
     # Sharpen last so colour grading and any pore shade cannot soften the lines again.
+    radius = float(finish.get("alongGrain") or 0)
+    if radius:
+        tile = along_grain(tile, radius)
     amount = finish.get("sharpen")
     if amount is None:
-        amount = 1.7
+        amount = 0.4
     if amount:
         tile = sharpen_lines(tile, float(amount))
     return tile

@@ -116,14 +116,15 @@
       "textureCrop": [1380, 1860, 420, 420],
       "grainAxis": "horizontal",
       "grainTile": 200,
-      "sharpen": 0.95,
+      "alongGrain": 1.8,
+      "sharpen": 0.25,
       "swatch": "walnut.jpg",
       "textureNote": "Seamless tile cut from the interior of one raised panel on the Upwardor Sheridan XL walnut catalogue photo. Grain in that photo runs horizontally, same as the installed doors."
     },
     {
       "id": "ENGLISH_CHESTNUT",
       "name": "English Chestnut",
-      "hex": "#805534",
+      "hex": "#80583A",
       "type": "woodgrain",
       "light": "#A67A56",
       "dark": "#5A3214",
@@ -135,16 +136,16 @@
       "textureRotate": 90,
       "grainAxis": "horizontal",
       "grainTile": 260,
-      "grainContrast": 1.45,
-      "warmth": 1.05,
-      "sharpen": 1.05,
+      "grainContrast": 1.28,
+      "warmth": 0.85,
+      "sharpen": 0.45,
       "swatch": "english-chestnut.jpg",
       "textureNote": "Real tile from an indoor-daylight close-up of an English Chestnut section. The sample was stood on end, so grain runs vertically in the photo; it is rotated 90 degrees so the tile matches installed doors. Catalogue walnut and Craft photos, and an evening chestnut install, all read horizontal. The tile is warmed and the grain contrast is raised so the reddish-brown and the dark streaks match that close-up rather than a greyer, flatter reading. Hex is the median of the graded tile."
     },
     {
       "id": "FRENCH_OAK",
       "name": "French Oak",
-      "hex": "#C8AD7E",
+      "hex": "#C7A984",
       "type": "woodgrain",
       "light": "#E8D2A2",
       "dark": "#9A8158",
@@ -157,10 +158,11 @@
       "grainAxis": "horizontal",
       "grainTile": 300,
       "grainTileHeight": 38,
-      "grainContrast": 1.35,
-      "sharpen": 1.05,
+      "grainContrast": 0.62,
+      "alongGrain": 0.7,
+      "sharpen": 0.15,
       "swatch": "french-oak.jpg",
-      "textureNote": "Grain figure is a flat panel-face strip from the close-up (sources/french-oak.jpg). The right-edge frame and the raised-panel bevels are outside the crop. That close-up's light made the wood look grey, so the tile is recoloured onto hex. An overcast daylight install measures about #C6A883 on the lower panels (Joey's sample #C3A686). #C8AD7E is that reading shifted a step warmer and yellower."
+      "textureNote": "Grain figure is a flat panel-face strip from the close-up (sources/french-oak.jpg). The right-edge frame and the raised-panel bevels are outside the crop. That close-up's light made the wood look grey, so the tile is recoloured onto hex with low contrast so the cathedral figure stays soft. An overcast daylight install measures about #C6A883 on the lower panels (Joey's sample #C3A686). #C7A984 sits on that reading, only slightly warmer."
     },
     {
       "id": "CANYON",

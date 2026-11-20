@@ -1069,31 +1069,31 @@ function DoorPreview({
               const sy = cellY + outerInset
               const sw = cellW - outerInset * 2
               const sh = cellH - outerInset * 2
-              const bx = sw * (wood ? 0.04 : 0.13)
-              const by = sh * (wood ? 0.05 : 0.17)
+              const bx = sw * (wood ? 0.10 : 0.13)
+              const by = sh * (wood ? 0.12 : 0.17)
               const px = sx + bx, py = sy + by
               const pw = sw - bx * 2, ph = sh - by * 2
-              // Normal alpha, not soft-light: soft-light flattens the grain lines under the bevel.
-              const highlight = wood ? 'rgba(255,255,255,0.14)' : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.18)')
-              const shadow = wood ? 'rgba(30,16,8,0.16)' : 'rgba(0,0,0,0.14)'
-              const highlightStyle = undefined
-              const shadowStyle = undefined
+              const highlight = wood ? 'rgba(255,255,255,0.28)' : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.18)')
+              const shadow = wood ? 'rgba(20,10,4,0.32)' : 'rgba(0,0,0,0.14)'
               return (
                 <>
-                  {/* Perimeter shadow ring — subtle darkening just outside the stamp */}
-                  <rect x={sx - 1.5} y={sy - 1.5} width={sw + 3} height={sh + 3}
-                    fill="none" stroke={wood ? 'rgba(0,0,0,0.06)' : 'rgba(0,0,0,0.18)'} strokeWidth={wood ? 0.6 : 1.5} />
-                  {/* Stamp outer edge */}
-                  <rect x={sx} y={sy} width={sw} height={sh}
-                    fill="none" stroke={lineColor} strokeWidth="1" />
+                  {!wood && (
+                    <rect x={sx - 1.5} y={sy - 1.5} width={sw + 3} height={sh + 3}
+                      fill="none" stroke="rgba(0,0,0,0.18)" strokeWidth="1.5" />
+                  )}
+                  {!wood && (
+                    <rect x={sx} y={sy} width={sw} height={sh}
+                      fill="none" stroke={lineColor} strokeWidth="1" />
+                  )}
                   {/* Bevel polygons: top/left lit, bottom/right shaded */}
-                  <polygon points={`${sx},${sy} ${sx + sw},${sy} ${px + pw},${py} ${px},${py}`} fill={highlight} style={highlightStyle} />
-                  <polygon points={`${sx},${sy} ${px},${py} ${px},${py + ph} ${sx},${sy + sh}`} fill={highlight} style={highlightStyle} />
-                  <polygon points={`${sx + sw},${sy} ${sx + sw},${sy + sh} ${px + pw},${py + ph} ${px + pw},${py}`} fill={shadow} style={shadowStyle} />
-                  <polygon points={`${sx},${sy + sh} ${px},${py + ph} ${px + pw},${py + ph} ${sx + sw},${sy + sh}`} fill={shadow} style={shadowStyle} />
-                  {/* Inner plateau edge */}
-                  <rect x={px} y={py} width={pw} height={ph}
-                    fill="none" stroke={lineColor} strokeWidth="0.6" opacity={wood ? 0.28 : 0.5} />
+                  <polygon points={`${sx},${sy} ${sx + sw},${sy} ${px + pw},${py} ${px},${py}`} fill={highlight} />
+                  <polygon points={`${sx},${sy} ${px},${py} ${px},${py + ph} ${sx},${sy + sh}`} fill={highlight} />
+                  <polygon points={`${sx + sw},${sy} ${sx + sw},${sy + sh} ${px + pw},${py + ph} ${px + pw},${py}`} fill={shadow} />
+                  <polygon points={`${sx},${sy + sh} ${px},${py + ph} ${px + pw},${py + ph} ${sx + sw},${sy + sh}`} fill={shadow} />
+                  {!wood && (
+                    <rect x={px} y={py} width={pw} height={ph}
+                      fill="none" stroke={lineColor} strokeWidth="0.6" opacity="0.5" />
+                  )}
                 </>
               )
             })()}
@@ -1781,25 +1781,34 @@ function DoorPreview({
 
           {wood && textureUrl && sections.map((section) => {
             const shift = GRAIN_SHIFTS[section.index % GRAIN_SHIFTS.length]
+            const tileW = grainTile
+            const tileH = grainTileHeight
+            // Mirror in both directions so the repeat boundary is the same pixels, not a blend smear.
+            const cell = (transform) => (
+              <image
+                href={textureUrl}
+                x="0"
+                y="0"
+                width={tileW}
+                height={tileH}
+                preserveAspectRatio="none"
+                transform={transform}
+              />
+            )
             return (
               <pattern
                 key={`wood-${section.index}`}
                 id={`wood-${gid}-${section.index}`}
                 patternUnits="userSpaceOnUse"
-                width={grainTile}
-                height={grainTileHeight}
+                width={tileW * 2}
+                height={tileH * 2}
                 x={shift[0]}
                 y={section.y + shift[1]}
               >
-                <image
-                  href={textureUrl}
-                  x="0"
-                  y="0"
-                  width={grainTile}
-                  height={grainTileHeight}
-                  preserveAspectRatio="none"
-                  style={{ imageRendering: 'crisp-edges' }}
-                />
+                {cell(undefined)}
+                {cell(`translate(${tileW * 2} 0) scale(-1 1)`)}
+                {cell(`translate(0 ${tileH * 2}) scale(1 -1)`)}
+                {cell(`translate(${tileW * 2} ${tileH * 2}) scale(-1 -1)`)}
               </pattern>
             )
           })}
