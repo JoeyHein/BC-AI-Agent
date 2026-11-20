@@ -186,6 +186,32 @@ def smooth_along_grain(tile: Image.Image, radius: int = 2) -> Image.Image:
     return Image.fromarray(np.clip(total / (radius * 2 + 1), 0, 255).astype(np.uint8), "RGB")
 
 
+def scale_luminance(tile: Image.Image, factor: float) -> Image.Image:
+    """Darken or lighten without shifting hue. RGB scale keeps the grain ratios."""
+    if factor == 1:
+        return tile
+    arr = np.asarray(tile).astype(np.float32) * float(factor)
+    return Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8), "RGB")
+
+
+def inpaint_red_streaks(tile: Image.Image) -> Image.Image:
+    """Replace the thin red wire with the wood just above and below it.
+
+    The wire collapses green and blue. Ordinary dark grain does not, so pores stay.
+    """
+    out = np.asarray(tile).astype(np.float32)
+    for _ in range(3):
+        redness = out[:, :, 0] - 0.5 * (out[:, :, 1] + out[:, :, 2])
+        samples = np.stack([np.roll(out, dy, axis=0) for dy in (-8, -6, -5, -4, 4, 5, 6, 8)], 0)
+        neighbor = np.median(samples, axis=0)
+        neighbor_red = neighbor[:, :, 0] - 0.5 * (neighbor[:, :, 1] + neighbor[:, :, 2])
+        wire = ((redness - neighbor_red) > 14) & (out[:, :, 1] < 40) & (out[:, :, 0] > 100)
+        if not np.any(wire):
+            break
+        out[wire] = neighbor[wire]
+    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGB")
+
+
 def sharpen_along_grain(tile: Image.Image, amount: float = 0.18) -> Image.Image:
     """Very light contrast across the grain, after denoise. Not an isotropic unsharp."""
     if amount <= 0:
@@ -231,6 +257,11 @@ def build_from_photo(finish) -> Image.Image:
     amount = float(finish.get("alongGrainSharpen") or 0)
     if amount:
         tile = sharpen_along_grain(tile, amount)
+    if finish.get("removeRedStreaks"):
+        tile = inpaint_red_streaks(tile)
+    scale = finish.get("luminanceScale")
+    if scale:
+        tile = scale_luminance(tile, float(scale))
     if max(tile.size) < 1024:
         print(f"WARNING  {finish['id']} is {tile.size[0]}x{tile.size[1]} (long side under 1024)")
     return tile

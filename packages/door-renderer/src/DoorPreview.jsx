@@ -6,6 +6,24 @@
 import { useId, useMemo } from 'react'
 import { colorHex, getFinish, hasMetallicSheen } from './finishes.js'
 
+// Light wood (French Oak and lighter) stays at a 10% highlight and a 15% shadow.
+// Darker finishes scale up toward a 22% highlight and a 30% shadow so the
+// raised panel still reads on walnut and English Chestnut.
+function woodBevelInk(hex) {
+  const n = parseInt(String(hex || '').slice(1), 16)
+  const r = (n >> 16) & 255
+  const g = (n >> 8) & 255
+  const b = n & 255
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  const t = Math.min(1, Math.max(0, (lum - 0.30) / 0.32))
+  const highlight = 0.22 + t * (0.10 - 0.22)
+  const shadow = 0.30 + t * (0.15 - 0.30)
+  return {
+    highlight: `rgba(255,255,255,${highlight.toFixed(3)})`,
+    shadow: `rgba(0,0,0,${shadow.toFixed(3)})`,
+  }
+}
+
 // Per-section phase shifts so neighbouring sections do not share one tile phase.
 const GRAIN_SHIFTS = [
   [0, 0],
@@ -1075,8 +1093,9 @@ function DoorPreview({
               const by = wood ? Math.min(sh * 0.08, bevelPx) : sh * 0.17
               const px = sx + bx, py = sy + by
               const pw = sw - bx * 2, ph = sh - by * 2
-              const highlight = wood ? 'rgba(255,255,255,0.10)' : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.18)')
-              const shadow = wood ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.14)'
+              const bevel = wood ? woodBevelInk(doorColor) : null
+              const highlight = bevel ? bevel.highlight : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.18)')
+              const shadow = bevel ? bevel.shadow : 'rgba(0,0,0,0.14)'
               return (
                 <>
                   {!wood && (

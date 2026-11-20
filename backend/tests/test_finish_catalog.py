@@ -49,7 +49,7 @@ def test_french_oak_uses_daylight_colour_and_closeup_grain():
     finish = load_finishes()["FRENCH_OAK"]
     assert finish["textureStatus"] == "catalogue"
     assert finish["recolorToHex"] is True
-    assert finish["hex"] == "#C7A984"
+    assert finish["hex"] == "#BFA87B"
     assert finish["textureSource"].endswith("sources/french-oak.jpg")
     assert "colorStatus" not in finish
     assert (finishes_path().parent / "sources" / "french-oak.jpg").is_file()
