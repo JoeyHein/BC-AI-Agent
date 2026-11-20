@@ -3633,6 +3633,62 @@ def generate_framing_drawing_endpoint(
     )
 
 
+@router.post("/saved-quotes/{config_id}/framing-detail")
+def generate_framing_detail_endpoint(
+    config_id: int,
+    fmt: str = "pdf",
+    door_index: int = 0,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db),
+):
+    """Download the pad, jamb and extension sheet for one of this customer's quotes.
+
+    TX-series doors get the Thermalex framing detail. Other series get the
+    existing framing drawing. The sheet has no prices. The quote has to
+    belong to the signed-in customer or their company.
+    """
+    from app.services.shop_drawings import generate_framing_detail
+
+    fmt = (fmt or "pdf").lower()
+    if fmt not in ("pdf", "dxf"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="fmt must be 'pdf' or 'dxf'",
+        )
+
+    config = db.query(SavedQuoteConfig).filter(
+        SavedQuoteConfig.id == config_id,
+        SavedQuoteConfig.user_id.in_(_company_user_ids(current_user, db)),
+    ).first()
+    if not config:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Saved configuration not found",
+        )
+
+    try:
+        content = generate_framing_detail(
+            config_data=config.config_data or {},
+            customer_name=current_user.name or current_user.email,
+            job_number=config.bc_quote_number or f"Q-{config.id}",
+            fmt=fmt,
+            drawing_date=config.updated_at or config.created_at,
+            config_id=config.id,
+            door_index=door_index,
+            db=db,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    media_type = "application/pdf" if fmt == "pdf" else "application/dxf"
+    filename = f"framing-detail-{config.bc_quote_number or config.id}.{fmt}"
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
 # ============================================================================
 # BC QUOTES ENDPOINTS
 # ============================================================================

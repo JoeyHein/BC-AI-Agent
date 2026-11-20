@@ -126,6 +126,25 @@ function SavedQuotes() {
   }
 
   const [downloadingFraming, setDownloadingFraming] = useState({})
+  const [downloadingDetail, setDownloadingDetail] = useState({})
+  const handleDownloadFramingDetail = async (quoteId, quoteNumber) => {
+    setDownloadingDetail(prev => ({ ...prev, [quoteId]: true }))
+    try {
+      const response = await savedQuotesApi.framingDetail(quoteId, { fmt: 'pdf' })
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `FramingDetail_${quoteNumber || quoteId}.pdf`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      alert('Failed to download framing detail')
+    } finally {
+      setDownloadingDetail(prev => ({ ...prev, [quoteId]: false }))
+    }
+  }
   const handleDownloadFramingDrawing = async (quoteId, quoteNumber) => {
     setDownloadingFraming(prev => ({ ...prev, [quoteId]: true }))
     try {
@@ -287,6 +306,14 @@ function SavedQuotes() {
                               >
                                 {downloadingFraming[quote.id] ? 'Generating...' : 'Drawing PDF'}
                               </button>
+                              <button
+                                onClick={() => handleDownloadFramingDetail(quote.id, quote.bc_quote_number)}
+                                disabled={downloadingDetail[quote.id]}
+                                className="inline-flex items-center px-3 py-1 border border-odc-300 text-xs font-medium rounded-md text-odc-700 bg-white hover:bg-odc-50 disabled:opacity-50"
+                                title="Pads, jamb and extension for this door"
+                              >
+                                {downloadingDetail[quote.id] ? 'Generating...' : 'Download framing detail'}
+                              </button>
                             </>
                           )}
                         </div>
@@ -328,6 +355,14 @@ function SavedQuotes() {
                             {downloadingPdf[quote.id] ? 'Downloading...' : 'Download PDF'}
                           </button>
                           <button
+                            onClick={() => handleDownloadFramingDetail(quote.id, quote.bc_quote_number)}
+                            disabled={downloadingDetail[quote.id]}
+                            className="inline-flex items-center px-3 py-1 border border-odc-300 text-xs font-medium rounded-md text-odc-700 bg-white hover:bg-odc-50 disabled:opacity-50"
+                            title="Pads, jamb and extension for this door"
+                          >
+                            {downloadingDetail[quote.id] ? 'Generating...' : 'Download framing detail'}
+                          </button>
+                          <button
                             onClick={() => duplicateMutation.mutate(quote.id)}
                             disabled={duplicateMutation.isPending}
                             className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
@@ -355,6 +390,14 @@ function SavedQuotes() {
                           >
                             Edit
                           </Link>
+                          <button
+                            onClick={() => handleDownloadFramingDetail(quote.id, quote.bc_quote_number)}
+                            disabled={downloadingDetail[quote.id]}
+                            className="inline-flex items-center px-3 py-1 border border-odc-300 text-xs font-medium rounded-md text-odc-700 bg-white hover:bg-odc-50 disabled:opacity-50"
+                            title="Pads, jamb and extension for this door"
+                          >
+                            {downloadingDetail[quote.id] ? 'Generating...' : 'Download framing detail'}
+                          </button>
                           {isBCLinked && (
                             <button
                               onClick={() => handleGetPricing(quote.id)}

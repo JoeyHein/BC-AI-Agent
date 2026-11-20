@@ -256,6 +256,19 @@ export const doorConfigApi = {
       },
       { responseType: "blob" }
     ),
+
+  previewFramingDetail: ({ configData, customerName, jobNumber, doorIndex = 0, fmt = "pdf" }) =>
+    apiClient.post(
+      '/api/door-config/preview-framing-detail',
+      {
+        config_data: configData,
+        customer_name: customerName || null,
+        job_number: jobNumber || null,
+        door_index: doorIndex,
+        fmt,
+      },
+      { responseType: "blob" }
+    ),
 };
 
 // Production API
