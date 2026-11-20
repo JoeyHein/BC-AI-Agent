@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import doorOptions from '../door-options.json'
+import { hydrateColorData } from 'door-renderer'
 import css from './styles.css?inline'
 
 const OpenDCDesigner = {
@@ -22,7 +23,7 @@ const OpenDCDesigner = {
     const root = ReactDOM.createRoot(el)
     root.render(
       <App
-        options={doorOptions}
+        options={hydrateColorData(doorOptions)}
         quoteWebhook={quoteWebhook || 'https://portal.opendc.ca/api/public/quote-request'}
         dealerLocatorUrl={dealerLocatorUrl || '/find-a-dealer'}
       />

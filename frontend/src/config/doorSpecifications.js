@@ -1,3 +1,5 @@
+import { listFinishes } from 'door-renderer'
+
 /**
  * Door Specifications Configuration
  * Contains RAL color codes, stamp dimensions, and panel layout specifications
@@ -9,148 +11,17 @@
 // ============================================================================
 // RAL COLOR CODES - Standard Upwardor Colors
 // ============================================================================
-export const COLOR_SPECIFICATIONS = {
-  // White/Light Colors
-  WHITE: {
-    hex: '#FFFFFF',
-    ral: 'RAL 9010',
-    name: 'Pure White',
-    type: 'solid',
-    description: 'Standard pure white finish'
-  },
-  BRIGHT_WHITE: {
-    hex: '#FFFFFF',
-    ral: 'RAL 9016',
-    name: 'Traffic White',
-    type: 'solid',
-    description: 'Bright traffic white'
-  },
-  NEW_ALMOND: {
-    hex: '#E3DCCA',
-    ral: 'RAL 1015',
-    name: 'Light Ivory',
-    type: 'solid',
-    description: 'Light almond/ivory tone'
-  },
-  SANDTONE: {
-    hex: '#A89E94',
-    ral: 'RAL 1001',
-    name: 'Beige',
-    type: 'solid',
-    description: 'Sandy beige tone'
-  },
-
-  // Dark Colors
-  BLACK: {
-    hex: '#1A1A1A',
-    ral: 'RAL 9005',
-    name: 'Jet Black',
-    type: 'solid',
-    description: 'Deep black finish'
-  },
-  IRON_ORE: {
-    hex: '#48464A',
-    ral: 'RAL 7024',
-    name: 'Graphite Grey',
-    type: 'solid',
-    description: 'Dark iron/graphite grey'
-  },
-  STEEL_GREY: {
-    hex: '#6B6B6B',
-    ral: 'RAL 7046',
-    name: 'Telegrey 2',
-    type: 'solid',
-    description: 'Medium steel grey'
-  },
-
-  // Brown/Wood Tones
-  NEW_BROWN: {
-    hex: '#4A3728',
-    ral: 'RAL 8011',
-    name: 'Nut Brown',
-    type: 'solid',
-    description: 'Medium brown tone'
-  },
-  BRONZE: {
-    hex: '#80461B',
-    ral: 'RAL 8001',
-    name: 'Ochre Brown',
-    type: 'solid',
-    description: 'Bronze/ochre finish'
-  },
-
-  // Wood Grain Laminates
-  WALNUT: {
-    hex: '#673D27',
-    ral: null,
-    name: 'Walnut Woodgrain',
-    type: 'woodgrain',
-    baseColor: '#673D27',
-    grainColor: '#5D341F',
-    description: 'Walnut wood laminate'
-  },
-  HAZELWOOD: {
-    hex: '#756F61',
-    ral: 'RAL 7006',
-    name: 'Hazelwood',
-    type: 'solid',
-    description: 'Hazelwood solid finish (steel stamped, not a woodgrain)'
-  },
-  ENGLISH_CHESTNUT: {
-    hex: '#7F583F',
-    ral: null,
-    name: 'English Chestnut',
-    type: 'woodgrain',
-    baseColor: '#7F583F',
-    grainColor: '#653D29',
-    description: 'English Chestnut wood laminate'
-  },
-  FRENCH_OAK: {
-    hex: '#A48468',
-    ral: null,
-    name: 'French Oak',
-    type: 'woodgrain',
-    baseColor: '#A48468',
-    grainColor: '#836A4F',
-    description: 'French Oak wood laminate'
-  },
-  MEDIUM_OAK: {
-    hex: '#B5833E',
-    ral: null,
-    name: 'Medium Oak',
-    type: 'woodgrain',
-    baseColor: '#B5833E',
-    grainColor: '#8A632E',
-    description: 'Medium oak wood laminate'
-  },
-  DARK_WALNUT: {
-    hex: '#3D2A1A',
-    ral: null,
-    name: 'Dark Walnut',
-    type: 'woodgrain',
-    baseColor: '#3D2A1A',
-    grainColor: '#2A1D12',
-    description: 'Dark walnut wood laminate'
-  },
-  NATURAL: {
-    hex: '#D4A574',
-    ral: null,
-    name: 'Natural Wood',
-    type: 'woodgrain',
-    baseColor: '#D4A574',
-    grainColor: '#A78450',
-    description: 'Light natural wood tone'
-  },
-
-  // Specialty
-  CLEAR_ANODIZED: {
-    hex: '#C0C0C0',
-    ral: 'RAL 9006',
-    name: 'White Aluminum',
-    type: 'metallic',
-    description: 'Clear anodized aluminum finish'
-  },
-}
+export const COLOR_SPECIFICATIONS = Object.fromEntries(
+  listFinishes().map((finish) => [finish.id, {
+    hex: finish.hex,
+    ral: finish.ral || null,
+    name: finish.name,
+    type: finish.type,
+    baseColor: finish.hex,
+    grainColor: finish.dark || null,
+    description: finish.textureNote || finish.name,
+  }])
+)
 
 // ============================================================================
 // STAMP/PANEL DIMENSIONS - FIXED SIZES (in inches)
@@ -356,9 +227,12 @@ export function getColorSpec(colorId) {
 // HELPER: Check if color is dark (for contrast calculations)
 // ============================================================================
 export function isColorDark(colorId) {
-  const darkColors = ['BLACK', 'WALNUT', 'IRON_ORE', 'NEW_BROWN', 'ENGLISH_CHESTNUT',
-                      'HAZELWOOD', 'BRONZE', 'DARK_WALNUT']
-  return darkColors.includes(colorId)
+  const hex = COLOR_SPECIFICATIONS[colorId]?.hex
+  if (!hex || typeof hex !== 'string') return false
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return (0.299 * r + 0.587 * g + 0.114 * b) < 140
 }
 
 // ============================================================================

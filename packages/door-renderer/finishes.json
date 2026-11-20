@@ -1,0 +1,247 @@
+{
+  "version": 1,
+  "finishes": [
+    {
+      "id": "WHITE",
+      "name": "White",
+      "hex": "#E2E2E2",
+      "type": "solid",
+      "ral": "RAL 9003",
+      "swatch": "#E2E2E2"
+    },
+    {
+      "id": "BRIGHT_WHITE",
+      "name": "Bright White",
+      "hex": "#F4F4F4",
+      "type": "solid",
+      "ral": "RAL 9003",
+      "swatch": "#F4F4F4"
+    },
+    {
+      "id": "NEW_ALMOND",
+      "name": "New Almond",
+      "hex": "#E3DCCA",
+      "type": "solid",
+      "ral": "RAL 1015",
+      "swatch": "#E3DCCA"
+    },
+    {
+      "id": "ALMOND",
+      "name": "Almond",
+      "hex": "#DCCBB3",
+      "type": "solid",
+      "swatch": "#DCCBB3"
+    },
+    {
+      "id": "SANDTONE",
+      "name": "Sandtone",
+      "hex": "#A89E94",
+      "type": "solid",
+      "ral": "RAL 1019",
+      "swatch": "#A89E94"
+    },
+    {
+      "id": "BLACK",
+      "name": "Black",
+      "hex": "#282828",
+      "type": "solid",
+      "ral": "RAL 9004",
+      "darkSurface": true,
+      "sheen": true,
+      "swatch": "#282828"
+    },
+    {
+      "id": "ONYX_BLACK",
+      "name": "Onyx Black",
+      "hex": "#1A1A1A",
+      "type": "solid",
+      "sheen": true,
+      "swatch": "#1A1A1A"
+    },
+    {
+      "id": "IRON_ORE",
+      "name": "Iron Ore",
+      "hex": "#2F3234",
+      "type": "solid",
+      "ral": "RAL 7021",
+      "darkSurface": true,
+      "sheen": true,
+      "swatch": "#2F3234"
+    },
+    {
+      "id": "NEW_BROWN",
+      "name": "New Brown",
+      "hex": "#4C4842",
+      "type": "solid",
+      "ral": "RAL 7022",
+      "darkSurface": true,
+      "swatch": "#4C4842"
+    },
+    {
+      "id": "HAZELWOOD",
+      "name": "Hazelwood",
+      "hex": "#756F61",
+      "type": "solid",
+      "ral": "RAL 7006",
+      "swatch": "#756F61"
+    },
+    {
+      "id": "BRONZE",
+      "name": "Bronze",
+      "hex": "#6C6961",
+      "type": "solid",
+      "ral": "RAL 7039",
+      "swatch": "#6C6961"
+    },
+    {
+      "id": "STEEL_GREY",
+      "name": "Steel Grey",
+      "hex": "#6B6B6B",
+      "type": "solid",
+      "ral": "RAL 7037",
+      "sheen": true,
+      "swatch": "#6B6B6B"
+    },
+    {
+      "id": "WALNUT",
+      "name": "Walnut",
+      "hex": "#623C29",
+      "type": "woodgrain",
+      "light": "#794F3A",
+      "dark": "#442715",
+      "darkSurface": true,
+      "texture": "walnut.jpg",
+      "textureStatus": "catalogue",
+      "textureSource": "frontend/public/assets/doors/kanata/sheridan-xl/walnut.jpg",
+      "textureCrop": [780, 1700, 1400, 360],
+      "preserveAspect": true,
+      "grainAxis": "horizontal",
+      "grainTile": 700,
+      "grainTileHeight": 180,
+      "alongGrainSmooth": 8,
+      "alongGrainSharpen": 0.08,
+      "luminanceScale": 0.875,
+      "swatch": "walnut.jpg",
+      "textureNote": "Seamless tile cut from the interior of one raised panel on the Upwardor Sheridan XL walnut catalogue photo. Grain in that photo runs horizontally, same as the installed doors."
+    },
+    {
+      "id": "ENGLISH_CHESTNUT",
+      "name": "English Chestnut",
+      "hex": "#825B3F",
+      "type": "woodgrain",
+      "light": "#A67A56",
+      "dark": "#5A3214",
+      "darkSurface": true,
+      "texture": "english-chestnut.jpg",
+      "textureStatus": "catalogue",
+      "textureSource": "packages/door-renderer/sources/english-chestnut.jpg",
+      "textureCrop": [300, 800, 680, 1180],
+      "preserveAspect": true,
+      "textureRotate": 90,
+      "grainAxis": "horizontal",
+      "grainTile": 590,
+      "grainTileHeight": 340,
+      "grainContrast": 1.15,
+      "warmth": 0.7,
+      "alongGrainSharpen": 0.16,
+      "removeRedStreaks": true,
+      "swatch": "english-chestnut.jpg",
+      "textureNote": "Real tile from an indoor-daylight close-up of an English Chestnut section. The sample was stood on end, so grain runs vertically in the photo; it is rotated 90 degrees so the tile matches installed doors. Catalogue walnut and Craft photos, and an evening chestnut install, all read horizontal. The tile is warmed and the grain contrast is raised so the reddish-brown and the dark streaks match that close-up rather than a greyer, flatter reading. Hex is the median of the graded tile."
+    },
+    {
+      "id": "FRENCH_OAK",
+      "name": "French Oak",
+      "hex": "#BFA87B",
+      "type": "woodgrain",
+      "light": "#E8D2A2",
+      "dark": "#9A8158",
+      "texture": "french-oak.jpg",
+      "textureStatus": "catalogue",
+      "textureSource": "packages/door-renderer/sources/french-oak.jpg",
+      "textureCrop": [180, 455, 1600, 160],
+      "preserveAspect": true,
+      "recolorToHex": true,
+      "grainAxis": "horizontal",
+      "grainTile": 800,
+      "grainTileHeight": 80,
+      "grainContrast": 1.05,
+      "alongGrainSharpen": 0.1,
+      "swatch": "french-oak.jpg",
+      "textureNote": "Grain figure is the native-resolution close-up strip, denoised, recoloured to the warmer almond yellow measured on the run-3 door (#BFA87B). Hue and saturation follow that render. The grain itself stays the low-grit run-4 tile."
+    },
+    {
+      "id": "CANYON",
+      "name": "Canyon",
+      "hex": "#8B6F47",
+      "type": "solid",
+      "swatch": "#8B6F47"
+    },
+    {
+      "id": "CLEAR_ANODIZED",
+      "name": "Clear Anodized (Standard)",
+      "hex": "#C0C0C0",
+      "type": "metallic",
+      "sheen": true,
+      "swatch": "#C0C0C0"
+    },
+    {
+      "id": "BLACK_ANODIZED",
+      "name": "Black Anodized",
+      "hex": "#1A1A1A",
+      "type": "metallic",
+      "sheen": true,
+      "swatch": "#1A1A1A"
+    },
+    {
+      "id": "MILL",
+      "name": "Mill Finish",
+      "hex": "#D3D3D3",
+      "type": "metallic",
+      "sheen": true,
+      "swatch": "#D3D3D3"
+    },
+    {
+      "id": "CUSTOM",
+      "name": "Custom Powder Coat",
+      "hex": null,
+      "type": "custom",
+      "note": "Custom colors available",
+      "swatch": null
+    },
+    {
+      "id": "MEDIUM_OAK",
+      "name": "Medium Oak",
+      "hex": "#B5651D",
+      "type": "stain",
+      "swatch": "#B5651D"
+    },
+    {
+      "id": "MAHOGANY",
+      "name": "Mahogany",
+      "hex": "#C04000",
+      "type": "stain",
+      "swatch": "#C04000"
+    },
+    {
+      "id": "NATURAL",
+      "name": "Natural",
+      "hex": "#DEB887",
+      "type": "stain",
+      "swatch": "#DEB887"
+    },
+    {
+      "id": "SLATE_DARK_GREY",
+      "name": "Slate Dark Grey",
+      "hex": "#708090",
+      "type": "stain",
+      "swatch": "#708090"
+    },
+    {
+      "id": "DARK_WALNUT",
+      "name": "Dark Walnut",
+      "hex": "#5C4033",
+      "type": "stain",
+      "swatch": "#5C4033"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "door-renderer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Brand-free sectional door preview and finish catalogue. Vendoring this folder does not pull in a dealer brand.",
+  "exports": {
+    ".": "./src/index.js",
+    "./finishes": "./src/finishes.js",
+    "./finishes.json": "./finishes.json"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  }
+}

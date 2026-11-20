@@ -52,6 +52,7 @@ from app.services.operator_service import find_operator_by_part_number
 from app.integrations.bc.client import bc_client
 from app.api.staff_principal import require_staff
 from app.services.staff_permissions import redact_configurator_quote
+from app.services.finish_catalog import COLORS
 from app.db.database import get_db
 from app.db.models import BCCustomer, User
 
@@ -391,60 +392,7 @@ SERIES_TO_DOOR_TYPE: Dict[str, str] = {
     for series in series_list
 }
 
-COLORS = {
-    # Solid colors with RAL codes
-    "KANATA": [
-        # Solid Colors (RAL)
-        {"id": "WHITE", "name": "White", "hex": "#F4F4F4", "ral": "RAL 9003", "type": "solid"},
-        {"id": "NEW_ALMOND", "name": "New Almond", "hex": "#E3DCCA", "ral": "RAL 1015", "type": "solid"},
-        {"id": "BLACK", "name": "Black", "hex": "#282828", "ral": "RAL 9004", "type": "solid"},
-        {"id": "NEW_BROWN", "name": "New Brown", "hex": "#4C4842", "ral": "RAL 7022", "type": "solid"},
-        {"id": "HAZELWOOD", "name": "Hazelwood", "hex": "#756F61", "ral": "RAL 7006", "type": "solid"},
-        {"id": "BRONZE", "name": "Bronze", "hex": "#6C6961", "ral": "RAL 7039", "type": "solid"},
-        {"id": "STEEL_GREY", "name": "Steel Grey", "hex": "#7D7F7D", "ral": "RAL 7037", "type": "solid"},
-        {"id": "SANDTONE", "name": "Sandtone", "hex": "#A4957D", "ral": "RAL 1019", "type": "solid"},
-        {"id": "IRON_ORE", "name": "Iron Ore", "hex": "#2F3234", "ral": "RAL 7021", "type": "solid"},
-        # Woodgrain finishes
-        {"id": "WALNUT", "name": "Walnut", "hex": "#4A3728", "type": "woodgrain", "grain": ["#4A3728", "#5D432C", "#3D2B1F"]},
-        {"id": "ENGLISH_CHESTNUT", "name": "English Chestnut", "hex": "#6B4423", "type": "woodgrain", "grain": ["#6B4423", "#8B5A2B", "#5C3317"]},
-        {"id": "FRENCH_OAK", "name": "French Oak", "hex": "#C4A35A", "type": "woodgrain", "grain": ["#C4A35A", "#D4B56A", "#B49A4A"]},
-    ],
-    "CRAFT": [
-        {"id": "WHITE", "name": "White", "hex": "#F4F4F4", "ral": "RAL 9003", "type": "solid"},
-        {"id": "SANDTONE", "name": "Sandtone", "hex": "#A4957D", "ral": "RAL 1019", "type": "solid"},
-        {"id": "WALNUT", "name": "Walnut", "hex": "#4A3728", "type": "woodgrain", "grain": ["#4A3728", "#5D432C", "#3D2B1F"], "note": "7' door only"},
-        {"id": "ENGLISH_CHESTNUT", "name": "English Chestnut", "hex": "#6B4423", "type": "woodgrain", "grain": ["#6B4423", "#8B5A2B", "#5C3317"]},
-        {"id": "IRON_ORE", "name": "Iron Ore", "hex": "#2F3234", "ral": "RAL 7021", "type": "solid"},
-        {"id": "FRENCH_OAK", "name": "French Oak", "hex": "#C4A35A", "type": "woodgrain", "grain": ["#C4A35A", "#D4B56A", "#B49A4A"]},
-    ],
-    "COMMERCIAL": [
-        # TX450 standard-gauge — full stocked color range (PN45/46 in BC).
-        {"id": "WHITE", "name": "White", "hex": "#F4F4F4", "ral": "RAL 9003", "type": "solid"},
-        {"id": "BLACK", "name": "Black", "hex": "#282828", "ral": "RAL 9004", "type": "solid"},
-        {"id": "NEW_BROWN", "name": "New Brown", "hex": "#4C4842", "ral": "RAL 7022", "type": "solid"},
-        {"id": "STEEL_GREY", "name": "Steel Grey", "hex": "#7D7F7D", "ral": "RAL 7037", "type": "solid"},
-    ],
-    # TX500 (PN55/56) is only stocked in White and Black — no Steel Grey/Brown.
-    "COMMERCIAL_TX500": [
-        {"id": "WHITE", "name": "White", "hex": "#F4F4F4", "ral": "RAL 9003", "type": "solid"},
-        {"id": "BLACK", "name": "Black", "hex": "#282828", "ral": "RAL 9004", "type": "solid"},
-    ],
-    # 20-gauge commercial (TX450-20 / TX500-20, PN47/48/57/58) is White only.
-    "COMMERCIAL_20": [
-        {"id": "WHITE", "name": "White", "hex": "#F4F4F4", "ral": "RAL 9003", "type": "solid"},
-    ],
-    "AL976": [
-        {"id": "CLEAR_ANODIZED", "name": "Clear Anodized (Standard)", "hex": "#C0C0C0"},
-        {"id": "CUSTOM", "name": "Custom Powder Coat", "hex": None, "note": "Custom colors available"},
-    ],
-    "EXECUTIVE_STAINS": [
-        {"id": "MEDIUM_OAK", "name": "Medium Oak", "hex": "#B5651D"},
-        {"id": "MAHOGANY", "name": "Mahogany", "hex": "#C04000"},
-        {"id": "NATURAL", "name": "Natural", "hex": "#DEB887"},
-        {"id": "SLATE_DARK_GREY", "name": "Slate Dark Grey", "hex": "#708090"},
-        {"id": "DARK_WALNUT", "name": "Dark Walnut", "hex": "#5C4033"},
-    ],
-}
+# Colour hexes and names come from packages/door-renderer/finishes.json via finish_catalog.COLORS.
 
 PANEL_DESIGNS = {
     "KANATA": [
