@@ -272,6 +272,8 @@ class PlanningWorkbookService:
         so_rows = build_so_rows(req, data["sales_orders"], today=today)
         per_so = build_per_so_needs(req, data["sales_orders"])
         history = self._recent_snapshots(db)
+        self.last_late_report = self._late_report(db, data, today)
+        self.last_supplier_flags = self._supplier_flags(db, data["purchase_orders"], today)
 
         # The AI morning brief — reused by the 07:00 purchasing digest, so both
         # tell the same story off one generation. Best-effort: a workbook
@@ -290,6 +292,8 @@ class PlanningWorkbookService:
         wb.remove(wb.active)  # drop default sheet; we add named tabs
         self._tab_brief(wb, brief)
         self._tab_summary(wb, req, so_rows, today, brief=brief)
+        self._tab_late_orders(wb, self.last_late_report)
+        self._tab_supplier_flags(wb, self.last_supplier_flags)
         self._tab_sales_orders(wb, so_rows)
         self._tab_per_so_needs(wb, per_so)
         self._tab_buy_list(wb, req)
@@ -350,7 +354,18 @@ class PlanningWorkbookService:
         rag = {"red": 0, "amber": 0, "green": 0}
         for r in so_rows:
             rag[r["rag"]] = rag.get(r["rag"], 0) + 1
-        result = {"snapshots": snap_count, "sales_orders": len(so_rows), "rag": rag}
+        late = getattr(self, "last_late_report", None) or {
+            "late_count": 0, "open_count": len(so_rows), "late": [],
+        }
+        flags = getattr(self, "last_supplier_flags", None) or []
+        result = {
+            "snapshots": snap_count,
+            "sales_orders": len(so_rows),
+            "rag": rag,
+            "late_count": late.get("late_count", 0),
+            "open_unshipped": late.get("open_count", 0),
+            "supplier_flags": len(flags),
+        }
         if readback and readback.get("applied"):
             result["cut_readback"] = readback
 
@@ -369,11 +384,9 @@ class PlanningWorkbookService:
 
         link = sharepoint_url or settings.PLANNING_SHAREPOINT_WEB_URL
         published = bool(result.get("sharepoint"))
-        subject = (
-            f"OPENDC Planning — {len(so_rows)} open SO(s): "
-            f"{rag['red']} behind / {rag['amber']} at risk / {rag['green']} on track"
-        )
-        html = self._email_html(rag, len(so_rows), link if published else None)
+        from app.services.late_orders import email_subject
+        subject = email_subject(late)
+        html = self._email_html(late, flags, link if published else None)
         attachments = None if published else [
             {"name": fname, "content_bytes": xlsx, "content_type": XLSX_MIME}
         ]
@@ -390,20 +403,96 @@ class PlanningWorkbookService:
         raw = settings.PLANNING_WORKBOOK_RECIPIENTS or settings.ADMIN_NOTIFICATION_EMAILS or "joey@opendc.ca"
         return [e.strip() for e in raw.split(",") if e.strip()]
 
-    def _email_html(self, rag: dict, so_count: int, link: Optional[str]) -> str:
+    def _late_report(self, db: Optional[Session], data: dict, today: date) -> dict:
+        from app.services.late_orders import classify_late_sales_orders
+        links, dates = {}, {}
+        if db is not None:
+            try:
+                from app.services.supplier_confirmation_service import confirmation_links
+                links, dates = confirmation_links(db)
+            except Exception as exc:
+                logger.warning("[PlanningWorkbook] confirmation links unavailable: %s", exc)
+        return classify_late_sales_orders(
+            data.get("sales_orders") or [],
+            data.get("purchase_orders") or [],
+            today=today,
+            extra_links=links,
+            confirmed_po_dates=dates,
+        )
+
+    def _supplier_flags(self, db: Optional[Session], purchase_orders: List[dict], today: date) -> List[dict]:
+        if db is None:
+            from app.services.supplier_confirmation_service import po_flags
+            return po_flags(purchase_orders or [], today=today)
+        try:
+            from app.services.supplier_confirmation_service import flags_for_purchase_orders
+            return flags_for_purchase_orders(db, purchase_orders or [], today=today)
+        except Exception as exc:
+            logger.warning("[PlanningWorkbook] supplier flags unavailable: %s", exc)
+            return []
+
+    def _email_html(self, late: dict, flags: List[dict], link: Optional[str]) -> str:
+        from app.services.late_orders import email_late_section
+        from app.services.supplier_confirmation_service import email_flags_section
+
         body = "<h2>OPENDC Daily Operations Planning</h2>"
         body += (
-            f"<p>{so_count} open sales order(s): "
-            f"<b style='color:#b00'>{rag['red']} behind</b>, "
-            f"<b style='color:#b8860b'>{rag['amber']} at risk</b>, "
-            f"<b style='color:#1a7f37'>{rag['green']} on track</b>.</p>"
+            f"<p><b>{late.get('late_count', 0)} late</b> sales order(s) "
+            f"out of {late.get('open_count', 0)} not fully shipped. "
+            "Late means quantity is still open, and the customer's requested "
+            "or promised date has passed, or a supplier expected date plus "
+            f"{late.get('internal_lead_days', 3)} business days of internal lead "
+            "lands after that date.</p>"
         )
+        body += email_late_section(late)
+        body += "<h3>Supplier confirmations</h3>"
+        body += email_flags_section(flags or [])
         if link:
             body += f'<p>Open the live planning workbook: <a href="{link}">{link}</a></p>'
         else:
             body += "<p>The current planning workbook is attached.</p>"
-        body += "<p style='color:#888;font-size:12px'>Generated automatically each morning. Source of truth for company planning.</p>"
+        body += (
+            "<p style='color:#888;font-size:12px'>Generated automatically each morning. "
+            "The late list is sales orders still to ship. It is not the material watchlist.</p>"
+        )
         return body
+
+    def _tab_late_orders(self, wb, report: dict):
+        ws = wb.create_sheet("Late Orders")
+        ws["A1"] = "Sales orders that are actually late"
+        ws["A1"].font = _TITLE_FONT
+        ws["A2"] = (
+            f"{report.get('late_count', 0)} late of {report.get('open_count', 0)} "
+            "not fully shipped. Outstanding quantity is still to ship. "
+            "Invoiced and shipped orders are left out."
+        )
+        headers = ["SO #", "Customer", "Requested", "Outstanding Qty", "Reason"]
+        self._header(ws, headers, row=4)
+        for i, row in enumerate(report.get("late") or [], start=5):
+            ws.cell(row=i, column=1, value=row["so_number"])
+            ws.cell(row=i, column=2, value=row.get("customer"))
+            ws.cell(row=i, column=3, value=row.get("requested_date") or "")
+            ws.cell(row=i, column=4, value=row.get("outstanding_qty"))
+            ws.cell(row=i, column=5, value=row.get("reason"))
+        self._autosize(ws, {1: 14, 2: 28, 3: 14, 4: 16, 5: 72})
+
+    def _tab_supplier_flags(self, wb, flags: List[dict]):
+        ws = wb.create_sheet("Supplier Flags")
+        ws["A1"] = "Open POs with no confirmation or no real expected date"
+        ws["A1"].font = _TITLE_FONT
+        ws["A2"] = (
+            "Flagged 3 Alberta business days after the PO was sent. "
+            "A date shared across the open book (such as a common Nov 3) counts as no date."
+        )
+        headers = ["PO #", "Vendor", "Sent", "Business days", "Why"]
+        self._header(ws, headers, row=4)
+        for i, row in enumerate(flags or [], start=5):
+            ws.cell(row=i, column=1, value=row["po_number"])
+            ws.cell(row=i, column=2, value=row.get("vendor"))
+            ws.cell(row=i, column=3, value=row.get("sent_on"))
+            ws.cell(row=i, column=4, value=row.get("business_days"))
+            ws.cell(row=i, column=5, value=row.get("reason"))
+        self._autosize(ws, {1: 14, 2: 28, 3: 14, 4: 16, 5: 64})
 
     # ── snapshot persistence ────────────────────────────────────────────────
 

@@ -21,6 +21,7 @@ from app.api import po_agent
 from app.api import purchasing
 from app.api import invoice_intake
 from app.api import vendor_acks
+from app.api import ops_dispatch
 from app.api import ops_tracker
 from app.api import public
 from app.api import email_agent
@@ -359,6 +360,7 @@ app.include_router(invoice_intake.router)
 
 logger.info(f"Including vendor_acks router: {vendor_acks.router.prefix}")
 app.include_router(vendor_acks.router)
+app.include_router(ops_dispatch.router)
 
 logger.info(f"Including ops_tracker router: {ops_tracker.router.prefix}")
 app.include_router(ops_tracker.router)

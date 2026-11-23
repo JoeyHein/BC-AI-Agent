@@ -25,6 +25,7 @@ const SECTIONS = [
       { path: '/install-referrals', label: 'Installs', icon: 'truck' },
       { path: '/cut-work-orders', label: 'Cut Orders', icon: 'cut' },
       { path: '/purchasing', label: 'Purchasing', icon: 'cart' },
+      { path: '/ops-dispatch', label: 'Planning Flags', icon: 'flag' },
     ],
   },
   {

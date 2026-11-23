@@ -157,7 +157,8 @@ class TestWorkbookBuild:
         from openpyxl import load_workbook
         wb = load_workbook(io.BytesIO(xlsx))
         assert wb.sheetnames == [
-            "Summary", "Open Sales Orders", "Purchase Needs per SO", "Buy List by Vendor",
+            "Summary", "Late Orders", "Supplier Flags", "Open Sales Orders",
+            "Purchase Needs per SO", "Buy List by Vendor",
             "Open Purchase Orders", "Production Orders", "Timeline Tracker",
         ]
         assert len(so_rows) == 1 and so_rows[0]["rag"] == "red"

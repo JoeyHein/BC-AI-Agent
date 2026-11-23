@@ -954,4 +954,14 @@ export const shopTvApi = {
   rejectIncoming: (id) => apiClient.post(`/api/shop-tv/incoming/reviews/${id}/reject`),
 };
 
+export const opsDispatchApi = {
+  summary: () => apiClient.get('/api/admin/ops-dispatch'),
+  approvePackingSlip: (id, toEmail) =>
+    apiClient.post(`/api/admin/ops-dispatch/packing-slips/${id}/approve`, { to_email: toEmail || null }),
+  rejectPackingSlip: (id) =>
+    apiClient.post(`/api/admin/ops-dispatch/packing-slips/${id}/reject`),
+  packingSlipPdf: (id) =>
+    apiClient.get(`/api/admin/ops-dispatch/packing-slips/${id}/pdf`, { responseType: 'blob' }),
+};
+
 export default apiClient;

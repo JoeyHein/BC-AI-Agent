@@ -25,6 +25,7 @@ import QuoteSearch from './components/QuoteSearch'
 import QuotingAnalytics from './pages/QuotingAnalytics'
 import OrderAgeTracker from './pages/OrderAgeTracker'
 import PurchasingDashboard from './components/Purchasing/PurchasingDashboard'
+import OpsDispatch from './pages/OpsDispatch'
 import CutWorkOrders from './components/Purchasing/CutWorkOrders'
 import { ResetPassword, SetupAccount } from './components/SetupAccount'
 import { showChat, showDashboard } from './utils/access'
@@ -182,6 +183,12 @@ function AppContent() {
           <Route path="/purchasing" element={
             <ProtectedRoute permission="purchase_orders.view">
               <PurchasingDashboard />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/ops-dispatch" element={
+            <ProtectedRoute anyOf={['purchase_orders.view', 'production.view', 'sales_orders.view']}>
+              <OpsDispatch />
             </ProtectedRoute>
           } />
 
