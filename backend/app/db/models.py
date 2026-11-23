@@ -8,7 +8,7 @@ from typing import Optional
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Date, Boolean, Float,
     ForeignKey, JSON, Enum as SQLEnum, ARRAY, Numeric, UniqueConstraint,
-    Index, text,
+    Index, text, LargeBinary,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.mutable import MutableDict, MutableList
@@ -3100,3 +3100,111 @@ class IncomingMailSeen(Base):
 
     def __repr__(self):
         return f"<IncomingMailSeen({self.message_id})>"
+
+
+class SupplierConfirmation(Base):
+    """A supplier order confirmation matched to one Open Distribution PO.
+
+    One row per vendor + supplier order number + our PO. A later email
+    updates the expected receipt date. The supplier's own order number
+    (Upwardor S-ORD, Elton sales order) stays here. Business Central is
+    only patched on the purchase-order line expected receipt date, and
+    only when that write is turned on.
+    """
+
+    __tablename__ = "supplier_confirmations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    dedupe_key = Column(String(200), nullable=False, unique=True, index=True)
+    vendor_key = Column(String(40), nullable=False, index=True)
+    supplier_order_no = Column(String(60), nullable=True, index=True)
+    our_po_number = Column(String(40), nullable=True, index=True)
+    our_so_numbers = Column(JSON, nullable=True)
+    expected_receipt_date = Column(Date, nullable=True)
+    source = Column(String(40), nullable=False, default="acknowledgement")
+    source_email_id = Column(String(300), nullable=True, index=True)
+    sender_email = Column(String(255), nullable=True)
+    subject = Column(String(300), nullable=True)
+    status = Column(String(20), nullable=False, default="stored", index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self):
+        return (
+            f"<SupplierConfirmation({self.our_po_number} {self.supplier_order_no} "
+            f"{self.expected_receipt_date})>"
+        )
+
+
+class SupplierConfirmationSource(Base):
+    """One processed mailbox message or attachment. The same file is not applied twice."""
+
+    __tablename__ = "supplier_confirmation_sources"
+
+    id = Column(Integer, primary_key=True, index=True)
+    source_email_id = Column(String(300), nullable=False)
+    attachment_filename = Column(String(255), nullable=False)
+    mailbox = Column(String(255), nullable=True)
+    outcome = Column(String(20), nullable=False, default="parsed")
+    detail = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "source_email_id", "attachment_filename",
+            name="uq_supplier_confirmation_source",
+        ),
+    )
+
+
+class SupplierDateChange(Base):
+    """Every expected-receipt-date decision for a purchase order.
+
+    ``bc_status`` is held (stored, Business Central not patched), written,
+    unchanged, failed, or skipped. The row is the audit log.
+    """
+
+    __tablename__ = "supplier_date_changes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    po_number = Column(String(40), nullable=False, index=True)
+    supplier_order_no = Column(String(60), nullable=True)
+    previous_date = Column(Date, nullable=True)
+    new_date = Column(Date, nullable=True)
+    bc_status = Column(String(20), nullable=False, index=True)
+    bc_error = Column(Text, nullable=True)
+    detail = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    def __repr__(self):
+        return f"<SupplierDateChange({self.po_number} {self.bc_status} {self.new_date})>"
+
+
+class PackingSlip(Base):
+    """A packing slip generated when a sales shipment is posted.
+
+    Status stays ``draft`` until someone approves it, unless
+    PACKING_SLIP_AUTO_SEND is on. The PDF is the copy that goes in the box.
+    """
+
+    __tablename__ = "packing_slips"
+
+    id = Column(Integer, primary_key=True, index=True)
+    shipment_id = Column(String(100), nullable=True)
+    shipment_number = Column(String(40), nullable=False, unique=True, index=True)
+    so_number = Column(String(40), nullable=True, index=True)
+    customer_name = Column(String(255), nullable=True)
+    customer_po = Column(String(80), nullable=True)
+    customer_email = Column(String(255), nullable=True)
+    posting_date = Column(Date, nullable=True)
+    status = Column(String(20), nullable=False, default="draft", index=True)
+    pdf_bytes = Column(LargeBinary, nullable=True)
+    line_count = Column(Integer, nullable=False, default=0)
+    backorder_count = Column(Integer, nullable=False, default=0)
+    send_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    sent_at = Column(DateTime, nullable=True)
+
+    def __repr__(self):
+        return f"<PackingSlip({self.shipment_number} {self.status})>"

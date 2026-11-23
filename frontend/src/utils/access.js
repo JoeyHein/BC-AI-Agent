@@ -20,6 +20,7 @@ const NAV = {
   '/cut-work-orders': 'production.view',
   '/install-referrals': 'customers.view',
   '/purchasing': 'purchase_orders.view',
+  '/ops-dispatch': ['purchase_orders.view', 'production.view', 'sales_orders.view'],
   '/analytics': ['quotes.view', 'sales_orders.view'],
   '/analytics/quoting': 'quotes.view',
   '/analytics/order-age': 'sales_orders.view',

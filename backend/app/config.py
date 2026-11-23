@@ -124,6 +124,28 @@ class Settings(BaseSettings):
     # not expose Vendor Order No. (Purchase Header field 66).
     VENDOR_ACK_BC_ODATA_ENTITY: str = "PurchaseOrder"
     VENDOR_ACK_BC_ODATA_FIELD: str = "Vendor_Order_No"
+
+    # Shop days after a supplier's expected receipt before the sales order
+    # can leave. Used only to decide whether that supplier date makes the
+    # sales order late against the customer's requested date.
+    PLANNING_INTERNAL_LEAD_DAYS: int = 3
+
+    # Supplier confirmation intake (Upwardor acknowledgements, Elton
+    # confirmations, Upwardor/Michael open-order lists). The poll is off
+    # until SUPPLIER_CONFIRM_INTAKE_ENABLED. Business Central is patched
+    # only on purchase-order line expectedReceiptDate, and only when
+    # SUPPLIER_CONFIRM_BC_WRITE is on. Neither flag sends email.
+    SUPPLIER_CONFIRM_INTAKE_ENABLED: bool = False
+    SUPPLIER_CONFIRM_BC_WRITE: bool = False
+    SUPPLIER_CONFIRM_LOOKBACK_HOURS: int = 72
+
+    # Packing slips for posted sales shipments. The job is off until
+    # PACKING_SLIP_ENABLED. When it runs, slips are queued as drafts.
+    # PACKING_SLIP_AUTO_SEND emails the customer; leave it off until Joey
+    # turns it on. Approving one slip in the portal sends that slip only.
+    PACKING_SLIP_ENABLED: bool = False
+    PACKING_SLIP_AUTO_SEND: bool = False
+    PACKING_SLIP_LOOKBACK_DAYS: int = 14
     # Full prefix for the OPENDC purchase-order release API, without
     # /companies(...). Leave empty to use api/opendc/purchasing/v1.0 under
     # BC_BASE_URL. The standard api/v2.0 purchaseOrders entity has no release

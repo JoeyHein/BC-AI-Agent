@@ -210,6 +210,29 @@ class SchedulerService:
         )
         logger.info(f"✓ Scheduled: Upwardor order-ack intake every {ack_every} minutes")
 
+        # Supplier expected-receipt dates. No-op until
+        # SUPPLIER_CONFIRM_INTAKE_ENABLED. BC line dates stay untouched
+        # until SUPPLIER_CONFIRM_BC_WRITE. Does not send email.
+        self.scheduler.add_job(
+            func=self._supplier_confirmation_job,
+            trigger=IntervalTrigger(minutes=30),
+            id="supplier_confirmation",
+            name="Supplier confirmations — expected receipt dates, no email",
+            replace_existing=True,
+        )
+        logger.info("✓ Scheduled: Supplier confirmation intake every 30 minutes [default OFF]")
+
+        # Packing slips for posted shipments. No-op until PACKING_SLIP_ENABLED.
+        # Drafts only unless PACKING_SLIP_AUTO_SEND is on.
+        self.scheduler.add_job(
+            func=self._packing_slip_job,
+            trigger=IntervalTrigger(minutes=30),
+            id="packing_slips",
+            name="Packing slips — queue drafts, do not auto-send",
+            replace_existing=True,
+        )
+        logger.info("✓ Scheduled: Packing slip queue every 30 minutes [default OFF]")
+
         # Shop TV shipping mail. No-op until incoming_email_matching is on.
         # Reads Graph and purchase orders. Does not write to Business Central.
         self.scheduler.add_job(
@@ -535,6 +558,56 @@ class SchedulerService:
             logger.info(f"Invoice intake complete: {result}")
         except Exception as e:
             logger.error(f"Invoice intake job failed: {e}", exc_info=True)
+        finally:
+            if db is not None:
+                try:
+                    db.close()
+                except Exception:
+                    pass
+
+    def _supplier_confirmation_job(self):
+        """Poll for supplier confirmations. Off unless the intake flag is set.
+
+        Does not send email. Business Central expected-receipt writes follow
+        SUPPLIER_CONFIRM_BC_WRITE, which defaults off.
+        """
+        db = None
+        try:
+            from app.config import settings
+            if not settings.SUPPLIER_CONFIRM_INTAKE_ENABLED:
+                logger.info("Supplier confirmation intake disabled, skipping")
+                return
+            db = SessionLocal()
+            from app.services.supplier_confirmation_service import process_inbox
+            result = process_inbox(db, write_bc=settings.SUPPLIER_CONFIRM_BC_WRITE)
+            logger.info("Supplier confirmation intake complete: %s", result)
+        except Exception as e:
+            logger.error(f"Supplier confirmation job failed: {e}", exc_info=True)
+        finally:
+            if db is not None:
+                try:
+                    db.close()
+                except Exception:
+                    pass
+
+    def _packing_slip_job(self):
+        """Queue packing-slip drafts for new posted shipments.
+
+        Off unless PACKING_SLIP_ENABLED. Emails the customer only when
+        PACKING_SLIP_AUTO_SEND is on.
+        """
+        db = None
+        try:
+            from app.config import settings
+            if not settings.PACKING_SLIP_ENABLED:
+                logger.info("Packing slips disabled, skipping")
+                return
+            db = SessionLocal()
+            from app.services.packing_slip_service import process_recent
+            result = process_recent(db, auto_send=settings.PACKING_SLIP_AUTO_SEND)
+            logger.info("Packing slip job complete: %s", result)
+        except Exception as e:
+            logger.error(f"Packing slip job failed: {e}", exc_info=True)
         finally:
             if db is not None:
                 try:
