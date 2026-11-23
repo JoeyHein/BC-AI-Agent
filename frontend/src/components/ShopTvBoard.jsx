@@ -161,20 +161,31 @@ function DayBlock({ day }) {
       <ul>
         {day.items.map((item) => {
           const alert = item.overdue || item.late
+          const manual = Boolean(item.manual)
+          const extra = item.note || item.destination || item.detail
           return (
             <li
               key={item.id}
               className={`flex h-[92px] flex-col justify-center rounded-lg border-l-4 px-4 ${
+                manual ? 'border-dashed' : ''
+              } ${
                 alert
                   ? 'border-red-500 bg-red-950/80'
                   : today
                     ? 'border-amber-400/80 bg-amber-400/10'
-                    : 'border-white/15 bg-white/10'
+                    : manual
+                      ? 'border-white/35 bg-white/[0.06]'
+                      : 'border-white/15 bg-white/10'
               }`}
             >
               <div className="flex items-baseline justify-between gap-4">
                 <span className={`truncate font-mono text-2xl font-bold leading-none ${alert ? 'text-red-100' : 'text-white'}`}>
                   {item.order_number}
+                  {manual && (
+                    <span className={`ml-2 align-middle text-xs font-semibold uppercase tracking-wider ${alert ? 'text-red-200/70' : 'text-white/45'}`}>
+                      Manual
+                    </span>
+                  )}
                 </span>
                 <span className={`shrink-0 text-2xl font-bold leading-none ${alert ? 'text-red-200' : 'text-white'}`}>
                   {formatTime(item.time)}
@@ -183,15 +194,15 @@ function DayBlock({ day }) {
               <p className={`mt-1 truncate text-xl leading-tight ${alert ? 'text-red-100' : 'text-white/95'}`}>
                 {item.customer || '—'}
               </p>
-              {(item.destination || item.detail) && (
+              {extra && (
                 <p className={`truncate text-lg leading-tight ${alert ? 'text-red-200' : 'text-white/75'}`}>
-                  {item.destination || item.detail}
+                  {extra}
                   <span className={`ml-2 text-base font-semibold uppercase tracking-wide ${alert ? 'text-red-300' : 'text-white/45'}`}>
                     {item.when_label}
                   </span>
                 </p>
               )}
-              {!item.destination && !item.detail && (
+              {!extra && (
                 <p className={`text-base font-semibold uppercase tracking-wide ${alert ? 'text-red-300' : 'text-white/45'}`}>
                   {item.when_label}
                 </p>
@@ -458,6 +469,17 @@ function sampleBoard() {
             overdue: false,
             items: [
               {
+                id: 'manual:1',
+                order_number: 'SO-001278',
+                customer: 'Prairie Door Co',
+                note: 'ready for install Mon Nov 23',
+                when_label: 'Pickup',
+                time: '09:15',
+                overdue: false,
+                late: false,
+                manual: true,
+              },
+              {
                 id: 'pickups:SO-001900',
                 order_number: 'SO-001900',
                 customer: 'Riverbend',
@@ -607,11 +629,12 @@ function ShopTvBoard() {
 
   const updated = board.generated_at ? formatStamp(new Date(board.generated_at)) : ''
   const bcDown = (board.sources || []).some((source) => source.id === 'business_central' && source.available === false)
-  const lanes = board.incoming_enabled ? LANES : LANES.filter((lane) => lane.id !== 'incoming' && lane.id !== 'upwardor')
+  const laneById = Object.fromEntries(LANES.map((lane) => [lane.id, lane]))
   const upwardorDays = board.lanes?.upwardor?.days || []
   const incomingDays = board.lanes?.incoming?.days || []
   const upwardorCount = itemCount(upwardorDays)
   const incomingCount = itemCount(incomingDays)
+  const showIncomingColumn = Boolean(board.incoming_enabled) || incomingCount > 0
   let upwardorBudget = Math.max(ARRIVAL_PX + ARRIVAL_DAY_PX, budget - LANE_CHROME)
   let incomingBudget = budget
   if (upwardorCount && incomingCount) {
@@ -644,44 +667,46 @@ function ShopTvBoard() {
       </header>
       {bcDown && (
         <p className="mx-8 mb-2 rounded-lg bg-red-950 px-4 py-2 text-xl font-semibold text-red-200">
-          Business Central could not be read. Nothing new is on the board.
+          Business Central could not be read. The typed schedule is still shown.
         </p>
       )}
       <div className="grid min-h-0 flex-1 grid-cols-3 gap-3 px-4 pb-4">
-        {board.incoming_enabled && (
+        {showIncomingColumn && (
           <div className="flex min-h-0 flex-col gap-3">
-            <Lane
-              lane={lanes.find((lane) => lane.id === 'upwardor')}
-              days={upwardorDays}
-              budget={upwardorBudget}
-              variant="arrival"
-              emptyLabel="Nothing open from Upwardor"
-              grow={!upwardorCount && incomingCount ? 0.28 : null}
-            />
+            {board.incoming_enabled && (
+              <Lane
+                lane={laneById.upwardor}
+                days={upwardorDays}
+                budget={upwardorBudget}
+                variant="arrival"
+                emptyLabel="Nothing open from Upwardor"
+                grow={!upwardorCount && incomingCount ? 0.28 : null}
+              />
+            )}
             {incomingCount > 0 && (
               <Lane
-                lane={lanes.find((lane) => lane.id === 'incoming')}
+                lane={laneById.incoming}
                 days={incomingDays}
-                budget={incomingBudget}
-                fitContent={upwardorCount > 0}
+                budget={board.incoming_enabled ? incomingBudget : budget}
+                fitContent={Boolean(board.incoming_enabled) && upwardorCount > 0}
               />
             )}
           </div>
         )}
         <Lane
-          lane={lanes.find((lane) => lane.id === 'production')}
+          lane={laneById.production}
           days={board.lanes?.production?.days || []}
           budget={budget}
         />
-        {board.incoming_enabled ? (
+        {showIncomingColumn ? (
           <div className="flex min-h-0 flex-col gap-3">
             <Lane
-              lane={lanes.find((lane) => lane.id === 'pickups')}
+              lane={laneById.pickups}
               days={board.lanes?.pickups?.days || []}
               budget={Math.max(160, Math.floor((budget - 12) / 2))}
             />
             <Lane
-              lane={lanes.find((lane) => lane.id === 'deliveries')}
+              lane={laneById.deliveries}
               days={board.lanes?.deliveries?.days || []}
               budget={Math.max(160, Math.floor((budget - 12) / 2))}
             />
@@ -689,12 +714,12 @@ function ShopTvBoard() {
         ) : (
           <>
             <Lane
-              lane={lanes.find((lane) => lane.id === 'pickups')}
+              lane={laneById.pickups}
               days={board.lanes?.pickups?.days || []}
               budget={budget}
             />
             <Lane
-              lane={lanes.find((lane) => lane.id === 'deliveries')}
+              lane={laneById.deliveries}
               days={board.lanes?.deliveries?.days || []}
               budget={budget}
             />

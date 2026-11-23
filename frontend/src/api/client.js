@@ -952,6 +952,10 @@ export const shopTvApi = {
   acceptIncoming: (id) => apiClient.post(`/api/shop-tv/incoming/reviews/${id}/accept`),
   fixIncoming: (id, poNumber) => apiClient.post(`/api/shop-tv/incoming/reviews/${id}/fix`, { po_number: poNumber }),
   rejectIncoming: (id) => apiClient.post(`/api/shop-tv/incoming/reviews/${id}/reject`),
+  listEntries: () => apiClient.get('/api/shop-tv/entries'),
+  createEntry: (body) => apiClient.post('/api/shop-tv/entries', body),
+  updateEntry: (id, body) => apiClient.patch(`/api/shop-tv/entries/${id}`, body),
+  deleteEntry: (id) => apiClient.delete(`/api/shop-tv/entries/${id}`),
 };
 
 export default apiClient;

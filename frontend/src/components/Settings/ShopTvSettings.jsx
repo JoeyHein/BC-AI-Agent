@@ -16,6 +16,46 @@ function formatWhen(value) {
   return date.toLocaleString()
 }
 
+const ENTRY_LANES = [
+  { id: 'pickup', label: 'Pickup' },
+  { id: 'delivery', label: 'Delivery' },
+  { id: 'receiving', label: 'Receiving' },
+  { id: 'production', label: 'Production' },
+]
+
+function shopDateInput(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Regina',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date)
+}
+
+function emptyEntry() {
+  return {
+    so_number: '',
+    customer_name: '',
+    lane: 'pickup',
+    date: shopDateInput(),
+    time: '',
+    note: '',
+  }
+}
+
+function formatEntryDate(value) {
+  if (!value) return '—'
+  const [year, month, day] = value.split('-').map(Number)
+  if (!year || !month || !day) return value
+  const date = new Date(Date.UTC(year, month - 1, day, 18))
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Regina',
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  }).format(date)
+}
+
 function ShopTvSettings() {
   const [mode, setMode] = useState('off')
   const [pickups, setPickups] = useState('')
@@ -36,6 +76,11 @@ function ShopTvSettings() {
   const [saved, setSaved] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [entries, setEntries] = useState([])
+  const [scheduleReady, setScheduleReady] = useState(false)
+  const [entryForm, setEntryForm] = useState(emptyEntry)
+  const [editingId, setEditingId] = useState(null)
+  const [showDone, setShowDone] = useState(true)
 
   const apply = (data) => {
     setMode(data.mode === 'on' ? 'on' : 'off')
@@ -52,11 +97,27 @@ function ShopTvSettings() {
     setTokens(data.tokens || [])
   }
 
+  const loadEntries = async () => {
+    try {
+      const response = await shopTvApi.listEntries()
+      setEntries(response.data.entries || [])
+      setScheduleReady(true)
+    } catch (err) {
+      if (err.response?.status === 404) {
+        setEntries([])
+        setScheduleReady(false)
+        return
+      }
+      setError(err.response?.data?.detail || 'Could not load schedule entries')
+    }
+  }
+
   const load = async () => {
     setError('')
     try {
       const response = await shopTvApi.settings()
       apply(response.data)
+      await loadEntries()
     } catch (err) {
       setError(err.response?.data?.detail || 'Could not load the shop TV settings')
     } finally {
@@ -111,6 +172,86 @@ function ShopTvSettings() {
       setBusy(false)
     }
   }
+
+  const setField = (key, value) => {
+    setEntryForm((current) => ({ ...current, [key]: value }))
+  }
+
+  const resetEntryForm = () => {
+    setEntryForm(emptyEntry())
+    setEditingId(null)
+  }
+
+  const saveEntry = async (event) => {
+    event.preventDefault()
+    setBusy(true)
+    setError('')
+    const body = {
+      so_number: entryForm.so_number.trim(),
+      customer_name: entryForm.customer_name.trim(),
+      lane: entryForm.lane,
+      date: entryForm.date,
+      time: entryForm.time || '',
+      note: entryForm.note.trim(),
+    }
+    try {
+      if (editingId) {
+        await shopTvApi.updateEntry(editingId, body)
+      } else {
+        await shopTvApi.createEntry(body)
+      }
+      resetEntryForm()
+      await loadEntries()
+    } catch (err) {
+      const detail = err.response?.data?.detail
+      setError(typeof detail === 'string' ? detail : 'Could not save that schedule entry')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const editEntry = (entry) => {
+    setEditingId(entry.id)
+    setEntryForm({
+      so_number: entry.so_number || '',
+      customer_name: entry.customer_name || '',
+      lane: entry.lane,
+      date: entry.date,
+      time: entry.time || '',
+      note: entry.note || '',
+    })
+  }
+
+  const markEntry = async (entry, done) => {
+    setBusy(true)
+    setError('')
+    try {
+      await shopTvApi.updateEntry(entry.id, { done })
+      await loadEntries()
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Could not update that schedule entry')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const removeEntry = async (entry) => {
+    const label = entry.so_number || entry.customer_name || 'this entry'
+    if (!window.confirm(`Remove ${label} from the shop schedule?`)) return
+    setBusy(true)
+    setError('')
+    try {
+      await shopTvApi.deleteEntry(entry.id)
+      if (editingId === entry.id) resetEntryForm()
+      await loadEntries()
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Could not delete that schedule entry')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const visibleEntries = showDone ? entries : entries.filter((entry) => !entry.done)
 
   const revoke = async (id) => {
     setBusy(true)
@@ -168,6 +309,146 @@ function ShopTvSettings() {
       <p className="text-sm text-gray-500">
         Off returns 404 for the board and hides Shop TV in the menu. Default is off.
       </p>
+
+      <div className="border-t border-gray-200 pt-6 space-y-4">
+        <div>
+          <h3 className="text-base font-semibold text-gray-900">Shop schedule</h3>
+          <p className="mt-1 text-sm text-gray-600">
+            Type the day the shop should see. Draft sales orders stay off the board until they are listed here.
+            Receiving shows in Incoming. A done row is hidden on the TV. The same sales order on that lane replaces the Business Central row.
+            Nothing here is written back to Business Central.
+          </p>
+        </div>
+        {!scheduleReady && (
+          <p className="text-sm text-gray-500">Turn the board on to add schedule entries.</p>
+        )}
+        {scheduleReady && (
+          <>
+            <form onSubmit={saveEntry} className="grid gap-3 md:grid-cols-2">
+              <label className="block text-sm">
+                <span className="font-medium text-gray-700">Sales order</span>
+                <input
+                  value={entryForm.so_number}
+                  onChange={(event) => setField('so_number', event.target.value)}
+                  placeholder="SO-001278"
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="font-medium text-gray-700">Customer</span>
+                <input
+                  value={entryForm.customer_name}
+                  onChange={(event) => setField('customer_name', event.target.value)}
+                  placeholder="Filled from the sales order when blank"
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="font-medium text-gray-700">Lane</span>
+                <select
+                  value={entryForm.lane}
+                  onChange={(event) => setField('lane', event.target.value)}
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2"
+                >
+                  {ENTRY_LANES.map((lane) => (
+                    <option key={lane.id} value={lane.id}>{lane.label}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block text-sm">
+                  <span className="font-medium text-gray-700">Date</span>
+                  <input
+                    type="date"
+                    required
+                    value={entryForm.date}
+                    onChange={(event) => setField('date', event.target.value)}
+                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2"
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="font-medium text-gray-700">Time</span>
+                  <input
+                    type="time"
+                    value={entryForm.time}
+                    onChange={(event) => setField('time', event.target.value)}
+                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2"
+                  />
+                </label>
+              </div>
+              <label className="block text-sm md:col-span-2">
+                <span className="font-medium text-gray-700">Note</span>
+                <input
+                  value={entryForm.note}
+                  onChange={(event) => setField('note', event.target.value)}
+                  maxLength={200}
+                  placeholder="Partial receipt, or ready for install Mon Nov 23"
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2"
+                />
+              </label>
+              <div className="flex items-center gap-3 md:col-span-2">
+                <button
+                  type="submit"
+                  disabled={busy || !entryForm.date}
+                  className="rounded-md bg-odc-600 px-4 py-2 text-sm font-semibold text-white hover:bg-odc-700 disabled:opacity-50"
+                >
+                  {editingId ? 'Save entry' : 'Add entry'}
+                </button>
+                {editingId && (
+                  <button type="button" onClick={resetEntryForm} className="text-sm font-medium text-gray-600">
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </form>
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={showDone}
+                onChange={(event) => setShowDone(event.target.checked)}
+              />
+              Show done entries
+            </label>
+            <ul className="divide-y divide-gray-100">
+              {visibleEntries.length === 0 && (
+                <li className="py-2 text-sm text-gray-500">No schedule entries yet.</li>
+              )}
+              {visibleEntries.map((entry) => {
+                const lane = ENTRY_LANES.find((item) => item.id === entry.lane)
+                return (
+                  <li key={entry.id} className={`flex flex-wrap items-center justify-between gap-3 py-3 text-sm ${entry.done ? 'text-gray-400' : ''}`}>
+                    <div>
+                      <p className="font-medium text-gray-900">
+                        {entry.so_number || 'No sales order'}
+                        <span className="ml-2 font-normal text-gray-500">{lane ? lane.label : entry.lane}</span>
+                        {entry.done && <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold uppercase text-gray-500">Done</span>}
+                      </p>
+                      <p className="text-gray-600">
+                        {entry.customer_name || 'No customer'}
+                        {' · '}
+                        {formatEntryDate(entry.date)}
+                        {entry.time ? ` ${entry.time}` : ''}
+                      </p>
+                      {entry.note && <p className="text-gray-500">{entry.note}</p>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => editEntry(entry)} disabled={busy} className="rounded-md border border-gray-300 px-3 py-1.5 font-medium text-gray-700 disabled:opacity-50">
+                        Edit
+                      </button>
+                      <button type="button" onClick={() => markEntry(entry, !entry.done)} disabled={busy} className="rounded-md border border-gray-300 px-3 py-1.5 font-medium text-gray-700 disabled:opacity-50">
+                        {entry.done ? 'Reopen' : 'Mark done'}
+                      </button>
+                      <button type="button" onClick={() => removeEntry(entry)} disabled={busy} className="rounded-md border border-red-300 px-3 py-1.5 font-medium text-red-700 disabled:opacity-50">
+                        Delete
+                      </button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          </>
+        )}
+      </div>
 
       <div className="grid gap-4 md:grid-cols-2">
         <label className="block text-sm">

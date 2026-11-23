@@ -2,7 +2,7 @@
 
 A staff service key (`Authorization: Bearer osk_live_...` or `X-API-Key`) can call only the routes below. Anything else is refused with `This service key is not allowed to call this route.`
 
-A new key gets the automation scopes. `purchasing:release_po` and `purchasing:receive_po` are not among them: an admin has to put that name on a key before it can release or receive a purchase order. These reads use scopes the automation key already has (`quotes:read`, `orders:read`, `purchasing:read`, `inventory:read`), so an existing key can call them without being recreated.
+A new key gets the automation scopes. `purchasing:release_po`, `purchasing:receive_po`, and `shop_tv:schedule_write` are not among them: an admin has to put that name on a key before it can release a purchase order, receive one, or change the shop schedule. Re-minting an automation key does not add `shop_tv:schedule_write`. These reads use scopes the automation key already has (`quotes:read`, `orders:read`, `purchasing:read`, `inventory:read`), so an existing key can call them without being recreated.
 
 Writes that create, convert, post, ship, or email a Business Central document are not on this list, except the Draft purchase-order edits that were already allowed, and except release and receive when the key was given those extra scopes.
 
@@ -99,6 +99,17 @@ The same inventory paths are also accepted without the `/api` prefix.
 `POST /api/admin/purchasing/generate-po` is allowed only when the body sets `send_email` to false (or `create_review_draft` to false). That skips the Outlook draft. Open and Released purchase orders are refused by the receipt-date route.
 
 `POST /api/admin/purchasing/cone-migration` is the dry-run only. Omit `apply`, or set it to false. `apply: true` edits open sales orders and Draft purchase orders, and a service key is refused; a staff sign-in is required for that. The automation key already has `purchasing:read`, so it can preview without being recreated.
+
+## Shop schedule
+
+`shop_tv:schedule_write` reads and writes the typed shop TV schedule. It is not on the automation preset. The routes do not write to Business Central. The shop TV flag still has to be on; off is 404. A kiosk token cannot call them.
+
+| Scope | Route |
+| --- | --- |
+| `shop_tv:schedule_write` | `GET /api/shop-tv/entries` |
+| `shop_tv:schedule_write` | `POST /api/shop-tv/entries` |
+| `shop_tv:schedule_write` | `PATCH /api/shop-tv/entries/12` |
+| `shop_tv:schedule_write` | `DELETE /api/shop-tv/entries/12` |
 
 ## Quotes already on the portal
 

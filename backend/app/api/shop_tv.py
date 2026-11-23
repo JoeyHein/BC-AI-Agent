@@ -8,6 +8,7 @@ and never accept the kiosk token.
 """
 from __future__ import annotations
 
+from datetime import date as DateType
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -43,7 +44,15 @@ from app.services.shop_tv_kiosk import (
     public_row,
     revoke_token,
 )
+from app.services.shop_tv_schedule import (
+    create_entry,
+    delete_entry,
+    list_entries,
+    public_entry,
+    update_entry,
+)
 from app.services.staff_permissions import has_permission
+from app.services.staff_service_keys_service import evaluate, is_staff_service_key
 
 router = APIRouter(prefix="/api/shop-tv", tags=["shop-tv"])
 
@@ -65,6 +74,25 @@ class KioskTokenIn(BaseModel):
 
 class IncomingFixIn(BaseModel):
     po_number: str
+
+
+class ScheduleEntryIn(BaseModel):
+    so_number: Optional[str] = None
+    customer_name: Optional[str] = None
+    lane: str
+    date: DateType
+    time: Optional[str] = None
+    note: Optional[str] = None
+
+
+class ScheduleEntryPatch(BaseModel):
+    so_number: Optional[str] = None
+    customer_name: Optional[str] = None
+    lane: Optional[str] = None
+    date: Optional[DateType] = None
+    time: Optional[str] = None
+    note: Optional[str] = None
+    done: Optional[bool] = None
 
 
 def _presented_kiosk_token(request: Request) -> str:
@@ -149,6 +177,84 @@ def _require_flag(db: Session) -> None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
 
+def _schedule_user(request: Request, db: Session) -> User:
+    """Staff with production or sales-order access, or a schedule service key.
+
+    A kiosk token is read-only and cannot list or change entries. The
+    board read is how the TV sees them.
+    """
+    kiosk = _presented_kiosk_token(request)
+    if kiosk:
+        decision = authenticate(db, kiosk)
+        if decision == "ok":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Kiosk token is read-only",
+            )
+        if decision == "revoked":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Kiosk token revoked")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid kiosk token",
+        )
+
+    token = _staff_bearer(request)
+    if token and is_staff_service_key(token):
+        cached = getattr(request.state, "staff_service_user", None)
+        if cached is not None:
+            return cached
+        decision = evaluate(db, token, request.method, request.url.path, b"")
+        if not decision.ok or decision.user is None:
+            raise HTTPException(status_code=decision.status_code, detail=decision.detail)
+        return decision.user
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    payload = auth_service.decode_token(token)
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+        )
+    if payload.get("user_type") == "customer":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Staff access required")
+    try:
+        user_id = int(payload.get("sub"))
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+        )
+    user = auth_service.get_user_by_id(db, user_id=user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+        )
+    if (getattr(user, "user_type", None) or "").upper() == "CUSTOMER":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Staff access required")
+    if not (
+        has_permission(user, "production.view")
+        or has_permission(user, "sales_orders.view")
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to do that",
+        )
+    return user
+
+
+def _entry_or_400(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/enabled")
 def shop_tv_enabled(request: Request, db: Session = Depends(get_db)):
     """Nav probe. 404 while the flag is off, so the link stays hidden."""
@@ -163,7 +269,8 @@ def shop_tv_board(request: Request, db: Session = Depends(get_db)):
     _require_flag(db)
     _require_board_reader(request, db)
     from app.services.shop_tv_incoming import attach_incoming
-    return attach_incoming(db, assemble_board(db))
+    from app.services.shop_tv_schedule import merge_schedule_entries
+    return merge_schedule_entries(db, attach_incoming(db, assemble_board(db)))
 
 
 @router.get("/settings")
@@ -252,7 +359,8 @@ def shop_tv_incoming(request: Request, db: Session = Depends(get_db)):
     _require_incoming(db)
     _require_board_reader(request, db)
     from app.services.shop_tv_incoming import attach_incoming
-    payload = attach_incoming(db, {"lanes": {}, "horizon_days": 7})
+    from app.services.shop_tv_schedule import merge_schedule_entries
+    payload = merge_schedule_entries(db, attach_incoming(db, {"lanes": {}, "horizon_days": 7}))
     return payload["lanes"]["incoming"]
 
 
@@ -316,3 +424,57 @@ def shop_tv_reject_review(
     if not result.get("ok"):
         raise HTTPException(status_code=404, detail=result.get("reason") or "Review not found")
     return result
+
+
+@router.get("/entries")
+def shop_tv_entries(request: Request, db: Session = Depends(get_db)):
+    """Open and done schedule rows. 404 while the shop TV flag is off."""
+    _require_flag(db)
+    _schedule_user(request, db)
+    return {"entries": [public_entry(row) for row in list_entries(db)]}
+
+
+@router.post("/entries", status_code=status.HTTP_201_CREATED)
+def shop_tv_create_entry(
+    body: ScheduleEntryIn,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Add a row. A blank customer name is filled from the sales order when the number is set."""
+    _require_flag(db)
+    user = _schedule_user(request, db)
+    row = _entry_or_400(
+        create_entry,
+        db,
+        body.model_dump(),
+        created_by=user.id,
+    )
+    return public_entry(row)
+
+
+@router.patch("/entries/{entry_id}")
+def shop_tv_update_entry(
+    entry_id: int,
+    body: ScheduleEntryPatch,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    _require_flag(db)
+    _schedule_user(request, db)
+    row = _entry_or_400(update_entry, db, entry_id, body.model_dump(exclude_unset=True))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Schedule entry not found")
+    return public_entry(row)
+
+
+@router.delete("/entries/{entry_id}")
+def shop_tv_delete_entry(
+    entry_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    _require_flag(db)
+    _schedule_user(request, db)
+    if not delete_entry(db, entry_id):
+        raise HTTPException(status_code=404, detail="Schedule entry not found")
+    return {"id": entry_id, "deleted": True}
