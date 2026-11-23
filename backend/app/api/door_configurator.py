@@ -3455,3 +3455,43 @@ def preview_framing_drawing(
         media_type=media_type,
         headers={"Content-Disposition": f'inline; filename="framing-drawing-preview.{fmt}"'},
     )
+
+
+@router.post("/preview-framing-detail")
+def preview_framing_detail(
+    req: FramingDrawingPreviewRequest,
+    db: Session = Depends(get_db),
+):
+    """Framing detail from the live configurator, before the quote is saved.
+
+    Same auth as the existing framing preview. A saved quote uses
+    ``/api/customer/portal/saved-quotes/{id}/framing-detail``, which checks
+    the customer owns that quote.
+    """
+    from app.services.shop_drawings import generate_framing_detail
+
+    fmt = (req.fmt or "pdf").lower()
+    if fmt not in ("pdf", "dxf"):
+        raise HTTPException(400, "fmt must be 'pdf' or 'dxf'")
+
+    try:
+        content = generate_framing_detail(
+            config_data=req.config_data or {},
+            customer_name=req.customer_name or "—",
+            job_number=req.job_number or "PREVIEW",
+            fmt=fmt,
+            door_index=req.door_index,
+            db=db,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.error(f"Failed to generate preview framing detail: {e}", exc_info=True)
+        raise HTTPException(500, f"Failed to generate drawing: {e}")
+
+    media_type = "application/pdf" if fmt == "pdf" else "application/dxf"
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="framing-detail-preview.{fmt}"'},
+    )

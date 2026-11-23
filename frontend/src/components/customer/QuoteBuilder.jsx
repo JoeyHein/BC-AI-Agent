@@ -691,6 +691,7 @@ function QuoteBuilder() {
               customerName={user?.name || user?.email}
               jobNumber={quoteName?.trim() || null}
               apiContext="customer"
+              doorIndex={currentDoorIndex}
             />
           </div>
         )}
