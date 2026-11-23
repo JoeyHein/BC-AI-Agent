@@ -1,4 +1,8 @@
-"""Quote price overrides. Both default to off.
+"""Quote price overrides.
+
+Replacement sections default to off. Flat residential windows default to
+on when ``quote_flat_residential_windows`` has not been saved. Saving off
+puts those windows back on the customer's price list.
 
 ``quote_replacement_section_pricing``
     Section-only orders (portal Door Face Only / Panels Only, and the same
@@ -17,6 +21,9 @@
     kit keeps the per-window rate. Commercial doors, including TX450 and
     TX500, stay on the price list even if the part generator emits a GK15.
     A size that is not long or short is flagged and left on the price list.
+    A missing setting is on, so stock residential windows use this rate
+    on every quote builder that loads these settings. An explicit off
+    leaves the Business Central price list in place.
 
 off does nothing. shadow logs the price it would set and does not change
 the quote. on writes a fixed unit price and a note on the quote.
@@ -156,6 +163,14 @@ def _parse_mode_value(raw: Any) -> str:
 
 
 def _parse_windows(raw: Any) -> tuple[str, float, float]:
+    """Missing setting is on, at the default long and short rates.
+
+    An explicit off, shadow, or on is kept. A stored mode that is not one
+    of those three is off. The dollar amounts fall back to the defaults
+    when they are missing or out of range.
+    """
+    if raw is None:
+        return "on", DEFAULT_LONG_PRICE, DEFAULT_SHORT_PRICE
     if not isinstance(raw, dict):
         return _mode(raw), DEFAULT_LONG_PRICE, DEFAULT_SHORT_PRICE
     return (

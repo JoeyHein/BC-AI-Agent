@@ -1,7 +1,9 @@
-"""Round 4 price overrides. Both settings default to off.
+"""Round 4 price overrides.
 
-Off leaves the line on the price list, which is the current sell price.
-Shadow logs the price it would set. On writes a fixed unit price.
+Replacement sections default to off. Flat residential windows default to
+on when the setting row is missing, which is how production shipped.
+Off leaves the line on the price list. Shadow logs the price it would
+set. On writes a fixed unit price.
 
 Card unit prices below are the BC item card (bc_items.json unitPrice).
 They are the price BC starts from before a customer price list. Off mode
@@ -367,6 +369,90 @@ def _generated(overrides):
     return get_parts_for_door_config(base).get("parts_list", [])
 
 
+# SQ-003461, quoted 2026-11-23 for JW Overhead Door (JWOHD, price group
+# SILV). Door 1 is the 16' x 10' Kanata that carried four long New Brown
+# stock windows. Door 2 is the 10'2" x 10' Kanata with no windows. The
+# header comments reload to these sizes. SILV's list price for the kit
+# is $241.43; the flat long rate is what the quote should have used.
+SQ_003461_DOOR = {
+    "doorType": "residential",
+    "doorSeries": "KANATA",
+    "doorWidth": 192,
+    "doorHeight": 120,
+    "panelColor": "NEW_BROWN",
+    "panelDesign": "SHXL",
+    "windowCount": 4,
+    "windowSize": "long",
+}
+SQ_003461_DOOR_WITHOUT_WINDOWS = {
+    "doorType": "residential",
+    "doorSeries": "KANATA",
+    "doorWidth": 122,
+    "doorHeight": 120,
+    "panelColor": "NEW_BROWN",
+    "panelDesign": "SHXL",
+    "hasWindows": False,
+    "windowCount": 0,
+}
+SQ_003461_SILV_WINDOW = 241.43
+
+
+def test_sq_003461_stock_window_uses_the_flat_rate_by_default():
+    """Four GK15-11210-00 on a residential Kanata are $165, not the SILV list.
+
+    No saved setting. The steel sections on both doors stay without a
+    fixed price, and turning the switch off leaves the kit on the list.
+    """
+    windowed = _generated(SQ_003461_DOOR)
+    plain = _generated(SQ_003461_DOOR_WITHOUT_WINDOWS)
+    kits = [part for part in windowed if part.get("part_number") == "GK15-11210-00"]
+    sections = [part for part in windowed if part.get("part_number") == "PN65-24410-1600"]
+    other_sections = [part for part in plain if part.get("part_number") == "PN65-24410-1100"]
+    assert len(kits) == 1 and kits[0]["quantity"] == 4
+    assert kits[0]["description"].startswith("GLASS KIT")
+    assert "NEW BROWN" in kits[0]["description"]
+    assert len(sections) == 1 and sections[0]["quantity"] == 5
+    assert len(other_sections) == 1 and other_sections[0]["quantity"] == 5
+    assert not any(str(part.get("part_number", "")).startswith("GK15-") for part in plain)
+
+    settings = load_price_overrides(None)
+    assert settings.window_mode == "on"
+    assert settings.long_price == 165.00
+    assert settings.panel_mode == "off"
+    door = {"doorType": "residential", "doorSeries": "KANATA", "hardware": COMPLETE}
+    before = {id(part): part.get("fixed_unit_price") for part in windowed}
+    plain_before = {id(part): part.get("fixed_unit_price") for part in plain}
+    apply_door_price_overrides(windowed, door, settings)
+    apply_door_price_overrides(plain, door, settings)
+
+    assert kits[0]["fixed_unit_price"] == 165.00
+    assert kits[0]["fixed_unit_price"] != SQ_003461_SILV_WINDOW
+    assert kits[0]["quantity"] * kits[0]["fixed_unit_price"] == 660.00
+    assert "fixed_unit_price" not in sections[0]
+    assert "fixed_unit_price" not in other_sections[0]
+    # The kit is the only line this override prices. WRAP stays at its own rate.
+    gained = [
+        part for part in windowed
+        if id(part) in before and part.get("fixed_unit_price") != before[id(part)]
+    ]
+    assert [part.get("part_number") for part in gained] == ["GK15-11210-00"]
+    plain_gained = [
+        part for part in plain
+        if id(part) in plain_before and part.get("fixed_unit_price") != plain_before[id(part)]
+    ]
+    assert plain_gained == []
+
+    priced_off = _generated(SQ_003461_DOOR)
+    off_kit = next(part for part in priced_off if part.get("part_number") == "GK15-11210-00")
+    apply_door_price_overrides(
+        priced_off,
+        door,
+        PriceOverrideSettings(window_mode="off"),
+    )
+    assert "fixed_unit_price" not in off_kit
+    assert off_kit["quantity"] == 4
+
+
 def test_commercial_tx450_windows_keep_list_price():
     """A commercial TX450 emits GK15 kits. Those stay on the price list."""
     parts = _generated({
@@ -615,11 +701,11 @@ def session():
         db.close()
 
 
-def test_settings_default_off_and_round_trip(session):
+def test_settings_default_windows_on_and_round_trip(session):
     loaded = load_price_overrides(session)
     assert loaded.panel_mode == "off"
     assert loaded.finder_mode == "off"
-    assert loaded.window_mode == "off"
+    assert loaded.window_mode == "on"
     assert loaded.long_price == 165.00
     assert loaded.short_price == 120.00
     assert load_price_overrides(None) == loaded
@@ -653,6 +739,14 @@ def test_settings_default_off_and_round_trip(session):
     session.add(retired)
     session.commit()
     assert load_price_overrides(session).panel_mode == "off"
+    assert load_price_overrides(session).window_mode == "shadow"
+
+    save_price_overrides(session, window_mode="off")
+    session.commit()
+    turned_off = load_price_overrides(session)
+    assert turned_off.window_mode == "off"
+    assert turned_off.long_price == 170
+    assert turned_off.short_price == 110
 
 
 def test_parts_request_note_logs_only_when_enabled(session, caplog):

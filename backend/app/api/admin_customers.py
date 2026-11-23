@@ -866,11 +866,12 @@ def get_quote_price_overrides(
     current_admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    """Replacement-section margin and flat residential window rates.
+    """Replacement-section list price and flat residential window rates.
 
-    Both are off until someone turns them on. The numbers are the defaults
-    until they are changed here. Stored in app_settings, so there is no
-    migration.
+    Sections and the finder are off until someone turns them on. Flat
+    residential windows are on, at the default long and short rates, until
+    someone saves a different mode or price. Stored in app_settings, so
+    there is no migration. A missing window row is on.
     """
     from app.services.quote_price_overrides import load_price_overrides
     return load_price_overrides(db).as_api()

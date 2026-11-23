@@ -202,7 +202,7 @@ function GeneralSettings() {
         <div>
           <h3 className="text-sm font-medium text-gray-900">Quote pricing</h3>
           <p className="mt-1 text-sm text-gray-600">
-            Both are off until you turn them on. Shadow writes the price it would use and leaves the quote on the price list.
+            Replacement sections and the section finder are off until you turn them on. Flat residential windows are on until you turn them off. Shadow writes the price it would use and leaves the quote on the price list.
           </p>
         </div>
         <PriceOverrideControl
@@ -230,7 +230,7 @@ function GeneralSettings() {
         />
         <PriceOverrideControl
           label="Flat residential windows"
-          help="Residential doors price each glass kit at one rate per window. A decorative insert on that door is included at $0. Commercial doors, including TX450 and TX500, stay on the price list."
+          help="Residential doors price each stock glass kit at one rate per window. Long is $165 and short is $120 until you change them. A decorative insert on that door is included at $0. Commercial doors, including TX450 and TX500, stay on the price list. Off leaves the customer's price list in place."
           mode={windowSetting.mode}
           onMode={async (event) => {
             const next = event.target.value
