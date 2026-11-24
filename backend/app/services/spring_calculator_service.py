@@ -184,6 +184,13 @@ CANIMEX_MIP_CAPACITY = {
     0.5000: {10000: 2479, 15000: 2299, 25000: 2073, 50000: 1780, 100000: 1532},
 }
 
+# Standard cycle-life columns on the Canimex MIP chart, low to high.
+STANDARD_CYCLE_LIVES = (10000, 15000, 25000, 50000, 100000)
+
+# .393 / .3938 is a special-order wire Joey almost never wants on a quote.
+# Matched loosely so both the BC .393 code and the Canimex .3938 row hit.
+WIRE_393_TARGETS = (0.393, 0.3938)
+
 
 # ============================================================================
 # DRUM MULTIPLIER TABLE LOADER
@@ -219,8 +226,14 @@ def _load_standard_lift_drums() -> dict:
             height = int(height_str)
             table[height] = {}
             for key, value in radius_data.items():
-                if key == "lhr" or key == "pitch_factor":
-                    continue  # Skip LHR and pitch for now
+                if key == "pitch_factor":
+                    continue
+                # Low-headroom is its own (multiplier, turns) column. Using the
+                # 12" or 15" radius row here sizes the springs for the wrong
+                # cable travel.
+                if key == "lhr":
+                    table[height]["lhr"] = (value[0], value[1])
+                    continue
                 radius = int(key)
                 table[height][radius] = (value[0], value[1])
 
@@ -348,6 +361,10 @@ class SpringResult:
     multiplier: float
     weight: float = 0.0
     part_number: str = ""
+    # Highest standard cycle rating whose MIP capacity still covers this
+    # spring's MIP. May be above the requested target. 0 when the wire
+    # cannot make the lowest (10k) rating.
+    achieved_cycles: int = 0
 
     def __post_init__(self):
         """Generate part number and calculate weight after initialization."""
@@ -531,7 +548,40 @@ class SpringCalculatorService:
                     return drum_model
         return None
 
-    def get_drum_data(self, door_height: int, track_radius: int, drum_model: str = None, high_lift_inches: int = 0) -> Optional[Tuple[str, float, float]]:
+    def achieved_cycle_life(self, wire_diameter: float, mip: float) -> int:
+        """Highest standard cycle rating whose MIP capacity still covers ``mip``.
+
+        Returns 0 when the wire cannot make 10,000 cycles at this MIP.
+        """
+        best = 0
+        for cycles in STANDARD_CYCLE_LIVES:
+            capacity = self.get_mip_capacity(wire_diameter, cycles)
+            if capacity is not None and capacity >= mip:
+                best = cycles
+        return best
+
+    def sale_engineering_wire(self, wire_diameter: float) -> float:
+        """Canimex table key for the BC SKU this wire is actually sold as.
+
+        0.2344 stays 0.2344 (that row IS the .234 SKU). 0.2375 snaps to the
+        .234 SKU and 0.4305 snaps to the .437 SKU — those are different
+        engineering sizes, so the caller must recompute length and cycles.
+        """
+        try:
+            from app.services.bc_part_number_mapper import get_bc_mapper
+            mapper = get_bc_mapper()
+            if not mapper.WIRE_SIZE_CODES:
+                return wire_diameter
+            code = mapper._get_closest_wire_code(wire_diameter)
+            bc_wire = next(w for w, c in mapper.WIRE_SIZE_CODES.items() if c == code)
+        except Exception:
+            return wire_diameter
+        closest = min(self.dividers.keys(), key=lambda w: abs(w - bc_wire))
+        if abs(closest - bc_wire) <= 0.006:
+            return closest
+        return wire_diameter
+
+    def get_drum_data(self, door_height: int, track_radius: int, drum_model: str = None, high_lift_inches: int = 0, low_headroom: bool = False) -> Optional[Tuple[str, float, float]]:
         """
         Get drum multiplier and turns for door height and track radius.
 
@@ -551,11 +601,20 @@ class SpringCalculatorService:
             drum_data = self.drum_multipliers[drum_model]
             table = drum_data["table"]
             closest_height = min(table.keys(), key=lambda h: abs(h - door_height))
-            radius_data = table[closest_height].get(track_radius)
-            if radius_data is None:
-                radius_data = table[closest_height].get(15)
-            if radius_data is None:
-                return None
+            if low_headroom:
+                radius_data = table[closest_height].get("lhr")
+                if radius_data is None:
+                    logger.warning(
+                        f"{drum_model}: no low-headroom drum row at {closest_height}\" "
+                        f"(door {door_height}\") — not using the standard-radius row"
+                    )
+                    return None
+            else:
+                radius_data = table[closest_height].get(track_radius)
+                if radius_data is None:
+                    radius_data = table[closest_height].get(15)
+                if radius_data is None:
+                    return None
             multiplier, turns = radius_data
             return (drum_model, multiplier, turns)
 
@@ -630,7 +689,8 @@ class SpringCalculatorService:
         coil_diameter: float = 2.0,
         target_cycles: int = 10000,
         drum_model: str = None,
-        high_lift_inches: int = 0
+        high_lift_inches: int = 0,
+        low_headroom: bool = False,
     ) -> Optional[SpringResult]:
         """
         Calculate spring specifications for a door.
@@ -654,7 +714,10 @@ class SpringCalculatorService:
             target_cycles = 10000
 
         # Get drum data
-        drum_data = self.get_drum_data(door_height, track_radius, drum_model, high_lift_inches=high_lift_inches)
+        drum_data = self.get_drum_data(
+            door_height, track_radius, drum_model,
+            high_lift_inches=high_lift_inches, low_headroom=low_headroom,
+        )
         if drum_data is None:
             logger.warning(f"No drum found for height {door_height}\"")
             return None
@@ -678,16 +741,74 @@ class SpringCalculatorService:
                 wire_diameter, coil_diameter = result
                 logger.info(f"Selected {wire_diameter}\" wire with {coil_diameter}\" coil for heavy door")
 
-        # Get divider
-        divider = self.get_divider(wire_diameter, coil_diameter)
-        if divider is None:
+        # A Canimex size that is not itself a BC SKU (0.2375 → .234, 0.4305 →
+        # .437) must be recalculated at the wire we actually sell. Keeping the
+        # original length on the snapped SKU quotes the wrong rate.
+        requested_wire = wire_diameter
+        sold_wire = self.sale_engineering_wire(wire_diameter)
+        snapped = abs(sold_wire - requested_wire) > 1e-9
+        if snapped:
+            logger.info(
+                f"Spring wire {requested_wire}\" snaps to sold wire {sold_wire}\" — "
+                f"recomputing length, IPPT and cycles"
+            )
+            wire_diameter = sold_wire
+
+        # IPPT is a door property; restated after a snap so length and the
+        # sold wire are one calculation.
+        ippt = self.calculate_ippt(multiplier, door_weight)
+        mip_required = self.calculate_mip(ippt, turns, spring_qty)
+
+        def _geometry(wire):
+            divider = self.get_divider(wire, coil_diameter)
+            if divider is None:
+                return None
+            active = self.calculate_active_coils(spring_qty, divider, ippt)
+            dead = self.get_dead_coil_factor(wire, coil_diameter)
+            length = self.calculate_spring_length(active, dead)
+            achieved = self.achieved_cycle_life(wire, mip_required)
+            capacity = self.get_mip_capacity(wire, target_cycles)
+            return divider, active, dead, length, achieved, capacity
+
+        built = _geometry(wire_diameter)
+        if built is None:
             logger.warning(f"No divider for {wire_diameter}\" wire at {coil_diameter}\" coil")
             return None
+        divider, active_coils, dead_coil_factor, length, achieved, capacity = built
 
-        # Calculate active coils and length
-        active_coils = self.calculate_active_coils(spring_qty, divider, ippt)
-        dead_coil_factor = self.get_dead_coil_factor(wire_diameter, coil_diameter)
-        length = self.calculate_spring_length(active_coils, dead_coil_factor)
+        # A snap onto a weaker SKU that cannot carry the target MIP is not
+        # sold at the old length. Step up to the next sold wire and recompute.
+        if snapped and (capacity is None or capacity < mip_required):
+            try:
+                from app.services.bc_part_number_mapper import get_bc_mapper
+                bc_wires = sorted(get_bc_mapper().WIRE_SIZE_CODES)
+            except Exception:
+                bc_wires = []
+            upgraded = None
+            for bc_wire in bc_wires:
+                if bc_wire <= wire_diameter + 1e-9:
+                    continue
+                candidate = self.sale_engineering_wire(bc_wire)
+                if abs(candidate - wire_diameter) < 1e-9:
+                    continue
+                trial = _geometry(candidate)
+                if trial is None:
+                    continue
+                if trial[5] is not None and trial[5] >= mip_required:
+                    wire_diameter = candidate
+                    divider, active_coils, dead_coil_factor, length, achieved, capacity = trial
+                    upgraded = candidate
+                    break
+            if upgraded is None:
+                logger.info(
+                    f"Sold wire after snapping {requested_wire}\" cannot make "
+                    f"{target_cycles} cycles at MIP {mip_required:.1f}"
+                )
+                return None
+            logger.info(
+                f"Snap of {requested_wire}\" stepped up to {wire_diameter}\" "
+                f"and length was recomputed"
+            )
 
         return SpringResult(
             wire_diameter=wire_diameter,
@@ -701,7 +822,8 @@ class SpringCalculatorService:
             spring_quantity=spring_qty,
             cycle_life=target_cycles,
             drum_model=selected_drum,
-            multiplier=multiplier
+            multiplier=multiplier,
+            achieved_cycles=achieved,
         )
 
     def calculate_spring_options(
@@ -712,7 +834,8 @@ class SpringCalculatorService:
         spring_qty: int = 2,
         target_cycles: int = 10000,
         drum_model: str = None,
-        high_lift_inches: int = 0
+        high_lift_inches: int = 0,
+        low_headroom: bool = False,
     ) -> SpringOptions:
         """
         Calculate multiple spring options for a door configuration.
@@ -721,7 +844,10 @@ class SpringCalculatorService:
         sorted by spring length (shortest first).
         """
         # Get drum data
-        drum_data = self.get_drum_data(door_height, track_radius, drum_model, high_lift_inches=high_lift_inches)
+        drum_data = self.get_drum_data(
+            door_height, track_radius, drum_model,
+            high_lift_inches=high_lift_inches, low_headroom=low_headroom,
+        )
         if drum_data is None:
             return SpringOptions(
                 door_weight=door_weight,
@@ -768,14 +894,21 @@ class SpringCalculatorService:
                     coil_diameter=coil_diam,
                     target_cycles=target_cycles,
                     drum_model=selected_drum,
-                    high_lift_inches=high_lift_inches
+                    high_lift_inches=high_lift_inches,
+                    low_headroom=low_headroom,
                 )
 
                 if result:
                     options.append(result)
 
-        # Sort by length (shortest first)
-        options.sort(key=lambda x: x.length)
+        # Closest cycle life, then least steel. Length is not the objective.
+        options.sort(key=lambda x: (
+            abs((x.achieved_cycles or x.cycle_life) - target_cycles),
+            1 if any(abs(x.wire_diameter - t) <= 0.004 for t in WIRE_393_TARGETS) else 0,
+            x.weight * x.spring_quantity,
+            x.wire_diameter,
+            x.length,
+        ))
 
         # Select recommended option (shortest spring that fits common dimensions)
         recommended = None
@@ -870,6 +1003,7 @@ class SpringCalculatorService:
         replacement_spring_qty: int = 1,
         replacement_coil: float = None,
         replacement_wire: float = None,
+        target_cycles: int = 10000,
     ) -> Dict[str, Any]:
         """
         Convert current spring specs to replacement spring specs.
@@ -880,6 +1014,13 @@ class SpringCalculatorService:
 
         Returns both current and replacement spring analysis.
         """
+        # Existing-spring (conversion) mode honours the requested cycle life.
+        # The old path always rated max turns off the 10,000-cycle MIP column.
+        if target_cycles < 10000:
+            target_cycles = 10000
+        if target_cycles not in STANDARD_CYCLE_LIVES:
+            target_cycles = min(STANDARD_CYCLE_LIVES, key=lambda c: abs(c - target_cycles))
+
         # Normalize wire to closest Canimex value
         norm_wire = normalize_wire_diameter(current_wire)
 
@@ -903,11 +1044,12 @@ class SpringCalculatorService:
         current_mip_10k = self.get_mip_capacity(norm_wire, 10000)
         current_mip_15k = self.get_mip_capacity(norm_wire, 15000)
         current_mip_25k = self.get_mip_capacity(norm_wire, 25000)
+        current_mip_target = self.get_mip_capacity(norm_wire, target_cycles)
 
-        # Estimate max turns: MIP = (IPPT × Turns) / qty  =>  Turns = (MIP × qty) / IPPT
+        # Estimate max turns at the REQUESTED cycle life, not always 10k.
         current_max_turns = None
-        if current_mip_10k and ippt > 0:
-            current_max_turns = round((current_mip_10k * current_spring_qty) / ippt, 1)
+        if current_mip_target and ippt > 0:
+            current_max_turns = round((current_mip_target * current_spring_qty) / ippt, 1)
 
         # Current spring weight
         current_weight = calculate_spring_weight(norm_wire, current_coil, current_length)
@@ -926,7 +1068,9 @@ class SpringCalculatorService:
                 "10k": current_mip_10k,
                 "15k": current_mip_15k,
                 "25k": current_mip_25k,
+                "target": current_mip_target,
             },
+            "target_cycles": target_cycles,
         }
 
         # Calculate replacement spring
@@ -945,9 +1089,10 @@ class SpringCalculatorService:
                 repl_mip_10k = self.get_mip_capacity(norm_repl_wire, 10000)
                 repl_mip_15k = self.get_mip_capacity(norm_repl_wire, 15000)
                 repl_mip_25k = self.get_mip_capacity(norm_repl_wire, 25000)
+                repl_mip_target = self.get_mip_capacity(norm_repl_wire, target_cycles)
                 repl_max_turns = None
-                if repl_mip_10k and ippt > 0:
-                    repl_max_turns = round((repl_mip_10k * replacement_spring_qty) / ippt, 1)
+                if repl_mip_target and ippt > 0:
+                    repl_max_turns = round((repl_mip_target * replacement_spring_qty) / ippt, 1)
 
                 replacement = {
                     "wire_diameter": norm_repl_wire,
@@ -962,7 +1107,9 @@ class SpringCalculatorService:
                         "10k": repl_mip_10k,
                         "15k": repl_mip_15k,
                         "25k": repl_mip_25k,
+                        "target": repl_mip_target,
                     },
+                    "target_cycles": target_cycles,
                 }
         else:
             # Auto-select: find all viable wire sizes for the replacement coil
@@ -979,9 +1126,14 @@ class SpringCalculatorService:
                 repl_mip_10k = self.get_mip_capacity(wire_diam, 10000)
                 repl_mip_15k = self.get_mip_capacity(wire_diam, 15000)
                 repl_mip_25k = self.get_mip_capacity(wire_diam, 25000)
+                repl_mip_target = self.get_mip_capacity(wire_diam, target_cycles)
+                # A replacement that cannot make the requested cycle life is
+                # not a candidate. Honour cycleLife even in existing-spring mode.
+                if not repl_mip_target:
+                    continue
                 repl_max_turns = None
-                if repl_mip_10k and ippt > 0:
-                    repl_max_turns = round((repl_mip_10k * replacement_spring_qty) / ippt, 1)
+                if ippt > 0:
+                    repl_max_turns = round((repl_mip_target * replacement_spring_qty) / ippt, 1)
 
                 candidates.append({
                     "wire_diameter": wire_diam,
@@ -996,12 +1148,25 @@ class SpringCalculatorService:
                         "10k": repl_mip_10k,
                         "15k": repl_mip_15k,
                         "25k": repl_mip_25k,
+                        "target": repl_mip_target,
                     },
+                    "target_cycles": target_cycles,
+                    "wire_lb": repl_weight,
                 })
 
             if candidates:
-                # Pick closest in length to current
-                replacement = min(candidates, key=lambda c: abs(c["length"] - current_length))
+                # Same ranking idea as a new door: closest rated life, least steel,
+                # .393 last. Length match is only the final tiebreak.
+                def _conv_key(c):
+                    rated = c["target_cycles"]
+                    return (
+                        abs(rated - target_cycles),
+                        1 if any(abs(c["wire_diameter"] - t) <= 0.004 for t in WIRE_393_TARGETS) else 0,
+                        c["weight"] * c["spring_quantity"],
+                        c["wire_diameter"],
+                        abs(c["length"] - current_length),
+                    )
+                replacement = min(candidates, key=_conv_key)
 
         # Calculate minimum door widths for different spring quantities
         min_door_widths = {}
@@ -1017,7 +1182,9 @@ class SpringCalculatorService:
             min_door_widths[qty] = round(min_width, 1)
 
         # Calculate duplex options (6" outer + 3.75" inner nested)
-        duplex_options = self._calculate_duplex_conversions(ippt, current_spring_qty)
+        duplex_options = self._calculate_duplex_conversions(
+            ippt, current_spring_qty, target_cycles=target_cycles,
+        )
 
         return {
             "success": True,
@@ -1027,6 +1194,7 @@ class SpringCalculatorService:
             "duplex_options": duplex_options,
             "min_door_widths": min_door_widths,
             "ippt": round(ippt, 2),
+            "target_cycles": target_cycles,
         }
 
     def _calculate_duplex_conversions(
@@ -1035,6 +1203,7 @@ class SpringCalculatorService:
         spring_qty: int = 2,
         outer_coil: float = 6.0,
         inner_coil: float = 3.75,
+        target_cycles: int = 10000,
     ) -> list[dict]:
         """Calculate duplex spring options for a given IPPT.
 
@@ -1076,7 +1245,13 @@ class SpringCalculatorService:
                 if inner_length < 6 or inner_length > 45:
                     continue
 
-                # Get MIP capacity
+                # Both wires need a chart rating at the requested cycle life.
+                # Which one fatigues first is checked on a real door, where the
+                # outer carries 2/3 of the position MIP and the inner 1/2.
+                outer_mip_target = self.get_mip_capacity(outer_wire, target_cycles)
+                inner_mip_target = self.get_mip_capacity(inner_wire, target_cycles)
+                if not outer_mip_target or not inner_mip_target:
+                    continue
                 outer_mip_10k = self.get_mip_capacity(outer_wire, 10000)
                 inner_mip_10k = self.get_mip_capacity(inner_wire, 10000)
                 outer_mip_25k = self.get_mip_capacity(outer_wire, 25000)
@@ -1085,6 +1260,7 @@ class SpringCalculatorService:
                 # Spring weights
                 outer_weight = calculate_spring_weight(outer_wire, outer_coil, outer_length)
                 inner_weight = calculate_spring_weight(inner_wire, inner_coil, inner_length)
+                wire_lb = round(((outer_weight or 0) + (inner_weight or 0)) * spring_qty, 2)
 
                 options.append({
                     "outer": {
@@ -1093,6 +1269,7 @@ class SpringCalculatorService:
                         "length": outer_length,
                         "mip_10k": outer_mip_10k,
                         "mip_25k": outer_mip_25k,
+                        "mip_target": outer_mip_target,
                         "weight": outer_weight,
                     },
                     "inner": {
@@ -1101,16 +1278,29 @@ class SpringCalculatorService:
                         "length": inner_length,
                         "mip_10k": inner_mip_10k,
                         "mip_25k": inner_mip_25k,
+                        "mip_target": inner_mip_target,
                         "weight": inner_weight,
                     },
                     "combined_divider": round(combined_divider, 1),
                     "spring_quantity": spring_qty,
                     "total_weight": round((outer_weight or 0) + (inner_weight or 0), 2),
+                    "ippt": round(ippt, 2),
+                    "turns": None,
+                    "cycles": target_cycles,
+                    "wire_lb": wire_lb,
                 })
 
-        # Sort by outer length (shortest first) and limit to top 15
-        options.sort(key=lambda o: o["outer"]["length"])
-        return options[:15]
+        # Closest (all are at the requested life), .393 last, least steel.
+        # The portal shows the top 3.
+        def _duplex_key(o):
+            return (
+                1 if any(abs(o["outer"]["wire_diameter"] - t) <= 0.004 for t in WIRE_393_TARGETS) else 0,
+                o["wire_lb"],
+                o["outer"]["wire_diameter"],
+                o["outer"]["length"],
+            )
+        options.sort(key=_duplex_key)
+        return options[:3]
 
 
 # Global instance

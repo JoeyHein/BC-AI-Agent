@@ -4334,6 +4334,9 @@ class SpringConversionRequest(BaseModel):
     replacement_spring_qty: int = 1
     replacement_coil: Optional[float] = None
     replacement_wire: Optional[float] = None
+    # Existing-spring mode. 10k unless the caller asks for another rating.
+    target_cycles: int = 10000
+    cycleLife: Optional[int] = None
 
 
 class SpecialOrderSubmit(BaseModel):
@@ -4430,6 +4433,7 @@ def spring_builder_convert(
         replacement_spring_qty=body.replacement_spring_qty,
         replacement_coil=body.replacement_coil,
         replacement_wire=body.replacement_wire,
+        target_cycles=body.cycleLife or body.target_cycles,
     )
 
 

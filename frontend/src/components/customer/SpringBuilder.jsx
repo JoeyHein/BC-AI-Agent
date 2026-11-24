@@ -192,6 +192,7 @@ export default function SpringBuilder() {
     replacement_spring_qty: 1,
     replacement_coil: '',
     replacement_wire: '',
+    target_cycles: 10000,
   });
   const [convResult, setConvResult] = useState(null);
 
@@ -264,6 +265,8 @@ export default function SpringBuilder() {
       };
       if (convForm.replacement_coil) payload.replacement_coil = parseFloat(convForm.replacement_coil);
       if (convForm.replacement_wire) payload.replacement_wire = parseFloat(convForm.replacement_wire);
+      payload.target_cycles = parseInt(convForm.target_cycles) || 10000;
+      payload.cycleLife = payload.target_cycles;
 
       const res = await springBuilderApi.convert(payload);
       setConvResult(res.data);
@@ -613,11 +616,29 @@ export default function SpringBuilder() {
                       <ResultRow label="Wire" value={formatWire(calc.wire_diameter)} unit='"' />
                       <ResultRow label="I.D." value={coilLabel(calc.coil_diameter)} unit='"' />
                       <ResultRow label="Length" value={calc.length} unit='"' />
-                      <ResultRow label="Weight" value={calc.weight} unit=' lbs' />
+                      <ResultRow label="Wire weight" value={calc.wire_lb || calc.weight} unit=' lbs' />
                       <ResultRow label="Qty" value={calc.spring_quantity} />
                       {calc.cable_length && <ResultRow label="Cable Length" value={calc.cable_length} unit='"' />}
                     </div>
                   </div>
+
+                  {result.options?.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Top 3 options</h4>
+                      <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                        {result.options.slice(0, 3).map((opt, idx) => (
+                          <div key={idx} className="text-xs text-gray-700 border-b border-gray-100 pb-1 last:border-0">
+                            <div className="font-medium">
+                              {idx + 1}. {opt.quantity}× {formatWire(opt.wire_diameter)}" × {coilLabel(opt.coil_diameter)}" × {opt.length}"
+                            </div>
+                            <div className="font-mono text-gray-500">
+                              IPPT {opt.ippt ?? '—'} · {opt.turns} turns · {(opt.cycles || 0).toLocaleString()} cycles · {opt.wire_lb} lb
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </Panel>
@@ -685,6 +706,15 @@ export default function SpringBuilder() {
             {/* Replacement Spring */}
             <Panel title="Replacement Spring" className="lg:col-span-1">
               <div className="space-y-3">
+                <FieldGroup label="Cycle life">
+                  <select name="target_cycles" value={convForm.target_cycles} onChange={handleConvChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    {CYCLE_OPTIONS.map(c => (
+                      <option key={c.value} value={c.value}>{c.label}</option>
+                    ))}
+                  </select>
+                </FieldGroup>
+
                 <FieldGroup label="Number of springs">
                   <select name="replacement_spring_qty" value={convForm.replacement_spring_qty} onChange={handleConvChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
@@ -807,6 +837,7 @@ export default function SpringBuilder() {
                         <th className="py-2 px-2 text-xs font-medium text-gray-500" colSpan="3">OUTER (6" Coil)</th>
                         <th className="py-2 px-2 text-xs font-medium text-gray-500" colSpan="3">INNER (3-3/4" Coil)</th>
                         <th className="py-2 px-2 text-xs font-medium text-gray-500">Saving</th>
+                        <th className="py-2 px-2 text-xs font-medium text-gray-500">IPPT / cycles / wire</th>
                         <th className="py-2 px-2 text-xs font-medium text-gray-500">Cones</th>
                         <th className="py-2 px-2 text-xs font-medium text-gray-500">Stock</th>
                       </tr>
@@ -836,6 +867,9 @@ export default function SpringBuilder() {
                             <td className="py-2 px-2 font-mono">{opt.inner.length}"</td>
                             <td className="py-2 px-2 font-mono text-xs text-gray-500">{opt.inner.lh_part}</td>
                             <td className="py-2 px-2 text-green-600 font-semibold">-{saving.toFixed(0)}"</td>
+                            <td className="py-2 px-2 font-mono text-xs">
+                              {opt.ippt ?? '—'} / {opt.cycles?.toLocaleString?.() || opt.cycles} / {opt.wire_lb} lb
+                            </td>
                             <td className="py-2 px-2 text-xs font-mono text-gray-600">
                               {opt.total_cone_cost > 0 ? `$${opt.total_cone_cost.toFixed(2)}` : '—'}
                             </td>

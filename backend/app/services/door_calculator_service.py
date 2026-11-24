@@ -25,6 +25,8 @@ from app.services.spring_calculator_service import (
     SpringCalculatorService,
     SpringResult,
     normalize_wire_diameter,
+    calculate_spring_weight,
+    WIRE_393_TARGETS,
 )
 from app.services import spring_pricing
 
@@ -50,10 +52,26 @@ DOOR_MODEL_WEIGHTS = {
     # TX760 (3"): TX500 +15% interim estimate (matches part_number_service MODEL_WEIGHTS).
     # TODO: replace with exact PN74 BULK lbs/ft when the weights export is available.
     "TX760": {"18": 4.6023, "21": 4.6023, "24": 5.2555, "28": 5.98, "32": 6.555},
-    # Residential models (Kanata/Craft use same weights)
+    # Kanata (Upwardor / BC weight export): 18", 21" and 24" sections.
     "KANATA": {"18": 3.7655, "21": 4.1875, "24": 4.6392, "28": 5.1363, "32": 6.1875},
-    "CRAFT": {"18": 3.7655, "21": 4.1875, "24": 4.6392, "28": 5.1363, "32": 6.1875},
+    # Craft is a different door. Upwardor Craft Series is 1-3/4" polyurethane,
+    # 26-gauge skins, 24-gauge reinforcement strips (2 per panel), and only
+    # 28" (7') or 32" (8') sections, three per door. lb/ft is the Kanata BC
+    # export's areal density (4.1875 lb/ft on a 21" section = 2.3929 lb/ft²)
+    # times the Craft section height, plus ~0.031 lb/ft for the heavier
+    # 24-gauge strips versus Kanata's 25-gauge strips. These are not the
+    # Kanata 21"/24" rates copied onto Craft.
+    "CRAFT": {"28": 5.6143, "32": 6.4120},
 }
+
+# Spring steel priced by the pound for selection. Cone prices are added on
+# top so a 3-3/4" cone set can beat a 6" cone set.
+STEEL_USD_PER_LB = 2.30
+# Used when a cone card has no price book entry. Matches the live book so a
+# missing price does not flip 3-3/4" and 6".
+_CONE_FALLBACK_USD = {2.0: 15.75, 2.625: 20.08, 3.75: 28.93, 6.0: 39.37}
+SHAFT_OVERHANG_IN = 18
+MAX_PRACTICAL_SPRING_LENGTH = 75.0
 
 # Multiplier factors for door models (converts to standard weight calculation)
 DOOR_MODEL_MULTIPLIERS = {
@@ -324,14 +342,16 @@ def _springs_fit_on_shaft(
     installed_spring_length = spring_length + (turns * wire_diameter if turns and wire_diameter else 0)
     required = (
         2 * drum_w +                          # 2 drums (model-specific)
-        2 * _BEARING_END_PLATE_WIDTH +        # 2 end plates
+        2 * _BEARING_END_PLATE_WIDTH +        # 2 end bearings
         num_couplers * _COUPLER_WIDTH +       # shaft couplers
         num_couplers * _CENTER_BEARING_WIDTH + # center bearing plates
         spring_qty * winder_w +               # winder cones
         spring_qty * installed_spring_length + # springs (installed/wound)
         (2 + 2 + spring_qty + spring_qty + num_couplers) * _CLEARANCE_PER_GAP  # gaps
     )
-    return required <= door_width_inches
+    # The shaft is the door width plus 6" + 12" of overhang, not the opening.
+    shaft_length = door_width_inches + SHAFT_OVERHANG_IN
+    return required <= shaft_length
 
 
 # Drum selection table
@@ -357,6 +377,148 @@ def _spring_sellable(wire: float, coil: float) -> bool:
     lh = mapper.get_spring_part_number(wire, coil, "LH").part_number
     rh = mapper.get_spring_part_number(wire, coil, "RH").part_number
     return lh in mapper.spring_items and rh in mapper.spring_items
+
+
+def _is_393_wire(wire: float) -> bool:
+    return any(abs(wire - target) <= 0.004 for target in WIRE_393_TARGETS)
+
+
+def _cone_pair_cost(coil: float, hands: int) -> float:
+    """Dollar cost of ``hands`` winding-cone sets at this coil.
+
+    Prefers the price book (the LH card; LH and RH are the same price on the
+    live book). Falls back to the published cone prices so 3-3/4" still beats
+    6" when the book is empty.
+    """
+    from app.services import spring_pricing
+    from app.services.bc_part_number_mapper import get_bc_mapper
+
+    cost = None
+    try:
+        mapper = get_bc_mapper()
+        pn = mapper.get_winder_stationary_set(coil, 1.0, "LH").part_number
+        cost = spring_pricing.price_of(pn)
+    except Exception:
+        cost = None
+    if cost is None:
+        closest = min(_CONE_FALLBACK_USD, key=lambda c: abs(c - coil))
+        cost = _CONE_FALLBACK_USD[closest]
+    return float(cost) * hands
+
+
+def _candidate_facts(obj) -> dict:
+    """Fields the ranker needs, from a SpringResult, SpringSelection, or duplex adapter."""
+    if isinstance(obj, DoorCalculatorService._DuplexCandidate):
+        obj = obj.selection
+    is_duplex = bool(getattr(obj, "is_duplex", False))
+    qty = getattr(obj, "quantity", None)
+    if qty is None:
+        qty = obj.spring_quantity
+    wire = obj.wire_diameter
+    coil = obj.coil_diameter
+    length = obj.length
+    turns = getattr(obj, "turns", 0) or 0
+    ippt = getattr(obj, "ippt", None)
+    mip = getattr(obj, "mip_per_spring", None)
+    if is_duplex:
+        pairs = getattr(obj, "duplex_pairs", 0) or max(1, qty // 2)
+        inner_wire = obj.inner_wire_diameter
+        inner_coil = obj.inner_coil_diameter or 3.75
+        inner_length = obj.inner_length or 0
+        outer_lb = calculate_spring_weight(wire, coil, length) * pairs
+        inner_lb = calculate_spring_weight(inner_wire, inner_coil, inner_length) * pairs
+        steel = outer_lb + inner_lb
+        # One cone set per spring, outer and inner.
+        cones = _cone_pair_cost(coil, pairs) + _cone_pair_cost(inner_coil, pairs)
+        wires = (wire, inner_wire)
+    else:
+        pairs = 0
+        per = getattr(obj, "weight", None)
+        if not per:
+            per = calculate_spring_weight(wire, coil, length)
+        steel = per * qty
+        hands = 1 if qty <= 1 else qty
+        cones = _cone_pair_cost(coil, hands)
+        wires = (wire,)
+    achieved = getattr(obj, "achieved_cycles", 0) or 0
+    if not achieved and mip:
+        achieved = spring_calculator.achieved_cycle_life(wire, mip)
+    if not achieved:
+        achieved = getattr(obj, "cycle_life", None) or getattr(obj, "cycles", 0) or 0
+    return {
+        "wire": wire,
+        "coil": coil,
+        "length": length,
+        "qty": qty,
+        "turns": turns,
+        "ippt": ippt,
+        "mip": mip,
+        "steel": steel,
+        "cones": cones,
+        "achieved": achieved,
+        "is_duplex": is_duplex,
+        "is_393": any(_is_393_wire(w) for w in wires if w),
+        "pairs": pairs,
+    }
+
+
+def spring_rank_key(obj, target_cycles: int, stocked: bool = False):
+    """Joey's Nov 16 2026 order. Lower sorts first.
+
+    1. Meets the requested cycle life, and stays inside a shippable length.
+    2. Closest rated life to that target (10k unless the quote asked for more).
+    3. .393 wire almost never — it only wins when nothing else qualifies.
+    4. Least steel, priced at $2.30/lb, plus the cone sets. A 3-3/4" cone
+       set is cheaper than a 6" set, so it can win on a similar spring.
+    5. Lighter wire, then more springs: add a pair before stepping up wire.
+    6. A stocked BC spring breaks a remaining tie.
+    """
+    facts = _candidate_facts(obj)
+    meets = facts["achieved"] >= target_cycles and facts["achieved"] > 0
+    practical = facts["length"] <= MAX_PRACTICAL_SPRING_LENGTH
+    if meets and practical:
+        band = 0
+    elif meets:
+        band = 1
+    else:
+        band = 2
+    full_cost = facts["steel"] * STEEL_USD_PER_LB + facts["cones"]
+    return (
+        band,
+        abs(facts["achieved"] - target_cycles),
+        1 if facts["is_393"] else 0,
+        round(facts["steel"], 2),
+        round(full_cost, 2),
+        round(facts["wire"], 4),
+        -facts["qty"],
+        0 if stocked else 1,
+        round(facts["length"], 2),
+    )
+
+
+def spring_option_payload(obj, stocked: bool = False) -> dict:
+    """One ranked option for the specs panel and SpringFinder."""
+    facts = _candidate_facts(obj)
+    payload = {
+        "quantity": facts["qty"],
+        "wire_diameter": facts["wire"],
+        "coil_diameter": facts["coil"],
+        "length": round(facts["length"], 2),
+        "ippt": round(facts["ippt"], 2) if facts["ippt"] else None,
+        "turns": facts["turns"],
+        "cycles": facts["achieved"],
+        "wire_lb": round(facts["steel"], 2),
+        "stocked": stocked,
+        "is_duplex": facts["is_duplex"],
+    }
+    if facts["is_duplex"] and not isinstance(obj, DoorCalculatorService._DuplexCandidate):
+        payload["inner_wire_diameter"] = getattr(obj, "inner_wire_diameter", None)
+        payload["inner_length"] = getattr(obj, "inner_length", None)
+    elif isinstance(obj, DoorCalculatorService._DuplexCandidate):
+        sel = obj.selection
+        payload["inner_wire_diameter"] = sel.inner_wire_diameter
+        payload["inner_length"] = sel.inner_length
+    return payload
 
 
 # Duplex shaft positions to try. Each position is one 6" outer + one 3-3/4"
@@ -552,6 +714,10 @@ class SpringSelection:
     # coupled to the primary one) to fit twice the springs. Drums stay
     # on the primary shaft; the tandem holds the extra spring positions.
     is_tandem: bool = False
+    ippt: Optional[float] = None
+    # Up to three other assemblies that also met the rules, best first.
+    # Each entry has ippt, turns, cycles and wire_lb for the specs panel.
+    alternatives: List[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -651,6 +817,7 @@ class DoorCalculatorService:
         target_cycles: int,
         drum_model: Optional[str],
         high_lift_inches: int,
+        low_headroom: bool = False,
     ) -> List[Any]:
         """Every (coil, wire) that meets MIP at target_cycles for this spring count.
 
@@ -666,9 +833,6 @@ class DoorCalculatorService:
                     continue
                 if not _spring_sellable(wire, coil):
                     continue
-                capacity = spring_calculator.get_mip_capacity(wire, target_cycles)
-                if capacity is None:
-                    continue
                 result = spring_calculator.calculate_spring(
                     door_weight=door_weight,
                     door_height=height_inches,
@@ -679,15 +843,50 @@ class DoorCalculatorService:
                     target_cycles=target_cycles,
                     drum_model=drum_model,
                     high_lift_inches=high_lift_inches,
+                    low_headroom=low_headroom,
                 )
                 if result is None:
                     continue
-                # calculate_spring doesn't re-check capacity when the wire is
-                # pinned, so enforce the cycle target here.
-                if capacity < result.mip_per_spring:
+                # A snap can land on a wire this coil does not actually sell
+                # (.375 x 3.75" has no SP11). Drop it; do not price it as if
+                # the pre-snap SKU were still the one on the quote.
+                if not _spring_sellable(result.wire_diameter, result.coil_diameter):
+                    continue
+                # Capacity is checked on the wire we would sell. A snap from
+                # 0.2375/.4305 changes that wire and its length; the pre-snap
+                # capacity must not be used.
+                capacity = spring_calculator.get_mip_capacity(result.wire_diameter, target_cycles)
+                if capacity is None or capacity < result.mip_per_spring:
                     continue
                 candidates.append(result)
         return candidates
+
+    def _candidate_is_stocked(self, obj, inventory: Optional[Dict[str, List[str]]]) -> bool:
+        """True when this wire/coil is in the BC on-hand feed. Tiebreak only."""
+        if not inventory:
+            return False
+        if isinstance(obj, self._DuplexCandidate):
+            obj = obj.selection
+        coil = obj.coil_diameter
+        wire = obj.wire_diameter
+        keys = {f"{coil:.1f}", f"{coil:.2f}", str(coil), str(int(coil)) if coil == int(coil) else str(coil)}
+        # Inventory keys are "2.0", "2.625", "3.75", "6.0".
+        wires = []
+        for key, vals in inventory.items():
+            try:
+                if abs(float(key) - float(coil)) < 0.02:
+                    wires.extend(vals)
+            except (TypeError, ValueError):
+                continue
+        if not wires and not any(k in inventory for k in keys):
+            return False
+        for raw in wires:
+            try:
+                if abs(normalize_wire_diameter(float(raw)) - wire) <= 0.006:
+                    return True
+            except (TypeError, ValueError):
+                continue
+        return False
 
     def _cost_of(self, obj) -> Optional[float]:
         """Assembly cost of any spring candidate, or None if a part isn't priced.
@@ -728,6 +927,7 @@ class DoorCalculatorService:
         spring_inventory: Optional[Dict[str, List[str]]] = None,  # stocked coil/wire combos
         high_lift_inches: Optional[int] = None,  # extra inches above door for high_lift
         door_type: str = "commercial",  # 'residential' or 'commercial'
+        door_weight: Optional[float] = None,  # measured/weighed, for brands with no chart
         **kwargs,
     ) -> DoorCalculation:
         """
@@ -754,9 +954,19 @@ class DoorCalculatorService:
         # Normalize door model
         door_model = door_model.upper().replace(" ", "-")
         is_aluminum = door_model in ("AL976", "PANORAMA", "SOLALITE", "AL-SWD", "ALSWD")
-        if not is_aluminum and door_model not in self.model_weights:
-            warnings.append(f"Unknown door model '{door_model}', using TX450 defaults")
+        has_chart = is_aluminum or door_model in self.model_weights
+        measured = door_weight if door_weight is not None else kwargs.get("measured_weight")
+        if not has_chart and not measured:
+            warnings.append(
+                f"No weight chart for '{door_model}'. Pass a measured door weight; "
+                f"Kanata weights are not substituted."
+            )
             door_model = "TX450"
+        elif not has_chart:
+            warnings.append(
+                f"No weight chart for '{door_model}'. Using the measured door weight "
+                f"of {float(measured):.0f} lb."
+            )
 
         # 1. Calculate panel configuration
         panel_config = self._calculate_panel_config(
@@ -779,21 +989,26 @@ class DoorCalculatorService:
         )
 
         # 3. Calculate door weight (including strut weight)
-        weight = self._calculate_weight(
-            door_model,
-            dimensions,
-            panel_config,
-            track_size,
-            window_type,
-            window_qty,
-            strut_count,
-            strut_type,
-            door_type=door_type,
-            is_aluminum=is_aluminum,
-            glazing_type=kwargs.get("glazing_type", "glass"),
-            glass_pane_type=kwargs.get("glass_pane_type", "INSULATED"),
-            include_top_seal=kwargs.get("include_top_seal", kwargs.get("includeTopSeal")),
-        )
+        if measured:
+            # A scale weight already includes sections, hardware and struts.
+            # Used for brands with no chart, and whenever the caller weighed the door.
+            weight = WeightBreakdown(steel_weight=float(measured), total_weight=float(measured))
+        else:
+            weight = self._calculate_weight(
+                door_model,
+                dimensions,
+                panel_config,
+                track_size,
+                window_type,
+                window_qty,
+                strut_count,
+                strut_type,
+                door_type=door_type,
+                is_aluminum=is_aluminum,
+                glazing_type=kwargs.get("glazing_type", "glass"),
+                glass_pane_type=kwargs.get("glass_pane_type", "INSULATED"),
+                include_top_seal=kwargs.get("include_top_seal", kwargs.get("includeTopSeal")),
+            )
 
         # 4. Calculate track configuration
         lift_config = LIFT_TYPES.get(lift_type, LIFT_TYPES["standard_15"])
@@ -840,6 +1055,7 @@ class DoorCalculatorService:
             track_radius=track_radius,
             spring_inventory=spring_inventory,
             high_lift_inches=high_lift_inches or 0,
+            low_headroom=lift_type_str == "low_headroom",
         )
 
         # 6b. Spring warnings — show during configuration, before quote
@@ -877,24 +1093,43 @@ class DoorCalculatorService:
                     f"Contact office for custom spring quote."
                 )
             elif resolved_wire != springs.wire_diameter or resolved_coil != springs.coil_diameter:
-                # Update spring specs to show the resolved (quotable) values
+                # A different SKU at the original length is the wrong spring.
+                # Recompute length, IPPT and cycles for the wire we sell.
                 logger.info(
                     f"Spring specs updated: {springs.wire_diameter}\" x {springs.coil_diameter}\" "
-                    f"→ {resolved_wire}\" x {resolved_coil}\" (BC resolved)"
+                    f"→ {resolved_wire}\" x {resolved_coil}\" (BC resolved, length recomputed)"
                 )
+                resized = spring_calculator.calculate_spring(
+                    door_weight=weight.total_weight,
+                    door_height=height_inches,
+                    track_radius=track_radius,
+                    spring_qty=springs.quantity,
+                    wire_diameter=resolved_wire,
+                    coil_diameter=resolved_coil,
+                    target_cycles=target_cycles,
+                    drum_model=drums.model if drums else None,
+                    high_lift_inches=high_lift_inches or 0,
+                    low_headroom=lift_type_str == "low_headroom",
+                )
+                new_length = resized.length if resized else springs.length
+                new_cycles = (resized.achieved_cycles or resized.cycle_life) if resized else springs.cycles
+                new_turns = resized.turns if resized else springs.turns
+                new_ippt = resized.ippt if resized else springs.ippt
                 springs = SpringSelection(
                     quantity=springs.quantity,
                     coil_diameter=resolved_coil,
                     wire_diameter=resolved_wire,
-                    length=springs.length,
-                    turns=springs.turns,
-                    cycles=springs.cycles,
+                    length=new_length,
+                    turns=new_turns,
+                    cycles=new_cycles,
                     galvanized=springs.galvanized,
                     is_duplex=springs.is_duplex,
                     inner_coil_diameter=springs.inner_coil_diameter,
                     inner_wire_diameter=springs.inner_wire_diameter,
                     inner_length=springs.inner_length,
                     duplex_pairs=springs.duplex_pairs,
+                    ippt=new_ippt,
+                    alternatives=springs.alternatives,
                 )
 
         # 7. Calculate shaft (spring count drives shaft count). A duplex
@@ -1034,24 +1269,40 @@ class DoorCalculatorService:
             weight.calculate_total()
             return weight
 
-        # Get model weight factors
+        # Get model weight factors. Unknown series do not inherit Kanata.
         model_weights = self.model_weights.get(door_model, self.model_weights["TX450"])
         width_ft = dimensions.width_ft
         series = door_model.upper()
 
         # 1. Panel weight
         panel_weight = 0.0
-        if panel_config.sections_21 > 0:
-            panel_weight += model_weights["21"] * width_ft * panel_config.sections_21
-        if panel_config.sections_24 > 0:
-            panel_weight += model_weights["24"] * width_ft * panel_config.sections_24
+        if series == "CRAFT":
+            # Upwardor Craft: three sections, 28" on a 7' door and 32" on an 8' door.
+            sec_h = 28 if dimensions.height <= 84 else 32
+            panel_weight = model_weights[str(sec_h)] * width_ft * 3
+            panel_config.total_sections = 3
+            panel_config.sections_21 = 0
+            panel_config.sections_24 = 0
+            panel_config.note = f"3 x {sec_h}\" Craft sections"
+        else:
+            if panel_config.sections_21 > 0 and "21" in model_weights:
+                panel_weight += model_weights["21"] * width_ft * panel_config.sections_21
+            if panel_config.sections_24 > 0 and "24" in model_weights:
+                panel_weight += model_weights["24"] * width_ft * panel_config.sections_24
 
         # 2. End cap weight (2 caps per section — left + right)
         n21 = panel_config.sections_21
         n24 = panel_config.sections_24
-        ec_lbs_21 = END_CAP_WEIGHT_LBS.get((series, 21), END_CAP_WEIGHT_LBS.get(("TX450", 21), 1.26))
-        ec_lbs_24 = END_CAP_WEIGHT_LBS.get((series, 24), END_CAP_WEIGHT_LBS.get(("TX450", 24), 1.45))
-        end_cap_weight = ec_lbs_21 * 2 * n21 + ec_lbs_24 * 2 * n24
+        if series == "CRAFT":
+            sec_h = 28 if dimensions.height <= 84 else 32
+            ec = END_CAP_WEIGHT_LBS.get(("CRAFT", sec_h), 1.40 if sec_h == 28 else 1.60)
+            end_cap_weight = ec * 2 * 3
+            # Three tall sections. Use the 24" seal piece, three left + three right.
+            n21, n24 = 0, 3
+        else:
+            ec_lbs_21 = END_CAP_WEIGHT_LBS.get((series, 21), END_CAP_WEIGHT_LBS.get(("TX450", 21), 1.26))
+            ec_lbs_24 = END_CAP_WEIGHT_LBS.get((series, 24), END_CAP_WEIGHT_LBS.get(("TX450", 24), 1.45))
+            end_cap_weight = ec_lbs_21 * 2 * n21 + ec_lbs_24 * 2 * n24
 
         # 3. Retainer weight
         retainer_per_ft = RETAINER_LBS_PER_FT.get(series, 0.175)
@@ -1287,6 +1538,7 @@ class DoorCalculatorService:
         spring_qty: int = 2,
         spring_inventory: Optional[Dict[str, List[str]]] = None,
         high_lift_inches: int = 0,
+        low_headroom: bool = False,
     ) -> Optional[SpringSelection]:
         """
         Calculate spring specifications using Canimex methodology.
@@ -1341,18 +1593,8 @@ class DoorCalculatorService:
             logger.warning(f"No high-lift drum covers {high_lift_inches}\" HL at {height_inches}\" — no springs")
             return None
 
-        if spring_inventory:
-            result = self._calculate_springs_from_inventory(
-                door_weight, height_inches, target_cycles,
-                track_radius, spring_inventory, width_inches,
-                drum_model=drum_model,
-                starting_qty=spring_qty,
-                high_lift_inches=high_lift_inches,
-            )
-            if result is not None:
-                return result
-            # If inventory search found nothing, fall through to unfiltered calculation
-            logger.warning("No stocked spring found, falling back to unfiltered calculation")
+        # Stock on hand is a tiebreak inside the ranker, not a filter. A
+        # lighter unstocked spring beats a heavier stocked one.
 
         # Unfiltered calculation (no inventory, or inventory had no match)
         # For each qty, let the calculator auto-select wire/coil via its built-in
@@ -1394,6 +1636,7 @@ class DoorCalculatorService:
                 target_cycles=target_cycles,
                 drum_model=drum_model,
                 high_lift_inches=high_lift_inches,
+                low_headroom=low_headroom,
             ):
                 if not _springs_fit_on_shaft(
                     width_inches, result.length, qty, result.coil_diameter, drum_model,
@@ -1405,6 +1648,15 @@ class DoorCalculatorService:
                         f"doesn't fit on {width_inches}\" wide door"
                     )
                     continue
+                key = (
+                    round(result.wire_diameter, 4),
+                    round(result.coil_diameter, 3),
+                    result.spring_quantity,
+                    round(result.length, 1),
+                )
+                if any(getattr(c, "_dedupe", None) == key for c in all_candidates):
+                    continue
+                result._dedupe = key
                 all_candidates.append(result)
 
         # Heavy doors that don't fit on a single regular spring layout often
@@ -1418,6 +1670,7 @@ class DoorCalculatorService:
                 drum_model=drum_model,
                 high_lift_inches=high_lift_inches,
                 width_inches=width_inches,
+                low_headroom=low_headroom,
             )
             if duplex is None:
                 continue
@@ -1433,53 +1686,17 @@ class DoorCalculatorService:
             )
             return None
 
-        MAX_PRACTICAL_LENGTH = 75.0
-
-        def sort_key(r):
-            # Legacy fallback ordering, used only when NOTHING is priced. It must
-            # reproduce the old cheap-coil outcome. The pre-enumeration code fed
-            # this key a single auto-escalated candidate per qty (the smallest
-            # coil meeting MIP), so smallest-coil won implicitly. Now the key sees
-            # the FULL coil enumeration, so coil_diameter must lead length — else
-            # length-minimization would pick the 6" coil (shortest spring, dearest
-            # assembly), the exact inversion this fallback exists to avoid.
-            is_reasonable = r.length <= MAX_PRACTICAL_LENGTH
-            return (
-                0 if is_reasonable else 1,
-                r.spring_quantity,
-                r.coil_diameter,     # smaller coil = cheaper (cost-free proxy)
-                r.length,
-            )
-
-        # Cost-aware pick: cheapest assembly that already met MIP at the target
-        # cycle life and fits the shaft. Every candidate here is mechanically
-        # valid, so price is the right tiebreak — the old key optimized length,
-        # which is inversely correlated with price (shorter spring = bigger coil
-        # = dearer per inch + dearer winder + a PVC tube at 6").
-        #
-        # Candidates whose parts have no trustworthy BC price (absent, blocked,
-        # or $0) score None and are excluded rather than treated as free. If that
-        # leaves nothing priced, fall back to the legacy ordering so a door that
-        # only has unpriced options still gets a spring plus the "EDIT IN BC"
-        # warning the parts service raises.
-        priced = [(cost, c) for c in all_candidates if (cost := self._cost_of(c)) is not None]
-        if priced:
-            best = min(
-                priced,
-                key=lambda pair: (
-                    0 if pair[1].length <= MAX_PRACTICAL_LENGTH else 1,
-                    pair[0],                      # assembly cost — the objective
-                    pair[1].spring_quantity,      # tiebreak: fewer springs = less labour
-                    pair[1].length,               # tiebreak: shorter = easier handling
-                ),
-            )[1]
-        else:
-            if spring_pricing.has_price_book():
-                logger.warning(
-                    f"No spring candidate for {door_weight:.0f} lbs @ {target_cycles} cycles "
-                    f"has a usable BC price — falling back to legacy length ordering"
-                )
-            best = min(all_candidates, key=sort_key)
+        ranked = sorted(
+            all_candidates,
+            key=lambda c: spring_rank_key(
+                c, target_cycles, stocked=self._candidate_is_stocked(c, spring_inventory),
+            ),
+        )
+        best = ranked[0]
+        options = [
+            spring_option_payload(c, stocked=self._candidate_is_stocked(c, spring_inventory))
+            for c in ranked[:3]
+        ]
         # Duplex candidate already has all the inner-spring info populated;
         # return it directly so the caller sees is_duplex=True and the inner
         # specs flow through to the parts service.
@@ -1489,20 +1706,25 @@ class DoorCalculatorService:
                 f"(outer {best.coil_diameter}\"/{best.wire_diameter}\", "
                 f"inner {best.selection.inner_coil_diameter}\"/{best.selection.inner_wire_diameter}\")"
             )
+            best.selection.alternatives = options
             return best.selection
         logger.info(
             f"Selected spring: {best.spring_quantity}x "
             f"{best.coil_diameter}\" coil / {best.wire_diameter}\" wire "
-            f"({best.length}\" long)"
+            f"({best.length}\" long, {options[0].get('wire_lb')} lb steel, "
+            f"{options[0].get('cycles')} cycles)"
         )
+        achieved = getattr(best, "achieved_cycles", 0) or best.cycle_life
         return SpringSelection(
             quantity=best.spring_quantity,
             coil_diameter=best.coil_diameter,
             wire_diameter=best.wire_diameter,
             length=best.length,
-            cycles=best.cycle_life,
+            cycles=achieved,
             turns=best.turns,
-            galvanized=False
+            galvanized=False,
+            ippt=getattr(best, "ippt", None),
+            alternatives=options,
         )
 
     def _calculate_springs_from_inventory(
@@ -1640,52 +1862,12 @@ class DoorCalculatorService:
         if not all_candidates:
             return None
 
-        # Determine if this is a narrow door (duplex preferred for narrow/tall)
-        is_narrow_tall = width_inches <= 168 and height_inches >= 192  # <=14' wide, >=16' tall
-
-        # Pick best candidate
-        # Max practical spring length is 75" for handling/shipping
-        MAX_PRACTICAL_LENGTH = 75.0
-
-        # Single springs over 36" are impractical — penalize in sorting
-        MAX_SINGLE_SPRING_LENGTH = 36.0
-
-        def candidate_sort_key(c):
-            is_reasonable = c.length <= MAX_PRACTICAL_LENGTH
-
-            # Fewer springs is always better — simpler install, fewer failure points
-            # Then prefer reasonable length, then smaller coil (cheaper), then shorter
-            outer_material = (c.wire_diameter ** 2) * c.length * c.quantity
-            inner_material = 0
-            if c.is_duplex and c.inner_wire_diameter and c.inner_length:
-                inner_material = (c.inner_wire_diameter ** 2) * c.inner_length * c.quantity
-            total_material = outer_material + inner_material
-
-            return (
-                0 if is_reasonable else 1,  # reasonable length first
-                c.quantity,                  # fewer springs always preferred
-                c.coil_diameter,             # smaller coil (cheaper)
-                c.length,                    # shorter spring
-                total_material,              # less material as tiebreaker
-            )
-
-        # Cost-aware final pick, consistent with the unfiltered path: cheapest
-        # priced assembly among options that fit and hit the cycle target. Only
-        # length reasonableness leads (a 90" spring nobody can ship shouldn't win
-        # on price). Falls back to the legacy heuristic when nothing is priced.
-        priced = [(cost, c) for c in all_candidates if (cost := self._cost_of(c)) is not None]
-        if priced:
-            best = min(
-                priced,
-                key=lambda pair: (
-                    0 if pair[1].length <= MAX_PRACTICAL_LENGTH else 1,
-                    pair[0],              # assembly cost
-                    pair[1].quantity,     # fewer springs = less labour
-                    pair[1].length,       # shorter = easier handling
-                ),
-            )[1]
-        else:
-            best = min(all_candidates, key=candidate_sort_key)
+        # Same Nov 16 rules as the open search. Every candidate here is stocked.
+        best = min(all_candidates, key=lambda c: spring_rank_key(c, target_cycles, stocked=True))
+        best.alternatives = [
+            spring_option_payload(c, stocked=True)
+            for c in sorted(all_candidates, key=lambda c: spring_rank_key(c, target_cycles, stocked=True))[:3]
+        ]
 
         logger.info(
             f"Selected {'duplex ' if best.is_duplex else ''}"
@@ -1708,6 +1890,7 @@ class DoorCalculatorService:
         drum_model: Optional[str] = None,
         high_lift_inches: int = 0,
         width_inches: int = 240,
+        low_headroom: bool = False,
     ) -> Optional[SpringSelection]:
         """
         Calculate duplex spring configuration.
@@ -1760,13 +1943,22 @@ class DoorCalculatorService:
         inner_wires = [w for w in inner_wires if _spring_sellable(normalize_wire_diameter(float(w)), 3.75)]
 
         # Calculate what each spring needs to handle
-        drum_data = spring_calculator.get_drum_data(height_inches, track_radius, drum_model, high_lift_inches=high_lift_inches)
+        drum_data = spring_calculator.get_drum_data(
+            height_inches, track_radius, drum_model,
+            high_lift_inches=high_lift_inches, low_headroom=low_headroom,
+        )
         if drum_data is None:
             return None
 
         drum_model, multiplier, turns = drum_data
         ippt = spring_calculator.calculate_ippt(multiplier, door_weight)
-        mip_per_spring = spring_calculator.calculate_mip(ippt, turns, total_qty)
+        # Each duplex position is one outer + one inner. The outer carries
+        # 2/3 of that position's MIP and the inner 1/2 (Canimex duplex note —
+        # the extra margin is deliberate). Equal-splitting MIP / (2 × pairs)
+        # let an outer through that was over its share.
+        position_mip = spring_calculator.calculate_mip(ippt, turns, duplex_pairs)
+        outer_mip_limit = (2.0 / 3.0) * position_mip
+        inner_mip_limit = 0.5 * position_mip
 
         # Find viable outer springs (6" coil)
         outer_candidates = []
@@ -1776,7 +1968,7 @@ class DoorCalculatorService:
             except (ValueError, TypeError):
                 continue
             mip_cap = spring_calculator.get_mip_capacity(wire_diam, target_cycles)
-            if mip_cap and mip_cap >= mip_per_spring:
+            if mip_cap and mip_cap >= outer_mip_limit:
                 result = spring_calculator.calculate_spring(
                     door_weight=door_weight,
                     door_height=height_inches,
@@ -1787,9 +1979,12 @@ class DoorCalculatorService:
                     target_cycles=target_cycles,
                     drum_model=drum_model,
                     high_lift_inches=high_lift_inches,
+                    low_headroom=low_headroom,
                 )
                 if result:
-                    outer_candidates.append(result)
+                    sold_cap = spring_calculator.get_mip_capacity(result.wire_diameter, target_cycles)
+                    if sold_cap and sold_cap >= outer_mip_limit:
+                        outer_candidates.append(result)
 
         # Find viable inner springs (3.75" coil)
         inner_candidates = []
@@ -1799,7 +1994,7 @@ class DoorCalculatorService:
             except (ValueError, TypeError):
                 continue
             mip_cap = spring_calculator.get_mip_capacity(wire_diam, target_cycles)
-            if mip_cap and mip_cap >= mip_per_spring:
+            if mip_cap and mip_cap >= inner_mip_limit:
                 result = spring_calculator.calculate_spring(
                     door_weight=door_weight,
                     door_height=height_inches,
@@ -1810,9 +2005,12 @@ class DoorCalculatorService:
                     target_cycles=target_cycles,
                     drum_model=drum_model,
                     high_lift_inches=high_lift_inches,
+                    low_headroom=low_headroom,
                 )
                 if result:
-                    inner_candidates.append(result)
+                    sold_cap = spring_calculator.get_mip_capacity(result.wire_diameter, target_cycles)
+                    if sold_cap and sold_cap >= inner_mip_limit:
+                        inner_candidates.append(result)
 
         if not outer_candidates or not inner_candidates:
             return None
@@ -1878,7 +2076,35 @@ class DoorCalculatorService:
                 )
                 return None
 
-        best_outer, best_inner = min(feasible_pairs, key=lambda p: p[0].length)
+        # Outer must fatigue first so a break is visible on the outside spring.
+        visible = []
+        for outer, inner in feasible_pairs:
+            outer_life = spring_calculator.achieved_cycle_life(outer.wire_diameter, outer_mip_limit)
+            inner_life = spring_calculator.achieved_cycle_life(inner.wire_diameter, inner_mip_limit)
+            if outer_life and inner_life and outer_life <= inner_life:
+                visible.append((outer, inner))
+        if visible:
+            feasible_pairs = visible
+
+        def _pair_key(pair):
+            outer, inner = pair
+            probe = SpringSelection(
+                quantity=total_qty,
+                coil_diameter=outer.coil_diameter,
+                wire_diameter=outer.wire_diameter,
+                length=outer.length,
+                cycles=target_cycles,
+                turns=turns,
+                is_duplex=True,
+                inner_coil_diameter=inner.coil_diameter,
+                inner_wire_diameter=inner.wire_diameter,
+                inner_length=inner.length,
+                duplex_pairs=duplex_pairs,
+                ippt=ippt,
+            )
+            return spring_rank_key(probe, target_cycles)
+
+        best_outer, best_inner = min(feasible_pairs, key=_pair_key)
 
         logger.info(
             f"Duplex option: {duplex_pairs} pairs ({total_qty} total springs) - "
@@ -1900,6 +2126,7 @@ class DoorCalculatorService:
             inner_length=best_inner.length,
             duplex_pairs=duplex_pairs,
             is_tandem=is_tandem,
+            ippt=ippt,
         )
 
     def _calculate_shaft(
@@ -1928,9 +2155,14 @@ class DoorCalculatorService:
         if door_weight > 2000:
             diameter = "1-1/4"
             shaft_material = "1-1/4"
-        elif is_residential and door_weight <= 750:
+        elif is_residential and door_weight <= 750 and spring_count < 4:
+            # A hollow tube shaft is for a single pair. Four or more springs
+            # (a heavy multi-spring set) go on solid keyed shaft.
             diameter = "1"
             shaft_material = "tube"
+        elif is_residential and spring_count >= 4:
+            diameter = "1"
+            shaft_material = "solid"
         else:
             diameter = "1"
             shaft_material = "solid"
@@ -2147,11 +2379,15 @@ class DoorCalculatorService:
                 "length": calc.springs.length if calc.springs else None,
                 "cycles": calc.springs.cycles if calc.springs else None,
                 "turns": calc.springs.turns if calc.springs else None,
+                "ippt": calc.springs.ippt if calc.springs else None,
                 "is_duplex": calc.springs.is_duplex if calc.springs else False,
                 "inner_coil_diameter": calc.springs.inner_coil_diameter if calc.springs else None,
                 "inner_wire_diameter": calc.springs.inner_wire_diameter if calc.springs else None,
                 "inner_length": calc.springs.inner_length if calc.springs else None,
                 "duplex_pairs": calc.springs.duplex_pairs if calc.springs else 0,
+                "wire_lb": (calc.springs.alternatives[0].get("wire_lb") if calc.springs and calc.springs.alternatives else None),
+                # Top 3 assemblies: IPPT, turns, cycles, wire lb.
+                "options": (calc.springs.alternatives or [])[:3] if calc.springs else [],
             } if calc.springs else None,
             "drum": {
                 "model": calc.drums.model if calc.drums else None,

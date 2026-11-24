@@ -610,7 +610,8 @@ END_CAP_WEIGHT_LBS = {
     ("TX760", 21): 1.518, ("TX760", 24): 1.7365,  # 3" — TX500 +15% (interim est.)
     # Residential — lighter construction
     ("KANATA", 21): 1.05,  ("KANATA", 24): 1.20,
-    ("CRAFT", 21): 1.05,   ("CRAFT", 24): 1.20,
+    # Craft end stiles are 20-gauge on a 28" or 32" section, not a Kanata 21"/24".
+    ("CRAFT", 28): 1.40,   ("CRAFT", 32): 1.60,
 }
 
 # Retainer weight (lbs per linear foot) by model
@@ -1547,26 +1548,47 @@ class PartNumberService:
         if config.door_type == "aluminium":
             return self._calculate_aluminum_door_weight(config)
 
-        model_weights = DOOR_MODEL_WEIGHTS.get(config.door_series, DOOR_MODEL_WEIGHTS["KANATA"])
+        # Missing charts do not inherit Kanata. Callers with a weighed door
+        # pass door_weight and never reach this function.
+        if config.door_series not in DOOR_MODEL_WEIGHTS:
+            logger.warning(
+                f"No weight chart for {config.door_series}; not copying Kanata. "
+                f"Pass door_weight for a measured door."
+            )
+        model_weights = DOOR_MODEL_WEIGHTS.get(config.door_series, DOOR_MODEL_WEIGHTS.get("TX450", {}))
 
-        # Section breakdown (21"/24" mix)
-        breakdown = self._get_section_breakdown(door_height_in)
+        # Section breakdown (21"/24" mix). Craft is 3×28" or 3×32".
+        if series == "CRAFT":
+            sec_h = 28 if door_height_in <= 84 else 32
+            breakdown = {"21": 0, "24": 0, "total": 3, "craft": sec_h}
+        else:
+            breakdown = self._get_section_breakdown(door_height_in)
         n21 = breakdown["21"]
         n24 = breakdown["24"]
         num_sections = breakdown["total"]
 
         # 1. Panel weight
         panel_weight = 0.0
-        for h in ["21", "24"]:
-            count = breakdown[h]
-            if count > 0:
-                weight_per_ft = model_weights.get(h, model_weights.get("21", 4.0))
-                panel_weight += weight_per_ft * door_width_ft * count
+        if series == "CRAFT":
+            sec_h = breakdown["craft"]
+            weight_per_ft = model_weights.get(str(sec_h), model_weights.get("28", 5.6143))
+            panel_weight = weight_per_ft * door_width_ft * 3
+        else:
+            for h in ["21", "24"]:
+                count = breakdown[h]
+                if count > 0:
+                    weight_per_ft = model_weights.get(h, model_weights.get("21", 4.0))
+                    panel_weight += weight_per_ft * door_width_ft * count
 
         # 2. End cap weight (2 caps per section — left + right)
-        ec_lbs_21 = END_CAP_WEIGHT_LBS.get((series, 21), END_CAP_WEIGHT_LBS.get(("TX450", 21), 1.26))
-        ec_lbs_24 = END_CAP_WEIGHT_LBS.get((series, 24), END_CAP_WEIGHT_LBS.get(("TX450", 24), 1.45))
-        end_cap_weight = ec_lbs_21 * 2 * n21 + ec_lbs_24 * 2 * n24
+        if series == "CRAFT":
+            sec_h = breakdown["craft"]
+            ec = END_CAP_WEIGHT_LBS.get(("CRAFT", sec_h), 1.40)
+            end_cap_weight = ec * 2 * 3
+        else:
+            ec_lbs_21 = END_CAP_WEIGHT_LBS.get((series, 21), END_CAP_WEIGHT_LBS.get(("TX450", 21), 1.26))
+            ec_lbs_24 = END_CAP_WEIGHT_LBS.get((series, 24), END_CAP_WEIGHT_LBS.get(("TX450", 24), 1.45))
+            end_cap_weight = ec_lbs_21 * 2 * n21 + ec_lbs_24 * 2 * n24
 
         # 3. Retainer weight (bottom always; top only for doors >= 18' wide)
         retainer_per_ft = RETAINER_LBS_PER_FT.get(series, 0.175)
@@ -1581,7 +1603,10 @@ class PartNumberService:
             astragal_weight += door_width_ft * TOP_ASTRAGAL_LBS_PER_FT
 
         # 5. End cap seals
-        seal_weight = (n21 * 2 * SEAL_WEIGHT_21) + (n24 * 2 * SEAL_WEIGHT_24)
+        if series == "CRAFT":
+            seal_weight = 3 * 2 * SEAL_WEIGHT_24
+        else:
+            seal_weight = (n21 * 2 * SEAL_WEIGHT_21) + (n24 * 2 * SEAL_WEIGHT_24)
 
         # 6. Strut weight (from Thermalex strutting chart). All strut types
         # (20ga, 16ga, Z) hang from the springs as part of the physical
@@ -2171,6 +2196,7 @@ class PartNumberService:
             'vertical': 'vertical',
         }
         dc_lift_type = lift_type_map.get(config.lift_type, 'standard')
+        low_headroom = config.lift_type == 'low_headroom'
 
         # 3" track forces D525-216 minimum (no D400 drums) and is sized at 15".
         track_size = int(config.track_thickness) if config.track_thickness else int(
@@ -2231,6 +2257,7 @@ class PartNumberService:
             track_radius=track_radius,
             spring_inventory=config.spring_inventory,
             high_lift_inches=high_lift_inches,
+            low_headroom=low_headroom,
         )
 
         if spring_result is None:
@@ -2308,6 +2335,7 @@ class PartNumberService:
                 spring_qty=1,
                 spring_inventory=config.spring_inventory,
                 high_lift_inches=high_lift_inches,
+                low_headroom=low_headroom,
             )
             if single_result and single_result.wire_diameter >= 0.218:
                 wire_size = single_result.wire_diameter
@@ -2399,6 +2427,7 @@ class PartNumberService:
                         target_cycles=config.target_cycles,
                         drum_model=drums.model if drums else None,
                         high_lift_inches=high_lift_inches,
+                        low_headroom=low_headroom,
                     )
                     if resized:
                         spring_length = math.ceil(resized.length)
@@ -2719,14 +2748,17 @@ class PartNumberService:
                     ),
                 ]
 
-            # 8'-18' residential — 1" tube shaft (SH12) per rulebook
-            shaft = mapper.get_shaft(door_width_feet=door_width_feet, shaft_type="tube")
-            return [PartSelection(
-                part_number=shaft.part_number,
-                description=shaft.description,
-                quantity=1,
-                category="shaft"
-            )]
+            # 8'-18' residential — 1" tube shaft (SH12) per rulebook.
+            # Four or more springs are a heavy multi-spring set and do not
+            # go on a hollow tube; those fall through to solid keyed shaft.
+            if spring_count < 4:
+                shaft = mapper.get_shaft(door_width_feet=door_width_feet, shaft_type="tube")
+                return [PartSelection(
+                    part_number=shaft.part_number,
+                    description=shaft.description,
+                    quantity=1,
+                    category="shaft"
+                )]
 
         # Heavy residential OR any commercial — 1" solid keyed shaft (SH11)
         # Calculate shaft count N
@@ -4929,7 +4961,8 @@ def get_parts_for_door_config(config_dict: Dict[str, Any], spring_inventory: Opt
         operator=config_dict.get("operator"),
         operator_accessories=config_dict.get("operatorAccessories", []),
         chain_hoist=config_dict.get("chainHoist"),
-        target_cycles=config_dict.get("targetCycles", config_dict.get("target_cycles", 10000)),
+        target_cycles=config_dict.get("targetCycles", config_dict.get("cycleLife", config_dict.get("target_cycles", 10000))),
+        door_weight=config_dict.get("doorWeight", config_dict.get("door_weight")),
         shaft_preference=config_dict.get("shaftType", "auto"),
         window_size=config_dict.get("windowSize", "long"),
         glass_pockets_per_section=config_dict.get("glassPocketsPerSection") or _default_glass_pockets(config_dict.get("doorWidth", 96)),

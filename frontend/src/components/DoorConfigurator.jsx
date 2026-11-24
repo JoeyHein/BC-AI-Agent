@@ -3846,7 +3846,34 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
                                   <span className="text-gray-500">Turns:</span>
                                   <span className="font-medium">{item.calculation.springs.turns}</span>
                                 </div>
+                                {item.calculation.springs.ippt != null && (
+                                  <div className="flex justify-between">
+                                    <span className="text-gray-500">IPPT:</span>
+                                    <span className="font-medium">{item.calculation.springs.ippt}</span>
+                                  </div>
+                                )}
+                                {item.calculation.springs.wire_lb != null && (
+                                  <div className="flex justify-between">
+                                    <span className="text-gray-500">Wire:</span>
+                                    <span className="font-medium">{item.calculation.springs.wire_lb} lb</span>
+                                  </div>
+                                )}
                               </div>
+                              {item.calculation.springs.options?.length > 0 && (
+                                <div className="mt-2 pt-2 border-t border-gray-100 space-y-1">
+                                  <span className="text-xs font-medium text-gray-600">Top options</span>
+                                  {item.calculation.springs.options.slice(0, 3).map((opt, idx) => (
+                                    <div key={idx} className="text-xs text-gray-600 flex justify-between gap-2">
+                                      <span>
+                                        {idx + 1}. {opt.quantity}× .{Math.round((opt.wire_diameter || 0) * 1000)} × {opt.coil_diameter}"
+                                      </span>
+                                      <span className="font-mono text-right">
+                                        IPPT {opt.ippt ?? '—'} · {opt.turns} turns · {(opt.cycles || 0).toLocaleString()} · {opt.wire_lb} lb
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           )}
 

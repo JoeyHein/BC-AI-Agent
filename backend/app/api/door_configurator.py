@@ -848,6 +848,9 @@ class DoorCalculationRequest(BaseModel):
     doubleEndCaps: bool = False
     heavyDutyHinges: bool = False
     targetCycles: int = 10000  # 10000, 15000, 25000, 50000, 100000
+    # Measured door weight (lb). Required for a brand with no weight chart;
+    # when set, spring sizing uses this instead of the chart.
+    doorWeight: Optional[float] = None
     highLiftInches: Optional[int] = None  # extra inches above door for high_lift
     doorType: str = "commercial"  # 'residential' or 'commercial'
     glazingType: Optional[str] = None  # 'glass' or 'polycarbonate' (aluminum doors)
@@ -3079,6 +3082,7 @@ async def calculate_door_specifications(request: DoorCalculationRequest, db: Ses
             heavy_duty_hinges=request.heavyDutyHinges,
             target_cycles=request.targetCycles,
             spring_inventory=spring_inventory,
+            door_weight=request.doorWeight,
             high_lift_inches=request.highLiftInches,
             door_type=request.doorType,
             glazing_type=request.glazingType or 'glass',
