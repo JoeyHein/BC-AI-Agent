@@ -178,34 +178,64 @@ class TestWireSnapRecompute:
 
 
 class TestRankingRules:
-    def test_tx450_18x18_prefers_four_331_over_long_437(self):
-        weight, drum = _tx450_18x18()
-        four = spring_calculator.calculate_spring(
-            weight, 216, 15, 4, wire_diameter=0.331, coil_diameter=6.0,
-            target_cycles=10000, drum_model=drum.model,
-        )
-        heavy = spring_calculator.calculate_spring(
-            weight, 216, 15, 2, wire_diameter=0.4375, coil_diameter=6.0,
-            target_cycles=10000, drum_model=drum.model,
-        )
-        assert four is not None and heavy is not None
-        # The old .437 answer is a ~74-80" pair. Four .331 springs rank ahead of it.
-        assert heavy.length > 70
-        assert spring_rank_key(four, 10000) < spring_rank_key(heavy, 10000)
+    def test_100_lb_door_stays_at_15k_because_smaller_wire_cannot_carry_it(self):
+        """One spring is 226 in-lb. .192/.207 10k capacity is 172/212, so they
+        cannot make 10k. Two of them are rated 50k, farther from 10k than the
+        .2187 spring at 15k. That 15k spring is the honest pick.
+        """
+        drum = door_calculator._select_drum(84, 100, STD, track_size=2)
+        sel = door_calculator._calculate_springs(100, 84, 96, drum, 10000, 15, 2)
+        assert sel is not None
+        assert sel.wire_diameter == pytest.approx(0.2187, abs=1e-3)
+        assert sel.cycles == 15000
+        assert sel.quantity == 1
 
-        sel = door_calculator._calculate_springs(weight, 216, 218, drum, 10000, 15, 2)
+    def test_missing_light_wire_items_are_named(self):
+        from app.services.bc_part_number_mapper import get_bc_mapper
+        mapper = get_bc_mapper()
+        missing = []
+        for wire, coil in ((0.192, 2.0), (0.192, 1.75), (0.207, 2.0), (0.207, 1.75)):
+            pn = mapper.get_spring_part_number(wire, coil, "LH").part_number
+            if pn not in mapper.spring_items:
+                missing.append(pn)
+        assert missing == [
+            "SP11-19220-01", "SP11-19217-01", "SP11-20720-01", "SP11-20717-01",
+        ]
+
+    def test_150_lb_door_is_10k_not_the_old_218_at_50k(self):
+        """Before: 2 x .2187 x 2" x 32" rated 50,000. After: 2 x .192 at 10,000."""
+        drum = door_calculator._select_drum(84, 150, STD, track_size=2)
+        sel = door_calculator._calculate_springs(
+            150, 84, 96, drum, 10000, 15, 2, is_residential=True,
+        )
+        assert sel is not None
+        assert sel.quantity == 2
+        assert sel.wire_diameter == pytest.approx(0.192, abs=1e-3)
+        assert sel.cycles == 10000
+        assert sel.length < 25
+        assert not sel.is_duplex
+
+    def test_kanata_16x7_top_options_are_not_the_282_lb_duplex(self):
+        """Option 3 used to be 4 x .3125 x 6" outers, 66", ~282 lb, labeled 10k."""
+        svc = PartNumberService()
+        cfg = DoorConfiguration(
+            door_type="residential", door_series="KANATA",
+            door_width=192, door_height=84, door_count=1,
+            panel_color="WHITE", panel_design="SHXL",
+            track_thickness="2", track_radius="15",
+        )
+        weight = svc._calculate_door_weight(cfg)
+        drum = door_calculator._select_drum(84, weight, STD, track_size=2)
+        sel = door_calculator._calculate_springs(
+            weight, 84, 192, drum, 10000, 15, 2, is_residential=True,
+        )
         assert sel is not None
         assert not sel.is_duplex
-        assert sel.wire_diameter <= 0.331 + 1e-4
-        assert sel.quantity >= 4
-        assert sel.coil_diameter == 6.0
-        assert sel.length < 50
-        assert len(sel.alternatives) == 3
         for opt in sel.alternatives:
-            assert opt["ippt"]
-            assert opt["turns"]
+            assert not opt["is_duplex"]
+            assert opt["wire_lb"] < 80
             assert opt["cycles"] >= 10000
-            assert opt["wire_lb"] > 0
+            assert opt["ippt"] and opt["turns"]
 
     def test_393_loses_to_any_other_wire_that_meets_the_target(self):
         weight, drum = _tx450_18x18()
@@ -324,28 +354,47 @@ class TestCycleLifeOnExistingSprings:
 
 
 class TestCraftWeight:
-    def test_craft_chart_is_not_the_kanata_chart(self):
-        assert DOOR_MODEL_WEIGHTS["CRAFT"] != DOOR_MODEL_WEIGHTS["KANATA"]
+    def test_craft_rates_match_the_upwardor_chart(self):
+        assert DOOR_MODEL_WEIGHTS["CRAFT"]["28"] == pytest.approx(5.1375, abs=1e-4)
+        assert DOOR_MODEL_WEIGHTS["CRAFT"]["32"] == pytest.approx(6.1875, abs=1e-4)
         assert "21" not in DOOR_MODEL_WEIGHTS["CRAFT"]
-        assert DOOR_MODEL_WEIGHTS["CRAFT"]["28"] == pytest.approx(5.6143, abs=1e-3)
-        assert DOOR_MODEL_WEIGHTS["CRAFT"]["32"] == pytest.approx(6.4120, abs=1e-3)
 
-    def test_same_opening_does_not_weigh_the_same(self):
+    def test_every_chart_row_is_within_two_percent(self):
+        import csv
+        from pathlib import Path
+
+        path = Path(__file__).resolve().parents[1] / "data" / "upwardor_kanata_craft_weight_by_size.csv"
         svc = PartNumberService()
-        common = dict(
-            door_type="residential", door_width=96, door_height=84,
-            door_count=1, panel_color="WHITE", panel_design="FLUSH",
-        )
-        kanata = svc._calculate_door_weight(DoorConfiguration(door_series="KANATA", panel_design="SHXL", **{
-            k: v for k, v in common.items() if k != "panel_design"
-        }))
-        craft = svc._calculate_door_weight(DoorConfiguration(door_series="CRAFT", **common))
-        assert craft != pytest.approx(kanata, abs=0.5)
-        # 7' Craft panels are 3 × 28" at the Craft rate, heavier per section
-        # than a Kanata 21" section and not the same total.
-        craft_panels = 3 * DOOR_MODEL_WEIGHTS["CRAFT"]["28"] * (96 / 12)
-        kanata_panels = 4 * DOOR_MODEL_WEIGHTS["KANATA"]["21"] * (96 / 12)
-        assert craft_panels != pytest.approx(kanata_panels, abs=0.5)
+        with path.open() as handle:
+            rows = list(csv.DictReader(handle))
+        assert len(rows) >= 32
+        anchors = {
+            ("CRAFT", "8", "7"): 147.5,
+            ("CRAFT", "9", "8"): 183.9,
+            ("CRAFT", "16", "8"): 323.2,
+            ("CRAFT", "18", "7"): 314.5,
+        }
+        for row in rows:
+            series = row["series"]
+            width_ft = int(row["width_ft"])
+            height_ft = int(row["height_ft"])
+            chart = float(row["total_lb"])
+            rate = float(row["section_lb_per_ft"])
+            if series == "CRAFT":
+                assert rate == pytest.approx(5.1375 if height_ft == 7 else 6.1875, abs=1e-4)
+            cfg = DoorConfiguration(
+                door_type="residential", door_series=series,
+                door_width=width_ft * 12, door_height=height_ft * 12,
+                door_count=1, panel_color="WHITE",
+                panel_design="SHXL" if series == "KANATA" else "FLUSH",
+            )
+            got = svc._calculate_door_weight(cfg)
+            assert got == pytest.approx(chart, rel=0.02), (
+                f"{series} {width_ft}x{height_ft}: {got:.1f} lb vs chart {chart}"
+            )
+            key = (series, row["width_ft"], row["height_ft"])
+            if key in anchors:
+                assert chart == anchors[key]
 
     def test_measured_weight_is_accepted_for_a_brand_with_no_chart(self):
         calc = door_calculator.calculate_door(

@@ -610,8 +610,10 @@ END_CAP_WEIGHT_LBS = {
     ("TX760", 21): 1.518, ("TX760", 24): 1.7365,  # 3" — TX500 +15% (interim est.)
     # Residential — lighter construction
     ("KANATA", 21): 1.05,  ("KANATA", 24): 1.20,
-    # Craft end stiles are 20-gauge on a 28" or 32" section, not a Kanata 21"/24".
-    ("CRAFT", 28): 1.40,   ("CRAFT", 32): 1.60,
+    # 28" stiles are separate from the 5.1375 lb/ft skin. The 6.1875 lb/ft
+    # 32" chart rate already carries the stile weight: adding 1.60 lb caps
+    # put every 8' Craft door about 9 lb over the published total.
+    ("CRAFT", 28): 1.40,   ("CRAFT", 32): 0.0,
 }
 
 # Retainer weight (lbs per linear foot) by model
@@ -718,6 +720,19 @@ STRUT_CHART = [
 _HK_WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "hardware_kit_weights.json")
 with open(_HK_WEIGHTS_PATH, "r") as _f:
     HK_WEIGHTS = json.load(_f)
+
+
+def _light_wire_kept(wire: float, coil: float) -> bool:
+    """True for the light-door wires BC does not stock.
+
+    .192 and .207 on 1.75" or 2" are a real cycle-life choice. Stepping them
+    up to the .218 SKU changes the rating (a 150 lb door goes from 10k to
+    50k), so the quote keeps the engineering size and names the missing item.
+    """
+    return (
+        any(abs(wire - candidate) < 0.001 for candidate in (0.192, 0.207))
+        and any(abs(coil - candidate) < 0.01 for candidate in (1.75, 2.0))
+    )
 
 
 def _get_hk_weight(door_width_in: int, door_height_in: int, commercial: bool) -> float:
@@ -1608,12 +1623,14 @@ class PartNumberService:
         else:
             seal_weight = (n21 * 2 * SEAL_WEIGHT_21) + (n24 * 2 * SEAL_WEIGHT_24)
 
-        # 6. Strut weight (from Thermalex strutting chart). All strut types
-        # (20ga, 16ga, Z) hang from the springs as part of the physical
-        # door, so all are included in the spring balance weight. The
-        # earlier Thermalex-derived exclusion of Z struts undersized
-        # springs on the very heavy 28'+ doors that need them.
-        strut_info = self._get_strut_requirements(config.door_width, config.door_height)
+        # 6. Strut weight. Residential Kanata/Craft follow the Upwardor
+        # chart (see residential_balance_struts), not the commercial
+        # strutting table. Commercial doors keep that table, including
+        # Z struts on the very heavy wide doors.
+        if series in ("KANATA", "CRAFT"):
+            strut_info = self.residential_balance_struts(series, config.door_width)
+        else:
+            strut_info = self._get_strut_requirements(config.door_width, config.door_height)
         strut_weight = 0.0
         if strut_info["count"] > 0:
             strut_weight = strut_info["count"] * door_width_ft * strut_info["weight_per_ft"]
@@ -1982,6 +1999,25 @@ class PartNumberService:
 
         return {"count": count, "type": strut_type, "weight_per_ft": weight_per_ft}
 
+    @staticmethod
+    def residential_balance_struts(series: str, door_width_in: int) -> dict:
+        """Strut contribution to residential spring-balance weight.
+
+        The commercial strutting chart puts three struts on an 18' door.
+        Upwardor's residential totals do not: Kanata 18x7 was about 29 lb
+        over the chart, which is two extra 20-gauge struts (3 minus the one
+        the chart allows once a door is that wide). Narrower Kanata doors
+        match the chart with none. Craft's published totals include no strut.
+        """
+        series = (series or "").upper()
+        if series == "CRAFT":
+            count = 0
+        elif series == "KANATA" and door_width_in >= TOP_ASTRAGAL_MIN_WIDTH_IN:
+            count = 1
+        else:
+            count = 0
+        return {"count": count, "type": "20ga", "weight_per_ft": STRUT_WEIGHT_PER_FT["20ga"]}
+
     # Available track heights in BC by track size and mount type
     TRACK_AVAILABILITY = {
         (3, "BM"): [8, 10, 12, 14, 16],
@@ -2258,6 +2294,7 @@ class PartNumberService:
             spring_inventory=config.spring_inventory,
             high_lift_inches=high_lift_inches,
             low_headroom=low_headroom,
+            is_residential=config.door_type == "residential",
         )
 
         if spring_result is None:
@@ -2322,9 +2359,14 @@ class PartNumberService:
                     notes="spring_validation_warning",
                 ))
 
-        # Residential doors: if wire < .218 with 2+ springs, retry with 1 spring
-        # BC minimum wire is .218 — anything smaller has no BC part number
-        if wire_size < 0.218 and config.door_type == "residential" and spring_qty >= 2:
+        # Residential doors: if wire < .218 with 2+ springs, retry with 1 spring.
+        # .192 and .207 are kept: they are the light-door rating, not a miss.
+        if (
+            wire_size < 0.218
+            and not _light_wire_kept(wire_size, coil_id)
+            and config.door_type == "residential"
+            and spring_qty >= 2
+        ):
             single_result = door_calculator._calculate_springs(
                 door_weight=door_weight,
                 height_inches=config.door_height,
@@ -2336,6 +2378,7 @@ class PartNumberService:
                 spring_inventory=config.spring_inventory,
                 high_lift_inches=high_lift_inches,
                 low_headroom=low_headroom,
+                is_residential=True,
             )
             if single_result and single_result.wire_diameter >= 0.218:
                 wire_size = single_result.wire_diameter
@@ -2405,7 +2448,22 @@ class PartNumberService:
         # Validate spring exists in BC — uses shared resolver that tries:
         # same wire/coil → step up wire → next coil up → step up wire at next coil
         spring_found_in_bc = spring_lh.part_number in mapper.spring_items
-        if not spring_found_in_bc:
+        if _light_wire_kept(wire_size, coil_id) and not spring_found_in_bc:
+            # Do not step up to .218. Report the missing BC items.
+            missing = [spring_lh.part_number, spring_rh.part_number]
+            parts.append(PartSelection(
+                part_number="",
+                description=(
+                    f"** SPRING — MISSING BC ITEM: {wire_size}\" x {coil_id}\" "
+                    f"({', '.join(missing)}) is not in the item master. "
+                    f"Closest stocked wire is .218. Do not substitute it: "
+                    f"that spring is rated for more cycles and a different length. **"
+                ),
+                quantity=0,
+                category="spring_warning",
+                notes="spring_missing_bc_item",
+            ))
+        elif not spring_found_in_bc:
             found, resolved_wire, resolved_coil = mapper.resolve_spring_in_bc(wire_size, coil_id)
             if found:
                 if resolved_wire != wire_size or resolved_coil != coil_id:
@@ -2439,7 +2497,7 @@ class PartNumberService:
 
         # If no BC part number found after step-up, warn but still include the calculated specs
         # so the line can be edited in BC with the correct part number
-        if not spring_found_in_bc:
+        if not spring_found_in_bc and not _light_wire_kept(wire_size, coil_id):
             logger.warning(
                 f"No BC spring part number for {wire_size}\" wire x {coil_id}\" coil — "
                 f"no step-up available"

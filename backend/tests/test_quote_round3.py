@@ -860,7 +860,7 @@ def test_empty_2_inch_radius_in_part_selection_stays_12():
 def test_legacy_quote_service_keeps_explicit_12_on_2_inch_track(monkeypatch):
     """Intentional: QuoteGenerationService now honours an explicit 12 on 2 inch track.
 
-    The part list for an 8x7 Kanata is the 12 inch track and 30 inch springs.
+    The part list for an 8x7 Kanata is the 12 inch track and 23 inch springs.
     """
     from app.services.quote_service import QuoteGenerationService
     service = QuoteGenerationService(None)
@@ -872,7 +872,7 @@ def test_legacy_quote_service_keeps_explicit_12_on_2_inch_track(monkeypatch):
     springs = [item for item in items if str(item["product_code"]).startswith("SP11")]
     assert tracks and all(item["product_code"].endswith("12") for item in tracks)
     assert springs
-    assert all(item["quantity"] == 30 for item in springs)
+    assert all(item["quantity"] == 23 for item in springs)
 
 
 def test_rail_dedupe_is_off_until_opener_mapping_is_on():
