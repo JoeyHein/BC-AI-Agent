@@ -130,3 +130,154 @@ def test_spring_finder_does_not_step_192_up_to_218():
     assert "218" not in result["springs"]["lh"]["part_number"]
     assert "218" not in result["springs"]["rh"]["part_number"]
     assert result["special_order_needed"] is True
+
+
+def _kanata_8x7():
+    return {
+        "doorType": "residential",
+        "doorSeries": "KANATA",
+        "doorWidth": 96,
+        "doorHeight": 84,
+        "doorCount": 1,
+        "panelColor": "WHITE",
+        "panelDesign": "SHXL",
+        "hardware": {
+            "panels": True,
+            "tracks": True,
+            "springs": True,
+            "struts": True,
+            "hardwareKits": True,
+            "weatherStripping": True,
+            "bottomRetainer": True,
+            "shafts": True,
+        },
+        "targetCycles": 10000,
+        "trackThickness": "2",
+        "trackRadius": "15",
+        "trackMount": "bracket",
+        "liftType": "standard",
+    }
+
+
+_LIGHT = ("SP11-20720-01", "SP11-20720-02")
+
+
+class _RejectingBC:
+    """Accepts every line except a missing light-wire item, which BC rejects."""
+
+    def __init__(self):
+        self.added = []
+        self._n = 0
+
+    def update_sales_quote(self, quote_id, quote_data, etag="*", company_id=None):
+        return {"id": quote_id}
+
+    def add_quote_line(self, quote_id, line_data):
+        number = line_data.get("lineObjectNumber") or ""
+        if line_data.get("lineType") != "Comment" and number.startswith("SP11-207"):
+            raise RuntimeError(f"BC item {number} does not exist")
+        self._n += 1
+        row = {"id": f"line-{self._n}", "sequence": self._n * 10000, **line_data}
+        self.added.append(row)
+        return {**row, "description": line_data.get("description", ""), "unitPrice": 0, "@odata.etag": "*"}
+
+    def update_quote_line(self, quote_id, line_id, etag, data):
+        return {"id": line_id}
+
+    def set_quote_line_output(self, number, sequence, output=True):
+        return None
+
+    def delete_quote_line(self, quote_id, line_id):
+        return None
+
+    def get_sales_quote(self, quote_id):
+        return {
+            "id": quote_id,
+            "number": "SQ-HOLD",
+            "totalAmountExcludingTax": 100.0,
+            "totalAmountIncludingTax": 105.0,
+        }
+
+    def get_quote_lines(self, quote_id):
+        return [
+            row for row in self.added
+            if row.get("lineType") == "Item"
+        ]
+
+
+def _no_substitute(*args, **kwargs):
+    raise AssertionError("a missing light-wire spring must not be substituted")
+
+
+def test_local_estimate_holds_kanata_207_unpriced(monkeypatch):
+    import app.api.customer_portal as portal
+
+    monkeypatch.setattr(portal, "get_bc_spring_inventory", lambda: {})
+    monkeypatch.setattr(portal, "warm_bc_cost_cache", lambda *args, **kwargs: None)
+    monkeypatch.setattr(portal, "calculate_selling_price", lambda **kwargs: 0.0)
+    monkeypatch.setattr(portal, "_find_ai_substitute", _no_substitute)
+    monkeypatch.setattr(
+        portal, "calculate_freight",
+        lambda **kwargs: {"skip": True, "amount": 0, "rate": 0, "description": "Pickup"},
+    )
+    result = portal._estimate_pricing_locally(
+        doors=[_kanata_8x7()],
+        pricing_tier="retail",
+        config_id=1,
+        db=None,
+        delivery_type="pickup",
+    )
+    rows = result["line_pricing"]
+    items = [row for row in rows if row.get("line_type") == "Item"]
+    assert not any(row.get("part_number") in _LIGHT for row in items)
+    held = [
+        row for row in rows
+        if row.get("held_for_review") and any(pn in (row.get("description") or "") for pn in _LIGHT)
+    ]
+    assert {pn for pn in _LIGHT if any(pn in row["description"] for row in held)} == set(_LIGHT)
+    for row in held:
+        assert row["unpriced"] is True
+        assert row["unit_price"] is None
+        assert row["line_total"] is None
+        assert row["line_type"] == "Note"
+        assert "Do not substitute .218" in row["description"]
+    assert all(row.get("unit_price") != 0 or row.get("part_number") not in _LIGHT for row in rows)
+
+
+def test_edit_reprice_holds_kanata_207_as_a_comment(monkeypatch):
+    import app.api.customer_portal as portal
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(portal, "get_bc_spring_inventory", lambda: {})
+    monkeypatch.setattr(portal, "warm_bc_cost_cache", lambda *args, **kwargs: None)
+    monkeypatch.setattr(portal, "_find_ai_substitute", _no_substitute)
+    bc = _RejectingBC()
+    monkeypatch.setattr(portal, "bc_client", bc)
+    config = SimpleNamespace(
+        id=None,
+        bc_quote_id="quote-hold",
+        bc_quote_number="SQ-HOLD",
+        config_data={"doors": []},
+        bc_line_map=None,
+    )
+    result = portal._edit_bc_quote_lines(
+        config,
+        {"doors": [_kanata_8x7()]},
+        bc_customer_id="C-HOLD",
+        pricing_tier="retail",
+        db=None,
+        customer_user_id=None,
+        delivery_type="pickup",
+    )
+    posted_items = [
+        row.get("lineObjectNumber") for row in bc.added if row.get("lineType") == "Item"
+    ]
+    assert not any(pn in posted_items for pn in _LIGHT)
+    comments = [row.get("description") or "" for row in bc.added if row.get("lineType") == "Comment"]
+    for pn in _LIGHT:
+        match = [text for text in comments if pn in text]
+        assert match, pn
+        assert any("Held for review, unpriced" in text and "Do not substitute .218" in text for text in match)
+        assert not any(text.startswith(f"{pn} - ") for text in match)
+    failed = result.get("lines_failed") or []
+    assert not any((row.get("part_number") or "") in _LIGHT for row in failed)
