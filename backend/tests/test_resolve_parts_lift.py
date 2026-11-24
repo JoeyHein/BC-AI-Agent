@@ -215,8 +215,8 @@ class TestLiftParts:
         numbers = [sku for sku, _qty, _cat in skus]
         assert ("TR02-STDBM-0715", 1, "track") in skus
         assert ("HK10-00704-0809", 1, "hardware") in skus
-        assert ("SP11-21820-01", 31, "spring") in skus
-        assert ("SP11-21820-02", 31, "spring") in skus
+        assert ("SP11-20720-01", 24, "spring") in skus
+        assert ("SP11-20720-02", 24, "spring") in skus
         assert not any(n.startswith("TR02-LHR") or n.startswith("TR02-EXT") or n.startswith("HK12") or n.startswith("HK32") for n in numbers)
         assert "LOW HEADROOM" not in _comment(parts)
         assert "HIGH LIFT" not in _comment(parts)
@@ -231,7 +231,7 @@ class TestLiftParts:
         standard_12 = _skus(_resolved({**_DOOR, "liftType": "standard", "trackRadius": "12"}))
         assert ("TR02-STDBM-0712", 1, "track") in standard_12
         assert ("TR02-STDBM-0715", 1, "track") not in standard_12
-        assert ("SP11-21820-01", 30, "spring") in standard_12
+        assert ("SP11-20720-01", 23, "spring") in standard_12
         assert standard_12 != standard_15
 
     def test_low_headroom_front_selects_lhr_track_and_hardware(self):
@@ -266,8 +266,8 @@ class TestLiftParts:
         assert ("TR02-STDBM-0715", 1, "track") in skus
         assert ("TR02-EXT2-00", 1, "highlift_track") in skus
         assert ("HK12-1108002-RC", 1, "hardware") in skus
-        assert ("SP11-21820-01", 34, "spring") in skus
-        assert ("SP11-21820-02", 34, "spring") in skus
+        assert ("SP11-20720-01", 26, "spring") in skus
+        assert ("SP11-20720-02", 26, "spring") in skus
         assert "HK10-00704-0809" not in numbers
         assert not any(n.startswith("TR02-LHR") or n.startswith("HK32") for n in numbers)
         assert skus != standard
@@ -381,7 +381,7 @@ class TestResolvePartsEndpoint:
 
         assert ("TR02-STDBM-0715", 1.0, "track") in standard
         assert ("HK10-00704-0809", 1.0, "hardware") in standard
-        assert ("SP11-21820-01", 31.0, "spring") in standard
+        assert ("SP11-20720-01", 24.0, "spring") in standard
 
         assert ("TR02-LHR-07", 1.0, "track") in low_headroom
         assert ("HK32-11080-RC", 1.0, "hardware") in low_headroom
@@ -389,7 +389,7 @@ class TestResolvePartsEndpoint:
 
         assert ("TR02-EXT2-00", 1.0, "highlift_track") in high_lift
         assert ("HK12-1108002-RC", 1.0, "hardware") in high_lift
-        assert ("SP11-21820-01", 34.0, "spring") in high_lift
+        assert ("SP11-20720-01", 26.0, "spring") in high_lift
 
         assert standard != low_headroom
         assert standard != high_lift

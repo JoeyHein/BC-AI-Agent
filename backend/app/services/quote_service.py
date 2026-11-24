@@ -622,8 +622,11 @@ class QuoteGenerationService:
             "AL976-SWD": 4.0,
             "Kanata": 4.2,
             "KANATA": 4.2,
-            "Craft": 4.0,
-            "CRAFT": 4.0,
+            # Craft is not the Kanata factor. Upwardor Craft is three 28"/32"
+            # sections; DOOR_MODEL_WEIGHTS["CRAFT"] is the chart the quote
+            # balancer uses. This sqft estimate stays off the Kanata 4.2.
+            "Craft": 3.6,
+            "CRAFT": 3.6,
             "Solalite": 3.8,
         }
 

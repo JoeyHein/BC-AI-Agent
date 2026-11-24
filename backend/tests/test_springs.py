@@ -120,9 +120,19 @@ class TestSpringPartsInBC:
         parts = _get_spring_parts({"doorSeries": "KANATA", "targetCycles": 10000})
         springs = [p for p in parts if p.get("category") == "spring" and p.get("part_number")]
 
+        missing_light = {
+            "SP11-19217-01", "SP11-19217-02",
+            "SP11-19220-01", "SP11-19220-02",
+            "SP11-20717-01", "SP11-20717-02",
+            "SP11-20720-01", "SP11-20720-02",
+        }
+        warned = any(p.get("notes") == "spring_missing_bc_item" for p in parts)
         for s in springs:
             pn = s["part_number"]
             if pn.startswith("SP-"):  # Custom placeholder, skip
+                continue
+            if pn in missing_light:
+                assert warned, f"{pn} is not in BC and the quote did not say so"
                 continue
             assert pn in mapper.bc_items, \
                 f"Spring {pn} not found in BC items"

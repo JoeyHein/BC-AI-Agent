@@ -148,17 +148,46 @@ class SpringBuilderService:
         - cone set part numbers
         - special_order flag if no match found
         """
-        # Run the existing calculator
-        result = calculator.calculate_spring(
+        # Same Nov 16 ranking as a portal quote: closest cycle life, least
+        # steel, more springs before a heavier wire, .393 last. The coil
+        # dropdown is not a pin — SpringFinder and the quote must agree.
+        from app.services.door_calculator_service import (
+            door_calculator, DrumSelection, DRUM_TABLE,
+        )
+        spec = DRUM_TABLE.get(drum_model) if drum_model else None
+        drums = None
+        if spec:
+            drums = DrumSelection(
+                model=drum_model,
+                offset=spec["offset"],
+                cable_diameter=spec["cables"][0],
+                cable_length=door_height + 8,
+            )
+        selection = door_calculator._calculate_springs(
             door_weight=door_weight,
-            door_height=door_height,
+            height_inches=door_height,
+            width_inches=int(door_width or 120),
+            drums=drums,
+            target_cycles=target_cycles,
             track_radius=track_radius,
             spring_qty=spring_qty,
-            coil_diameter=coil_diameter,
-            target_cycles=target_cycles,
-            drum_model=drum_model,
             high_lift_inches=high_lift_inches,
+            low_headroom=(lift_type == "low_headroom"),
         )
+        result = None
+        if selection is not None:
+            result = calculator.calculate_spring(
+                door_weight=door_weight,
+                door_height=door_height,
+                track_radius=track_radius,
+                spring_qty=selection.quantity,
+                wire_diameter=selection.wire_diameter,
+                coil_diameter=selection.coil_diameter,
+                target_cycles=target_cycles,
+                drum_model=selection and (drums.model if drums else drum_model),
+                high_lift_inches=high_lift_inches,
+                low_headroom=(lift_type == "low_headroom"),
+            )
 
         if result is None:
             return {
@@ -182,15 +211,23 @@ class SpringBuilderService:
         lh_match = self._match_sku(db, lh_part.part_number)
         rh_match = self._match_sku(db, rh_part.part_number)
 
-        # If no match, try stepping up wire size
-        if not lh_match:
-            lh_match, stepped_pn = self._try_step_up_wire(db, result.wire_diameter, result.coil_diameter, "LH")
-            if stepped_pn:
-                lh_part.part_number = stepped_pn
-        if not rh_match:
-            rh_match, stepped_pn = self._try_step_up_wire(db, result.wire_diameter, result.coil_diameter, "RH")
-            if stepped_pn:
-                rh_part.part_number = stepped_pn
+        from app.services.part_number_service import _light_wire_kept
+        missing_bc_items = []
+        if _light_wire_kept(result.wire_diameter, result.coil_diameter):
+            # .192 / .207 must not step up to .218. Flag the missing parts.
+            if not lh_match:
+                missing_bc_items.append(lh_part.part_number)
+            if not rh_match:
+                missing_bc_items.append(rh_part.part_number)
+        else:
+            if not lh_match:
+                lh_match, stepped_pn = self._try_step_up_wire(db, result.wire_diameter, result.coil_diameter, "LH")
+                if stepped_pn:
+                    lh_part.part_number = stepped_pn
+            if not rh_match:
+                rh_match, stepped_pn = self._try_step_up_wire(db, result.wire_diameter, result.coil_diameter, "RH")
+                if stepped_pn:
+                    rh_part.part_number = stepped_pn
 
         special_order_needed = not lh_match and not rh_match
 
@@ -215,13 +252,16 @@ class SpringBuilderService:
             "mip_per_spring": result.mip_per_spring,
             "turns": result.turns,
             "spring_quantity": result.spring_quantity,
-            "cycle_life": result.cycle_life,
+            "cycle_life": result.achieved_cycles or result.cycle_life,
             "drum_model": result.drum_model,
             "multiplier": result.multiplier,
             "weight": result.weight,
             "pitch": round(result.wire_diameter, 4),
             "cable_length": cable_length,
+            "wire_lb": round((result.weight or 0) * result.spring_quantity, 2),
+            "achieved_cycles": result.achieved_cycles or result.cycle_life,
         }
+        options = list(selection.alternatives or [])[:3] if selection else []
 
         return {
             "success": True,
@@ -244,6 +284,8 @@ class SpringBuilderService:
             },
             "cone_sets": cone_sets,
             "special_order_needed": special_order_needed,
+            "missing_bc_items": missing_bc_items,
+            "options": options,
             "shaft_fitment": self.check_shaft_fitment(
                 door_width=door_width,
                 spring_length=result.length,
@@ -459,6 +501,7 @@ class SpringBuilderService:
         replacement_spring_qty: int = 1,
         replacement_coil: float = None,
         replacement_wire: float = None,
+        target_cycles: int = 10000,
     ) -> dict:
         """
         Convert current spring specs to replacement spring specs,
@@ -472,6 +515,7 @@ class SpringBuilderService:
             replacement_spring_qty=replacement_spring_qty,
             replacement_coil=replacement_coil,
             replacement_wire=replacement_wire,
+            target_cycles=target_cycles,
         )
 
         if not result.get("success"):
