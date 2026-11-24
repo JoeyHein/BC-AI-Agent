@@ -240,6 +240,7 @@ function DoorConfigurator() {
       chainHoist: 'none',  // 'none' | 'shaft' (SP12-00084-00) | 'wall' (FH12-00190-00)
       // Spring and shaft options
       targetCycles: 10000,
+      doorWeight: '', // measured lb; required when the brand has no weight chart
       shaftType: 'auto', // 'auto', 'single', 'split'
       trackMount: 'bracket', // 'bracket' or 'angle'
       mountSurface: 'wood', // 'wood', 'steel', or 'concrete' — install method; steel/concrete add a builder install premium + comment (door price unaffected)
@@ -372,6 +373,7 @@ function DoorConfigurator() {
         chainHoist: door.chainHoist && door.chainHoist !== 'none' ? door.chainHoist : undefined,
         // Spring and shaft options
         targetCycles: door.targetCycles || 10000,
+        doorWeight: door.doorWeight === '' || door.doorWeight == null ? null : Number(door.doorWeight),
         shaftType: door.shaftType || 'auto',
         trackMount: door.trackMount || 'bracket',
         explicitFields: Object.keys(door._touched || {}),
@@ -2821,6 +2823,26 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
         </select>
       </div>
 
+      {/* Measured weight — brands with no chart (AMARR and others) */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Measured Door Weight (lb)
+        </label>
+        <input
+          type="number"
+          min="0"
+          step="0.1"
+          value={door.doorWeight ?? ''}
+          onChange={(e) => onChange({ doorWeight: e.target.value })}
+          placeholder="Leave blank for charted models"
+          aria-label="Measured door weight in pounds"
+          className="w-full md:w-64 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-odc-500 focus:border-odc-500"
+        />
+        <p className="mt-1 text-xs text-gray-500">
+          Required for a brand with no weight chart. A weighed door is balanced from this number instead of TX450.
+        </p>
+      </div>
+
       {/* Shaft Type - all door types */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -3266,7 +3288,20 @@ function QuotePriceEditor({
                 </tr>
               </thead>
               <tbody>
-                {(door.parts?.parts_list || []).filter((part) => part.part_number && part.category !== 'comment').map((part) => {
+                {(door.parts?.parts_list || []).map((part, index) => {
+                  const heldForReview = part.category === 'spring_warning'
+                    || part.notes === 'spring_missing_bc_item'
+                    || part.notes === 'weight_required'
+                  if (heldForReview) {
+                    return (
+                      <tr key={`review-${door.door_index}-${index}`} className="bg-amber-50">
+                        <td className="py-1 pr-3 text-xs font-medium text-amber-800">Review</td>
+                        <td className="py-1 pr-3 text-amber-900" colSpan={2}>{part.description}</td>
+                        <td className="py-1 text-right text-xs text-amber-800">Unpriced</td>
+                      </tr>
+                    )
+                  }
+                  if (!part.part_number || part.category === 'comment') return null
                   const key = `${door.door_index}:${part.part_number}`
                   const typed = priceEdits?.[key] ?? ''
                   const price = typed !== '' ? Number(typed) : part.unit_price
@@ -3445,6 +3480,7 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
         chainHoist: door.chainHoist && door.chainHoist !== 'none' ? door.chainHoist : undefined,
             includeTopSeal: door.includeTopSeal || false,
             astragalSize: door.astragalSize || '3',
+            doorWeight: door.doorWeight === '' || door.doorWeight == null ? null : Number(door.doorWeight),
         includePusherSprings: door.includePusherSprings || false,
           })),
           customerId: selectedCustomer?.bc_customer_id || null,
@@ -3481,6 +3517,7 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
               doubleEndCaps: false,
               heavyDutyHinges: false,
               targetCycles: door.targetCycles || 10000,
+              doorWeight: door.doorWeight === '' || door.doorWeight == null ? null : Number(door.doorWeight),
               shaftType: door.shaftType || 'auto',
               highLiftInches: door.liftType === 'high_lift' ? door.highLiftInches : null,
               doorType: door.doorType || 'commercial',

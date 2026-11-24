@@ -211,15 +211,23 @@ class SpringBuilderService:
         lh_match = self._match_sku(db, lh_part.part_number)
         rh_match = self._match_sku(db, rh_part.part_number)
 
-        # If no match, try stepping up wire size
-        if not lh_match:
-            lh_match, stepped_pn = self._try_step_up_wire(db, result.wire_diameter, result.coil_diameter, "LH")
-            if stepped_pn:
-                lh_part.part_number = stepped_pn
-        if not rh_match:
-            rh_match, stepped_pn = self._try_step_up_wire(db, result.wire_diameter, result.coil_diameter, "RH")
-            if stepped_pn:
-                rh_part.part_number = stepped_pn
+        from app.services.part_number_service import _light_wire_kept
+        missing_bc_items = []
+        if _light_wire_kept(result.wire_diameter, result.coil_diameter):
+            # .192 / .207 must not step up to .218. Flag the missing parts.
+            if not lh_match:
+                missing_bc_items.append(lh_part.part_number)
+            if not rh_match:
+                missing_bc_items.append(rh_part.part_number)
+        else:
+            if not lh_match:
+                lh_match, stepped_pn = self._try_step_up_wire(db, result.wire_diameter, result.coil_diameter, "LH")
+                if stepped_pn:
+                    lh_part.part_number = stepped_pn
+            if not rh_match:
+                rh_match, stepped_pn = self._try_step_up_wire(db, result.wire_diameter, result.coil_diameter, "RH")
+                if stepped_pn:
+                    rh_part.part_number = stepped_pn
 
         special_order_needed = not lh_match and not rh_match
 
@@ -276,6 +284,7 @@ class SpringBuilderService:
             },
             "cone_sets": cone_sets,
             "special_order_needed": special_order_needed,
+            "missing_bc_items": missing_bc_items,
             "options": options,
             "shaft_fitment": self.check_shaft_fitment(
                 door_width=door_width,

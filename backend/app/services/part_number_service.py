@@ -49,6 +49,7 @@ import json
 import logging
 import math
 import os
+import re
 from typing import Dict, List, Any, Optional, Tuple
 
 from app.services.track_defaults import default_track_thickness, resolve_track_thickness
@@ -722,6 +723,65 @@ with open(_HK_WEIGHTS_PATH, "r") as _f:
     HK_WEIGHTS = json.load(_f)
 
 
+_MISSING_LIGHT_SPRING_RE = re.compile(r"^SP1[01]-(192|207)(17|20)-0[12]$")
+
+
+def hold_missing_light_wire_line(line: dict) -> bool:
+    """Turn a missing .192/.207 item into an unpriced review comment.
+
+    Returns True when the line was rewritten. A comment is not posted to
+    BC as an Item, so the missing SKU is never substituted or priced at $0.
+    """
+    pn = (line.get("part_number") or "").strip()
+    if line.get("lineType") == "Comment" or not is_missing_light_wire_spring(pn):
+        return False
+    qty = line.get("quantity", 1)
+    desc = (line.get("description") or "").strip()
+    line["lineType"] = "Comment"
+    line["is_note"] = True
+    line["_held_for_review"] = True
+    line["description"] = (
+        f"** MANUAL ENTRY REQUIRED: {pn} — {desc} (Qty {qty}). "
+        f"Not in BC. Do not substitute .218. Held for review, unpriced. **"
+    )
+    return True
+
+
+def unpriced_light_wire_row(line: dict):
+    """Pricing row for a missing light-wire item that is still an Item.
+
+    None for every other line. unit_price is None so a missing SKU cannot
+    become a $0 item on the customer quote.
+    """
+    pn = (line.get("part_number") or "").strip()
+    if line.get("lineType") == "Comment" or not is_missing_light_wire_spring(pn):
+        return None
+    qty = line.get("quantity", 1)
+    return {
+        "line_type": "Note",
+        "part_number": pn,
+        "description": (
+            f"** MANUAL ENTRY, UNPRICED: {pn} — "
+            f"{line.get('description', '')} (Qty {qty}). "
+            f"Not in BC. Do not substitute .218. Held for review. **"
+        ),
+        "quantity": qty,
+        "unit_price": None,
+        "line_total": None,
+        "unpriced": True,
+        "held_for_review": True,
+    }
+
+
+def is_missing_light_wire_spring(part_number: str) -> bool:
+    """True for .192/.207 springs BC does not stock.
+
+    These must stay manual-entry lines. A sibling search rewrites
+    SP11-19220-01 to SP11-21820-01 and prices a different spring.
+    """
+    return bool(_MISSING_LIGHT_SPRING_RE.match((part_number or "").strip()))
+
+
 def _light_wire_kept(wire: float, coil: float) -> bool:
     """True for the light-door wires BC does not stock.
 
@@ -969,6 +1029,17 @@ def door_needs_wrapping(door_type: Optional[str], hardware: Optional[dict]) -> b
         return False
     flags = hardware or {}
     return bool(flags.get("panels", True))
+
+
+class WeightRequiredError(Exception):
+    """A door series has no weight chart and no measured weight was given."""
+
+    def __init__(self, series: str):
+        self.series = series or "this door"
+        super().__init__(
+            f"WEIGHT REQUIRED: {self.series} has no weight chart. "
+            f"Enter a measured door weight. TX450 weights were not used."
+        )
 
 
 class PartNumberService:
@@ -1563,14 +1634,11 @@ class PartNumberService:
         if config.door_type == "aluminium":
             return self._calculate_aluminum_door_weight(config)
 
-        # Missing charts do not inherit Kanata. Callers with a weighed door
-        # pass door_weight and never reach this function.
-        if config.door_series not in DOOR_MODEL_WEIGHTS:
-            logger.warning(
-                f"No weight chart for {config.door_series}; not copying Kanata. "
-                f"Pass door_weight for a measured door."
-            )
-        model_weights = DOOR_MODEL_WEIGHTS.get(config.door_series, DOOR_MODEL_WEIGHTS.get("TX450", {}))
+        # Missing charts do not inherit TX450 or Kanata. Callers with a
+        # weighed door pass door_weight and never reach this function.
+        if series not in DOOR_MODEL_WEIGHTS:
+            raise WeightRequiredError(series)
+        model_weights = DOOR_MODEL_WEIGHTS[series]
 
         # Section breakdown (21"/24" mix). Craft is 3×28" or 3×32".
         if series == "CRAFT":
@@ -2221,7 +2289,17 @@ class PartNumberService:
         # Get door weight - use provided weight or calculate from linear foot weights
         door_weight = config.door_weight
         if door_weight is None:
-            door_weight = self._calculate_door_weight(config)
+            try:
+                door_weight = self._calculate_door_weight(config)
+            except WeightRequiredError as exc:
+                parts.append(PartSelection(
+                    part_number="",
+                    description=f"** {exc} **",
+                    quantity=0,
+                    category="spring_warning",
+                    notes="weight_required",
+                ))
+                return parts, 2, False
 
         # Map lift type to door_calculator's lift config for correct drum selection
         # Without this, VL/HL doors get a standard drum → wrong spring calculation
@@ -2728,7 +2806,16 @@ class PartNumberService:
         # Calculate door weight to determine shaft type
         door_weight = config.door_weight
         if door_weight is None:
-            door_weight = self._calculate_door_weight(config)
+            try:
+                door_weight = self._calculate_door_weight(config)
+            except WeightRequiredError as exc:
+                return [PartSelection(
+                    part_number="",
+                    description=f"** {exc} **",
+                    quantity=0,
+                    category="sizing_warning",
+                    notes="weight_required",
+                )]
 
         is_residential = config.door_type == "residential"
 
@@ -3489,7 +3576,10 @@ class PartNumberService:
 
         door_weight = config.door_weight
         if door_weight is None:
-            door_weight = self._calculate_door_weight(config)
+            try:
+                door_weight = self._calculate_door_weight(config)
+            except WeightRequiredError:
+                door_weight = 0
 
         part_number, description = (
             PERFORATED_ANGLE_HEAVY
@@ -4639,7 +4729,10 @@ class PartNumberService:
         """
         door_weight = config.door_weight
         if door_weight is None:
-            door_weight = self._calculate_door_weight(config)
+            try:
+                door_weight = self._calculate_door_weight(config)
+            except WeightRequiredError:
+                door_weight = 0
         return "1-1/4" if door_weight > 2000 else "1"
 
     def _get_operator_parts(self, config: DoorConfiguration) -> List[PartSelection]:

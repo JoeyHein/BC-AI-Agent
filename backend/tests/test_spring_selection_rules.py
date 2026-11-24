@@ -404,3 +404,60 @@ class TestCraftWeight:
         assert any("measured" in w.lower() for w in calc.warnings)
         assert not any("Kanata" in w and "using" in w.lower() for w in calc.warnings)
 
+    def test_full_cost_beats_lighter_steel(self):
+        """TX450 218x216 at 857.1 lb.
+
+        4×.3065×2.625"×60.5" costs $430.10. 4×.3065×3.75"×43.5" uses less
+        steel but the 3-3/4" cones bring it to $464.03. Cost is the
+        tiebreak after cycle life; steel weight is later.
+        """
+        from app.services.door_calculator_service import _candidate_facts
+
+        door = door_calculator.calculate_door(
+            "TX450", 218, 216, door_type="commercial", track_size=3, door_weight=857.1,
+        )
+        drum = door.drums.model
+        costs = {}
+        results = {}
+        for coil in (2.625, 3.75):
+            result = spring_calculator.calculate_spring(
+                857.1, 216, 15, 4, 0.3065, coil, 10000, drum,
+            )
+            facts = _candidate_facts(result)
+            costs[coil] = facts["steel"] * 2.30 + facts["cones"]
+            results[coil] = result
+            assert result.achieved_cycles == 10000
+        assert round(results[2.625].length, 1) == 60.5
+        assert round(results[3.75].length, 1) == 43.5
+        assert costs[2.625] == pytest.approx(430.10, abs=0.02)
+        assert costs[3.75] == pytest.approx(464.03, abs=0.02)
+        assert spring_rank_key(results[2.625], 10000) < spring_rank_key(results[3.75], 10000)
+
+    def test_amarr_without_a_weight_is_held(self):
+        calc = door_calculator.calculate_door(
+            "AMARR", 96, 84, door_type="residential", track_size=2,
+        )
+        summary = door_calculator.get_calculation_summary(calc)
+        assert summary["weight_required"] is True
+        assert calc.weight.total_weight == 0
+        assert calc.springs is None
+        assert any("TX450 weights were not used" in w for w in calc.warnings)
+
+        cfg = DoorConfiguration(
+            door_type="residential", door_series="AMARR",
+            door_width=96, door_height=84, door_count=1,
+            panel_color="WHITE", panel_design="FLUSH",
+        )
+        spring_parts, _, _ = PartNumberService()._get_spring_parts(cfg)
+        assert spring_parts[0].notes == "weight_required"
+        assert spring_parts[0].category == "spring_warning"
+        assert "TX450 weights were not used" in spring_parts[0].description
+
+    def test_amarr_uses_a_measured_weight(self):
+        calc = door_calculator.calculate_door(
+            "AMARR", 96, 84, door_type="residential", track_size=2, door_weight=180,
+        )
+        assert calc.weight.total_weight == pytest.approx(180, abs=0.1)
+        assert calc.springs is not None
+        assert door_calculator.get_calculation_summary(calc)["weight_required"] is False
+

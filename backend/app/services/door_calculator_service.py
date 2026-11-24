@@ -473,9 +473,9 @@ def spring_rank_key(obj, target_cycles: int, stocked: bool = False):
     1. Meets the requested cycle life, and stays inside a shippable length.
     2. Closest rated life to that target (10k unless the quote asked for more).
     3. .393 wire almost never — it only wins when nothing else qualifies.
-    4. Least steel, priced at $2.30/lb, plus the cone sets. A 3-3/4" cone
-       set is cheaper than a 6" set, so it can win on a similar spring.
-    5. Lighter wire, then more springs: add a pair before stepping up wire.
+    4. Full cost: steel at $2.30/lb plus the cone sets. A 3-3/4" cone
+       set is dearer than a 2-5/8" set, so cost can beat a lighter spring.
+    5. Least steel, then lighter wire, then more springs.
     6. A stocked BC spring breaks a remaining tie.
     """
     facts = _candidate_facts(obj)
@@ -496,8 +496,11 @@ def spring_rank_key(obj, target_cycles: int, stocked: bool = False):
         abs(facts["achieved"] - target_cycles),
         1 if facts["is_393"] else 0,
         0 if has_cone else 1,
-        round(facts["steel"], 2),
+        # Cost (steel at $2.30/lb plus cones) decides before raw steel weight.
+        # Steel alone would keep a shorter 3-3/4" spring ahead of a longer
+        # 2-5/8" spring whose cones are cheaper.
         round(full_cost, 2),
+        round(facts["steel"], 2),
         round(facts["wire"], 4),
         -facts["qty"],
         0 if stocked else 1,
@@ -984,12 +987,14 @@ class DoorCalculatorService:
         is_aluminum = door_model in ("AL976", "PANORAMA", "SOLALITE", "AL-SWD", "ALSWD")
         has_chart = is_aluminum or door_model in self.model_weights
         measured = door_weight if door_weight is not None else kwargs.get("measured_weight")
+        weight_required = False
         if not has_chart and not measured:
+            weight_required = True
             warnings.append(
-                f"No weight chart for '{door_model}'. Pass a measured door weight; "
-                f"Kanata weights are not substituted."
+                f"WEIGHT REQUIRED: '{door_model}' has no weight chart. "
+                f"Enter a measured door weight before springs are sized. "
+                f"TX450 weights were not used."
             )
-            door_model = "TX450"
         elif not has_chart:
             warnings.append(
                 f"No weight chart for '{door_model}'. Using the measured door weight "
@@ -1017,7 +1022,9 @@ class DoorCalculatorService:
         )
 
         # 3. Calculate door weight (including strut weight)
-        if measured:
+        if weight_required:
+            weight = WeightBreakdown()
+        elif measured:
             # A scale weight already includes sections, hardware and struts.
             # Used for brands with no chart, and whenever the caller weighed the door.
             weight = WeightBreakdown(steel_weight=float(measured), total_weight=float(measured))
@@ -1075,21 +1082,26 @@ class DoorCalculatorService:
         # 6. Calculate springs (inventory-aware, progressive scaling, duplex support)
         is_residential = door_type == "residential"
         track_radius = lift_config.get("radius", 15)
-        springs = self._calculate_springs(
-            weight.total_weight,
-            height_inches,
-            width_inches,
-            drums,
-            target_cycles,
-            track_radius=track_radius,
-            spring_inventory=spring_inventory,
-            high_lift_inches=high_lift_inches or 0,
-            low_headroom=lift_type_str == "low_headroom",
-            is_residential=is_residential,
-        )
+        if weight_required:
+            springs = None
+        else:
+            springs = self._calculate_springs(
+                weight.total_weight,
+                height_inches,
+                width_inches,
+                drums,
+                target_cycles,
+                track_radius=track_radius,
+                spring_inventory=spring_inventory,
+                high_lift_inches=high_lift_inches or 0,
+                low_headroom=lift_type_str == "low_headroom",
+                is_residential=is_residential,
+            )
 
         # 6b. Spring warnings — show during configuration, before quote
-        if springs is None:
+        if weight_required:
+            pass
+        elif springs is None:
             warnings.append(
                 f"No standard spring available for this configuration "
                 f"({weight.total_weight:.0f} lbs, {height_inches}\"H, {target_cycles:,} cycles). "
@@ -1312,8 +1324,10 @@ class DoorCalculatorService:
             weight.calculate_total()
             return weight
 
-        # Get model weight factors. Unknown series do not inherit Kanata.
-        model_weights = self.model_weights.get(door_model, self.model_weights["TX450"])
+        # Unknown series do not inherit TX450. Callers hold for a measured weight.
+        if door_model not in self.model_weights:
+            return weight
+        model_weights = self.model_weights[door_model]
         width_ft = dimensions.width_ft
         series = door_model.upper()
 
@@ -2485,6 +2499,7 @@ class DoorCalculatorService:
                 "other": calc.hardware.other if calc.hardware else {},
                 "z_strut_lengths": calc.hardware.z_strut_lengths if calc.hardware else None,
             } if calc.hardware else None,
+            "weight_required": any("WEIGHT REQUIRED" in w for w in calc.warnings),
             "warnings": calc.warnings
         }
 

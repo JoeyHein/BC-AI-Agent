@@ -770,6 +770,8 @@ class DoorConfigRequest(BaseModel):
     # from the email text before building the request.
     explicitFields: Optional[List[str]] = None
     targetCycles: int = 10000
+    # Measured door weight (lb). Required when doorSeries has no chart.
+    doorWeight: Optional[float] = None
     shaftType: str = "auto"  # 'auto', 'single', 'split'
     includeTopSeal: bool = False  # optional upgrade for commercial doors
     includePusherSprings: bool = False  # optional upgrade: adds TR13-00031-00 + TR13-00032-00
@@ -1230,7 +1232,7 @@ def _flag_unresolved_line_as_comment(line: dict, pn: str, reason: str) -> dict:
     line["description"] = (
         f"** MANUAL ENTRY REQUIRED - Door {door}: {desc} - part {pn} (Qty {qty}) "
         f"could not be added automatically: {reason}. "
-        f"Office to add the correct section/panel line in BC. **"
+        f"Office to add the line in BC. Held for review, unpriced. **"
     )
     return {
         "original": pn,
@@ -1292,6 +1294,19 @@ def resolve_unstocked_part_numbers(
             continue
         pn = line["part_number"]
         if catalog_keeps_part_number(pn, bc_items, line.get("category") or ""):
+            continue
+
+        from app.services.part_number_service import is_missing_light_wire_spring
+        if is_missing_light_wire_spring(pn):
+            part_warnings.append(_flag_unresolved_line_as_comment(
+                line, pn,
+                "light-wire spring is not in the BC item master. "
+                "Do not substitute .218; the length and cycle life would change",
+            ))
+            line["part_number"] = ""
+            line["category"] = "spring_warning"
+            line["notes"] = "spring_missing_bc_item"
+            line["_held_for_review"] = True
             continue
 
         is_panel_like = line.get("category") in (
@@ -1866,6 +1881,7 @@ def build_bc_quote_from_doors(
                 "operatorAccessories": door.operatorAccessories or [],
                 "chainHoist": getattr(door, "chainHoist", None),
                 "targetCycles": door.targetCycles,
+                "doorWeight": door.doorWeight,
                 "shaftType": door.shaftType,
                 "includeTopSeal": getattr(door, 'includeTopSeal', False),
                 "includePusherSprings": getattr(door, 'includePusherSprings', False),
@@ -1926,7 +1942,8 @@ def build_bc_quote_from_doors(
                     continue
                 # Info/warning comments → BC Comment line (not an item)
                 if part.get("category") in (
-                    "spring_comment", "highlift_comment", "glazing_comment", "sizing_warning",
+                    "spring_comment", "spring_warning", "highlift_comment",
+                    "glazing_comment", "sizing_warning",
                 ):
                     part["lineType"] = "Comment"
                     part["is_note"] = True
@@ -2821,6 +2838,7 @@ async def get_part_numbers(config: DoorConfigRequest, db: Session = Depends(get_
             "hardware": config.hardware,
             "operator": config.operator,
             "targetCycles": config.targetCycles,
+            "doorWeight": config.doorWeight,
             "includeTopSeal": getattr(config, 'includeTopSeal', False),
             "includePusherSprings": getattr(config, 'includePusherSprings', False),
             "bumperSpring": getattr(config, 'bumperSpring', False),
@@ -2901,6 +2919,7 @@ async def get_parts_for_quote(
                 "operatorAccessories": door.operatorAccessories or [],
                 "chainHoist": getattr(door, "chainHoist", None),
                 "targetCycles": door.targetCycles,
+                "doorWeight": door.doorWeight,
                 "shaftType": door.shaftType,
                 "includeTopSeal": getattr(door, 'includeTopSeal', False),
                 "includePusherSprings": getattr(door, 'includePusherSprings', False),

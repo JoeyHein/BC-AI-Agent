@@ -1212,7 +1212,7 @@ def _generate_bc_quote_with_items(
                 # _format_door_description header; skip the duplicate.
                 if part.get("category") == "comment":
                     continue
-                if part.get("category") in ("spring_comment", "highlift_comment", "glazing_comment", "sizing_warning"):
+                if part.get("category") in ("spring_comment", "spring_warning", "highlift_comment", "glazing_comment", "sizing_warning"):
                     part["lineType"] = "Comment"
                     part["is_note"] = True
 
@@ -1343,6 +1343,10 @@ def _generate_bc_quote_with_items(
         if not bc_line or not bc_line.get("id"):
             return
         line_map["shared"].setdefault(bucket, []).append(bc_line["id"])
+
+    from app.services.part_number_service import hold_missing_light_wire_line
+    for line in all_lines:
+        hold_missing_light_wire_line(line)
 
     for line in all_lines:
         try:
@@ -1535,11 +1539,15 @@ def _generate_bc_quote_with_items(
                         substitute = dict(substitute, number=bigger_pn)
                     logger.info(f"Step-up substitute: {line['part_number']} → {bigger_pn}")
                 else:
-                    substitute = _find_ai_substitute(
-                        part_number=line["part_number"],
-                        description=line.get("description", ""),
-                        bc_items_cache=bc_items_cache,
-                    )
+                    from app.services.part_number_service import is_missing_light_wire_spring
+                    if is_missing_light_wire_spring(line.get("part_number") or ""):
+                        substitute = None
+                    else:
+                        substitute = _find_ai_substitute(
+                            part_number=line["part_number"],
+                            description=line.get("description", ""),
+                            bc_items_cache=bc_items_cache,
+                        )
                 if substitute and substitute.get("number"):
                     try:
                         original_desc = line.get("description", "") or substitute.get('displayName', substitute['number'])
@@ -1654,17 +1662,24 @@ def _generate_bc_quote_with_items(
                 # Window/note comments stay inside the current door group;
                 # only door description comments act as group delimiters.
                 ltype = "Note" if line.get("is_note") else "Comment"
+                held = bool(line.get("_held_for_review"))
                 line_pricing.append({
                     "line_type": ltype,
                     "part_number": "",
                     "description": line["description"],
-                    "quantity": 0,
-                    "unit_price": 0,
-                    "line_total": 0,
+                    "quantity": line.get("quantity", 0) if held else 0,
+                    "unit_price": None if held else 0,
+                    "line_total": None if held else 0,
+                    **({"unpriced": True, "held_for_review": True} if held else {}),
                 })
             else:
                 part_num = line.get("part_number", "")
                 qty = line.get("quantity", 1)
+                from app.services.part_number_service import unpriced_light_wire_row
+                held = unpriced_light_wire_row(line)
+                if held is not None:
+                    line_pricing.append(held)
+                    continue
                 unit_price = bc_price_lookup.get(part_num, {}).get("unit_price", 0)
                 line_pricing.append({
                     "line_type": "Item",
@@ -2425,7 +2440,7 @@ def _edit_bc_quote_lines(
                 # _format_door_description header; skip the duplicate.
                 if part.get("category") == "comment":
                     continue
-                if part.get("category") in ("spring_comment", "highlift_comment", "glazing_comment", "sizing_warning"):
+                if part.get("category") in ("spring_comment", "spring_warning", "highlift_comment", "glazing_comment", "sizing_warning"):
                     part["lineType"] = "Comment"
                     part["is_note"] = True
                 all_new_lines.append(part)
@@ -2905,7 +2920,7 @@ def _estimate_pricing_locally(
                 # _format_door_description header; skip the duplicate.
                 if part.get("category") == "comment":
                     continue
-                if part.get("category") in ("spring_comment", "highlift_comment", "glazing_comment", "sizing_warning"):
+                if part.get("category") in ("spring_comment", "spring_warning", "highlift_comment", "glazing_comment", "sizing_warning"):
                     part["lineType"] = "Comment"
                     part["is_note"] = True
 

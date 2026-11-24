@@ -1136,6 +1136,9 @@ export default function SpringBuilder() {
           {result.special_order_needed && (
             <p className="text-xs text-amber-600">
               This spring is not in our standard catalog. Submit a special order and we'll follow up with pricing and lead time.
+              {(result.missing_bc_items || []).length > 0 && (
+                <> Missing BC parts, held for review (do not substitute .218): {result.missing_bc_items.join(', ')}.</>
+              )}
             </p>
           )}
         </div>
