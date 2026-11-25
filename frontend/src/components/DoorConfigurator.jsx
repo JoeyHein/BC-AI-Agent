@@ -3906,6 +3906,7 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
                                       </span>
                                       <span className="font-mono text-right">
                                         IPPT {opt.ippt ?? '—'} · {opt.turns} turns · {(opt.cycles || 0).toLocaleString()} · {opt.wire_lb} lb
+                                        {opt.portal_price != null ? ` · $${Number(opt.portal_price).toFixed(2)}` : ' · unpriced'}
                                       </span>
                                     </div>
                                   ))}

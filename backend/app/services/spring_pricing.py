@@ -237,3 +237,94 @@ def assembly_cost(
         total += coupler_price * couplers
 
     return round(total, 2)
+
+
+# Upwardor bulk spring purchase orders are priced by the pound. Portal
+# replacement springs (calculate-door, SpringFinder, quotes) do not use this.
+BULK_SPRING_STEEL_USD_PER_LB = 2.30
+
+
+def bulk_spring_order_cost(steel_lb: float, cone_cost: float = 0.0) -> float:
+    """Steel-plus-cones cost for an Upwardor bulk spring PO.
+
+    Replacement springs in the portal do not call this. They use
+    portal_replacement_cost, which is the price book on each spring SKU.
+    """
+    return round(float(steel_lb) * BULK_SPRING_STEEL_USD_PER_LB + float(cone_cost), 2)
+
+
+def portal_replacement_cost(
+    wire_diameter: float,
+    coil_diameter: float,
+    length: float,
+    spring_qty: int,
+    *,
+    is_duplex: bool = False,
+    inner_wire_diameter: Optional[float] = None,
+    inner_coil_diameter: Optional[float] = None,
+    inner_length: Optional[float] = None,
+    duplex_pairs: int = 0,
+) -> Optional[float]:
+    """Portal price of a replacement spring set, or None when the spring has none.
+
+    Each spring line is the price book's unit price times ceil(length) times
+    the count of that winding — the same dollars a quote line carries. Cone
+    cards are added only when they have a portal price. A missing spring price
+    stays None. Nothing here is filled in at $2.30/lb.
+    """
+    if not prices():
+        return None
+
+    from app.services.bc_part_number_mapper import get_bc_mapper
+
+    mapper = get_bc_mapper()
+    length_in = math.ceil(length)
+    positions = duplex_pairs if is_duplex else spring_qty
+    if is_duplex:
+        lh_count = positions // 2
+        rh_count = positions - lh_count
+    else:
+        lh_count, rh_count = _winding_counts(spring_qty)
+
+    def _springs(wire: float, coil: float, inches: int) -> Optional[tuple]:
+        resolved = _resolved_spring_price_in(wire, coil, mapper)
+        if resolved is None:
+            return None
+        lh_price, rh_price, sold_coil = resolved
+        amount = lh_price * inches * lh_count + rh_price * inches * rh_count
+        return amount, sold_coil
+
+    outer = _springs(wire_diameter, coil_diameter, length_in)
+    if outer is None:
+        return None
+    total, sold_coil = outer
+    total += _priced_cones(mapper, sold_coil, lh_count, rh_count)
+
+    if is_duplex:
+        if not (inner_wire_diameter and inner_coil_diameter and inner_length and duplex_pairs):
+            return None
+        inner = _springs(inner_wire_diameter, inner_coil_diameter, math.ceil(inner_length))
+        if inner is None:
+            return None
+        inner_amount, inner_coil = inner
+        total += inner_amount
+        total += _priced_cones(mapper, inner_coil, lh_count, rh_count)
+
+    return round(total, 2)
+
+
+def _priced_cones(mapper, coil_diameter: float, lh_count: int, rh_count: int) -> float:
+    """Cone-set dollars that have a portal price. Missing cards add nothing."""
+    total = 0.0
+    for hand, count in (("LH", lh_count), ("RH", rh_count)):
+        if count <= 0:
+            continue
+        try:
+            pn = mapper.get_winder_stationary_set(coil_diameter, SHAFT_BORE, hand).part_number
+        except Exception:
+            continue
+        price = price_of(pn)
+        if price is None:
+            continue
+        total += price * count
+    return total

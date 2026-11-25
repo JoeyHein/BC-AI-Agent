@@ -66,8 +66,8 @@ DOOR_MODEL_WEIGHTS = {
     "CRAFT": {"28": 5.1375, "32": 6.1875},
 }
 
-# Spring steel priced by the pound for selection. Cone prices are added on
-# top so a 3-3/4" cone set can beat a 6" cone set.
+# Upwardor bulk spring POs only. Portal replacement ranking uses the price
+# book (see spring_pricing.portal_replacement_cost), not this rate.
 STEEL_USD_PER_LB = 2.30
 # Used when a cone card has no price book entry. Matches the live book so a
 # missing price does not flip 3-3/4" and 6".
@@ -381,6 +381,36 @@ def _spring_sellable(wire: float, coil: float) -> bool:
     return lh in mapper.spring_items and rh in mapper.spring_items
 
 
+def _cones_fit_shaft(obj, bore: float) -> bool:
+    """True when every coil on this candidate has a winder for ``bore``.
+
+    A 1" plug does not go on a 1-1/4" bar. Coils with no 1-1/4" card
+    (3-3/4" and smaller) stay off those doors.
+    """
+    if bore <= 1.01:
+        return True
+    try:
+        from app.services.bc_part_number_mapper import get_bc_mapper
+        mapper = get_bc_mapper()
+    except Exception:
+        return True
+    if not getattr(mapper, "WINDER_SETS", None):
+        return True
+    coils = []
+    sel = obj.selection if isinstance(obj, DoorCalculatorService._DuplexCandidate) else obj
+    coils.append(getattr(sel, "coil_diameter", None))
+    if getattr(sel, "is_duplex", False) or isinstance(obj, DoorCalculatorService._DuplexCandidate):
+        coils.append(getattr(sel, "inner_coil_diameter", None))
+    for coil in coils:
+        if coil is None:
+            return False
+        closest = min(mapper.COIL_SIZE_CODES, key=lambda c: abs(c - coil))
+        for hand in ("LH", "RH"):
+            if (closest, bore, hand) not in mapper.WINDER_SETS:
+                return False
+    return True
+
+
 def _is_393_wire(wire: float) -> bool:
     return any(abs(wire - target) <= 0.004 for target in WIRE_393_TARGETS)
 
@@ -467,14 +497,36 @@ def _candidate_facts(obj) -> dict:
     }
 
 
+def portal_set_cost(obj) -> Optional[float]:
+    """Portal price of this candidate, or None when its spring SKU has none."""
+    if isinstance(obj, DoorCalculatorService._DuplexCandidate):
+        obj = obj.selection
+    qty = getattr(obj, "quantity", None)
+    if qty is None:
+        qty = obj.spring_quantity
+    return spring_pricing.portal_replacement_cost(
+        obj.wire_diameter,
+        obj.coil_diameter,
+        obj.length,
+        qty,
+        is_duplex=bool(getattr(obj, "is_duplex", False)),
+        inner_wire_diameter=getattr(obj, "inner_wire_diameter", None),
+        inner_coil_diameter=getattr(obj, "inner_coil_diameter", None),
+        inner_length=getattr(obj, "inner_length", None),
+        duplex_pairs=getattr(obj, "duplex_pairs", 0) or 0,
+    )
+
+
 def spring_rank_key(obj, target_cycles: int, stocked: bool = False):
-    """Joey's Nov 16 2026 order. Lower sorts first.
+    """Joey's Nov 16 2026 order, with portal prices on the cost tiebreak.
 
     1. Meets the requested cycle life, and stays inside a shippable length.
     2. Closest rated life to that target (10k unless the quote asked for more).
     3. .393 wire almost never — it only wins when nothing else qualifies.
-    4. Full cost: steel at $2.30/lb plus the cone sets. A 3-3/4" cone
-       set is dearer than a 2-5/8" set, so cost can beat a lighter spring.
+    4. A coil that has a winding cone, then the portal price of the set
+       (spring price × inches × count, plus cones that have a portal price).
+       A spring with no portal price sorts after the priced options. No
+       $2.30/lb figure is invented for it.
     5. Least steel, then lighter wire, then more springs.
     6. A stocked BC spring breaks a remaining tie.
     """
@@ -487,7 +539,7 @@ def spring_rank_key(obj, target_cycles: int, stocked: bool = False):
         band = 1
     else:
         band = 2
-    full_cost = facts["steel"] * STEEL_USD_PER_LB + facts["cones"]
+    portal_cost = portal_set_cost(obj)
     # 1.75" has no winding cone. A 2" spring at the same cycle life is the
     # one we can actually build; a few ounces of steel must not pick 1.75".
     has_cone = any(abs(facts["coil"] - coil) < 0.01 for coil in (2.0, 2.625, 3.75, 6.0))
@@ -496,10 +548,8 @@ def spring_rank_key(obj, target_cycles: int, stocked: bool = False):
         abs(facts["achieved"] - target_cycles),
         1 if facts["is_393"] else 0,
         0 if has_cone else 1,
-        # Cost (steel at $2.30/lb plus cones) decides before raw steel weight.
-        # Steel alone would keep a shorter 3-3/4" spring ahead of a longer
-        # 2-5/8" spring whose cones are cheaper.
-        round(full_cost, 2),
+        0 if portal_cost is not None else 1,
+        round(portal_cost, 2) if portal_cost is not None else 0,
         round(facts["steel"], 2),
         round(facts["wire"], 4),
         -facts["qty"],
@@ -520,6 +570,7 @@ def spring_option_payload(obj, stocked: bool = False) -> dict:
         "turns": facts["turns"],
         "cycles": facts["achieved"],
         "wire_lb": round(facts["steel"], 2),
+        "portal_price": portal_set_cost(obj),
         "stocked": stocked,
         "is_duplex": facts["is_duplex"],
     }
@@ -933,14 +984,7 @@ class DoorCalculatorService:
         qty = getattr(obj, "quantity", None)
         if qty is None:
             qty = obj.spring_quantity
-        return spring_pricing.assembly_cost(
-            obj.wire_diameter, obj.coil_diameter, obj.length, qty,
-            is_duplex=getattr(obj, "is_duplex", False),
-            inner_wire_diameter=getattr(obj, "inner_wire_diameter", None),
-            inner_coil_diameter=getattr(obj, "inner_coil_diameter", None),
-            inner_length=getattr(obj, "inner_length", None),
-            duplex_pairs=getattr(obj, "duplex_pairs", 0),
-        )
+        return portal_set_cost(obj)
 
     def calculate_door(
         self,
@@ -1750,6 +1794,11 @@ class DoorCalculatorService:
         if light_residential and has_pair:
             all_candidates = [c for c in all_candidates if not isinstance(c, self._DuplexCandidate)]
 
+        # Over 2000 lb the shaft is 1-1/4". A 3-3/4" cone is only sold for a
+        # 1" bar, so that coil cannot be the replacement on this door.
+        if door_weight > 2000:
+            all_candidates = [c for c in all_candidates if _cones_fit_shaft(c, 1.25)]
+
         if not all_candidates:
             logger.warning(
                 f"No spring found for {door_weight} lbs, {height_inches}\" height, "
@@ -1891,7 +1940,7 @@ class DoorCalculatorService:
                 # (Every candidate here already met MIP at the target cycles and
                 # fits the shaft, so cost is a safe tiebreak.)
                 def _qty_key(r):
-                    cost = spring_pricing.assembly_cost(
+                    cost = spring_pricing.portal_replacement_cost(
                         r.wire_diameter, r.coil_diameter, r.length, r.spring_quantity
                     )
                     # Unpriced options sort last, then fall back to coil/length.
@@ -2467,6 +2516,7 @@ class DoorCalculatorService:
                 "inner_length": calc.springs.inner_length if calc.springs else None,
                 "duplex_pairs": calc.springs.duplex_pairs if calc.springs else 0,
                 "wire_lb": (calc.springs.alternatives[0].get("wire_lb") if calc.springs and calc.springs.alternatives else None),
+                "portal_price": (calc.springs.alternatives[0].get("portal_price") if calc.springs and calc.springs.alternatives else None),
                 # Top 3 assemblies: IPPT, turns, cycles, wire lb.
                 "options": (calc.springs.alternatives or [])[:3] if calc.springs else [],
             } if calc.springs else None,

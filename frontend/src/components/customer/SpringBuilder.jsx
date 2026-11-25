@@ -633,6 +633,7 @@ export default function SpringBuilder() {
                             </div>
                             <div className="font-mono text-gray-500">
                               IPPT {opt.ippt ?? '—'} · {opt.turns} turns · {(opt.cycles || 0).toLocaleString()} cycles · {opt.wire_lb} lb
+                              {opt.portal_price != null ? ` · $${Number(opt.portal_price).toFixed(2)}` : ' · unpriced'}
                             </div>
                           </div>
                         ))}

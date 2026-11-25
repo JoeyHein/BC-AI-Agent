@@ -1,8 +1,9 @@
 """Joey's Nov 16 2026 torsion-spring rules, plus the physics bugs beside them.
 
 Ranking, for a 10,000-cycle target unless the quote asks for more:
-closest rated life, then least steel at $2.30/lb plus cones, .393 almost
+closest rated life, then the portal price of the spring set, .393 almost
 never, more springs before a heavier wire, stocked BC springs as a tiebreak.
+$2.30/lb is the Upwardor bulk spring PO rate, not a replacement-spring price.
 
 Physics:
 - 0.2375 and 0.4305 must not keep their Canimex length on a .234 / .437 SKU
@@ -404,34 +405,95 @@ class TestCraftWeight:
         assert any("measured" in w.lower() for w in calc.warnings)
         assert not any("Kanata" in w and "using" in w.lower() for w in calc.warnings)
 
-    def test_full_cost_beats_lighter_steel(self):
-        """TX450 218x216 at 857.1 lb.
+    def test_portal_price_not_steel_rate_decides_the_tie(self, monkeypatch):
+        """After cycle life, the portal price of the set decides.
 
-        4×.3065×2.625"×60.5" costs $430.10. 4×.3065×3.75"×43.5" uses less
-        steel but the 3-3/4" cones bring it to $464.03. Cost is the
-        tiebreak after cycle life; steel weight is later.
+        A lighter spring must not win because steel at $2.30/lb looks cheaper
+        when its portal price is higher.
         """
-        from app.services.door_calculator_service import _candidate_facts
+        from app.services import spring_pricing
+        from app.services.door_calculator_service import portal_set_cost
+
+        short = spring_calculator.calculate_spring(
+            857.1, 216, 15, 4, 0.3065, 3.75, 10000, "D525-216",
+        )
+        long = spring_calculator.calculate_spring(
+            857.1, 216, 15, 4, 0.3125, 6.0, 10000, "D525-216",
+        )
+        assert short.achieved_cycles == long.achieved_cycles == 10000
+
+        def portal(wire, coil, length, qty, **kwargs):
+            if abs(coil - 3.75) < 0.01:
+                return 900.0
+            return 400.0
+
+        monkeypatch.setattr(spring_pricing, "portal_replacement_cost", portal)
+        assert portal_set_cost(long) == 400.0
+        assert spring_rank_key(long, 10000) < spring_rank_key(short, 10000)
+
+    def test_unpriced_spring_ranks_after_a_priced_one(self, monkeypatch):
+        from app.services import spring_pricing
+
+        priced = spring_calculator.calculate_spring(
+            857.1, 216, 15, 4, 0.3065, 3.75, 10000, "D525-216",
+        )
+        missing = spring_calculator.calculate_spring(
+            857.1, 216, 15, 4, 0.3125, 6.0, 10000, "D525-216",
+        )
+
+        def portal(wire, coil, length, qty, **kwargs):
+            if abs(coil - 6.0) < 0.01:
+                return None
+            return 900.0
+
+        monkeypatch.setattr(spring_pricing, "portal_replacement_cost", portal)
+        assert spring_rank_key(priced, 10000) < spring_rank_key(missing, 10000)
+
+    def test_tx450_and_kanata_quote_the_portal_price(self):
+        """The quoted spring's price is the price book, not steel at $2.30/lb."""
+        from app.services.door_calculator_service import _candidate_facts, portal_set_cost, STEEL_USD_PER_LB
+        from app.services.spring_pricing import bulk_spring_order_cost
 
         door = door_calculator.calculate_door(
             "TX450", 218, 216, door_type="commercial", track_size=3, door_weight=857.1,
         )
-        drum = door.drums.model
-        costs = {}
-        results = {}
-        for coil in (2.625, 3.75):
-            result = spring_calculator.calculate_spring(
-                857.1, 216, 15, 4, 0.3065, coil, 10000, drum,
-            )
-            facts = _candidate_facts(result)
-            costs[coil] = facts["steel"] * 2.30 + facts["cones"]
-            results[coil] = result
-            assert result.achieved_cycles == 10000
-        assert round(results[2.625].length, 1) == 60.5
-        assert round(results[3.75].length, 1) == 43.5
-        assert costs[2.625] == pytest.approx(430.10, abs=0.02)
-        assert costs[3.75] == pytest.approx(464.03, abs=0.02)
-        assert spring_rank_key(results[2.625], 10000) < spring_rank_key(results[3.75], 10000)
+        springs = door.springs
+        assert springs.quantity == 4
+        assert springs.wire_diameter == pytest.approx(0.3065, abs=0.0001)
+        assert springs.coil_diameter == pytest.approx(3.75)
+        assert round(springs.length, 1) == 43.5
+        portal = portal_set_cost(springs)
+        facts = _candidate_facts(springs)
+        steel_rate = facts["steel"] * STEEL_USD_PER_LB + facts["cones"]
+        assert portal == pytest.approx(914.76, abs=0.02)
+        assert steel_rate == pytest.approx(464.03, abs=0.02)
+        assert springs.alternatives[0]["portal_price"] == pytest.approx(portal, abs=0.01)
+        assert springs.alternatives[0]["portal_price"] != pytest.approx(steel_rate, abs=1)
+        # 4×.3065×2.625" is cheaper on the portal book and on $2.30, and it
+        # does not fit this shaft, so it is not the quoted spring.
+        longer = spring_calculator.calculate_spring(
+            857.1, 216, 15, 4, 0.3065, 2.625, 10000, door.drums.model,
+        )
+        assert portal_set_cost(longer) == pytest.approx(880.64, abs=0.02)
+        assert spring_rank_key(longer, 10000) < spring_rank_key(springs, 10000)
+
+        cfg = DoorConfiguration(
+            door_type="residential", door_series="KANATA",
+            door_width=192, door_height=84, door_count=1,
+            panel_color="WHITE", panel_design="SHXL",
+            track_thickness="2", track_radius="15",
+        )
+        weight = PartNumberService()._calculate_door_weight(cfg)
+        kanata = door_calculator.calculate_door(
+            "KANATA", 192, 84, door_type="residential", track_size=2, door_weight=weight,
+        )
+        assert kanata.springs.quantity == 2
+        assert kanata.springs.wire_diameter == pytest.approx(0.25, abs=0.0001)
+        assert kanata.springs.coil_diameter == pytest.approx(2.0)
+        assert kanata.springs.alternatives[0]["portal_price"] == pytest.approx(162.70, abs=0.02)
+        assert kanata.springs.alternatives[1]["portal_price"] == pytest.approx(171.16, abs=0.02)
+        assert kanata.springs.alternatives[0]["portal_price"] < kanata.springs.alternatives[1]["portal_price"]
+        assert bulk_spring_order_cost(10) == pytest.approx(23.00, abs=0.001)
 
     def test_amarr_without_a_weight_is_held(self):
         calc = door_calculator.calculate_door(
