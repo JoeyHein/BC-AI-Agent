@@ -186,6 +186,23 @@ CANIMEX_MIP_CAPACITY = {
 
 # Standard cycle-life columns on the Canimex MIP chart, low to high.
 STANDARD_CYCLE_LIVES = (10000, 15000, 25000, 50000, 100000)
+# Open Distribution stocks these IDs only. 1-3/4" is not carried.
+SOLD_COIL_IDS = (2.0, 2.625, 3.75, 6.0)
+COIL_CONVERSION_NOTE = (
+    'Open Distribution does not carry 1-3/4" ID springs. '
+    "Converted to the nearest 2\" set."
+)
+
+
+def is_unsold_coil(coil: float) -> bool:
+    return coil is not None and abs(float(coil) - 1.75) < 0.02
+
+
+def sold_coil(coil: float) -> float:
+    """Map a 1-3/4\" ID onto the nearest coil we sell, which is 2\"."""
+    if coil is None or is_unsold_coil(coil):
+        return 2.0
+    return float(coil)
 
 # .393 / .3938 is a special-order wire Joey almost never wants on a quote.
 # Matched loosely so both the BC .393 code and the Canimex .3938 row hit.
@@ -712,6 +729,9 @@ class SpringCalculatorService:
         # Enforce minimum 10,000 cycle standard
         if target_cycles < 10000:
             target_cycles = 10000
+        # 1-3/4" is not carried. A request for that ID is calculated on 2".
+        if is_unsold_coil(coil_diameter):
+            coil_diameter = 2.0
 
         # Get drum data
         drum_data = self.get_drum_data(
@@ -869,9 +889,8 @@ class SpringCalculatorService:
         options = []
         warnings = []
 
-        # Try common coil diameters — restricted to OPENDC stocked IDs
-        # (matches bc_part_number_mapper.COIL_SIZE_CODES).
-        coil_diameters = [1.75, 2.0, 2.625, 3.75, 6.0]
+        # Stocked IDs only. 1-3/4" is not carried.
+        coil_diameters = list(SOLD_COIL_IDS)
 
         for coil_diam in coil_diameters:
             # Find wire diameters that work with this coil
@@ -968,14 +987,12 @@ class SpringCalculatorService:
 
         Returns: (wire_diameter, coil_diameter) or None
         """
-        # Coil diameters to try, in order of preference (smaller is better
-        # for installation). Restricted to OPENDC stocked IDs, which match
-        # bc_part_number_mapper.COIL_SIZE_CODES (1.75/2.0/2.625/3.75/6.0).
+        # Stocked IDs only. 1-3/4" is not carried; a request for it starts at 2".
         # Canimex's table includes 2.5, 4.5, 5.25, 5.875, 7.625 — none of
         # those are stocked, so picks at those IDs would never resolve to a
         # real BC SKU. Heavier configs that don't fit on a 6" coil should
         # escalate to duplex or fail to a manual SP-CUSTOM line.
-        coil_diameters_to_try = [preferred_coil, 2.0, 2.625, 3.75, 6.0]
+        coil_diameters_to_try = [sold_coil(preferred_coil), 2.0, 2.625, 3.75, 6.0]
         # Remove duplicates while preserving order
         seen = set()
         coil_diameters_to_try = [x for x in coil_diameters_to_try if not (x in seen or seen.add(x))]
@@ -1023,6 +1040,19 @@ class SpringCalculatorService:
 
         # Normalize wire to closest Canimex value
         norm_wire = normalize_wire_diameter(current_wire)
+        # 1-3/4" is not sold. Keep the entered spring for the IPPT reverse
+        # calculation, and build the replacement on 2" unless a stocked
+        # replacement ID was requested.
+        coil_note = None
+        if is_unsold_coil(current_coil) or is_unsold_coil(replacement_coil):
+            if replacement_coil is None or is_unsold_coil(replacement_coil):
+                replacement_coil = 2.0
+                if not replacement_wire and self.get_divider(norm_wire, 2.0) is not None:
+                    replacement_wire = norm_wire
+                elif not replacement_wire:
+                    wires = [w for w, table in self.dividers.items() if 2.0 in table]
+                    replacement_wire = min(wires, key=lambda w: abs(w - norm_wire))
+            coil_note = COIL_CONVERSION_NOTE
 
         # Get divider for current spring
         divider = self.get_divider(norm_wire, current_coil)
@@ -1198,6 +1228,7 @@ class SpringCalculatorService:
             "success": True,
             "current": current_analysis,
             "replacement": replacement,
+            "coil_conversion_note": coil_note,
             "all_candidates": candidates if not replacement_wire else None,
             "duplex_options": duplex_options,
             "min_door_widths": min_door_widths,

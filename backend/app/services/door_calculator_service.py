@@ -426,15 +426,12 @@ def _cone_pair_cost(coil: float, hands: int) -> float:
     from app.services.bc_part_number_mapper import get_bc_mapper
 
     cost = None
-    # 1.75" has no cone card. Price it as the 2" cone so the ranker still
-    # has a number, without asking the mapper for a part that does not exist.
-    if min(_CONE_FALLBACK_USD, key=lambda c: abs(c - coil)) == coil or abs(coil - 1.75) > 0.01:
-        try:
-            mapper = get_bc_mapper()
-            pn = mapper.get_winder_stationary_set(coil, 1.0, "LH").part_number
-            cost = spring_pricing.price_of(pn)
-        except Exception:
-            cost = None
+    try:
+        mapper = get_bc_mapper()
+        pn = mapper.get_winder_stationary_set(coil, 1.0, "LH").part_number
+        cost = spring_pricing.price_of(pn)
+    except Exception:
+        cost = None
     if cost is None:
         closest = min(_CONE_FALLBACK_USD, key=lambda c: abs(c - coil))
         cost = _CONE_FALLBACK_USD[closest]
@@ -867,13 +864,11 @@ class DoorCalculatorService:
         self.drum_table = DRUM_TABLE
         self.spring_mip = SPRING_MIP_TABLE
 
-    # Coil IDs OPENDC stocks, matching bc_part_number_mapper.COIL_SIZE_CODES.
-    # 1.75" has no BC SKU. It is added only for light doors, with .192 and
-    # .207, so a 150 lb door is not forced onto .2187 (rated 50k at 10k).
+    # Coil IDs Open Distribution sells. 1-3/4" is not carried.
     _STOCKED_COILS = (2.0, 2.625, 3.75, 6.0)
     _LIGHT_DOOR_LBS = 250.0
     _LIGHT_WIRES = (0.1920, 0.2070)
-    _LIGHT_COILS = (1.75, 2.0)
+    _LIGHT_COILS = (2.0,)
 
     def _enumerate_spring_candidates(
         self,
@@ -893,8 +888,10 @@ class DoorCalculatorService:
         taken from the Canimex divider table, so a pairing may still have no BC
         SKU — the cost model returns None for those and they drop out.
         """
+        from app.services.spring_calculator_service import is_unsold_coil
+
         candidates = []
-        coils = list(self._STOCKED_COILS)
+        coils = [c for c in self._STOCKED_COILS if not is_unsold_coil(c)]
         if door_weight_for_wires <= self._LIGHT_DOOR_LBS:
             coils = list(self._LIGHT_COILS) + [c for c in coils if c not in self._LIGHT_COILS]
         for coil in coils:
