@@ -785,13 +785,14 @@ def is_missing_light_wire_spring(part_number: str) -> bool:
 def _light_wire_kept(wire: float, coil: float) -> bool:
     """True for the light-door wires BC does not stock.
 
-    .192 and .207 on 1.75" or 2" are a real cycle-life choice. Stepping them
-    up to the .218 SKU changes the rating (a 150 lb door goes from 10k to
-    50k), so the quote keeps the engineering size and names the missing item.
+    .192 and .207 on 2" are a real cycle-life choice. 1-3/4" is not carried.
+    Stepping them up to the .218 SKU changes the rating (a 150 lb door goes
+    from 10k to 50k), so the quote keeps the engineering size and names the
+    missing item.
     """
     return (
         any(abs(wire - candidate) < 0.001 for candidate in (0.192, 0.207))
-        and any(abs(coil - candidate) < 0.01 for candidate in (1.75, 2.0))
+        and abs(coil - 2.0) < 0.01
     )
 
 

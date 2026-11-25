@@ -365,21 +365,29 @@ class SpringBuilderService:
         Look up a spring by direct specs (wire, coil, wind) without calculating from door params.
         Returns catalog match, cone sets, and alternatives.
         """
+        from app.services.spring_calculator_service import COIL_CONVERSION_NOTE, is_unsold_coil
+        coil_note = None
+        if is_unsold_coil(coil_diameter):
+            coil_diameter = 2.0
+            coil_note = COIL_CONVERSION_NOTE
         lh_part = mapper.get_spring_part_number(wire_diameter, coil_diameter, "LH")
         rh_part = mapper.get_spring_part_number(wire_diameter, coil_diameter, "RH")
 
         lh_match = self._match_sku(db, lh_part.part_number)
         rh_match = self._match_sku(db, rh_part.part_number)
 
-        # If no match, try stepping up wire
-        if not lh_match:
-            lh_match, stepped_pn = self._try_step_up_wire(db, wire_diameter, coil_diameter, "LH")
-            if stepped_pn:
-                lh_part.part_number = stepped_pn
-        if not rh_match:
-            rh_match, stepped_pn = self._try_step_up_wire(db, wire_diameter, coil_diameter, "RH")
-            if stepped_pn:
-                rh_part.part_number = stepped_pn
+        from app.services.part_number_service import _light_wire_kept
+        # If no match, try stepping up wire. .192/.207 stay on 2" and are not
+        # rewritten to .218. 1-3/4" was already moved to 2" above.
+        if not _light_wire_kept(wire_diameter, coil_diameter):
+            if not lh_match:
+                lh_match, stepped_pn = self._try_step_up_wire(db, wire_diameter, coil_diameter, "LH")
+                if stepped_pn:
+                    lh_part.part_number = stepped_pn
+            if not rh_match:
+                rh_match, stepped_pn = self._try_step_up_wire(db, wire_diameter, coil_diameter, "RH")
+                if stepped_pn:
+                    rh_part.part_number = stepped_pn
 
         special_order_needed = not lh_match and not rh_match
         cone_sets = self._resolve_cone_sets(coil_diameter)
@@ -387,6 +395,7 @@ class SpringBuilderService:
         return {
             "success": True,
             "mode": "direct_entry",
+            "coil_conversion_note": coil_note,
             "specs": {
                 "wire_diameter": wire_diameter,
                 "coil_diameter": coil_diameter,
@@ -530,14 +539,16 @@ class SpringBuilderService:
             lh_match = self._match_sku(db, lh_part.part_number)
             rh_match = self._match_sku(db, rh_part.part_number)
 
-            if not lh_match:
-                lh_match, stepped_pn = self._try_step_up_wire(db, repl["wire_diameter"], repl["coil_diameter"], "LH")
-                if stepped_pn:
-                    lh_part.part_number = stepped_pn
-            if not rh_match:
-                rh_match, stepped_pn = self._try_step_up_wire(db, repl["wire_diameter"], repl["coil_diameter"], "RH")
-                if stepped_pn:
-                    rh_part.part_number = stepped_pn
+            from app.services.part_number_service import _light_wire_kept
+            if not _light_wire_kept(repl["wire_diameter"], repl["coil_diameter"]):
+                if not lh_match:
+                    lh_match, stepped_pn = self._try_step_up_wire(db, repl["wire_diameter"], repl["coil_diameter"], "LH")
+                    if stepped_pn:
+                        lh_part.part_number = stepped_pn
+                if not rh_match:
+                    rh_match, stepped_pn = self._try_step_up_wire(db, repl["wire_diameter"], repl["coil_diameter"], "RH")
+                    if stepped_pn:
+                        rh_part.part_number = stepped_pn
 
             result["springs"] = {
                 "lh": {

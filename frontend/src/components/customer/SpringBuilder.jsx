@@ -25,11 +25,16 @@ const WIRE_SIZES = [
 ];
 
 const COIL_SIZES = [
-  { value: 1.75, label: '1 3/4"', shortLabel: '1-3/4' },
   { value: 2.0, label: '2"', shortLabel: '2' },
   { value: 2.625, label: '2 5/8"', shortLabel: '2-5/8' },
   { value: 3.75, label: '3 3/4"', shortLabel: '3-3/4' },
   { value: 6.0, label: '6"', shortLabel: '6' },
+];
+// An existing spring may be 1-3/4". We do not sell that ID; conversion
+// rewrites it to the nearest 2" set.
+const ENTERED_COIL_SIZES = [
+  { value: 1.75, label: '1 3/4" (not carried)', shortLabel: '1-3/4' },
+  ...COIL_SIZES,
 ];
 
 const LIFT_TYPES = [
@@ -71,7 +76,7 @@ function formatWire(wire) {
 }
 
 function coilLabel(val) {
-  const match = COIL_SIZES.find(c => Math.abs(c.value - val) < 0.01);
+  const match = ENTERED_COIL_SIZES.find(c => Math.abs(c.value - val) < 0.01);
   return match ? match.shortLabel : `${val}`;
 }
 
@@ -670,7 +675,7 @@ export default function SpringBuilder() {
                 <FieldGroup label="I.D. (Coil Diameter)">
                   <select name="current_coil" value={convForm.current_coil} onChange={handleConvChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                    {COIL_SIZES.map(s => (
+                    {ENTERED_COIL_SIZES.map(s => (
                       <option key={s.value} value={s.value}>{s.label}</option>
                     ))}
                   </select>
@@ -749,6 +754,11 @@ export default function SpringBuilder() {
                 {/* Show computed replacement values */}
                 {convResult?.success && convResult.replacement && (
                   <div className="mt-2 space-y-2">
+                    {convResult.coil_conversion_note && (
+                      <p className="text-xs text-amber-800 bg-amber-50 rounded-lg p-2">
+                        {convResult.coil_conversion_note}
+                      </p>
+                    )}
                     <div className="bg-blue-50 rounded-lg p-3">
                       <ResultRow label="Wire" value={formatWire(convResult.replacement.wire_diameter)} unit='"' />
                       <ResultRow label="I.D." value={coilLabel(convResult.replacement.coil_diameter)} unit='"' />
