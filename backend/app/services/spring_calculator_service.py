@@ -1155,13 +1155,21 @@ class SpringCalculatorService:
                 })
 
             if candidates:
-                # Same ranking idea as a new door: closest rated life, least steel,
-                # .393 last. Length match is only the final tiebreak.
+                # Same order as a new door: closest life, .393 last, then the
+                # portal price of the set. Steel weight is only a later tiebreak.
+                from app.services.spring_pricing import portal_replacement_cost
+
                 def _conv_key(c):
                     rated = c["target_cycles"]
+                    cost = portal_replacement_cost(
+                        c["wire_diameter"], c["coil_diameter"], c["length"], c["spring_quantity"],
+                    )
+                    c["portal_price"] = cost
                     return (
                         abs(rated - target_cycles),
                         1 if any(abs(c["wire_diameter"] - t) <= 0.004 for t in WIRE_393_TARGETS) else 0,
+                        0 if cost is not None else 1,
+                        cost if cost is not None else 0,
                         c["weight"] * c["spring_quantity"],
                         c["wire_diameter"],
                         abs(c["length"] - current_length),
@@ -1290,11 +1298,25 @@ class SpringCalculatorService:
                     "wire_lb": wire_lb,
                 })
 
-        # Closest (all are at the requested life), .393 last, least steel.
-        # The portal shows the top 3.
+        # Closest (all are at the requested life), .393 last, then portal
+        # price. An unpriced wire sorts after priced options. Steel is later.
+        from app.services.spring_pricing import portal_replacement_cost
+
         def _duplex_key(o):
+            cost = portal_replacement_cost(
+                o["outer"]["wire_diameter"], o["outer"]["coil_diameter"], o["outer"]["length"],
+                o["spring_quantity"],
+                is_duplex=True,
+                inner_wire_diameter=o["inner"]["wire_diameter"],
+                inner_coil_diameter=o["inner"]["coil_diameter"],
+                inner_length=o["inner"]["length"],
+                duplex_pairs=o["spring_quantity"],
+            )
+            o["portal_price"] = cost
             return (
                 1 if any(abs(o["outer"]["wire_diameter"] - t) <= 0.004 for t in WIRE_393_TARGETS) else 0,
+                0 if cost is not None else 1,
+                cost if cost is not None else 0,
                 o["wire_lb"],
                 o["outer"]["wire_diameter"],
                 o["outer"]["length"],
