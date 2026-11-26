@@ -25,6 +25,7 @@ from app.services.freight_service import (
     allocate_freight_across_doors,
     apply_freight_to_line_pricing,
     calculate_freight,
+    customer_freight_policy,
     door_freight_amounts,
     get_freight_config,
     remember_added_door_line,
@@ -2405,6 +2406,7 @@ def build_bc_quote_from_doors(
             try:
                 # Get customer province
                 customer_province = None
+                bc_cust = None
                 if request.customerId:
                     bc_cust = db.query(BCCustomer).filter(
                         BCCustomer.bc_customer_id == request.customerId
@@ -2418,6 +2420,7 @@ def build_bc_quote_from_doors(
                         province=customer_province,
                         delivery_type=request.deliveryType,
                         db=db,
+                        freight_policy=customer_freight_policy(bc_cust),
                     ),
                     freight_override,
                 )
@@ -2989,15 +2992,18 @@ async def get_parts_for_quote(
         freight_preview = None
         if see_prices and (request.deliveryType or "").lower() != "pickup" and not is_home_builder:
             province = None
+            freight_policy = None
             if request.customerId:
                 try:
                     bc_cust = db.query(BCCustomer).filter(
                         BCCustomer.bc_customer_id == request.customerId
                     ).first()
+                    freight_policy = customer_freight_policy(bc_cust)
                     if bc_cust and bc_cust.address:
                         province = bc_cust.address.get("province")
                 except Exception:
                     province = None
+                    freight_policy = None
             subtotal = 0.0
             prices_complete = True
             for part in preview_parts:
@@ -3007,13 +3013,20 @@ async def get_parts_for_quote(
                 subtotal += float(part["unit_price"]) * float(part.get("quantity") or 0)
             try:
                 freight_preview = apply_freight_override(
-                    calculate_freight(round(subtotal, 2), province, request.deliveryType or "delivery", db),
+                    calculate_freight(
+                        round(subtotal, 2),
+                        province,
+                        request.deliveryType or "delivery",
+                        db,
+                        freight_policy=freight_policy,
+                    ),
                     None,
                 )
             except Exception:
                 freight_preview = {"skip": False, "amount": None, "description": "Freight (estimate)"}
             freight_preview["prices_complete"] = prices_complete
-            if not prices_complete:
+            # A waiver is $0 even when a part price is still missing.
+            if not prices_complete and freight_preview.get("customer_override") != "waive":
                 freight_preview["amount"] = None
             if not see_cost and isinstance(freight_preview, dict):
                 freight_preview.pop("rate", None)

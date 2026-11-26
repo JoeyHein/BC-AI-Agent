@@ -126,8 +126,10 @@ class _RecordingBC:
 class _CustomerDB:
     """Enough of a session for the freight province lookup and the settings reads."""
 
-    def __init__(self, province):
+    def __init__(self, province, freight_override=None, freight_percent=None):
         self.province = province
+        self.freight_override = freight_override
+        self.freight_percent = freight_percent
 
     def query(self, model):
         self._model = getattr(model, "__name__", "")
@@ -144,6 +146,10 @@ class _CustomerDB:
             pricing_tier="retail",
             bc_price_group=None,
             setting_value=None,
+            freight_override=self.freight_override,
+            freight_percent=self.freight_percent,
+            company_name="Marquis Overhead Doors",
+            customer_metadata={"number": "MRQ"},
         )
 
     def get_bind(self):
@@ -265,6 +271,54 @@ class TestSingleFreightLine:
         assert result["data"]["freight"]["amount"] == 7.0
         # 7% of the $100 product subtotal, once, not once per door.
         assert result["data"]["freight"]["rate"] == 7.0
+
+    def test_customer_waiver_omits_the_freight_line(self, monkeypatch):
+        bc = _RecordingBC()
+        db = _CustomerDB("AB", freight_override="waive")
+        result = _build_with_db(
+            monkeypatch, bc, db,
+            customerId="MRQ-1",
+            deliveryType="delivery",
+        )
+        freight = result["data"]["freight"]
+        assert freight["amount"] == 0
+        assert freight["skip"] is True
+        assert freight["customer_override"] == "waive"
+        freight_rows = [row for row in bc.added if row.get("lineObjectNumber") == "FREIGHT"]
+        assert freight_rows
+        assert all(row["id"] in bc.deleted for row in freight_rows)
+        assert not any(_prices(bc).get(row["id"], 0) > 0 for row in freight_rows)
+        assert not any(row.get("description") == FREIGHT_ESTIMATE_NOTE for row in bc.added)
+
+    def test_customer_percent_replaces_the_alberta_rate(self, monkeypatch):
+        bc = _RecordingBC()
+        db = _CustomerDB("AB", freight_override="percent", freight_percent=3)
+        result = _build_with_db(
+            monkeypatch, bc, db,
+            customerId="MRQ-1",
+            deliveryType="delivery",
+        )
+        freight = _freight_item(bc)
+        assert _prices(bc)[freight["id"]] == 3.0
+        assert result["data"]["freight"]["rate"] == 3.0
+        assert result["data"]["freight"]["amount"] == 3.0
+        assert result["data"]["freight"]["customer_override"] == "percent"
+        assert bc.added[-1]["description"] == FREIGHT_ESTIMATE_NOTE
+
+    def test_staff_freight_amount_beats_a_customer_waiver(self, monkeypatch):
+        bc = _RecordingBC()
+        db = _CustomerDB("AB", freight_override="waive")
+        result = _build_with_db(
+            monkeypatch, bc, db,
+            customerId="MRQ-1",
+            deliveryType="delivery",
+            freightAmount=12,
+        )
+        freight = _freight_item(bc)
+        assert _prices(bc)[freight["id"]] == 12.0
+        assert result["data"]["freight"]["overridden"] is True
+        assert result["data"]["freight"]["skip"] is False
+        assert freight["id"] not in bc.deleted
 
     def test_staff_can_override_the_freight_amount(self, monkeypatch):
         bc = _RecordingBC()
@@ -467,6 +521,41 @@ class TestCustomerCannotSetPrices:
         freight = _freight_item(bc)
         assert _prices(bc)[wrap["id"]] == 0.95
         assert _prices(bc)[freight["id"]] == 40.0
+
+    def test_self_serve_edit_uses_the_customer_waiver(self, monkeypatch):
+        import app.api.customer_portal as portal
+
+        monkeypatch.setattr(portal, "get_bc_spring_inventory", lambda: {})
+        bc = _RecordingBC()
+        monkeypatch.setattr(portal, "bc_client", bc)
+        config = SimpleNamespace(
+            id=None,
+            bc_quote_id="quote-1",
+            bc_quote_number="SQ-000001",
+            config_data={"doors": []},
+            bc_line_map=None,
+            staff_price_adjustments=None,
+        )
+        result = portal._edit_bc_quote_lines(
+            config,
+            {
+                "doors": [_tx450()],
+                "deliveryType": "delivery",
+                "freightAmount": 80,
+            },
+            bc_customer_id="MRQ-1",
+            pricing_tier="retail",
+            db=_CustomerDB("Alberta", freight_override="waive"),
+            customer_user_id=None,
+            delivery_type="delivery",
+        )
+        freight_rows = [row for row in bc.added if row.get("lineObjectNumber") == "FREIGHT"]
+        assert freight_rows
+        assert all(row["id"] in bc.deleted for row in freight_rows)
+        assert result["freight"]["amount"] == 0
+        assert result["freight"]["skip"] is True
+        assert result["freight"]["customer_override"] == "waive"
+        assert not any(row.get("description") == FREIGHT_ESTIMATE_NOTE for row in bc.added)
 
 
 class TestStaffOverrideGate:

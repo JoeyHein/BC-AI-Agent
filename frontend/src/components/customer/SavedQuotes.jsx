@@ -456,6 +456,7 @@ function SavedQuotes() {
                         linesFailed={pricingState[quote.id].data.lines_failed}
                         bcQuoteNumber={pricingState[quote.id].data.bc_quote_number}
                         doorResults={pricingState[quote.id].data.door_results}
+                        freight={pricingState[quote.id].data.freight}
                         compact={true}
                       />
                     </div>

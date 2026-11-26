@@ -33,6 +33,7 @@ from app.services.customer_profile_service import (
     start_background_seed,
 )
 from app.services.auth_service import auth_service
+from app.services.freight_service import FreightOverrideError, assign_freight_override, customer_freight_policy
 from app.services.staff_permissions import (
     enforce_staff_permission,
     has_permission,
@@ -158,6 +159,8 @@ class CustomerDetailResponse(BaseModel):
     bc_company_name: Optional[str]
     bc_price_multiplier: Optional[float]
     pricing_tier: Optional[str]
+    freight_override: Optional[str] = None
+    freight_percent: Optional[float] = None
     bc_contact_name: Optional[str]
     bc_email: Optional[str]
     bc_phone: Optional[str]
@@ -172,6 +175,11 @@ class CustomerDetailResponse(BaseModel):
 
 class UpdatePricingTierRequest(BaseModel):
     pricing_tier: Optional[str]  # gold, silver, bronze, retail, or null to clear
+
+
+class UpdateFreightOverrideRequest(BaseModel):
+    freight_override: str  # default, waive, or percent
+    freight_percent: Optional[float] = None
 
 
 class LinkCustomerRequest(BaseModel):
@@ -202,6 +210,8 @@ class BCCustomerSearchResponse(BaseModel):
     bc_price_group: Optional[str] = None
     pricing_tier: Optional[str] = None
     customer_number: Optional[str] = None
+    freight_override: Optional[str] = None
+    freight_percent: Optional[float] = None
 
 
 class PendingCustomerResponse(BaseModel):
@@ -346,6 +356,8 @@ def search_bc_customers(
             "bc_price_group": bc.bc_price_group,
             "pricing_tier": bc.pricing_tier,
             "customer_number": (bc.customer_metadata or {}).get("number"),
+            "freight_override": bc.freight_override,
+            "freight_percent": bc.freight_percent,
         })))
 
     return result
@@ -1024,6 +1036,8 @@ def get_customer(
     bc_company_name = None
     bc_price_multiplier = None
     pricing_tier = None
+    freight_override = None
+    freight_percent = None
     bc_contact_name = None
     bc_email = None
     bc_phone = None
@@ -1036,6 +1050,9 @@ def get_customer(
             bc_company_name = bc_customer.company_name
             bc_price_multiplier = bc_customer.price_multiplier
             pricing_tier = bc_customer.pricing_tier
+            policy = customer_freight_policy(bc_customer)
+            freight_override = policy["mode"]
+            freight_percent = policy["percent"]
             bc_contact_name = bc_customer.contact_name
             bc_email = bc_customer.email
             bc_phone = bc_customer.phone
@@ -1064,6 +1081,8 @@ def get_customer(
         bc_company_name=bc_company_name,
         bc_price_multiplier=bc_price_multiplier,
         pricing_tier=pricing_tier,
+        freight_override=freight_override,
+        freight_percent=freight_percent,
         bc_contact_name=bc_contact_name,
         bc_email=bc_email,
         bc_phone=bc_phone,
@@ -1529,6 +1548,71 @@ def update_customer_pricing_tier(
     logger.info(
         f"Admin {current_admin.email} set pricing tier for "
         f"{bc_customer.company_name} ({bc_customer.bc_customer_id}) to '{tier}'"
+    )
+
+    return get_customer(customer_id, current_admin, db)
+
+
+@router.patch("/{customer_id}/freight")
+def update_customer_freight(
+    customer_id: int,
+    update_data: UpdateFreightOverrideRequest,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db)
+):
+    """Set how freight is charged on this customer's portal quotes.
+
+    default uses the province rate (Alberta 7%, otherwise 9%).
+    waive drops freight to $0 on every quote.
+    percent replaces the province rate with freight_percent.
+    A typed freight amount on one staff quote still wins over this rule.
+    """
+    customer = db.query(User).filter(
+        User.id == customer_id,
+        User.user_type == 'CUSTOMER'
+    ).first()
+
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+
+    if not customer.bc_customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Customer is not linked to a BC account"
+        )
+
+    bc_customer = db.query(BCCustomer).filter(
+        BCCustomer.bc_customer_id == customer.bc_customer_id
+    ).first()
+
+    if not bc_customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="BC customer record not found"
+        )
+
+    try:
+        assign_freight_override(
+            bc_customer,
+            update_data.freight_override,
+            update_data.freight_percent,
+        )
+    except FreightOverrideError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
+    db.commit()
+
+    logger.info(
+        f"Admin {current_admin.email} set freight override for "
+        f"{bc_customer.company_name} ({bc_customer.bc_customer_id}) to "
+        f"'{bc_customer.freight_override}'"
+        + (f" {bc_customer.freight_percent}%" if bc_customer.freight_percent is not None else "")
     )
 
     return get_customer(customer_id, current_admin, db)
