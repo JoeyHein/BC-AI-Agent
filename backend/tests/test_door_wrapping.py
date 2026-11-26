@@ -495,7 +495,7 @@ class TestQuotePathsPriceWrap:
         assert panel["unit_price"] == 12.34
 
 
-def _freight_calc(product_subtotal, province, delivery_type, db):
+def _freight_calc(product_subtotal, province, delivery_type, db, freight_policy=None):
     if (delivery_type or "").lower() == "pickup":
         return {"skip": True, "amount": 0, "rate": 0, "description": "Pickup - No Freight"}
     amount = round(float(product_subtotal) * 0.10, 2)

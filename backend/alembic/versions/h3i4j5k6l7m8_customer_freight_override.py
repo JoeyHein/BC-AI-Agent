@@ -20,9 +20,30 @@ branch_labels = None
 depends_on = None
 
 
+def _has_column(table: str, column: str) -> bool:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if table not in inspector.get_table_names():
+        return False
+    return column in {col["name"] for col in inspector.get_columns(table)}
+
+
 def upgrade():
-    op.add_column("bc_customers", sa.Column("freight_override", sa.String(length=20), nullable=True))
-    op.add_column("bc_customers", sa.Column("freight_percent", sa.Float(), nullable=True))
+    # Some upgrade paths reach this revision without bc_customers. The
+    # customer-profile migration test stamps f3a4b5c6d7e8 on an empty
+    # sqlite file, and that chain never creates the table. Production has it.
+    if "bc_customers" not in sa.inspect(op.get_bind()).get_table_names():
+        return
+    if not _has_column("bc_customers", "freight_override"):
+        op.add_column(
+            "bc_customers",
+            sa.Column("freight_override", sa.String(length=20), nullable=True),
+        )
+    if not _has_column("bc_customers", "freight_percent"):
+        op.add_column(
+            "bc_customers",
+            sa.Column("freight_percent", sa.Float(), nullable=True),
+        )
 
     # Imported here so alembic can load this file before the app is fully up.
     from app.services.freight_service import seed_freight_overrides
@@ -31,5 +52,7 @@ def upgrade():
 
 
 def downgrade():
-    op.drop_column("bc_customers", "freight_percent")
-    op.drop_column("bc_customers", "freight_override")
+    if _has_column("bc_customers", "freight_percent"):
+        op.drop_column("bc_customers", "freight_percent")
+    if _has_column("bc_customers", "freight_override"):
+        op.drop_column("bc_customers", "freight_override")
