@@ -20,6 +20,7 @@ from app.db.models import (
     SalesOrder, SalesOrderLineItem, ProductionOrder,
     OrderStatus, ProductionStatus, BCCustomer, AppSettings, User
 )
+from app.services.freight_service import apply_freight_seed
 from app.services.pricing_service import BC_GROUP_MAPPING_KEY
 
 logger = logging.getLogger(__name__)
@@ -830,6 +831,7 @@ class BCSyncService:
             if address:
                 existing.address = address
             existing.last_synced = datetime.utcnow()
+            apply_freight_seed(existing)
             results["customers_updated"] += 1
         else:
             new_customer = BCCustomer(
@@ -845,6 +847,7 @@ class BCSyncService:
                 customer_metadata=metadata,
                 last_synced=datetime.utcnow()
             )
+            apply_freight_seed(new_customer)
             db.add(new_customer)
             results["customers_synced"] += 1
 

@@ -15,6 +15,7 @@ from typing import Optional
 from app.db.database import SessionLocal
 from app.db.models import User, UserRole, BCCustomer
 from app.services.auth_service import auth_service
+from app.services.freight_service import customer_freight_policy
 from app.services.notification_service import notification_service
 from app.config import settings
 
@@ -162,6 +163,9 @@ class CustomerResponse(BaseModel):
     phone: Optional[str] = None
     bc_customer_id: Optional[str]
     bc_company_name: Optional[str] = None
+    # default uses the province freight rate. waive is $0. percent uses freight_percent.
+    freight_override: Optional[str] = None
+    freight_percent: Optional[float] = None
     # Customer-admin flag: True means this user can manage other staff
     # users on the same BC customer account from the customer portal.
     is_customer_admin: bool = False
@@ -170,6 +174,12 @@ class CustomerResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+def _freight_public(bc_customer):
+    """Mode the customer portal can show. Null customers stay on the province rate."""
+    policy = customer_freight_policy(bc_customer)
+    return policy["mode"], policy["percent"]
 
 
 # ============================================================================
@@ -260,6 +270,7 @@ def register_customer(
         # Don't fail registration if email fails
         logger.error(f"Failed to send registration emails: {e}")
 
+    freight_override, freight_percent = _freight_public(bc_customer)
     return CustomerResponse(
         id=user.id,
         email=user.email,
@@ -272,6 +283,8 @@ def register_customer(
         phone=user.phone,
         bc_customer_id=user.bc_customer_id,
         bc_company_name=bc_customer.company_name if bc_customer else None,
+        freight_override=freight_override,
+        freight_percent=freight_percent,
         is_customer_admin=user.is_customer_admin,
         created_at=user.created_at,
         last_login_at=user.last_login_at
@@ -336,12 +349,14 @@ def login_customer(
 
     # Get BC customer info if linked
     bc_company_name = None
+    bc_customer = None
     if user.bc_customer_id:
         bc_customer = db.query(BCCustomer).filter(
             BCCustomer.bc_customer_id == user.bc_customer_id
         ).first()
         if bc_customer:
             bc_company_name = bc_customer.company_name
+    freight_override, freight_percent = _freight_public(bc_customer)
 
     # Create access token with customer user_type
     access_token = auth_service.create_access_token(
@@ -368,6 +383,8 @@ def login_customer(
             "phone": getattr(user, 'phone', None),
             "bc_customer_id": user.bc_customer_id,
             "bc_company_name": bc_company_name,
+            "freight_override": freight_override,
+            "freight_percent": freight_percent,
             "is_customer_admin": bool(getattr(user, 'is_customer_admin', False)),
         }
     }
@@ -487,12 +504,14 @@ def get_current_customer_info(
     """Get current customer info"""
     # Get BC customer info if linked
     bc_company_name = None
+    bc_customer = None
     if current_user.bc_customer_id:
         bc_customer = db.query(BCCustomer).filter(
             BCCustomer.bc_customer_id == current_user.bc_customer_id
         ).first()
         if bc_customer:
             bc_company_name = bc_customer.company_name
+    freight_override, freight_percent = _freight_public(bc_customer)
 
     return CustomerResponse(
         id=current_user.id,
@@ -506,6 +525,8 @@ def get_current_customer_info(
         phone=getattr(current_user, 'phone', None),
         bc_customer_id=current_user.bc_customer_id,
         bc_company_name=bc_company_name,
+        freight_override=freight_override,
+        freight_percent=freight_percent,
         created_at=current_user.created_at,
         last_login_at=current_user.last_login_at
     )
@@ -528,12 +549,14 @@ def update_customer_profile(
 
     # Get BC customer info if linked
     bc_company_name = None
+    bc_customer = None
     if current_user.bc_customer_id:
         bc_customer = db.query(BCCustomer).filter(
             BCCustomer.bc_customer_id == current_user.bc_customer_id
         ).first()
         if bc_customer:
             bc_company_name = bc_customer.company_name
+    freight_override, freight_percent = _freight_public(bc_customer)
 
     logger.info(f"Customer profile updated: {current_user.email}")
 
@@ -549,6 +572,8 @@ def update_customer_profile(
         phone=getattr(current_user, 'phone', None),
         bc_customer_id=current_user.bc_customer_id,
         bc_company_name=bc_company_name,
+        freight_override=freight_override,
+        freight_percent=freight_percent,
         created_at=current_user.created_at,
         last_login_at=current_user.last_login_at
     )

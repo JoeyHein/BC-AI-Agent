@@ -27,6 +27,7 @@ from app.services.freight_service import (
     allocate_freight_across_doors,
     apply_freight_to_line_pricing,
     calculate_freight,
+    customer_freight_policy,
     door_freight_amounts,
     get_freight_config,
     remember_added_door_line,
@@ -1786,6 +1787,7 @@ def _generate_bc_quote_with_items(
         try:
             # Get customer province
             customer_province = None
+            bc_cust = None
             if db:
                 bc_cust = db.query(BCCustomer).filter(
                     BCCustomer.bc_customer_id == bc_customer_id
@@ -1799,6 +1801,7 @@ def _generate_bc_quote_with_items(
                     province=customer_province,
                     delivery_type=delivery_type,
                     db=db,
+                    freight_policy=customer_freight_policy(bc_cust),
                 ),
                 freight_amount,
             )
@@ -2648,6 +2651,7 @@ def _edit_bc_quote_lines(
     if rebuild_all and pricing and not provides_install:
         try:
             customer_province = None
+            bc_cust = None
             if db:
                 bc_cust = db.query(BCCustomer).filter(BCCustomer.bc_customer_id == bc_customer_id).first()
                 if bc_cust and bc_cust.address:
@@ -2657,6 +2661,7 @@ def _edit_bc_quote_lines(
                     product_subtotal=pricing["subtotal"],
                     province=customer_province,
                     delivery_type=delivery_type, db=db,
+                    freight_policy=customer_freight_policy(bc_cust),
                 ),
                 freight_amount,
             )

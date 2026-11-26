@@ -663,6 +663,13 @@ class BCCustomer(Base):
     pricing_tier = Column(String(50))  # portal tier: gold, silver, bronze, retail
     price_multiplier = Column(Float, nullable=True)  # BC price multiplier % (e.g. +10 = 10% markup, -5 = 5% discount)
     bc_price_group = Column(String(100), nullable=True)  # BC customerPriceGroup code (e.g. RETAIL, CONTRACTOR)
+    # Portal freight rule for this customer. Null and "default" use the
+    # province rate (Alberta 7%, everyone else 9%). "waive" is freight $0.
+    # "percent" uses freight_percent instead of the province rate.
+    # A null value can still receive a one-time seed (Marquis / MRQ).
+    # An explicit "default" is an admin choice and is not re-seeded.
+    freight_override = Column(String(20), nullable=True)
+    freight_percent = Column(Float, nullable=True)
     customer_metadata = Column(JSON)  # Additional BC customer data
 
     # Sync tracking

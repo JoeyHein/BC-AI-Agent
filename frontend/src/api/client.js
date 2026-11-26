@@ -616,6 +616,12 @@ export const customersApi = {
       pricing_tier: pricingTier,
     }),
 
+  updateFreight: (customerId, { freight_override, freight_percent }) =>
+    apiClient.patch(`/api/admin/customers/${customerId}/freight`, {
+      freight_override,
+      freight_percent,
+    }),
+
   // Pending registrations
   getPendingRegistrations: () =>
     apiClient.get('/api/admin/customers/pending'),
