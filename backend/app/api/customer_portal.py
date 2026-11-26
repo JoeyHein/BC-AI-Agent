@@ -2835,6 +2835,7 @@ def _estimate_pricing_locally(
     line_price_overrides=None,
     freight_amount=None,
     province: Optional[str] = None,
+    freight_policy: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """
     Calculate pricing locally without creating a BC quote.
@@ -3078,6 +3079,7 @@ def _estimate_pricing_locally(
                 province=province,
                 delivery_type=delivery_type,
                 db=db,
+                freight_policy=freight_policy,
             ),
             freight_amount,
         )
@@ -3161,6 +3163,11 @@ def price_preview(
     else:
         pricing_tier = "retail"
 
+    bc_customer = None
+    if current_user.bc_customer_id:
+        bc_customer = db.query(BCCustomer).filter(
+            BCCustomer.bc_customer_id == current_user.bc_customer_id
+        ).first()
     result = _estimate_pricing_locally(
         doors=doors,
         pricing_tier=pricing_tier,
@@ -3168,6 +3175,7 @@ def price_preview(
         db=db,
         delivery_type=delivery_type,
         province=_customer_province(db, current_user.bc_customer_id),
+        freight_policy=customer_freight_policy(bc_customer),
     )
     return {
         "success": True,

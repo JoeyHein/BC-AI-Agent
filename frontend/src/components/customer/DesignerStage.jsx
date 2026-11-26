@@ -40,11 +40,13 @@ function DesignerStage({
   let priceText = 'Set the series and size to see a price'
   let note = 'The drawing updates as you choose. Request pricing on Review for the official quote.'
   const freightRate = freight?.rate
-  const freightSentence = deliveryType === 'pickup' || freight?.skip
+  const freightSentence = deliveryType === 'pickup'
     ? 'Pickup, no freight.'
-    : freightRate
-      ? `Freight ${Number(freightRate)}%.`
-      : 'Freight included.'
+    : freight?.customer_override === 'waive' || (freight?.skip && deliveryType === 'delivery')
+      ? 'Freight waived.'
+      : freightRate
+        ? `Freight ${Number(freightRate)}%.`
+        : 'Freight included.'
   if (officialPricing && showAmount) {
     priceLabel = 'Dealer price'
     priceText = formatDealerPrice(officialPricing.total, officialPricing.currency)

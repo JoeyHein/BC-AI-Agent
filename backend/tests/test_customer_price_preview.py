@@ -116,6 +116,18 @@ def test_price_preview_uses_province_freight_and_does_not_save_a_quote(monkeypat
     assert other.json()["freight"]["amount"] == 90.0
     assert other.json()["pricing"]["total"] == 1090.0
 
+    customer.freight_override = "waive"
+    db.commit()
+    waived = client.post("/api/customer/portal/price-preview", json={
+        "deliveryType": "delivery",
+        "doors": [_door("residential", "KANATA", 192, 84)],
+    })
+    assert waived.status_code == 200, waived.text
+    assert waived.json()["freight"]["customer_override"] == "waive"
+    assert waived.json()["freight"]["skip"] is True
+    assert waived.json()["freight"]["amount"] == 0
+    assert waived.json()["pricing"]["total"] == 1000.0
+
     pickup = client.post("/api/customer/portal/price-preview", json={
         "deliveryType": "pickup",
         "doors": [_door("aluminium", "AL976", 96, 84, panelColor="CLEAR_ANODIZED", panelDesign="FLUSH")],

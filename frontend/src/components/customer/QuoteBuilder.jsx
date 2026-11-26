@@ -803,6 +803,7 @@ function QuoteBuilder() {
             onGetPricing={handleGetPricing}
             onConfirmSubmit={handleConfirmSubmit}
             onUpdateDoor={updateDoorAt}
+            user={user}
           />
         )}
       </div>
@@ -3138,7 +3139,7 @@ function HardwareStep({ door, trackOptions, hardwareOptions, operatorOptions, on
   )
 }
 
-function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deliveryType, onNameChange, onDescriptionChange, onPoNumberChange, onDeliveryTypeChange, onSave, isSaving, errors, isBCLinked, isHomeBuilder, pricingData, pricingLoading, onGetPricing, onConfirmSubmit, onUpdateDoor }) {
+function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deliveryType, onNameChange, onDescriptionChange, onPoNumberChange, onDeliveryTypeChange, onSave, isSaving, errors, isBCLinked, isHomeBuilder, pricingData, pricingLoading, onGetPricing, onConfirmSubmit, onUpdateDoor, user }) {
   const dimensionErrors = collectDoorsDimensionErrors(doors, config)
 
   function getSeriesName(doorType, seriesId) {
