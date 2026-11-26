@@ -2813,6 +2813,19 @@ def _get_customer_pricing_tier(bc_customer_id: str, db: Session) -> str:
     return "retail"
 
 
+def _customer_province(db: Session, bc_customer_id: Optional[str]) -> Optional[str]:
+    """Province stored on the BC customer. Freight uses the same field as a real quote."""
+    if not db or not bc_customer_id:
+        return None
+    bc_customer = db.query(BCCustomer).filter(
+        BCCustomer.bc_customer_id == bc_customer_id
+    ).first()
+    address = bc_customer.address if bc_customer else None
+    if isinstance(address, dict):
+        return address.get("province")
+    return None
+
+
 def _estimate_pricing_locally(
     doors: List[dict],
     pricing_tier: str,
@@ -2821,6 +2834,8 @@ def _estimate_pricing_locally(
     delivery_type: str = "delivery",
     line_price_overrides=None,
     freight_amount=None,
+    province: Optional[str] = None,
+    freight_policy: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """
     Calculate pricing locally without creating a BC quote.
@@ -3061,9 +3076,10 @@ def _estimate_pricing_locally(
         freight = apply_freight_override(
             calculate_freight(
                 product_subtotal=subtotal,
-                province=None,  # No province for unlinked customers
+                province=province,
                 delivery_type=delivery_type,
                 db=db,
+                freight_policy=freight_policy,
             ),
             freight_amount,
         )
@@ -3105,6 +3121,72 @@ def _estimate_pricing_locally(
 # ============================================================================
 # PRICING ENDPOINTS
 # ============================================================================
+
+class PricePreviewRequest(BaseModel):
+    """Door configuration for a running estimate. Nothing is saved."""
+    doors: List[Dict[str, Any]] = Field(..., min_length=1, max_length=30)
+    deliveryType: str = "delivery"
+
+    @field_validator("deliveryType")
+    @classmethod
+    def _delivery_type(cls, value: str) -> str:
+        if value not in {"delivery", "pickup"}:
+            raise ValueError("deliveryType must be delivery or pickup")
+        return value
+
+
+@router.post("/price-preview")
+def price_preview(
+    body: PricePreviewRequest,
+    current_user: User = Depends(get_current_customer),
+    db: Session = Depends(get_db),
+):
+    """
+    Running dealer estimate while a quote is being designed.
+
+    Uses the same local selling-price and freight helpers as an unlinked
+    estimate, with this customer's tier and province. It does not create or
+    edit a Business Central quote. Review still calls get-pricing for the
+    official quote.
+    """
+    doors = _validate_doors_config({"doors": body.doors})
+    delivery_type = body.deliveryType
+    if current_user.bc_customer_id:
+        pricing_tier = _get_customer_pricing_tier(current_user.bc_customer_id, db)
+        doors, delivery_type = _apply_portal_profile(
+            db,
+            current_user.bc_customer_id,
+            doors,
+            delivery_type,
+            None,
+        )
+    else:
+        pricing_tier = "retail"
+
+    bc_customer = None
+    if current_user.bc_customer_id:
+        bc_customer = db.query(BCCustomer).filter(
+            BCCustomer.bc_customer_id == current_user.bc_customer_id
+        ).first()
+    result = _estimate_pricing_locally(
+        doors=doors,
+        pricing_tier=pricing_tier,
+        config_id=0,
+        db=db,
+        delivery_type=delivery_type,
+        province=_customer_province(db, current_user.bc_customer_id),
+        freight_policy=customer_freight_policy(bc_customer),
+    )
+    return {
+        "success": True,
+        "is_estimate": True,
+        "pricing_tier": pricing_tier,
+        "pricing": result.get("pricing"),
+        "freight": result.get("freight"),
+        "line_pricing": result.get("line_pricing"),
+        "door_results": result.get("door_results"),
+    }
+
 
 @router.post("/saved-quotes/{config_id}/get-pricing")
 def get_pricing_for_saved_quote(

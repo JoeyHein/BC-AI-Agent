@@ -95,6 +95,10 @@ export const savedQuotesApi = {
   getPricing: (id) =>
     customerApiClient.post(`/api/customer/portal/saved-quotes/${id}/get-pricing`),
 
+  // Running estimate while the dealer is still designing. Does not create a BC quote.
+  pricePreview: (data) =>
+    customerApiClient.post('/api/customer/portal/price-preview', data),
+
   // Confirm a priced quote (marks as submitted)
   confirm: (id) =>
     customerApiClient.post(`/api/customer/portal/saved-quotes/${id}/confirm`),
