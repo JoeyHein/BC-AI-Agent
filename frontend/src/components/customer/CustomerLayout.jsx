@@ -62,16 +62,17 @@ function CustomerLayout() {
       {/* Header + Navigation */}
       <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-14 gap-6">
-            <div className="flex items-center gap-6 min-w-0">
+          <div className="flex items-center justify-between h-14 gap-3 overflow-hidden">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
               <Link to="/" className="flex-shrink-0 flex items-center">
                 <img src="/assets/opendc-logo.jpg" alt="OpenDC" className="h-8 w-auto" />
               </Link>
-              <div className="flex items-center">
+              <div className="flex min-w-0 flex-1 items-center overflow-x-auto">
                 {navItems.map((item) => (
                   <Link
                     key={item.path}
                     to={item.path}
+                    aria-label={item.label}
                     className={`relative inline-flex items-center gap-1.5 px-3 h-14 border-b-2 text-sm font-medium whitespace-nowrap transition-colors ${
                       isActive(item.path)
                         ? 'border-odc-600 text-odc-700'
@@ -79,7 +80,7 @@ function CustomerLayout() {
                     }`}
                   >
                     <item.icon className="h-4 w-4" />
-                    {item.label}
+                    <span className="hidden md:inline">{item.label}</span>
                     {item.badge && itemCount > 0 && (
                       <span className="absolute top-2 -right-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold leading-none text-white bg-red-500 rounded-full">
                         {itemCount}
