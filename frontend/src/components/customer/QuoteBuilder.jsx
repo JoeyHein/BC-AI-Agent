@@ -6,6 +6,7 @@ import { useCustomerAuth } from '../../contexts/CustomerAuthContext'
 import DoorPreview from '../DoorPreview'
 import DesignerStage from './DesignerStage'
 import { priceSignature, quoteReadyForPreview, doorForPreviewPrice } from './designerPreview'
+import { AUTO_ADVANCE_MS, shouldScheduleAutoAdvance, stepIsComplete } from './designerAdvance'
 import { swatchStyle } from 'door-renderer'
 import DoorDrawings from '../DoorDrawings'
 import QuotePricingDisplay from './QuotePricingDisplay'
@@ -58,6 +59,7 @@ function QuoteBuilder() {
   const [runningPrice, setRunningPrice] = useState(null)
   const [runningStatus, setRunningStatus] = useState('idle')
   const previewRequest = useRef(0)
+  const advanceTimer = useRef(null)
   const [savedQuoteId, setSavedQuoteId] = useState(id ? parseInt(id) : null)
   const { user, isBCLinked, isHomeBuilder } = useCustomerAuth()
 
@@ -204,6 +206,7 @@ function QuoteBuilder() {
   }
 
   function addDoor() {
+    clearAutoAdvance()
     setDoors(prev => [...prev, createEmptyDoor()])
     setCurrentDoorIndex(doors.length)
     setCurrentStep(0)
@@ -217,43 +220,62 @@ function QuoteBuilder() {
     }
   }
 
-  function nextStep() {
-    if (currentStep < STEPS.length - 1) {
-      setCurrentStep(currentStep + 1)
+  function clearAutoAdvance() {
+    if (advanceTimer.current) {
+      clearTimeout(advanceTimer.current)
+      advanceTimer.current = null
     }
   }
 
+  function scheduleAutoAdvance(stepIndex, { userActed = false, arrivedForward = false, door, name, series } = {}) {
+    clearAutoAdvance()
+    const stepId = STEPS[stepIndex]?.id
+    if (!stepId || stepIndex >= STEPS.length - 1) return
+    const complete = stepIsComplete(stepId, door, name, series)
+    if (!shouldScheduleAutoAdvance({ stepId, complete, userActed, arrivedForward })) return
+    advanceTimer.current = setTimeout(() => {
+      setCurrentStep((current) => (current === stepIndex ? current + 1 : current))
+    }, AUTO_ADVANCE_MS)
+  }
+
+  function commitDoorEdit(updates) {
+    updateCurrentDoor(updates)
+    const door = { ...currentDoor, ...updates }
+    scheduleAutoAdvance(currentStep, {
+      userActed: true,
+      door,
+      name: quoteName,
+      series: lookupSeries(config, door),
+    })
+  }
+
+  function nextStep() {
+    clearAutoAdvance()
+    if (currentStep >= STEPS.length - 1 || !canProceed()) return
+    const landing = currentStep + 1
+    setCurrentStep(landing)
+    scheduleAutoAdvance(landing, {
+      arrivedForward: true,
+      door: currentDoor,
+      name: quoteName,
+      series: lookupSeries(config, currentDoor),
+    })
+  }
+
   function prevStep() {
+    clearAutoAdvance()
     if (currentStep > 0) {
       setCurrentStep(currentStep - 1)
     }
   }
 
   function canProceed() {
-    const door = currentDoor
-    switch (STEPS[currentStep].id) {
-      case 'type':
-        return !!door.doorType && !!quoteName.trim()
-      case 'series':
-        return !!door.doorSeries
-      case 'dimensions': {
-        const series = lookupSeries(config, door)
-        const { errors: dimErrors } = getDimensionValidation(series, door.doorWidth, door.doorHeight)
-        return door.doorWidth > 0 && door.doorHeight > 0 && door.doorCount > 0 && dimErrors.length === 0
-      }
-      case 'design':
-        return !!door.panelColor && !!door.panelDesign
-      case 'windows':
-        return true // Windows are optional
-      case 'hardware':
-        return true // Hardware has defaults
-      case 'drawings':
-        return true // Drawings are view-only
-      case 'review':
-        return !!quoteName.trim()
-      default:
-        return true
-    }
+    return stepIsComplete(
+      STEPS[currentStep].id,
+      currentDoor,
+      quoteName,
+      lookupSeries(config, currentDoor),
+    )
   }
 
   const saveMutation = useMutation({
@@ -375,6 +397,8 @@ function QuoteBuilder() {
     }
   }
 
+  useEffect(() => () => clearAutoAdvance(), [])
+
   const signature = priceSignature(doors, deliveryType)
   const previewReady = quoteReadyForPreview(doors)
 
@@ -468,6 +492,7 @@ function QuoteBuilder() {
               <button
                 key={index}
                 onClick={() => {
+                  clearAutoAdvance()
                   setCurrentDoorIndex(index)
                   setCurrentStep(0)
                 }}
@@ -514,7 +539,10 @@ function QuoteBuilder() {
               <li key={step.id}>
                 <button
                   type="button"
-                  onClick={() => setCurrentStep(index)}
+                  onClick={() => {
+                    clearAutoAdvance()
+                    setCurrentStep(index)
+                  }}
                   className={`rounded-full px-2.5 py-1 text-xs font-medium ${
                     index === currentStep
                       ? 'bg-odc-600 text-white'
@@ -554,7 +582,16 @@ function QuoteBuilder() {
               <input
                 type="text"
                 value={quoteName}
-                onChange={(e) => setQuoteName(e.target.value)}
+                onChange={(e) => {
+                  const name = e.target.value
+                  setQuoteName(name)
+                  scheduleAutoAdvance(currentStep, {
+                    userActed: true,
+                    door: currentDoor,
+                    name,
+                    series: lookupSeries(config, currentDoor),
+                  })
+                }}
                 className="block w-full rounded-md border-gray-300 shadow-sm focus:border-odc-500 focus:ring-odc-500 sm:text-sm"
                 placeholder="e.g., Smith Residence — Front Garage"
                 autoFocus
@@ -566,26 +603,32 @@ function QuoteBuilder() {
             <DoorTypeStep
               doorTypes={config.doorTypes}
               selected={currentDoor.doorType}
-              onSelect={(type) => updateCurrentDoor({
-                doorType: type,
-                doorSeries: '',
-                panelColor: '',
-                panelDesign: '',
-                // Reset windows to prevent stale state
-                hasWindows: false,
-                windowInsert: null,
-                windowPositions: [],
-                windowQty: 0,
-                glassPaneType: null,
-                glassColor: null,
-                trackMount: 'bracket',
-                mountSurface: 'wood',
-                // Residential steel: 12" radius / 2" track.
-                // Commercial and aluminum: 15" radius / 3" track.
-                // 12" radius is 2" track only, so aluminum cannot keep it.
-                trackRadius: type === 'commercial' || type === 'aluminium' ? '15' : '12',
-                trackThickness: type === 'commercial' || type === 'aluminium' ? '3' : '2',
-              })}
+              onSelect={(type) => {
+                const updates = {
+                  doorType: type,
+                  doorSeries: '',
+                  panelColor: '',
+                  panelDesign: '',
+                  hasWindows: false,
+                  windowInsert: null,
+                  windowPositions: [],
+                  windowQty: 0,
+                  glassPaneType: null,
+                  glassColor: null,
+                  trackMount: 'bracket',
+                  mountSurface: 'wood',
+                  trackRadius: type === 'commercial' || type === 'aluminium' ? '15' : '12',
+                  trackThickness: type === 'commercial' || type === 'aluminium' ? '3' : '2',
+                }
+                updateCurrentDoor(updates)
+                const door = { ...currentDoor, ...updates }
+                scheduleAutoAdvance(currentStep, {
+                  userActed: true,
+                  door,
+                  name: quoteName,
+                  series: lookupSeries(config, door),
+                })
+              }}
             />
           </div>
         )}
@@ -621,6 +664,18 @@ function QuoteBuilder() {
                 // Craft series includes windows as standard
                 ...(series === 'CRAFT' ? { hasWindows: true, windowInsert: '34X16_THERMOPANE', windowPositions: [] } : {})
               })
+              const door = {
+                ...currentDoor,
+                doorSeries: series,
+                panelColor: isAluminumSeries ? 'CLEAR_ANODIZED' : '',
+                panelDesign: isCommercialSeries ? (series === 'TX760' ? 'MICROGROOVE' : 'UDC') : isAluminumSeries ? 'FLUSH' : '',
+              }
+              scheduleAutoAdvance(currentStep, {
+                userActed: true,
+                door,
+                name: quoteName,
+                series: lookupSeries(config, door),
+              })
             }}
           />
         )}
@@ -629,7 +684,7 @@ function QuoteBuilder() {
         {STEPS[currentStep].id === 'dimensions' && (
           <DimensionsStep
             door={currentDoor}
-            onChange={updateCurrentDoor}
+            onChange={commitDoorEdit}
             series={config?.doorSeries[currentDoor.doorType]?.find(s => s.id === currentDoor.doorSeries)}
           />
         )}
@@ -650,7 +705,7 @@ function QuoteBuilder() {
                 else if (widthFeet <= 12) windowCount = 3
                 else windowCount = 4
                 const topPanelWindows = Array.from({ length: windowCount }, (_, col) => ({ section: 1, col }))
-                updateCurrentDoor({
+                commitDoorEdit({
                   ...updates,
                   hasWindows: true,
                   windowInsert: '34X16_THERMOPANE',
@@ -659,14 +714,14 @@ function QuoteBuilder() {
                   glassColor: 'CLEAR',
                 })
               } else if (currentDoor.doorSeries === 'CRAFT' && updates.panelDesign === 'FLUSH') {
-                updateCurrentDoor({
+                commitDoorEdit({
                   ...updates,
                   hasWindows: false,
                   windowInsert: null,
                   windowPositions: [],
                 })
               } else {
-                updateCurrentDoor(updates)
+                commitDoorEdit(updates)
               }
             }}
           />
