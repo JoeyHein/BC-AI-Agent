@@ -3135,7 +3135,13 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
                 />
                 <div>
                   <span className="text-sm font-medium text-gray-900">Delivery</span>
-                  <p className="text-xs text-gray-500">Freight charges apply</p>
+                  <p className="text-xs text-gray-500">
+                    {user?.freight_override === 'waive'
+                      ? 'Freight is waived on your quotes'
+                      : user?.freight_override === 'percent'
+                        ? `Freight is ${user.freight_percent}% on your quotes`
+                        : 'Freight charges apply'}
+                  </p>
                 </div>
               </label>
               <label className={`flex items-center space-x-2 cursor-pointer px-4 py-2 rounded-md border-2 transition-all ${
@@ -3155,7 +3161,10 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
                 </div>
               </label>
             </div>
-            {deliveryType === 'delivery' && (
+            {deliveryType === 'delivery' && user?.freight_override === 'waive' && (
+              <p className="mt-1 text-xs text-green-700">Freight is waived for your account. Delivery quotes are freight $0.</p>
+            )}
+            {deliveryType === 'delivery' && user?.freight_override !== 'waive' && (
               <p className="mt-1 text-xs text-gray-400 italic">Freight is an estimate. If the actual shipping cost comes in higher, the difference will be added to the invoice.</p>
             )}
             {errors.delivery && <p className="mt-1 text-sm text-red-600">{errors.delivery}</p>}
@@ -3363,6 +3372,7 @@ function ReviewStep({ doors, config, quoteName, quoteDescription, poNumber, deli
           bcQuoteNumber={pricingData.bc_quote_number}
           doorResults={pricingData.door_results}
           priceWarnings={pricingData.price_override_warnings}
+          freight={pricingData.freight}
         />
       )}
 

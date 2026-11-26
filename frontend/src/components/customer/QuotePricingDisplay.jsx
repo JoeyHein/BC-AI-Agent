@@ -9,8 +9,14 @@ import { useState } from 'react'
  *   linesFailed: [{ part_number, description, error, fallback }] | null
  *   bcQuoteNumber: string
  *   doorResults: [{ door_index, door_description, parts_count, success, error }]
+ *   freight: quote freight result, when the API sent one
  *   compact: boolean - if true, show condensed version (for list pages)
  */
+function freightWasWaived(freight) {
+  if (!freight || !freight.skip) return false
+  return !String(freight.description || '').toLowerCase().startsWith('pickup')
+}
+
 function isFreightItem(line) {
   return (line?.part_number || '').toUpperCase() === 'FREIGHT'
 }
@@ -19,7 +25,7 @@ function isFreightNote(line) {
   return (line?.description || '').toLowerCase().startsWith('freight is an estimate')
 }
 
-function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber, doorResults, priceWarnings, compact = false }) {
+function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber, doorResults, priceWarnings, freight, compact = false }) {
   const [expanded, setExpanded] = useState(!compact)
   // Doors start open so the package order (lines, then wrapping, then freight)
   // is visible without an extra click.
@@ -75,6 +81,8 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
       doorSections.push(currentDoor)
     }
   }
+
+  const waived = freightWasWaived(freight) && freightLines.length === 0
 
   const toggleDoor = (idx) => {
     setCollapsedDoors(prev => {
@@ -217,6 +225,16 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
         </div>
       )}
 
+      {waived && (
+        <div className="px-4 py-3 border-t border-gray-200">
+          <div className="flex justify-between text-sm text-gray-800">
+            <span>Freight</span>
+            <span>{formatCurrency(0)}</span>
+          </div>
+          <p className="mt-1 text-xs text-gray-500">Freight is waived for this customer.</p>
+        </div>
+      )}
+
       {(priceWarnings || []).length > 0 && (
         <div className="px-4 py-2 bg-amber-50 border-t border-amber-200">
           {priceWarnings.map((warning, index) => (
@@ -241,7 +259,7 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
             <span>{formatCurrency(pricing.total)}</span>
           </div>
         </div>
-        {freightLines.length === 0 && (
+        {freightLines.length === 0 && !waived && (
           <p className="mt-2 text-xs text-gray-400 italic">
             Freight is an estimate. If the actual shipping cost comes in higher, the difference will be added to the invoice.
           </p>

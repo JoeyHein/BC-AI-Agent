@@ -296,7 +296,13 @@ def redact_configurator_quote(user, payload: dict) -> dict:
         freight = data.get("freight")
         if isinstance(freight, dict):
             cleaned = {k: v for k, v in freight.items() if k != "rate"}
-            cleaned["description"] = "Pickup - No Freight" if freight.get("skip") else "Freight (estimate)"
+            description = str(freight.get("description") or "")
+            if freight.get("skip") and description.lower().startswith("pickup"):
+                cleaned["description"] = "Pickup - No Freight"
+            elif freight.get("skip"):
+                cleaned["description"] = "Freight waived"
+            else:
+                cleaned["description"] = "Freight (estimate)"
             data["freight"] = cleaned
         data["line_pricing"] = _strip_keys(data.get("line_pricing"), _COST_KEYS)
         data["parts_summary"] = _strip_keys(data.get("parts_summary"), _COST_KEYS)
@@ -327,6 +333,8 @@ def redact_customer_search(user, row: dict) -> dict:
         "customer_number": row.get("customer_number") if directory else None,
         "bc_price_group": row.get("bc_price_group") if cost else None,
         "pricing_tier": row.get("pricing_tier") if cost else None,
+        "freight_override": row.get("freight_override") or "default",
+        "freight_percent": row.get("freight_percent"),
     }
 
 

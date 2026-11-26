@@ -100,6 +100,16 @@ function CustomerDetail() {
                   {customerData.pricing_tier?.toUpperCase()}
                 </span>
               )}
+              {customerData?.freight_override === 'waive' && (
+                <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-green-100 text-green-800">
+                  Freight waived
+                </span>
+              )}
+              {customerData?.freight_override === 'percent' && (
+                <span className="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                  Freight {customerData.freight_percent}%
+                </span>
+              )}
             </div>
           </div>
 

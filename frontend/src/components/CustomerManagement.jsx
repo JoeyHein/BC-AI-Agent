@@ -386,6 +386,92 @@ function CustomerList({ customers, onSelect, selectedId, onCreateFromBC }) {
 }
 
 // Customer Detail Panel
+function FreightOverrideControl({ customer, onRefresh }) {
+  const storedMode = customer.freight_override || 'default'
+  const [mode, setMode] = useState(storedMode)
+  const [percent, setPercent] = useState(
+    customer.freight_percent == null ? '' : String(customer.freight_percent)
+  )
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setMode(customer.freight_override || 'default')
+    setPercent(customer.freight_percent == null ? '' : String(customer.freight_percent))
+  }, [customer.id, customer.freight_override, customer.freight_percent])
+
+  async function save(nextMode, nextPercent, previousMode = mode) {
+    setSaving(true)
+    try {
+      await customersApi.updateFreight(customer.id, {
+        freight_override: nextMode,
+        freight_percent: nextMode === 'percent' ? Number(nextPercent) : null,
+      })
+      onRefresh()
+    } catch (err) {
+      setMode(previousMode)
+      alert(err.response?.data?.detail || 'Failed to update freight')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="mt-2">
+      <label className="text-xs font-medium text-gray-500">Freight</label>
+      <div className="mt-1 flex items-center gap-2 flex-wrap">
+        <select
+          value={mode}
+          disabled={saving || !customer.bc_customer_id}
+          onChange={(e) => {
+            const next = e.target.value
+            const previous = mode
+            setMode(next)
+            if (next !== 'percent') save(next, null, previous)
+          }}
+          className="border border-gray-300 rounded-md shadow-sm py-1 px-2 text-sm focus:outline-none focus:ring-odc-500 focus:border-odc-500 disabled:opacity-50"
+        >
+          <option value="default">Default (province rate)</option>
+          <option value="waive">Waive all freight</option>
+          <option value="percent">Custom percent</option>
+        </select>
+        {mode === 'percent' && (
+          <>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              aria-label="Freight percent"
+              value={percent}
+              onChange={(e) => setPercent(e.target.value)}
+              className="w-20 border border-gray-300 rounded-md shadow-sm py-1 px-2 text-sm focus:outline-none focus:ring-odc-500 focus:border-odc-500"
+            />
+            <span className="text-sm text-gray-500">%</span>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => save('percent', percent)}
+              className="text-sm text-odc-600 hover:text-odc-800 disabled:opacity-50"
+            >
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          </>
+        )}
+      </div>
+      {mode === 'waive' && (
+        <p className="mt-1 text-xs text-gray-500">
+          Every portal quote for this customer is freight $0.
+        </p>
+      )}
+      {mode === 'default' && (
+        <p className="mt-1 text-xs text-gray-500">
+          Alberta is 7%. Every other province is 9%.
+        </p>
+      )}
+    </div>
+  )
+}
+
 function CustomerDetail({ customer, onClose, onRefresh }) {
   const queryClient = useQueryClient()
   const [showLinkModal, setShowLinkModal] = useState(false)
@@ -652,6 +738,7 @@ function CustomerDetail({ customer, onClose, onRefresh }) {
                       <PricingTierBadge tier={customer.pricing_tier} />
                     </div>
                   </div>
+                  <FreightOverrideControl customer={customer} onRefresh={onRefresh} />
                   {customer.bc_contact_name && (
                     <p className="text-gray-500">Contact: {customer.bc_contact_name}</p>
                   )}

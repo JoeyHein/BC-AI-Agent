@@ -3358,7 +3358,11 @@ function QuotePriceEditor({
           </label>
           <p className="text-xs text-gray-500 mt-1">
             One freight line for the whole order, at the bottom of the quote.
-            {preview?.amount != null ? ` Calculated amount ${money(preview.amount)}.` : ' Leave blank to calculate it when the quote is generated.'}
+            {preview?.customer_override === 'waive'
+              ? ' Freight is waived for this customer. Leave blank to keep it at $0.'
+              : preview?.amount != null
+                ? ` Calculated amount ${money(preview.amount)}.`
+                : ' Leave blank to calculate it when the quote is generated.'}
             {seeCost && preview?.rate != null ? ` Rate ${preview.rate}%.` : ''}
           </p>
           <div className="mt-2 flex items-center gap-2">
@@ -4163,7 +4167,17 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
             <span className="ml-2 text-sm text-gray-700">Pickup</span>
           </label>
         </div>
-        {deliveryType === 'delivery' && freightConfig && (
+        {deliveryType === 'delivery' && selectedCustomer?.freight_override === 'waive' && (
+          <p className="mt-1 text-xs text-green-700">
+            Freight is waived for {selectedCustomer.company_name}. Quotes for this customer have no freight charge.
+          </p>
+        )}
+        {deliveryType === 'delivery' && selectedCustomer?.freight_override === 'percent' && (
+          <p className="mt-1 text-xs text-gray-600">
+            Freight for {selectedCustomer.company_name} is {selectedCustomer.freight_percent}%.
+          </p>
+        )}
+        {deliveryType === 'delivery' && freightConfig && selectedCustomer?.freight_override !== 'waive' && selectedCustomer?.freight_override !== 'percent' && (
           <p className="mt-1 text-xs text-gray-500">
             Freight: {freightConfig.default_rate}% default
             {freightConfig.province_overrides && Object.keys(freightConfig.province_overrides).length > 0 && (
@@ -4304,7 +4318,11 @@ function ReviewStep({ doors, config, onGenerateQuote, onForceGenerate, generateE
                     {quoteResult.data.freight?.skip && (
                       <>
                         <span className="text-green-600">Freight:</span>
-                        <span className="text-right font-medium text-green-500">Pickup - $0.00</span>
+                        <span className="text-right font-medium text-green-500">
+                          {String(quoteResult.data.freight.description || '').toLowerCase().startsWith('pickup')
+                            ? 'Pickup - $0.00'
+                            : 'Waived - $0.00'}
+                        </span>
                       </>
                     )}
                     <span className="text-green-600">Tax (GST):</span>
@@ -4467,6 +4485,12 @@ function CustomerSelector({ selectedCustomer, onCustomerChange }) {
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium text-odc-600 uppercase tracking-wide">Quoting for</p>
           <p className="text-sm font-semibold text-gray-900 truncate">{selectedCustomer.company_name}</p>
+          {selectedCustomer.freight_override === 'waive' && (
+            <p className="text-xs text-green-700">Freight waived</p>
+          )}
+          {selectedCustomer.freight_override === 'percent' && (
+            <p className="text-xs text-gray-600">Freight {selectedCustomer.freight_percent}%</p>
+          )}
         </div>
         <button
           type="button"
@@ -4514,7 +4538,13 @@ function CustomerSelector({ selectedCustomer, onCustomerChange }) {
                 type="button"
                 onMouseDown={(e) => {
                   e.preventDefault()
-                  onCustomerChange({ bc_customer_id: bc.bc_customer_id, company_name: bc.company_name, is_home_builder: bc.is_home_builder })
+                  onCustomerChange({
+                    bc_customer_id: bc.bc_customer_id,
+                    company_name: bc.company_name,
+                    is_home_builder: bc.is_home_builder,
+                    freight_override: bc.freight_override,
+                    freight_percent: bc.freight_percent,
+                  })
                   setSearch('')
                   setOpen(false)
                 }}
