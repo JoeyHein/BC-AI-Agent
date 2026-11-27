@@ -101,6 +101,19 @@ def test_price_preview_uses_province_freight_and_does_not_save_a_quote(monkeypat
     assert body["freight"]["amount"] == 70.0
     assert body["pricing"]["total"] == 1070.0
     assert "bc_quote_id" not in body
+    # The running estimate is a customer payload: one package row, no component
+    # part numbers or unit prices. Freight stays its own line.
+    import json
+    rendered = json.dumps(body["line_pricing"])
+    assert "PN-SECTION" not in rendered
+    assert "unit_price" not in rendered
+    package = next(row for row in body["line_pricing"] if row["line_type"] == "Package")
+    assert "KANATA" in package["description"]
+    assert package["quantity"] == 1
+    assert package["line_total"] == 1000.0
+    freight = next(row for row in body["line_pricing"] if row["line_type"] == "Freight")
+    assert freight["line_total"] == 70.0
+    assert "parts_count" not in json.dumps(body["door_results"])
     assert db.query(SavedQuoteConfig).count() == 0
 
     customer = db.query(BCCustomer).filter_by(bc_customer_id="C-100").one()
