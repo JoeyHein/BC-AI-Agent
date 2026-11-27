@@ -175,20 +175,14 @@ def test_customer_pdf_lists_the_package_and_not_the_components():
 
 
 def _pdf_text(pdf: bytes) -> str:
-    import shutil
-    import subprocess
-    import tempfile
-    if not shutil.which("pdftotext"):
-        return pdf.decode("latin-1", "ignore")
-    with tempfile.NamedTemporaryFile(suffix=".pdf") as handle:
-        handle.write(pdf)
-        handle.flush()
-        result = subprocess.run(
-            ["pdftotext", "-layout", handle.name, "-"],
-            check=True,
-            capture_output=True,
-        )
-    return result.stdout.decode()
+    """Text of every page. fpdf2 FlateDecode-compresses the content stream,
+    so the quote number is not visible in the raw bytes."""
+    from io import BytesIO
+
+    from pypdf import PdfReader
+
+    reader = PdfReader(BytesIO(pdf))
+    return "\n".join(page.extract_text() or "" for page in reader.pages)
 
 
 def test_customer_quote_detail_and_pdf_do_not_return_component_prices(monkeypatch):
