@@ -2629,11 +2629,22 @@ def purchasing_work(db: Session, today: Optional[date] = None) -> dict:
 
 def _quote_pdf_attachment(sq_number: str) -> dict:
     from app.integrations.bc.client import bc_client
+    from app.services.customer_quote_presentation import build_customer_quote_pdf
 
     quote = bc_client.get_sales_quote_by_number(sq_number)
     if not quote or not quote.get("id"):
         raise RuntimeError(f"Could not find {sq_number} to attach the PDF.")
-    pdf = bc_client.get_quote_pdf(quote["id"])
+    # The message goes to the customer. Attach the package summary, not the
+    # Business Central PDF that lists every component and its unit price.
+    lines = bc_client.get_document_lines(
+        f"salesQuotes({quote['id']})/salesQuoteLines"
+    )
+    output_map = None
+    try:
+        output_map = bc_client.get_quote_output_map(quote.get("number") or sq_number)
+    except Exception:
+        logger.warning("Quote output flags were not loaded for %s", sq_number, exc_info=True)
+    pdf = build_customer_quote_pdf(quote, lines, output_by_sequence=output_map)
     safe = re.sub(r"[^A-Za-z0-9._-]+", "-", sq_number).strip("-") or "quote"
     return {
         "name": f"Quote_{safe}.pdf",

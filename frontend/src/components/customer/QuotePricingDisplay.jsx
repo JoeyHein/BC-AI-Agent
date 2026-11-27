@@ -1,99 +1,164 @@
 import { useState } from 'react'
 
 /**
- * QuotePricingDisplay - Shows pricing breakdown for a BC quote
+ * Customer quote pricing.
  *
- * Props:
- *   pricing: { subtotal, tax, total, currency }
- *   linePricing: [{ line_type, part_number, description, quantity, unit_price, line_total }]
- *   linesFailed: [{ part_number, description, error, fallback }] | null
- *   bcQuoteNumber: string
- *   doorResults: [{ door_index, door_description, parts_count, success, error }]
- *   freight: quote freight result, when the API sent one
- *   compact: boolean - if true, show condensed version (for list pages)
+ * A door package is one row: the description, the door quantity, and the
+ * package total. Component lines, unit prices, and internal notes are not
+ * rendered. A part that is not inside a package (and freight) stays its own
+ * row. Staff quotes do not use this component.
  */
+const DOOR_QTY = /^\(\s*(\d+)\s*\)/
+const HOIST_PARTS = new Set(['SP12-00084-00', 'FH12-00190-00'])
+
 function freightWasWaived(freight) {
   if (!freight || !freight.skip) return false
   return !String(freight.description || '').toLowerCase().startsWith('pickup')
 }
 
 function isFreightItem(line) {
-  return (line?.part_number || '').toUpperCase() === 'FREIGHT'
+  return line?.line_type === 'Freight' || (line?.part_number || '').toUpperCase() === 'FREIGHT'
 }
 
 function isFreightNote(line) {
   return (line?.description || '').toLowerCase().startsWith('freight is an estimate')
 }
 
-function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber, doorResults, priceWarnings, freight, compact = false }) {
+function isDoorHeader(line) {
+  return line?.line_type === 'Comment' && DOOR_QTY.test((line.description || '').trim())
+}
+
+function isHiddenNote(line) {
+  if (!line || isFreightItem(line)) return false
+  if (line.line_type === 'Note' || line.line_type === 'freight_note') return true
+  if (isFreightNote(line)) return true
+  if (/^price note\b/i.test((line.description || '').trim())) return true
+  return line.line_type === 'Comment' && !isDoorHeader(line)
+}
+
+function isOperatorLine(line) {
+  const part = (line?.part_number || '').toUpperCase()
+  if (part.startsWith('OP') || HOIST_PARTS.has(part)) return true
+  const description = line?.description || ''
+  if (/male rail|female rail|end rail|build-?up rail/i.test(description)) return false
+  return /\brails?\b/i.test(description) && /\d+\s*(?:ft\.?|foot|')/i.test(description)
+}
+
+function doorQuantity(description) {
+  const match = DOOR_QTY.exec((description || '').trim())
+  return match ? Number(match[1]) : 1
+}
+
+function amount(line) {
+  const value = Number(line?.line_total)
+  return Number.isFinite(value) ? value : 0
+}
+
+/**
+ * Prefer rows the API already collapsed. A full component payload is rolled
+ * up here as well, so a stale response cannot paint unit prices.
+ */
+function customerRows(linePricing) {
+  const rows = []
+  const freightLines = []
+  if (!linePricing?.length) return { rows, freightLines }
+
+  const alreadyCollapsed = linePricing.some(
+    (line) => line?.line_type === 'Package' || line?.line_type === 'Freight',
+  )
+  if (alreadyCollapsed) {
+    for (const line of linePricing) {
+      if (isHiddenNote(line)) continue
+      if (isFreightItem(line)) {
+        freightLines.push({
+          ...line,
+          description: 'Freight (estimate)',
+          quantity: 1,
+          line_total: line.line_total ?? line.unit_price,
+        })
+        continue
+      }
+      if (line.line_type === 'Package' || line.line_type === 'Item') {
+        rows.push(line)
+      }
+    }
+    return { rows, freightLines }
+  }
+
+  let packageRow = null
+  let buffered = []
+  const flush = () => {
+    if (packageRow) {
+      rows.push(packageRow)
+      packageRow = null
+    }
+    rows.push(...buffered)
+    buffered = []
+  }
+
+  for (const line of linePricing) {
+    if (isFreightNote(line) || isHiddenNote(line)) continue
+    if (isFreightItem(line)) {
+      flush()
+      freightLines.push(line)
+      continue
+    }
+    if (isDoorHeader(line)) {
+      flush()
+      packageRow = {
+        line_type: 'Package',
+        description: line.description,
+        quantity: doorQuantity(line.description),
+        line_total: 0,
+      }
+      continue
+    }
+    if (isOperatorLine(line) || line.part_number === 'INSTALLATION') {
+      const item = {
+        line_type: 'Item',
+        description: line.description,
+        quantity: line.quantity,
+        line_total: amount(line),
+      }
+      if (packageRow) buffered.push(item)
+      else rows.push(item)
+      continue
+    }
+    if (packageRow && line.line_type === 'Item') {
+      packageRow.line_total += amount(line)
+      continue
+    }
+    if (line.line_type === 'Item') {
+      rows.push({
+        line_type: 'Item',
+        description: line.description,
+        quantity: line.quantity,
+        line_total: amount(line),
+      })
+    }
+  }
+  flush()
+  return { rows, freightLines }
+}
+
+function QuotePricingDisplay({ pricing, linePricing, bcQuoteNumber, doorResults, freight, compact = false }) {
   const [expanded, setExpanded] = useState(!compact)
-  // Doors start open so the package order (lines, then wrapping, then freight)
-  // is visible without an extra click.
-  const [collapsedDoors, setCollapsedDoors] = useState(new Set())
 
   if (!pricing) {
     return null
   }
 
   const isEstimate = pricing.is_estimate === true
+  const { rows, freightLines } = customerRows(linePricing)
+  const waived = freightWasWaived(freight) && freightLines.length === 0
 
-  const formatCurrency = (amount) => {
+  const formatCurrency = (value) => {
     return new Intl.NumberFormat('en-CA', {
       style: 'currency',
       currency: pricing.currency || 'CAD',
-    }).format(amount || 0)
+    }).format(value || 0)
   }
 
-  // Group line items by door (comments act as delimiters)
-  const doorSections = []
-  let currentDoor = null
-  const freightLines = []
-
-  if (linePricing) {
-    for (const line of linePricing) {
-      if (isFreightNote(line)) {
-        continue
-      }
-      if (isFreightItem(line)) {
-        freightLines.push(line)
-        continue
-      }
-      if (line.line_type === 'Comment') {
-        // Only door description comments start a new group;
-        // "Note" lines (e.g. window placement) stay in the current group.
-        if (currentDoor) {
-          doorSections.push(currentDoor)
-        }
-        currentDoor = {
-          description: line.description,
-          items: [],
-          subtotal: 0,
-        }
-      } else if (line.line_type === 'Note' && currentDoor) {
-        // Window/note comments — show inline as a note, don't split the group
-        currentDoor.items.push(line)
-      } else if (currentDoor) {
-        currentDoor.items.push(line)
-        currentDoor.subtotal += line.line_total || 0
-      }
-    }
-    if (currentDoor) {
-      doorSections.push(currentDoor)
-    }
-  }
-
-  const waived = freightWasWaived(freight) && freightLines.length === 0
-
-  const toggleDoor = (idx) => {
-    setCollapsedDoors(prev => {
-      const next = new Set(prev)
-      if (next.has(idx)) next.delete(idx)
-      else next.add(idx)
-      return next
-    })
-  }
-
-  // Compact view - just totals
   if (compact && !expanded) {
     return (
       <div className={`border rounded-lg p-3 ${isEstimate ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
@@ -124,7 +189,6 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-      {/* Header */}
       <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -154,60 +218,26 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
         )}
       </div>
 
-      {/* Door Sections - subtotaled pricing with expandable line items */}
-      {doorSections.length > 0 && (
+      {rows.length > 0 && (
         <div className="divide-y divide-gray-100">
-          {doorSections.map((door, doorIdx) => {
-            const isOpen = !collapsedDoors.has(doorIdx)
-            return (
-              <div key={doorIdx}>
-                <button
-                  type="button"
-                  onClick={() => toggleDoor(doorIdx)}
-                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex items-center space-x-2">
-                    <ChevronIcon className="h-4 w-4 text-gray-400 flex-shrink-0" expanded={isOpen} />
-                    <div className="text-left">
-                      <h4 className="text-sm font-medium text-odc-700">
-                        {door.description}
-                      </h4>
-                      <span className="text-xs text-gray-500">
-                        {door.items.filter(i => i.line_type !== 'Note').length} item{door.items.filter(i => i.line_type !== 'Note').length !== 1 ? 's' : ''}
-                      </span>
-                    </div>
-                  </div>
-                  <span className="text-sm font-medium text-gray-700">
-                    {formatCurrency(door.subtotal)}
-                  </span>
-                </button>
-                {isOpen && door.items.length > 0 && (
-                  <div className="px-4 pb-3">
-                    <table className="w-full ml-6">
-                      <tbody className="text-xs text-gray-600">
-                        {door.items.map((item, itemIdx) => (
-                          <tr key={itemIdx}>
-                            <td className={`py-0.5 pr-4 ${item.line_type === 'Note' ? 'font-medium text-gray-700 pt-2' : ''}`}>
-                              {item.description}
-                            </td>
-                            <td className="py-0.5 text-right whitespace-nowrap text-gray-500">
-                              {item.line_type !== 'Note' && `qty ${item.quantity}`}
-                            </td>
-                            <td className="py-0.5 pl-3 text-right whitespace-nowrap text-gray-500">
-                              {item.line_type !== 'Note' && item.unit_price != null && formatCurrency(item.unit_price)}
-                            </td>
-                            <td className="py-0.5 pl-3 text-right whitespace-nowrap text-gray-700">
-                              {item.line_type !== 'Note' && formatCurrency(item.line_total)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+          <div className="px-4 py-2 flex items-center justify-between text-xs font-medium uppercase tracking-wide text-gray-400">
+            <span>Description</span>
+            <span className="flex gap-6">
+              <span className="w-16 text-right">Qty</span>
+              <span className="w-24 text-right">Total</span>
+            </span>
+          </div>
+          {rows.map((row, index) => (
+            <div key={index} className="px-4 py-3 flex items-start justify-between gap-4">
+              <h4 className="text-sm font-medium text-odc-700">{row.description}</h4>
+              <div className="flex flex-shrink-0 items-start gap-6">
+                <span className="w-16 text-right text-sm text-gray-600">{row.quantity}</span>
+                <span className="w-24 text-right text-sm font-medium text-gray-900">
+                  {formatCurrency(row.line_total)}
+                </span>
               </div>
-            )
-          })}
+            </div>
+          ))}
         </div>
       )}
 
@@ -235,15 +265,6 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
         </div>
       )}
 
-      {(priceWarnings || []).length > 0 && (
-        <div className="px-4 py-2 bg-amber-50 border-t border-amber-200">
-          {priceWarnings.map((warning, index) => (
-            <p key={index} className="text-xs text-amber-800">{warning.message}</p>
-          ))}
-        </div>
-      )}
-
-      {/* Totals */}
       <div className="px-4 py-3 bg-gray-50 border-t border-gray-200">
         <div className="space-y-1">
           <div className="flex justify-between text-sm text-gray-600">
@@ -266,7 +287,6 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
         )}
       </div>
 
-      {/* Door generation results (if any had errors) */}
       {doorResults && doorResults.some(d => !d.success) && (
         <div className="px-4 py-2 bg-red-50 border-t border-red-200">
           <p className="text-xs text-red-700">
@@ -283,31 +303,10 @@ function QuotePricingDisplay({ pricing, linePricing, linesFailed, bcQuoteNumber,
   )
 }
 
-function ChevronIcon({ className, expanded }) {
-  return (
-    <svg
-      className={`${className} transition-transform ${expanded ? 'rotate-90' : ''}`}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-    </svg>
-  )
-}
-
 function DollarIcon({ className }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-    </svg>
-  )
-}
-
-function WarningIcon({ className }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
     </svg>
   )
 }

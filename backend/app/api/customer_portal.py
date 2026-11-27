@@ -34,6 +34,12 @@ from app.services.freight_service import (
     sum_line_amounts,
 )
 from app.services.quote_line_layout import apply_quote_line_layout, line_needs_output
+from app.services.customer_quote_presentation import (
+    annotate_customer_groups,
+    build_customer_quote_pdf,
+    collapse_customer_line_pricing,
+    present_customer_pricing,
+)
 from app.services.quote_adjustments import (
     StaffAdjustmentError,
     add_freight_estimate_note,
@@ -2015,6 +2021,8 @@ def _generate_bc_quote_with_items(
             f"{', '.join(failed_parts)}"
         )
 
+    annotate_customer_groups(line_pricing, all_lines)
+
     return {
         "bc_quote_id": bc_quote_id,
         "bc_quote_number": bc_quote_number,
@@ -3100,6 +3108,8 @@ def _estimate_pricing_locally(
         line_pricing = [row for row in line_pricing if row.get("part_number") != "FREIGHT"]
         subtotal_with_freight = subtotal
 
+    annotate_customer_groups(line_pricing, all_lines)
+
     return {
         "bc_quote_id": None,
         "bc_quote_number": None,
@@ -3177,14 +3187,15 @@ def price_preview(
         province=_customer_province(db, current_user.bc_customer_id),
         freight_policy=customer_freight_policy(bc_customer),
     )
+    presented = present_customer_pricing(result)
     return {
         "success": True,
         "is_estimate": True,
         "pricing_tier": pricing_tier,
-        "pricing": result.get("pricing"),
-        "freight": result.get("freight"),
-        "line_pricing": result.get("line_pricing"),
-        "door_results": result.get("door_results"),
+        "pricing": presented.get("pricing"),
+        "freight": presented.get("freight"),
+        "line_pricing": presented.get("line_pricing"),
+        "door_results": presented.get("door_results"),
     }
 
 
@@ -3287,7 +3298,7 @@ def get_pricing_for_saved_quote(
             f"{result['lines_added']} lines, tier={pricing_tier}"
         )
 
-        return {
+        return present_customer_pricing({
             "success": True,
             "config_id": config.id,
             "bc_quote_id": result["bc_quote_id"],
@@ -3299,7 +3310,7 @@ def get_pricing_for_saved_quote(
             "door_results": result.get("door_results"),
             "freight": result.get("freight"),
             "price_override_warnings": result.get("price_override_warnings"),
-        }
+        })
 
     except HTTPException:
         raise
@@ -3450,7 +3461,7 @@ def refresh_pricing_for_saved_quote(
 
         logger.info(f"Pricing refreshed for config {config_id}: BC Quote {result['bc_quote_number']}, tier={pricing_tier}")
 
-        return {
+        return present_customer_pricing({
             "success": True,
             "config_id": config.id,
             "bc_quote_id": result["bc_quote_id"],
@@ -3462,7 +3473,7 @@ def refresh_pricing_for_saved_quote(
             "door_results": result.get("door_results"),
             "freight": result.get("freight"),
             "price_override_warnings": result.get("price_override_warnings"),
-        }
+        })
 
     except HTTPException:
         raise
@@ -3805,6 +3816,17 @@ def list_bc_quotes(
         return []
 
 
+def _customer_output_map(quote_number: Optional[str]):
+    """BC Output flags, when the quote number is known. Missing map is fine."""
+    if not quote_number:
+        return None
+    try:
+        return bc_client.get_quote_output_map(quote_number)
+    except Exception:
+        logger.warning("Quote output flags were not loaded for %s", quote_number, exc_info=True)
+        return None
+
+
 @router.get("/bc-quotes/{quote_id}")
 def get_bc_quote_detail(
     quote_id: str,
@@ -3834,8 +3856,11 @@ def get_bc_quote_detail(
                 detail="Access denied"
             )
 
-        # Get quote lines
-        lines = bc_client.get_quote_lines(quote_id)
+        # Comment lines are the door headers. Page them so a long quote is complete.
+        lines = bc_client.get_document_lines(
+            f"salesQuotes({quote_id})/salesQuoteLines"
+        )
+        output_map = _customer_output_map(quote.get("number"))
 
         return {
             "quote": BCQuoteResponse(
@@ -3849,18 +3874,9 @@ def get_bc_quote_detail(
                 total_amount=quote.get("totalAmountIncludingTax"),
                 currency_code=quote.get("currencyCode")
             ),
-            "lines": [
-                BCQuoteLineResponse(
-                    id=line.get("id", ""),
-                    line_number=line.get("lineNumber", 0),
-                    item_id=line.get("itemId"),
-                    description=line.get("description"),
-                    quantity=line.get("quantity", 0),
-                    unit_price=line.get("unitPrice", 0),
-                    line_amount=line.get("lineAmount", 0)
-                )
-                for line in lines
-            ]
+            # Package rows and standalone lines only. Component unit prices
+            # are not part of this payload.
+            "lines": collapse_customer_line_pricing(lines, output_by_sequence=output_map),
         }
     except HTTPException:
         raise
@@ -3879,9 +3895,12 @@ def download_customer_quote_pdf(
     db: Session = Depends(get_db)
 ):
     """
-    Download quote PDF from Business Central for the customer portal.
+    Download a customer quote PDF.
 
-    Uses BC's built-in PDF generation. Verifies the quote belongs to the customer.
+    Door packages are one line each (description, quantity, package total).
+    Component rows and internal price notes are not on this PDF. Staff still
+    download the Business Central itemized PDF from the admin quote route.
+    Verifies the quote belongs to the customer.
     """
     if not current_user.bc_customer_id:
         raise HTTPException(
@@ -3904,8 +3923,16 @@ def download_customer_quote_pdf(
                 detail="Access denied"
             )
 
-        # Download PDF from BC
-        pdf_bytes = bc_client.get_quote_pdf(quote_id)
+        # Customer download is a package summary. The Business Central PDF
+        # itemizes every component and stays on the staff download.
+        lines = bc_client.get_document_lines(
+            f"salesQuotes({quote_id})/salesQuoteLines"
+        )
+        pdf_bytes = build_customer_quote_pdf(
+            quote,
+            lines,
+            output_by_sequence=_customer_output_map(quote.get("number")),
+        )
 
         ext_doc = quote.get("externalDocumentNumber", "")
         filename = f"Quote_{ext_doc or quote.get('number', quote_id)}.pdf"

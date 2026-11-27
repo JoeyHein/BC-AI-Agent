@@ -542,9 +542,42 @@ def test_quote_send_draft_waits_for_approval_and_approve_attaches_the_pdf(sessio
     monkeypatch.setattr("app.integrations.email.client.graph_client.send_mail", lambda *a, **k: pytest.fail("new message"))
     monkeypatch.setattr(
         "app.integrations.bc.client.bc_client.get_sales_quote_by_number",
-        lambda number: {"id": "guid-310", "number": number},
+        lambda number: {
+            "id": "guid-310",
+            "number": number,
+            "customerName": "Prairie Door Co.",
+            "totalAmountExcludingTax": 1000,
+            "totalAmountIncludingTax": 1050,
+        },
     )
-    monkeypatch.setattr("app.integrations.bc.client.bc_client.get_quote_pdf", lambda guid: b"%PDF-1.4 quote")
+    monkeypatch.setattr(
+        "app.integrations.bc.client.bc_client.get_document_lines",
+        lambda path: [
+            {"lineType": "Comment", "description": '(1) 10\'0" x 10\'0" TX450, WHITE, UDC', "sequence": 10000},
+            {
+                "lineType": "Item",
+                "lineObjectNumber": "PN45-SECRET",
+                "description": "Section",
+                "quantity": 4,
+                "unitPrice": 100,
+                "lineAmount": 400,
+                "sequence": 20000,
+            },
+            {
+                "lineType": "Comment",
+                "description": "PRICE NOTE: GK15-11205-00 flat long residential window $165.00 each",
+                "sequence": 30000,
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        "app.integrations.bc.client.bc_client.get_quote_output_map",
+        lambda number: {},
+    )
+    monkeypatch.setattr(
+        "app.integrations.bc.client.bc_client.get_quote_pdf",
+        lambda guid: (_ for _ in ()).throw(AssertionError("customers do not get the itemized BC PDF")),
+    )
     from app.services.ops_tracker_service import default_sender
     default_sender({
         "to_email": draft.to_email,
